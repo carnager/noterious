@@ -1,0 +1,9 @@
+.DS_Store
+.idea/
+.vscode/
+.gobuild/
+.gomodcache/
+bin/
+data/
+vault/
+noterious
