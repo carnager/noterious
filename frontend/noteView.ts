@@ -61,8 +61,33 @@ function renderQueryResultCell(column: string, value: unknown): string {
     const pagePath = String(value);
     return '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(pagePath) + '">' + escapeHTML(pagePath) + "</button>";
   }
+  const isPhoneLikeColumn = /(^|_)(phone|telefon|tel)(_|$)/i.test(column);
+  const splitPhoneLines = function (input: string): string[] {
+    return input
+      .split(/\r?\n|[;,](?=\s*\+?\d|\s*\(?\d)/)
+      .map(function (part) {
+        return part.trim();
+      })
+      .filter(Boolean);
+  };
   if (Array.isArray(value)) {
-    return escapeHTML(value.join(", "));
+    const items = (isPhoneLikeColumn ? value.flatMap(function (item) {
+      return splitPhoneLines(String(item));
+    }) : value.map(String)).filter(Boolean);
+    if (!items.length) {
+      return '<span class="query-result-empty">—</span>';
+    }
+    return '<div class="query-result-lines">' + items.map(function (item) {
+      return '<span class="query-result-line">' + escapeHTML(String(item)) + "</span>";
+    }).join("") + "</div>";
+  }
+  if (isPhoneLikeColumn && typeof value === "string") {
+    const lines = splitPhoneLines(value);
+    if (lines.length > 1) {
+      return '<div class="query-result-lines">' + lines.map(function (line) {
+        return '<span class="query-result-line">' + escapeHTML(line) + "</span>";
+      }).join("") + "</div>";
+    }
   }
   if (value === null || typeof value === "undefined" || value === "") {
     return '<span class="query-result-empty">—</span>';

@@ -41,6 +41,60 @@ Phase 1 is intentionally narrow:
 - `internal/query`: query model and execution interfaces
 - `docs`: architecture and API design
 
+## Build And Run
+
+Prerequisites:
+
+- Go
+- Node.js and npm
+
+Install frontend dependencies once:
+
+```bash
+npm install
+```
+
+Build the embedded frontend assets:
+
+```bash
+npm run build:ui
+```
+
+Build the server binary:
+
+```bash
+go build -o noterious ./cmd/noterious
+```
+
+Run the server:
+
+```bash
+./noterious
+```
+
+For local iteration you can also run the app directly without creating a binary first:
+
+```bash
+npm run build:ui
+go run ./cmd/noterious
+```
+
+Important: the web UI is served through Go `embed`, so after `npm run build:ui` you must restart the Go process for updated frontend assets to be included.
+
+By default the app uses:
+
+- vault: `./vault`
+- data dir: `./data`
+- listen address: `:8080`
+
+These can be overridden with:
+
+- `NOTERIOUS_VAULT_PATH`
+- `NOTERIOUS_DATA_DIR`
+- `NOTERIOUS_LISTEN_ADDR`
+- `NOTERIOUS_HOME_PAGE`
+- `NOTERIOUS_WATCH_INTERVAL`
+
 ## Planned Principles
 
 1. Markdown is canonical storage.

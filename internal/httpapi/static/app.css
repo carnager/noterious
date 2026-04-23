@@ -927,6 +927,18 @@ select {
   color: var(--muted);
 }
 
+.query-result-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+}
+
+.query-result-line {
+  display: block;
+  white-space: nowrap;
+}
+
 
 .context-list {
   display: flex;

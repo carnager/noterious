@@ -13,5 +13,5 @@ node_modules/
 data/
 vault/
 
-noterious
+/noterious
 *.log
