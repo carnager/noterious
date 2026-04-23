@@ -29,6 +29,9 @@ function paletteOptions(overrides: Partial<Parameters<typeof buildCommandPalette
       onOpenSettings: function () {
         calls.push("open-settings");
       },
+      onOpenDocuments: function () {
+        calls.push("open-documents");
+      },
       onOpenQuickSwitcher: function () {
         calls.push("open-quick-switcher");
       },
@@ -90,6 +93,9 @@ describe("command helpers", function () {
     const settings = commands.find(function (item) {
       return item.title === "Open Settings";
     });
+    const documents = commands.find(function (item) {
+      return item.title === "Open Documents";
+    });
     const quickSwitcher = commands.find(function (item) {
       return item.title === "Open Quick Switcher";
     });
@@ -98,18 +104,21 @@ describe("command helpers", function () {
     expect(openHome).toBeTruthy();
     expect(help).toBeTruthy();
     expect(settings).toBeTruthy();
+    expect(documents).toBeTruthy();
     expect(quickSwitcher).toBeTruthy();
 
     setHome?.onSelect();
     openHome?.onSelect();
     help?.onSelect();
     settings?.onSelect();
+    documents?.onSelect();
     quickSwitcher?.onSelect();
 
     expect(calls).toContain("set-home:notes/alpha");
     expect(calls).toContain("open-home:notes/home");
     expect(calls).toContain("open-help");
     expect(calls).toContain("open-settings");
+    expect(calls).toContain("open-documents");
     expect(calls).toContain("open-quick-switcher");
   });
 

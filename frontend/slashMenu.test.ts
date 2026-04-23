@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { slashCommandsForText, wikilinkCommandsForContext } from "./slashMenu";
-import type { PageSummary } from "./types";
+import { documentCommandsForText, slashCommandsForText, wikilinkCommandsForContext } from "./slashMenu";
+import type { DocumentRecord, PageSummary } from "./types";
 
 function page(path: string, title?: string): PageSummary {
   return {
@@ -16,6 +16,18 @@ function page(path: string, title?: string): PageSummary {
     queryBlockCount: 0,
     createdAt: "",
     updatedAt: "2026-04-24T00:00:00Z",
+  };
+}
+
+function document(id: string, name: string): DocumentRecord {
+  return {
+    id,
+    path: "docs/" + name,
+    name,
+    contentType: "application/pdf",
+    size: 1024,
+    createdAt: "2026-04-24T00:00:00Z",
+    downloadURL: "/api/documents/download?path=" + encodeURIComponent("docs/" + name),
   };
 }
 
@@ -66,5 +78,17 @@ describe("slash menu", function () {
 
     expect(commands[0].apply("![[alph")).toBe("![[notes/alpha]]");
     expect(commands[0].hint).toBe("![[");
+  });
+
+  it("offers document links from slash commands", function () {
+    const commands = documentCommandsForText("/document meeting", [
+      document("doc-1", "meeting-notes.pdf"),
+      document("doc-2", "budget.xlsx"),
+    ], "docs/current-note");
+
+    expect(commands.map(function (command) {
+      return command.id;
+    })).toEqual(["doc-1"]);
+    expect(commands[0].apply("/document meeting")).toBe("[meeting-notes.pdf](meeting-notes.pdf)");
   });
 });

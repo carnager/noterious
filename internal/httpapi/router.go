@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"path"
 	"sort"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/carnager/noterious/internal/config"
+	"github.com/carnager/noterious/internal/documents"
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/markdown"
 	"github.com/carnager/noterious/internal/query"
@@ -23,6 +25,7 @@ import (
 type Dependencies struct {
 	Config        config.Config
 	Settings      *settings.Store
+	Documents     *documents.Service
 	Vault         *vault.Service
 	Index         *index.Service
 	Query         *query.Service
@@ -56,14 +59,14 @@ func NewRouter(deps Dependencies) http.Handler {
 			restartRequired = snapshot.RestartRequired
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"name":        "noterious",
-			"listenAddr":  deps.Config.ListenAddr,
-			"vaultPath":   workspace.VaultPath,
-			"dataDir":     deps.Config.DataDir,
-			"homePage":    workspace.HomePage,
-			"database":    deps.Index.DatabasePath(),
-			"serverTime":  time.Now().UTC().Format(time.RFC3339),
-			"serverFirst": true,
+			"name":            "noterious",
+			"listenAddr":      deps.Config.ListenAddr,
+			"vaultPath":       workspace.VaultPath,
+			"dataDir":         deps.Config.DataDir,
+			"homePage":        workspace.HomePage,
+			"database":        deps.Index.DatabasePath(),
+			"serverTime":      time.Now().UTC().Format(time.RFC3339),
+			"serverFirst":     true,
 			"restartRequired": restartRequired,
 		})
 	})
@@ -91,6 +94,75 @@ func NewRouter(deps Dependencies) http.Handler {
 		default:
 			writeMethodNotAllowed(w, http.MethodGet, http.MethodPut)
 		}
+	})
+	mux.HandleFunc("/api/documents", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Documents == nil {
+			http.Error(w, "document service unavailable", http.StatusInternalServerError)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			items, err := deps.Documents.List(r.Context(), r.URL.Query().Get("q"))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"documents": mapDocuments(items, deps.Documents),
+				"count":     len(items),
+				"query":     strings.TrimSpace(r.URL.Query().Get("q")),
+			})
+		case http.MethodPost:
+			if err := r.ParseMultipartForm(64 << 20); err != nil {
+				http.Error(w, "invalid multipart upload", http.StatusBadRequest)
+				return
+			}
+			file, header, err := r.FormFile("file")
+			if err != nil {
+				http.Error(w, "file is required", http.StatusBadRequest)
+				return
+			}
+			defer file.Close()
+
+			document, err := deps.Documents.Create(r.Context(), r.FormValue("page"), header.Filename, header.Header.Get("Content-Type"), file)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			writeJSON(w, http.StatusCreated, mapDocument(document, deps.Documents))
+		default:
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
+		}
+	})
+	mux.HandleFunc("/api/documents/download", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Documents == nil {
+			http.Error(w, "document service unavailable", http.StatusInternalServerError)
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		documentPath := strings.TrimSpace(r.URL.Query().Get("path"))
+		if documentPath == "" {
+			http.Error(w, "document path is required", http.StatusBadRequest)
+			return
+		}
+		document, filePath, err := deps.Documents.Get(documentPath)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		contentType := document.ContentType
+		if strings.TrimSpace(contentType) == "" {
+			contentType = mime.TypeByExtension(path.Ext(document.Name))
+		}
+		if strings.TrimSpace(contentType) == "" {
+			contentType = "application/octet-stream"
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Disposition", documents.ContentDisposition(document.Name))
+		http.ServeFile(w, r, filePath)
 	})
 
 	mux.HandleFunc("/api/pages/", func(w http.ResponseWriter, r *http.Request) {
@@ -1144,6 +1216,26 @@ func NewRouter(deps Dependencies) http.Handler {
 	})
 
 	return mux
+}
+
+func mapDocument(document documents.Document, service *documents.Service) map[string]any {
+	return map[string]any{
+		"id":          document.ID,
+		"path":        document.Path,
+		"name":        document.Name,
+		"contentType": document.ContentType,
+		"size":        document.Size,
+		"createdAt":   document.CreatedAt,
+		"downloadURL": service.DownloadURL(document),
+	}
+}
+
+func mapDocuments(items []documents.Document, service *documents.Service) []map[string]any {
+	mapped := make([]map[string]any, 0, len(items))
+	for _, document := range items {
+		mapped = append(mapped, mapDocument(document, service))
+	}
+	return mapped
 }
 
 func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {

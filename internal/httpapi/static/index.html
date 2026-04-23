@@ -14,6 +14,7 @@
           <button type="button" id="history-back" class="topbar-toggle topbar-toggle-history" aria-label="Go back">←</button>
           <button type="button" id="history-forward" class="topbar-toggle topbar-toggle-history" aria-label="Go forward">→</button>
           <button type="button" id="open-quick-switcher" class="topbar-toggle topbar-toggle-open" aria-label="Open note">Open</button>
+          <button type="button" id="open-documents" class="topbar-toggle topbar-toggle-documents" aria-label="Documents">Docs</button>
           <button type="button" id="open-search" class="topbar-toggle topbar-toggle-search" aria-label="Global search">Search</button>
         </div>
         <p class="topbar-path" id="detail-path">Select a page</p>
@@ -96,7 +97,7 @@
                 <div class="property-actions">
                   <button type="button" id="add-property">Add Property</button>
                 </div>
-                <div class="note-surface">
+                <div class="note-surface" id="note-surface">
                   <textarea id="markdown-editor" class="markdown-editor hidden" spellcheck="false" placeholder="Select a page to start editing markdown."></textarea>
                   <div id="slash-menu" class="slash-menu hidden">
                     <div id="slash-menu-results" class="slash-menu-results"></div>
@@ -261,6 +262,25 @@
         </label>
         <div class="search-results" id="quick-switcher-results">
           <div class="empty">Type to open a note, or press Enter to create one.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-shell hidden" id="documents-modal-shell">
+      <div class="modal-card search-modal-card">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Documents</p>
+            <h2>Insert Document Link</h2>
+          </div>
+          <button type="button" id="close-documents-modal" aria-label="Close documents">×</button>
+        </div>
+        <label class="search modal-field-wide">
+          <span>Document name</span>
+          <input id="documents-input" type="text" placeholder="meeting-notes.pdf, budget.xlsx" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+        </label>
+        <div class="search-results" id="documents-results">
+          <div class="empty">Type to find a document, or drop files into the note to upload.</div>
         </div>
       </div>
     </div>

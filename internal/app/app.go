@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/carnager/noterious/internal/config"
+	"github.com/carnager/noterious/internal/documents"
 	"github.com/carnager/noterious/internal/httpapi"
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
@@ -35,6 +36,10 @@ func New(cfg config.Config) (*App, error) {
 	vaultService := vault.NewService(cfg.VaultPath)
 	indexService := index.NewService(cfg.DataDir)
 	queryService := query.NewService()
+	documentService, err := documents.NewService(cfg.VaultPath)
+	if err != nil {
+		return nil, fmt.Errorf("init document store: %w", err)
+	}
 	eventBroker := httpapi.NewEventBroker()
 
 	if err := indexService.Open(context.Background()); err != nil {
@@ -57,6 +62,7 @@ func New(cfg config.Config) (*App, error) {
 	router := httpapi.NewRouter(httpapi.Dependencies{
 		Config:        cfg,
 		Settings:      settingsStore,
+		Documents:     documentService,
 		Vault:         vaultService,
 		Index:         indexService,
 		Query:         queryService,

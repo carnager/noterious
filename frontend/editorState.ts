@@ -116,6 +116,13 @@ export function markdownEditorSetRenderMode(state: EditorControllerState, enable
   }
 }
 
+export function markdownEditorSetPagePath(state: EditorControllerState, path: string): void {
+  const api = markdownEditorAPI(state);
+  if (api && typeof api.setPagePath === "function") {
+    api.setPagePath(String(path || ""));
+  }
+}
+
 export function markdownEditorSetQueryBlocks(state: EditorControllerState, blocks: QueryBlockRender[]): void {
   const api = markdownEditorAPI(state);
   if (api && typeof api.setQueryBlocks === "function") {

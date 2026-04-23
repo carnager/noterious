@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/carnager/noterious/internal/config"
+	"github.com/carnager/noterious/internal/documents"
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/settings"
@@ -200,6 +202,92 @@ func TestSettingsAPIStoresWorkspaceAndHotkeys(t *testing.T) {
 	}
 	if updated.AppliedWorkspace.VaultPath != vaultDir {
 		t.Fatalf("applied vault path = %q want %q", updated.AppliedWorkspace.VaultPath, vaultDir)
+	}
+}
+
+func TestDocumentsAPIUploadsListsAndDownloads(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+	if err := os.MkdirAll(vaultDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "meeting-notes.pdf")
+	if err != nil {
+		t.Fatalf("CreateFormFile() error = %v", err)
+	}
+	if _, err := io.WriteString(part, "%PDF-1.4 fake"); err != nil {
+		t.Fatalf("WriteString() error = %v", err)
+	}
+	if err := writer.WriteField("page", "notes/alpha"); err != nil {
+		t.Fatalf("WriteField() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	uploadRequest := httptest.NewRequest(http.MethodPost, "/api/documents", &body)
+	uploadRequest.Header.Set("Content-Type", writer.FormDataContentType())
+	uploadResponse := httptest.NewRecorder()
+	router.ServeHTTP(uploadResponse, uploadRequest)
+	if uploadResponse.Code != http.StatusCreated {
+		t.Fatalf("POST /api/documents status = %d body=%s", uploadResponse.Code, uploadResponse.Body.String())
+	}
+
+	var uploaded struct {
+		ID          string `json:"id"`
+		Path        string `json:"path"`
+		Name        string `json:"name"`
+		ContentType string `json:"contentType"`
+		DownloadURL string `json:"downloadURL"`
+	}
+	if err := json.NewDecoder(uploadResponse.Body).Decode(&uploaded); err != nil {
+		t.Fatalf("Decode(upload) error = %v", err)
+	}
+	if uploaded.ID == "" || uploaded.Path != "notes/meeting-notes.pdf" || uploaded.DownloadURL == "" {
+		t.Fatalf("uploaded = %#v", uploaded)
+	}
+
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/documents?q=meeting", nil)
+	listResponse := httptest.NewRecorder()
+	router.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/documents status = %d body=%s", listResponse.Code, listResponse.Body.String())
+	}
+
+	var listed struct {
+		Count     int `json:"count"`
+		Documents []struct {
+			ID   string `json:"id"`
+			Path string `json:"path"`
+			Name string `json:"name"`
+		} `json:"documents"`
+	}
+	if err := json.NewDecoder(listResponse.Body).Decode(&listed); err != nil {
+		t.Fatalf("Decode(list) error = %v", err)
+	}
+	if listed.Count != 1 || len(listed.Documents) != 1 || listed.Documents[0].ID != uploaded.ID || listed.Documents[0].Path != uploaded.Path {
+		t.Fatalf("listed = %#v", listed)
+	}
+
+	downloadRequest := httptest.NewRequest(http.MethodGet, uploaded.DownloadURL, nil)
+	downloadResponse := httptest.NewRecorder()
+	router.ServeHTTP(downloadResponse, downloadRequest)
+	if downloadResponse.Code != http.StatusOK {
+		t.Fatalf("GET download status = %d body=%s", downloadResponse.Code, downloadResponse.Body.String())
+	}
+	if got := downloadResponse.Header().Get("Content-Disposition"); !strings.Contains(got, "meeting-notes.pdf") {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if !strings.Contains(downloadResponse.Body.String(), "%PDF-1.4 fake") {
+		t.Fatalf("download body = %q", downloadResponse.Body.String())
 	}
 }
 
@@ -8975,6 +9063,13 @@ func buildTestRouterWithDeps(t *testing.T, vaultDir, dataDir string, deps Depend
 	}
 	if deps.Query == nil {
 		deps.Query = queryService
+	}
+	if deps.Documents == nil {
+		documentService, err := documents.NewService(vaultDir)
+		if err != nil {
+			t.Fatalf("documents.NewService() error = %v", err)
+		}
+		deps.Documents = documentService
 	}
 	if deps.Events == nil {
 		deps.Events = NewEventBroker()

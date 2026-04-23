@@ -7,6 +7,7 @@ import {
   saveTask,
   toggleTaskDone as toggleTaskDoneRequest,
 } from "./details";
+import { markdownLinkForDocument, renderDocumentsResults as renderDocumentsResultsUI } from "./documents";
 import { clearNode, focusWithoutScroll, optionalElement, optionalQuery, renderEmpty, requiredElement } from "./dom";
 import {
   blockingOverlayOpen,
@@ -15,6 +16,7 @@ import {
   focusMarkdownEditor,
   markdownEditorCaretRect,
   markdownEditorHasFocus,
+  markdownEditorSetPagePath,
   markdownEditorScrollTop,
   markdownEditorSelectionEnd,
   markdownEditorSelectionStart,
@@ -67,10 +69,12 @@ import { renderSavedQueryTree as renderSavedQueryTreeUI } from "./queryTree";
 import { renderQuickSwitcherResults as renderQuickSwitcherResultsUI } from "./quickSwitcher";
 import { applyURLState as applyURLStateUI, buildSelectionURL, navigateToPageSelection } from "./routing";
 import { renderGlobalSearchResults as renderGlobalSearchResultsUI } from "./search";
-import { closeSlashMenu, maybeOpenSlashMenu, moveSlashSelection, openSlashMenuWithCommands, wikilinkCommandsForContext } from "./slashMenu";
+import { closeSlashMenu, documentCommandsForText, maybeOpenSlashMenu, moveSlashSelection, openSlashMenuWithCommands, wikilinkCommandsForContext } from "./slashMenu";
 import type {
   AppSettings as SettingsModel,
   BacklinkRecord,
+  DocumentListResponse,
+  DocumentRecord,
   DerivedPage,
   FrontmatterKind,
   FrontmatterValue,
@@ -108,6 +112,10 @@ interface TaskOpenDetail {
   ref?: string;
 }
 
+interface DocumentDownloadDetail {
+  href?: string;
+}
+
 interface QueryFormatResponse {
   valid: boolean;
   formatted?: string;
@@ -125,6 +133,7 @@ interface AppState {
   selectedPage: string;
   selectedSavedQuery: string;
   pages: PageSummary[];
+  documents: DocumentRecord[];
   tasks: TaskRecord[];
   queryTree: SavedQueryTreeFolder[];
   selectedSavedQueryPayload: SavedQueryRecord | null;
@@ -134,9 +143,11 @@ interface AppState {
   searchTimer: number | null;
   commandTimer: number | null;
   quickSwitcherTimer: number | null;
+  documentTimer: number | null;
   searchSelectionIndex: number;
   commandSelectionIndex: number;
   quickSwitcherSelectionIndex: number;
+  documentSelectionIndex: number;
   currentPage: PageRecord | null;
   currentDerived: DerivedPage | null;
   currentMarkdown: string;
@@ -174,6 +185,7 @@ interface AppState {
     selectedPage: "",
     selectedSavedQuery: "",
     pages: [],
+    documents: [],
     tasks: [],
     queryTree: [],
     selectedSavedQueryPayload: null,
@@ -183,9 +195,11 @@ interface AppState {
     searchTimer: null,
     commandTimer: null,
     quickSwitcherTimer: null,
+    documentTimer: null,
     searchSelectionIndex: -1,
     commandSelectionIndex: -1,
     quickSwitcherSelectionIndex: -1,
+    documentSelectionIndex: -1,
     currentPage: null,
     currentDerived: null,
     currentMarkdown: "",
@@ -272,10 +286,12 @@ interface AppState {
     railPanelTasks: requiredElement<HTMLElement>("rail-panel-tasks"),
     railPanelTags: requiredElement<HTMLElement>("rail-panel-tags"),
     noteLayout: requiredElement<HTMLElement>("note-layout"),
+    noteSurface: requiredElement<HTMLElement>("note-surface"),
     toggleRail: requiredElement<HTMLButtonElement>("toggle-rail"),
     historyBack: requiredElement<HTMLButtonElement>("history-back"),
     historyForward: requiredElement<HTMLButtonElement>("history-forward"),
     openQuickSwitcher: requiredElement<HTMLButtonElement>("open-quick-switcher"),
+    openDocuments: requiredElement<HTMLButtonElement>("open-documents"),
     openSearch: requiredElement<HTMLButtonElement>("open-search"),
     openHelp: requiredElement<HTMLButtonElement>("open-help"),
     openSettings: requiredElement<HTMLButtonElement>("open-settings"),
@@ -309,6 +325,10 @@ interface AppState {
     closeQuickSwitcherModal: requiredElement<HTMLButtonElement>("close-quick-switcher-modal"),
     quickSwitcherInput: requiredElement<HTMLInputElement>("quick-switcher-input"),
     quickSwitcherResults: requiredElement<HTMLDivElement>("quick-switcher-results"),
+    documentsModalShell: requiredElement<HTMLElement>("documents-modal-shell"),
+    closeDocumentsModal: requiredElement<HTMLButtonElement>("close-documents-modal"),
+    documentsInput: requiredElement<HTMLInputElement>("documents-input"),
+    documentsResults: requiredElement<HTMLDivElement>("documents-results"),
     helpModalShell: requiredElement<HTMLElement>("help-modal-shell"),
     closeHelpModal: requiredElement<HTMLButtonElement>("close-help-modal"),
     helpShortcutCore: requiredElement<HTMLDivElement>("help-shortcuts-core"),
@@ -533,6 +553,27 @@ interface AppState {
     return true;
   }
 
+  function insertTextAtEditorSelection(text: string): void {
+    if (!state.selectedPage || !state.currentPage) {
+      return;
+    }
+    const value = markdownEditorValue(state, els);
+    const selectionStart = markdownEditorSelectionStart(state, els);
+    const selectionEnd = markdownEditorSelectionEnd(state, els);
+    const scrollTop = markdownEditorScrollTop(state, els);
+    const nextValue = value.slice(0, selectionStart) + text + value.slice(selectionEnd);
+    const nextCaret = selectionStart + text.length;
+
+    setMarkdownEditorValue(state, els, nextValue);
+    state.currentMarkdown = nextValue;
+    els.rawView.textContent = nextValue;
+    refreshLivePageChrome();
+    scheduleAutosave();
+    focusMarkdownEditor(state, els, {preventScroll: true});
+    setMarkdownEditorSelection(state, els, nextCaret, nextCaret);
+    setMarkdownEditorScrollTop(state, els, scrollTop);
+  }
+
   function currentPageView(): PageRecord | null {
     return buildCurrentPageView(state.currentPage, state.currentMarkdown);
   }
@@ -613,6 +654,7 @@ interface AppState {
     const page = currentPageView();
     if (!page) {
       setMarkdownEditorValue(state, els, "");
+      markdownEditorSetPagePath(state, "");
       setNoteStatus("Select a page to edit and preview markdown.");
       renderSourceModeButton();
       return;
@@ -621,6 +663,7 @@ interface AppState {
     setMarkdownEditorValue(state, els, state.currentMarkdown);
     if (state.markdownEditorApi && state.markdownEditorApi.host) {
       state.markdownEditorApi.host.classList.remove("hidden");
+      markdownEditorSetPagePath(state, state.selectedPage);
       markdownEditorSetRenderMode(state, !state.sourceOpen);
       markdownEditorSetQueryBlocks(state, renderedQueryBlocksForEditor(state.currentDerived));
       markdownEditorSetTasks(state, renderedTasksForEditor(page));
@@ -1286,6 +1329,7 @@ interface AppState {
     if (open) {
       els.commandModalShell.classList.add("hidden");
       els.quickSwitcherModalShell.classList.add("hidden");
+      els.documentsModalShell.classList.add("hidden");
       els.helpModalShell.classList.add("hidden");
     }
     setPaletteOpen(els.searchModalShell, els.globalSearchInput, open);
@@ -1307,6 +1351,10 @@ interface AppState {
     return paletteResultButtons(els.quickSwitcherResults);
   }
 
+  function documentResultButtons(): HTMLButtonElement[] {
+    return paletteResultButtons(els.documentsResults);
+  }
+
   function updateSearchSelection() {
     updatePaletteSelection(els.globalSearchResults, state.searchSelectionIndex);
   }
@@ -1317,6 +1365,10 @@ interface AppState {
 
   function updateQuickSwitcherSelection() {
     updatePaletteSelection(els.quickSwitcherResults, state.quickSwitcherSelectionIndex);
+  }
+
+  function updateDocumentSelection() {
+    updatePaletteSelection(els.documentsResults, state.documentSelectionIndex);
   }
 
   function moveSearchSelection(delta: number): void {
@@ -1335,6 +1387,10 @@ interface AppState {
     );
   }
 
+  function moveDocumentSelection(delta: number): void {
+    state.documentSelectionIndex = movePaletteSelection(els.documentsResults, state.documentSelectionIndex, delta);
+  }
+
   function triggerSearchSelection() {
     triggerPaletteSelection(els.globalSearchResults, state.searchSelectionIndex);
   }
@@ -1347,10 +1403,15 @@ interface AppState {
     triggerPaletteSelection(els.quickSwitcherResults, state.quickSwitcherSelectionIndex);
   }
 
+  function triggerDocumentSelection() {
+    triggerPaletteSelection(els.documentsResults, state.documentSelectionIndex);
+  }
+
   function setCommandPaletteOpen(open: boolean): void {
     if (open) {
       els.searchModalShell.classList.add("hidden");
       els.quickSwitcherModalShell.classList.add("hidden");
+      els.documentsModalShell.classList.add("hidden");
       els.helpModalShell.classList.add("hidden");
     }
     setPaletteOpen(els.commandModalShell, els.commandPaletteInput, open);
@@ -1364,6 +1425,7 @@ interface AppState {
     if (open) {
       els.searchModalShell.classList.add("hidden");
       els.commandModalShell.classList.add("hidden");
+      els.documentsModalShell.classList.add("hidden");
       els.helpModalShell.classList.add("hidden");
     }
     setPaletteOpen(els.quickSwitcherModalShell, els.quickSwitcherInput, open);
@@ -1373,11 +1435,26 @@ interface AppState {
     setQuickSwitcherOpen(false);
   }
 
+  function setDocumentsOpen(open: boolean): void {
+    if (open) {
+      els.searchModalShell.classList.add("hidden");
+      els.commandModalShell.classList.add("hidden");
+      els.quickSwitcherModalShell.classList.add("hidden");
+      els.helpModalShell.classList.add("hidden");
+    }
+    setPaletteOpen(els.documentsModalShell, els.documentsInput, open);
+  }
+
+  function closeDocumentsModal() {
+    setDocumentsOpen(false);
+  }
+
   function setHelpOpen(open: boolean): void {
     if (open) {
       els.searchModalShell.classList.add("hidden");
       els.commandModalShell.classList.add("hidden");
       els.quickSwitcherModalShell.classList.add("hidden");
+      els.documentsModalShell.classList.add("hidden");
       els.helpModalShell.classList.remove("hidden");
       window.requestAnimationFrame(function () {
         focusWithoutScroll(els.closeHelpModal);
@@ -1396,6 +1473,7 @@ interface AppState {
       els.searchModalShell.classList.add("hidden");
       els.commandModalShell.classList.add("hidden");
       els.quickSwitcherModalShell.classList.add("hidden");
+      els.documentsModalShell.classList.add("hidden");
       els.helpModalShell.classList.add("hidden");
       els.settingsModalShell.classList.remove("hidden");
       renderSettingsForm();
@@ -1534,9 +1612,60 @@ interface AppState {
     }
   }
 
+  function handleDocumentSelection(document: DocumentRecord): void {
+    closeDocumentsModal();
+    if (state.selectedPage && state.currentPage) {
+      insertTextAtEditorSelection(markdownLinkForDocument(document, state.selectedPage));
+      setNoteStatus("Inserted document link for " + document.name + ".");
+      return;
+    }
+    window.open(document.downloadURL, "_blank", "noopener");
+  }
+
+  function renderDocumentResults() {
+    state.documentSelectionIndex = renderDocumentsResultsUI({
+      container: els.documentsResults,
+      inputValue: els.documentsInput ? els.documentsInput.value : "",
+      documents: state.documents,
+      onSelectDocument: handleDocumentSelection,
+    });
+    if (state.documentSelectionIndex >= 0) {
+      updateDocumentSelection();
+    }
+
+    if (els.documentsModalShell && !els.documentsModalShell.classList.contains("hidden") && els.documentsInput) {
+      window.requestAnimationFrame(function () {
+        if (document.activeElement !== els.documentsInput) {
+          els.documentsInput.focus({preventScroll: true});
+        }
+      });
+    }
+  }
+
+  async function loadDocuments() {
+    const query = String(els.documentsInput ? els.documentsInput.value : "").trim();
+    if (els.documentsResults) {
+      els.documentsResults.textContent = "Loading…";
+    }
+    try {
+      const payload = await fetchJSON<DocumentListResponse>("/api/documents" + (query ? ("?q=" + encodeURIComponent(query)) : ""));
+      state.documents = Array.isArray(payload.documents) ? payload.documents : [];
+      renderDocumentResults();
+    } catch (error) {
+      if (els.documentsResults) {
+        els.documentsResults.textContent = errorMessage(error);
+      }
+    }
+  }
+
   function scheduleQuickSwitcherRefresh() {
     window.clearTimeout(state.quickSwitcherTimer ?? undefined);
     state.quickSwitcherTimer = window.setTimeout(renderQuickSwitcherResults, 50);
+  }
+
+  function scheduleDocumentsRefresh() {
+    window.clearTimeout(state.documentTimer ?? undefined);
+    state.documentTimer = window.setTimeout(loadDocuments, 80);
   }
 
   function scheduleGlobalSearch() {
@@ -1561,6 +1690,55 @@ interface AppState {
 
     await loadPages();
     navigateToPage(normalized, false);
+  }
+
+  async function uploadDocument(file: File): Promise<DocumentRecord> {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (state.selectedPage) {
+      formData.append("page", state.selectedPage);
+    }
+    const response = await fetch("/api/documents", {
+      method: "POST",
+      body: formData,
+    });
+    if (!response.ok) {
+      throw new Error(await response.text() || "Upload failed");
+    }
+    const document = await response.json() as DocumentRecord;
+    state.documents = [document].concat(state.documents.filter(function (item) {
+      return item.id !== document.id;
+    }));
+    return document;
+  }
+
+  async function uploadDroppedFiles(fileList: FileList | null): Promise<void> {
+    if (!fileList || !fileList.length) {
+      return;
+    }
+    if (!state.selectedPage || !state.currentPage) {
+      setNoteStatus("Open a note before uploading documents.");
+      return;
+    }
+
+    const documents: DocumentRecord[] = [];
+    setNoteStatus("Uploading " + String(fileList.length) + " document" + (fileList.length === 1 ? "" : "s") + "…");
+    for (let index = 0; index < fileList.length; index += 1) {
+      const file = fileList[index];
+      if (!file) {
+        continue;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      const document = await uploadDocument(file);
+      documents.push(document);
+    }
+    if (!documents.length) {
+      return;
+    }
+    insertTextAtEditorSelection(documents.map(function (document) {
+      return markdownLinkForDocument(document, state.selectedPage);
+    }).join("\n"));
+    setNoteStatus("Uploaded " + String(documents.length) + " document" + (documents.length === 1 ? "" : "s") + ".");
   }
 
   async function deletePage(pagePath: string): Promise<void> {
@@ -1625,6 +1803,11 @@ interface AppState {
       onOpenSettings: function () {
         closeCommandPalette();
         setSettingsOpen(true);
+      },
+      onOpenDocuments: function () {
+        closeCommandPalette();
+        setDocumentsOpen(true);
+        scheduleDocumentsRefresh();
       },
       onOpenQuickSwitcher: function () {
         closeCommandPalette();
@@ -1891,6 +2074,10 @@ interface AppState {
       setQuickSwitcherOpen(true);
       renderQuickSwitcherResults();
     });
+    on(els.openDocuments, "click", function () {
+      setDocumentsOpen(true);
+      scheduleDocumentsRefresh();
+    });
     on(els.openSearch, "click", function () {
       setSearchOpen(true);
       scheduleGlobalSearch();
@@ -1911,6 +2098,8 @@ interface AppState {
     on(els.commandPaletteInput, "input", scheduleCommandPaletteRefresh);
     on(els.closeQuickSwitcherModal, "click", closeQuickSwitcher);
     on(els.quickSwitcherInput, "input", scheduleQuickSwitcherRefresh);
+    on(els.closeDocumentsModal, "click", closeDocumentsModal);
+    on(els.documentsInput, "input", scheduleDocumentsRefresh);
     on(els.railTabFiles, "click", function () {
       setRailTab("files");
     });
@@ -1929,6 +2118,30 @@ interface AppState {
     on(els.loadSelectedQuery, "click", loadSelectedQueryIntoEditor);
     on(els.formatQuery, "click", formatQueryText);
     on(els.runQuery, "click", runQueryWorkbench);
+    on(els.noteSurface, "dragenter", function (event) {
+      event.preventDefault();
+      els.noteSurface.classList.add("drop-active");
+    });
+    on(els.noteSurface, "dragover", function (event) {
+      event.preventDefault();
+      els.noteSurface.classList.add("drop-active");
+    });
+    on(els.noteSurface, "dragleave", function (event) {
+      const dragEvent = event as DragEvent;
+      const related = dragEvent.relatedTarget instanceof Node ? dragEvent.relatedTarget : null;
+      if (related && els.noteSurface.contains(related)) {
+        return;
+      }
+      els.noteSurface.classList.remove("drop-active");
+    });
+    on(els.noteSurface, "drop", function (event) {
+      const dragEvent = event as DragEvent;
+      dragEvent.preventDefault();
+      els.noteSurface.classList.remove("drop-active");
+      uploadDroppedFiles(dragEvent.dataTransfer ? dragEvent.dataTransfer.files : null).catch(function (error) {
+        setNoteStatus("Upload failed: " + errorMessage(error));
+      });
+    });
     on(els.markdownEditor, "input", function () {
       state.currentMarkdown = els.markdownEditor.value;
       window.requestAnimationFrame(function () {
@@ -1941,8 +2154,11 @@ interface AppState {
           top: caretRect ? Math.max(0, caretRect.bottom + 6) : undefined,
         };
         const wikilinkCommands = wikilinkCommandsForContext(rawContext.lineText, rawContext.caretInLine, state.pages);
+        const documentCommands = documentCommandsForText(rawContext.lineText, state.documents, state.selectedPage);
         if (wikilinkCommands.length) {
           openSlashMenuWithCommands(state, els, slashAnchor, wikilinkCommands, menuContext, applySlashSelection);
+        } else if (documentCommands.length) {
+          openSlashMenuWithCommands(state, els, slashAnchor, documentCommands, menuContext, applySlashSelection);
         } else {
           maybeOpenSlashMenu(state, els, slashAnchor, rawContext.lineText, menuContext, applySlashSelection);
         }
@@ -2058,6 +2274,26 @@ interface AppState {
         }
       }
     });
+    on(els.documentsInput, "keydown", function (rawEvent) {
+      const event = rawEvent as KeyboardEvent;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        moveDocumentSelection(1);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        moveDocumentSelection(-1);
+        return;
+      }
+      if (event.key === "Enter") {
+        const buttons = documentResultButtons();
+        if (buttons.length && state.documentSelectionIndex >= 0) {
+          event.preventDefault();
+          triggerDocumentSelection();
+        }
+      }
+    });
     on(els.taskModalShell, "click", function (event) {
       if (event.target === els.taskModalShell) {
         closeTaskModal();
@@ -2076,6 +2312,11 @@ interface AppState {
     on(els.quickSwitcherModalShell, "click", function (event) {
       if (event.target === els.quickSwitcherModalShell) {
         closeQuickSwitcher();
+      }
+    });
+    on(els.documentsModalShell, "click", function (event) {
+      if (event.target === els.documentsModalShell) {
+        closeDocumentsModal();
       }
     });
     on(els.closeHelpModal, "click", closeHelpModal);
@@ -2137,6 +2378,10 @@ interface AppState {
       }
       if (event.key === "Escape" && els.quickSwitcherModalShell && !els.quickSwitcherModalShell.classList.contains("hidden")) {
         closeQuickSwitcher();
+        return;
+      }
+      if (event.key === "Escape" && els.documentsModalShell && !els.documentsModalShell.classList.contains("hidden")) {
+        closeDocumentsModal();
         return;
       }
       if (event.key === "Escape" && els.helpModalShell && !els.helpModalShell.classList.contains("hidden")) {
@@ -2243,6 +2488,14 @@ interface AppState {
           navigateToPage(page, false);
         }
       });
+      on(markdownEditorApi.host, "noterious:document-download", function (event) {
+        const detail = (event as CustomEvent<DocumentDownloadDetail>).detail || {};
+        const href = detail.href ? String(detail.href) : "";
+        if (!href) {
+          return;
+        }
+        window.location.href = href;
+      });
       on(markdownEditorApi.host, "noterious:task-toggle", function (event) {
         const detail = (event as CustomEvent<TaskToggleDetail>).detail || {};
         const bodyLineNumber = Number(detail.lineNumber) || 0;
@@ -2279,7 +2532,7 @@ interface AppState {
     renderHelpShortcuts();
     renderSettingsForm();
     wireEvents();
-    await Promise.all([loadSettings(), loadMeta(), loadPages(), loadSavedQueryTree()]);
+    await Promise.all([loadSettings(), loadMeta(), loadPages(), loadSavedQueryTree(), loadDocuments()]);
     applyURLState();
     connectEvents();
   }

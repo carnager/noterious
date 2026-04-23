@@ -194,6 +194,12 @@
         run: options.onOpenSearch
       },
       {
+        title: "Open Documents",
+        meta: "Documents",
+        keywords: "documents files attachments uploads",
+        run: options.onOpenDocuments
+      },
+      {
         title: "Open Help",
         meta: "Help",
         keywords: "help shortcuts keyboard keymap",
@@ -591,6 +597,86 @@
     }
   });
 
+  // frontend/documents.ts
+  function normalizePath(value) {
+    return String(value || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/").trim();
+  }
+  function pageDirectory(pagePath) {
+    const normalized = normalizePath(pagePath).replace(/\.md$/i, "");
+    const parts = normalized.split("/").filter(Boolean);
+    if (parts.length <= 1) {
+      return "";
+    }
+    return parts.slice(0, -1).join("/");
+  }
+  function relativeDocumentPath(currentPagePath, documentPath) {
+    const fromDir = pageDirectory(currentPagePath);
+    const toPath = normalizePath(documentPath);
+    const fromParts = fromDir ? fromDir.split("/").filter(Boolean) : [];
+    const toParts = toPath.split("/").filter(Boolean);
+    let common = 0;
+    while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) {
+      common += 1;
+    }
+    const upwards = new Array(fromParts.length - common).fill("..");
+    const downwards = toParts.slice(common);
+    const relative = upwards.concat(downwards).join("/");
+    return relative || pathLeaf(toPath);
+  }
+  function pathLeaf(path) {
+    const parts = normalizePath(path).split("/");
+    return parts[parts.length - 1] || path;
+  }
+  function markdownLinkForDocument(document2, currentPagePath) {
+    const label = String(document2.name || "").replace(/]/g, "\\]");
+    return "[" + label + "](" + relativeDocumentPath(currentPagePath, document2.path) + ")";
+  }
+  function matchesDocument(document2, query) {
+    const target = String(query || "").trim().toLowerCase();
+    if (!target) {
+      return true;
+    }
+    const haystack = [document2.name, document2.contentType].join(" ").toLowerCase();
+    return haystack.indexOf(target) >= 0;
+  }
+  function scoreDocument(document2, query) {
+    const target = String(query || "").trim().toLowerCase();
+    const name = String(document2.name || "").toLowerCase();
+    if (!target) {
+      return document2.createdAt ? Date.parse(document2.createdAt) || 0 : 0;
+    }
+    return (name === target ? 4e3 : 0) + (name.startsWith(target) ? 2800 : 0) + (name.indexOf(target) >= 0 ? 1200 : 0) + (document2.createdAt ? (Date.parse(document2.createdAt) || 0) / 1e12 : 0);
+  }
+  function buildDocumentSections(options) {
+    const query = String(options.inputValue || "").trim();
+    const items = options.documents.filter(function(document2) {
+      return matchesDocument(document2, query);
+    }).sort(function(left, right) {
+      return scoreDocument(right, query) - scoreDocument(left, query);
+    }).slice(0, query ? 30 : 20).map(function(document2) {
+      return {
+        title: document2.name,
+        meta: [document2.path, document2.contentType, document2.size ? Math.round(document2.size / 102.4) / 10 + " KB" : ""].filter(Boolean).join(" \xB7 "),
+        onSelect: function() {
+          options.onSelectDocument(document2);
+        }
+      };
+    });
+    return [{
+      title: query ? "Matching Documents" : "Recent Documents",
+      items
+    }];
+  }
+  function renderDocumentsResults(options) {
+    return renderPaletteSections(options.container, buildDocumentSections(options), "No matching documents.");
+  }
+  var init_documents = __esm({
+    "frontend/documents.ts"() {
+      "use strict";
+      init_palette();
+    }
+  });
+
   // frontend/editorState.ts
   function markdownEditorAPI(state) {
     return state.markdownEditorApi || null;
@@ -655,6 +741,12 @@
     const api = markdownEditorAPI(state);
     if (api && typeof api.setRenderMode === "function") {
       api.setRenderMode(Boolean(enabled));
+    }
+  }
+  function markdownEditorSetPagePath(state, path) {
+    const api = markdownEditorAPI(state);
+    if (api && typeof api.setPagePath === "function") {
+      api.setPagePath(String(path || ""));
     }
   }
   function markdownEditorSetQueryBlocks(state, blocks) {
@@ -2150,6 +2242,21 @@
       embed: match[1] === "!"
     };
   }
+  function findDocumentTrigger(lineText) {
+    const trimmed = String(lineText || "").trim();
+    const match = trimmed.match(/^\/([a-z-]+)(?:\s+(.*))?$/i);
+    if (!match) {
+      return null;
+    }
+    const alias = String(match[1] || "").toLowerCase();
+    if (["doc", "docs", "document", "documents", "attach", "file"].indexOf(alias) === -1) {
+      return null;
+    }
+    return {
+      alias,
+      query: String(match[2] || "").trim().toLowerCase()
+    };
+  }
   function scorePage2(page, query) {
     const path = String(page.path || "").toLowerCase();
     const leaf = pageLeafName(page.path).toLowerCase();
@@ -2186,6 +2293,38 @@
         },
         caret: function() {
           return trigger.start + replacement.length;
+        }
+      };
+    });
+  }
+  function documentCommandsForText(text, documents, currentPagePath) {
+    const trigger = findDocumentTrigger(text);
+    if (!trigger) {
+      return [];
+    }
+    const matches = documents.filter(function(document2) {
+      if (!trigger.query) {
+        return true;
+      }
+      const haystack = [document2.name, document2.contentType].join(" ").toLowerCase();
+      return haystack.indexOf(trigger.query) >= 0;
+    }).slice().sort(function(left, right) {
+      const leftCreated = left.createdAt ? Date.parse(left.createdAt) || 0 : 0;
+      const rightCreated = right.createdAt ? Date.parse(right.createdAt) || 0 : 0;
+      return rightCreated - leftCreated;
+    }).slice(0, 12);
+    return matches.map(function(document2) {
+      const link = markdownLinkForDocument(document2, currentPagePath);
+      return {
+        id: document2.id,
+        title: document2.name,
+        description: document2.contentType || "document",
+        hint: "/" + trigger.alias,
+        apply: function() {
+          return link;
+        },
+        caret: function() {
+          return link.length;
         }
       };
     });
@@ -2290,6 +2429,7 @@
     "frontend/slashMenu.ts"() {
       "use strict";
       init_dom();
+      init_documents();
       init_palette();
       init_palette();
     }
@@ -2300,6 +2440,7 @@
     "frontend/app.ts"() {
       init_commands();
       init_details();
+      init_documents();
       init_dom();
       init_editorState();
       init_http();
@@ -2319,6 +2460,7 @@
           selectedPage: "",
           selectedSavedQuery: "",
           pages: [],
+          documents: [],
           tasks: [],
           queryTree: [],
           selectedSavedQueryPayload: null,
@@ -2328,9 +2470,11 @@
           searchTimer: null,
           commandTimer: null,
           quickSwitcherTimer: null,
+          documentTimer: null,
           searchSelectionIndex: -1,
           commandSelectionIndex: -1,
           quickSwitcherSelectionIndex: -1,
+          documentSelectionIndex: -1,
           currentPage: null,
           currentDerived: null,
           currentMarkdown: "",
@@ -2416,10 +2560,12 @@
           railPanelTasks: requiredElement("rail-panel-tasks"),
           railPanelTags: requiredElement("rail-panel-tags"),
           noteLayout: requiredElement("note-layout"),
+          noteSurface: requiredElement("note-surface"),
           toggleRail: requiredElement("toggle-rail"),
           historyBack: requiredElement("history-back"),
           historyForward: requiredElement("history-forward"),
           openQuickSwitcher: requiredElement("open-quick-switcher"),
+          openDocuments: requiredElement("open-documents"),
           openSearch: requiredElement("open-search"),
           openHelp: requiredElement("open-help"),
           openSettings: requiredElement("open-settings"),
@@ -2453,6 +2599,10 @@
           closeQuickSwitcherModal: requiredElement("close-quick-switcher-modal"),
           quickSwitcherInput: requiredElement("quick-switcher-input"),
           quickSwitcherResults: requiredElement("quick-switcher-results"),
+          documentsModalShell: requiredElement("documents-modal-shell"),
+          closeDocumentsModal: requiredElement("close-documents-modal"),
+          documentsInput: requiredElement("documents-input"),
+          documentsResults: requiredElement("documents-results"),
           helpModalShell: requiredElement("help-modal-shell"),
           closeHelpModal: requiredElement("close-help-modal"),
           helpShortcutCore: requiredElement("help-shortcuts-core"),
@@ -2658,6 +2808,25 @@
           closeSlashMenu(state, els);
           return true;
         }
+        function insertTextAtEditorSelection(text) {
+          if (!state.selectedPage || !state.currentPage) {
+            return;
+          }
+          const value = markdownEditorValue(state, els);
+          const selectionStart = markdownEditorSelectionStart(state, els);
+          const selectionEnd = markdownEditorSelectionEnd(state, els);
+          const scrollTop = markdownEditorScrollTop(state, els);
+          const nextValue = value.slice(0, selectionStart) + text + value.slice(selectionEnd);
+          const nextCaret = selectionStart + text.length;
+          setMarkdownEditorValue(state, els, nextValue);
+          state.currentMarkdown = nextValue;
+          els.rawView.textContent = nextValue;
+          refreshLivePageChrome();
+          scheduleAutosave();
+          focusMarkdownEditor(state, els, { preventScroll: true });
+          setMarkdownEditorSelection(state, els, nextCaret, nextCaret);
+          setMarkdownEditorScrollTop(state, els, scrollTop);
+        }
         function currentPageView2() {
           return currentPageView(state.currentPage, state.currentMarkdown);
         }
@@ -2725,6 +2894,7 @@
           const page = currentPageView2();
           if (!page) {
             setMarkdownEditorValue(state, els, "");
+            markdownEditorSetPagePath(state, "");
             setNoteStatus("Select a page to edit and preview markdown.");
             renderSourceModeButton();
             return;
@@ -2732,6 +2902,7 @@
           setMarkdownEditorValue(state, els, state.currentMarkdown);
           if (state.markdownEditorApi && state.markdownEditorApi.host) {
             state.markdownEditorApi.host.classList.remove("hidden");
+            markdownEditorSetPagePath(state, state.selectedPage);
             markdownEditorSetRenderMode(state, !state.sourceOpen);
             markdownEditorSetQueryBlocks(state, renderedQueryBlocksForEditor(state.currentDerived));
             markdownEditorSetTasks(state, renderedTasksForEditor(page));
@@ -3331,6 +3502,7 @@
           if (open) {
             els.commandModalShell.classList.add("hidden");
             els.quickSwitcherModalShell.classList.add("hidden");
+            els.documentsModalShell.classList.add("hidden");
             els.helpModalShell.classList.add("hidden");
           }
           setPaletteOpen(els.searchModalShell, els.globalSearchInput, open);
@@ -3347,6 +3519,9 @@
         function quickSwitcherResultButtons() {
           return resultButtons(els.quickSwitcherResults);
         }
+        function documentResultButtons() {
+          return resultButtons(els.documentsResults);
+        }
         function updateSearchSelection() {
           updateSelection(els.globalSearchResults, state.searchSelectionIndex);
         }
@@ -3355,6 +3530,9 @@
         }
         function updateQuickSwitcherSelection() {
           updateSelection(els.quickSwitcherResults, state.quickSwitcherSelectionIndex);
+        }
+        function updateDocumentSelection() {
+          updateSelection(els.documentsResults, state.documentSelectionIndex);
         }
         function moveSearchSelection(delta) {
           state.searchSelectionIndex = moveSelection(els.globalSearchResults, state.searchSelectionIndex, delta);
@@ -3369,6 +3547,9 @@
             delta
           );
         }
+        function moveDocumentSelection(delta) {
+          state.documentSelectionIndex = moveSelection(els.documentsResults, state.documentSelectionIndex, delta);
+        }
         function triggerSearchSelection() {
           triggerSelection(els.globalSearchResults, state.searchSelectionIndex);
         }
@@ -3378,10 +3559,14 @@
         function triggerQuickSwitcherSelection() {
           triggerSelection(els.quickSwitcherResults, state.quickSwitcherSelectionIndex);
         }
+        function triggerDocumentSelection() {
+          triggerSelection(els.documentsResults, state.documentSelectionIndex);
+        }
         function setCommandPaletteOpen(open) {
           if (open) {
             els.searchModalShell.classList.add("hidden");
             els.quickSwitcherModalShell.classList.add("hidden");
+            els.documentsModalShell.classList.add("hidden");
             els.helpModalShell.classList.add("hidden");
           }
           setPaletteOpen(els.commandModalShell, els.commandPaletteInput, open);
@@ -3393,6 +3578,7 @@
           if (open) {
             els.searchModalShell.classList.add("hidden");
             els.commandModalShell.classList.add("hidden");
+            els.documentsModalShell.classList.add("hidden");
             els.helpModalShell.classList.add("hidden");
           }
           setPaletteOpen(els.quickSwitcherModalShell, els.quickSwitcherInput, open);
@@ -3400,11 +3586,24 @@
         function closeQuickSwitcher() {
           setQuickSwitcherOpen(false);
         }
+        function setDocumentsOpen(open) {
+          if (open) {
+            els.searchModalShell.classList.add("hidden");
+            els.commandModalShell.classList.add("hidden");
+            els.quickSwitcherModalShell.classList.add("hidden");
+            els.helpModalShell.classList.add("hidden");
+          }
+          setPaletteOpen(els.documentsModalShell, els.documentsInput, open);
+        }
+        function closeDocumentsModal() {
+          setDocumentsOpen(false);
+        }
         function setHelpOpen(open) {
           if (open) {
             els.searchModalShell.classList.add("hidden");
             els.commandModalShell.classList.add("hidden");
             els.quickSwitcherModalShell.classList.add("hidden");
+            els.documentsModalShell.classList.add("hidden");
             els.helpModalShell.classList.remove("hidden");
             window.requestAnimationFrame(function() {
               focusWithoutScroll(els.closeHelpModal);
@@ -3421,6 +3620,7 @@
             els.searchModalShell.classList.add("hidden");
             els.commandModalShell.classList.add("hidden");
             els.quickSwitcherModalShell.classList.add("hidden");
+            els.documentsModalShell.classList.add("hidden");
             els.helpModalShell.classList.add("hidden");
             els.settingsModalShell.classList.remove("hidden");
             renderSettingsForm();
@@ -3548,9 +3748,55 @@
             });
           }
         }
+        function handleDocumentSelection(document2) {
+          closeDocumentsModal();
+          if (state.selectedPage && state.currentPage) {
+            insertTextAtEditorSelection(markdownLinkForDocument(document2, state.selectedPage));
+            setNoteStatus("Inserted document link for " + document2.name + ".");
+            return;
+          }
+          window.open(document2.downloadURL, "_blank", "noopener");
+        }
+        function renderDocumentResults() {
+          state.documentSelectionIndex = renderDocumentsResults({
+            container: els.documentsResults,
+            inputValue: els.documentsInput ? els.documentsInput.value : "",
+            documents: state.documents,
+            onSelectDocument: handleDocumentSelection
+          });
+          if (state.documentSelectionIndex >= 0) {
+            updateDocumentSelection();
+          }
+          if (els.documentsModalShell && !els.documentsModalShell.classList.contains("hidden") && els.documentsInput) {
+            window.requestAnimationFrame(function() {
+              if (document.activeElement !== els.documentsInput) {
+                els.documentsInput.focus({ preventScroll: true });
+              }
+            });
+          }
+        }
+        async function loadDocuments() {
+          const query = String(els.documentsInput ? els.documentsInput.value : "").trim();
+          if (els.documentsResults) {
+            els.documentsResults.textContent = "Loading\u2026";
+          }
+          try {
+            const payload = await fetchJSON("/api/documents" + (query ? "?q=" + encodeURIComponent(query) : ""));
+            state.documents = Array.isArray(payload.documents) ? payload.documents : [];
+            renderDocumentResults();
+          } catch (error) {
+            if (els.documentsResults) {
+              els.documentsResults.textContent = errorMessage(error);
+            }
+          }
+        }
         function scheduleQuickSwitcherRefresh() {
           window.clearTimeout(state.quickSwitcherTimer ?? void 0);
           state.quickSwitcherTimer = window.setTimeout(renderQuickSwitcherResults2, 50);
+        }
+        function scheduleDocumentsRefresh() {
+          window.clearTimeout(state.documentTimer ?? void 0);
+          state.documentTimer = window.setTimeout(loadDocuments, 80);
         }
         function scheduleGlobalSearch() {
           window.clearTimeout(state.searchTimer ?? void 0);
@@ -3570,6 +3816,51 @@
           });
           await loadPages();
           navigateToPage(normalized, false);
+        }
+        async function uploadDocument(file) {
+          const formData = new FormData();
+          formData.append("file", file);
+          if (state.selectedPage) {
+            formData.append("page", state.selectedPage);
+          }
+          const response = await fetch("/api/documents", {
+            method: "POST",
+            body: formData
+          });
+          if (!response.ok) {
+            throw new Error(await response.text() || "Upload failed");
+          }
+          const document2 = await response.json();
+          state.documents = [document2].concat(state.documents.filter(function(item) {
+            return item.id !== document2.id;
+          }));
+          return document2;
+        }
+        async function uploadDroppedFiles(fileList) {
+          if (!fileList || !fileList.length) {
+            return;
+          }
+          if (!state.selectedPage || !state.currentPage) {
+            setNoteStatus("Open a note before uploading documents.");
+            return;
+          }
+          const documents = [];
+          setNoteStatus("Uploading " + String(fileList.length) + " document" + (fileList.length === 1 ? "" : "s") + "\u2026");
+          for (let index = 0; index < fileList.length; index += 1) {
+            const file = fileList[index];
+            if (!file) {
+              continue;
+            }
+            const document2 = await uploadDocument(file);
+            documents.push(document2);
+          }
+          if (!documents.length) {
+            return;
+          }
+          insertTextAtEditorSelection(documents.map(function(document2) {
+            return markdownLinkForDocument(document2, state.selectedPage);
+          }).join("\n"));
+          setNoteStatus("Uploaded " + String(documents.length) + " document" + (documents.length === 1 ? "" : "s") + ".");
         }
         async function deletePage(pagePath) {
           const normalized = normalizePageDraftPath(pagePath);
@@ -3626,6 +3917,11 @@
             onOpenSettings: function() {
               closeCommandPalette();
               setSettingsOpen(true);
+            },
+            onOpenDocuments: function() {
+              closeCommandPalette();
+              setDocumentsOpen(true);
+              scheduleDocumentsRefresh();
             },
             onOpenQuickSwitcher: function() {
               closeCommandPalette();
@@ -3872,6 +4168,10 @@
             setQuickSwitcherOpen(true);
             renderQuickSwitcherResults2();
           });
+          on(els.openDocuments, "click", function() {
+            setDocumentsOpen(true);
+            scheduleDocumentsRefresh();
+          });
           on(els.openSearch, "click", function() {
             setSearchOpen(true);
             scheduleGlobalSearch();
@@ -3892,6 +4192,8 @@
           on(els.commandPaletteInput, "input", scheduleCommandPaletteRefresh);
           on(els.closeQuickSwitcherModal, "click", closeQuickSwitcher);
           on(els.quickSwitcherInput, "input", scheduleQuickSwitcherRefresh);
+          on(els.closeDocumentsModal, "click", closeDocumentsModal);
+          on(els.documentsInput, "input", scheduleDocumentsRefresh);
           on(els.railTabFiles, "click", function() {
             setRailTab("files");
           });
@@ -3910,6 +4212,30 @@
           on(els.loadSelectedQuery, "click", loadSelectedQueryIntoEditor);
           on(els.formatQuery, "click", formatQueryText);
           on(els.runQuery, "click", runQueryWorkbench);
+          on(els.noteSurface, "dragenter", function(event) {
+            event.preventDefault();
+            els.noteSurface.classList.add("drop-active");
+          });
+          on(els.noteSurface, "dragover", function(event) {
+            event.preventDefault();
+            els.noteSurface.classList.add("drop-active");
+          });
+          on(els.noteSurface, "dragleave", function(event) {
+            const dragEvent = event;
+            const related = dragEvent.relatedTarget instanceof Node ? dragEvent.relatedTarget : null;
+            if (related && els.noteSurface.contains(related)) {
+              return;
+            }
+            els.noteSurface.classList.remove("drop-active");
+          });
+          on(els.noteSurface, "drop", function(event) {
+            const dragEvent = event;
+            dragEvent.preventDefault();
+            els.noteSurface.classList.remove("drop-active");
+            uploadDroppedFiles(dragEvent.dataTransfer ? dragEvent.dataTransfer.files : null).catch(function(error) {
+              setNoteStatus("Upload failed: " + errorMessage(error));
+            });
+          });
           on(els.markdownEditor, "input", function() {
             state.currentMarkdown = els.markdownEditor.value;
             window.requestAnimationFrame(function() {
@@ -3922,8 +4248,11 @@
                 top: caretRect ? Math.max(0, caretRect.bottom + 6) : void 0
               };
               const wikilinkCommands = wikilinkCommandsForContext(rawContext.lineText, rawContext.caretInLine, state.pages);
+              const documentCommands = documentCommandsForText(rawContext.lineText, state.documents, state.selectedPage);
               if (wikilinkCommands.length) {
                 openSlashMenuWithCommands(state, els, slashAnchor, wikilinkCommands, menuContext, applySlashSelection);
+              } else if (documentCommands.length) {
+                openSlashMenuWithCommands(state, els, slashAnchor, documentCommands, menuContext, applySlashSelection);
               } else {
                 maybeOpenSlashMenu(state, els, slashAnchor, rawContext.lineText, menuContext, applySlashSelection);
               }
@@ -4039,6 +4368,26 @@
               }
             }
           });
+          on(els.documentsInput, "keydown", function(rawEvent) {
+            const event = rawEvent;
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              moveDocumentSelection(1);
+              return;
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              moveDocumentSelection(-1);
+              return;
+            }
+            if (event.key === "Enter") {
+              const buttons = documentResultButtons();
+              if (buttons.length && state.documentSelectionIndex >= 0) {
+                event.preventDefault();
+                triggerDocumentSelection();
+              }
+            }
+          });
           on(els.taskModalShell, "click", function(event) {
             if (event.target === els.taskModalShell) {
               closeTaskModal();
@@ -4057,6 +4406,11 @@
           on(els.quickSwitcherModalShell, "click", function(event) {
             if (event.target === els.quickSwitcherModalShell) {
               closeQuickSwitcher();
+            }
+          });
+          on(els.documentsModalShell, "click", function(event) {
+            if (event.target === els.documentsModalShell) {
+              closeDocumentsModal();
             }
           });
           on(els.closeHelpModal, "click", closeHelpModal);
@@ -4118,6 +4472,10 @@
             }
             if (event.key === "Escape" && els.quickSwitcherModalShell && !els.quickSwitcherModalShell.classList.contains("hidden")) {
               closeQuickSwitcher();
+              return;
+            }
+            if (event.key === "Escape" && els.documentsModalShell && !els.documentsModalShell.classList.contains("hidden")) {
+              closeDocumentsModal();
               return;
             }
             if (event.key === "Escape" && els.helpModalShell && !els.helpModalShell.classList.contains("hidden")) {
@@ -4223,6 +4581,14 @@
                 navigateToPage(page, false);
               }
             });
+            on(markdownEditorApi.host, "noterious:document-download", function(event) {
+              const detail = event.detail || {};
+              const href = detail.href ? String(detail.href) : "";
+              if (!href) {
+                return;
+              }
+              window.location.href = href;
+            });
             on(markdownEditorApi.host, "noterious:task-toggle", function(event) {
               const detail = event.detail || {};
               const bodyLineNumber = Number(detail.lineNumber) || 0;
@@ -4259,7 +4625,7 @@
           renderHelpShortcuts();
           renderSettingsForm();
           wireEvents();
-          await Promise.all([loadSettings(), loadMeta(), loadPages(), loadSavedQueryTree()]);
+          await Promise.all([loadSettings(), loadMeta(), loadPages(), loadSavedQueryTree(), loadDocuments()]);
           applyURLState2();
           connectEvents();
         }

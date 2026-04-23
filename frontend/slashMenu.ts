@@ -1,7 +1,8 @@
 import { clearNode } from "./dom";
+import { markdownLinkForDocument } from "./documents";
 import { pageLeafName } from "./palette";
 import { resultButtons } from "./palette";
-import type { PageSummary, SlashCommand, SlashMenuContext } from "./types";
+import type { DocumentRecord, PageSummary, SlashCommand, SlashMenuContext } from "./types";
 
 export interface SlashMenuState {
   slashOpen: boolean;
@@ -181,6 +182,11 @@ interface WikilinkTrigger {
   embed: boolean;
 }
 
+interface DocumentTrigger {
+  alias: string;
+  query: string;
+}
+
 function findWikilinkTrigger(lineText: string, caretInLine: number): WikilinkTrigger | null {
   const beforeCaret = String(lineText || "").slice(0, Math.max(0, caretInLine));
   const match = beforeCaret.match(/(!?)\[\[([^\]\n]*)$/);
@@ -192,6 +198,22 @@ function findWikilinkTrigger(lineText: string, caretInLine: number): WikilinkTri
     end: beforeCaret.length,
     query: String(match[2] || "").trim().toLowerCase(),
     embed: match[1] === "!",
+  };
+}
+
+function findDocumentTrigger(lineText: string): DocumentTrigger | null {
+  const trimmed = String(lineText || "").trim();
+  const match = trimmed.match(/^\/([a-z-]+)(?:\s+(.*))?$/i);
+  if (!match) {
+    return null;
+  }
+  const alias = String(match[1] || "").toLowerCase();
+  if (["doc", "docs", "document", "documents", "attach", "file"].indexOf(alias) === -1) {
+    return null;
+  }
+  return {
+    alias,
+    query: String(match[2] || "").trim().toLowerCase(),
   };
 }
 
@@ -251,6 +273,45 @@ export function wikilinkCommandsForContext(
       },
       caret: function (): number {
         return trigger.start + replacement.length;
+      },
+    };
+  });
+}
+
+export function documentCommandsForText(text: string, documents: DocumentRecord[], currentPagePath: string): SlashCommand[] {
+  const trigger = findDocumentTrigger(text);
+  if (!trigger) {
+    return [];
+  }
+
+  const matches = documents
+    .filter(function (document) {
+      if (!trigger.query) {
+        return true;
+      }
+      const haystack = [document.name, document.contentType].join(" ").toLowerCase();
+      return haystack.indexOf(trigger.query) >= 0;
+    })
+    .slice()
+    .sort(function (left, right) {
+      const leftCreated = left.createdAt ? Date.parse(left.createdAt) || 0 : 0;
+      const rightCreated = right.createdAt ? Date.parse(right.createdAt) || 0 : 0;
+      return rightCreated - leftCreated;
+    })
+    .slice(0, 12);
+
+  return matches.map(function (document): SlashCommand {
+      const link = markdownLinkForDocument(document, currentPagePath);
+    return {
+      id: document.id,
+      title: document.name,
+      description: document.contentType || "document",
+      hint: "/" + trigger.alias,
+      apply: function (): string {
+        return link;
+      },
+      caret: function (): number {
+        return link.length;
       },
     };
   });

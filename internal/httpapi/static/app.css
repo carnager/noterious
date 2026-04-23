@@ -154,6 +154,10 @@ select {
   line-height: 1;
 }
 
+.topbar-toggle-documents {
+  min-width: 2.35rem;
+}
+
 .topbar-toggle-rail {
   visibility: hidden;
   pointer-events: none;
@@ -854,6 +858,13 @@ select {
 .note-surface {
   min-height: 520px;
   position: relative;
+  border-radius: 10px;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.note-surface.drop-active {
+  background: rgba(122, 162, 247, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(122, 162, 247, 0.28);
 }
 
 .markdown-editor {

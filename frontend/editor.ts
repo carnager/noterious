@@ -44,6 +44,44 @@ function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
 const setRenderModeEffect = StateEffect.define<boolean>();
 const setQueryBlocksEffect = StateEffect.define<Map<string, string>>();
 const setTasksEffect = StateEffect.define<Map<number, EditorTaskState>>();
+const setPagePathEffect = StateEffect.define<string>();
+
+function normalizeRelativePath(value: string): string {
+  return String(value || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .replace(/\/+/g, "/")
+    .trim();
+}
+
+function pageDirectory(pagePath: string): string {
+  const normalized = normalizeRelativePath(pagePath).replace(/\.md$/i, "");
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length <= 1) {
+    return "";
+  }
+  return parts.slice(0, -1).join("/");
+}
+
+function resolveRelativeTarget(pagePath: string, target: string): string {
+  const rawTarget = String(target || "").trim();
+  if (!rawTarget || rawTarget.startsWith("/") || /^[a-z]+:/i.test(rawTarget) || rawTarget.startsWith("#")) {
+    return rawTarget;
+  }
+  const baseDir = pageDirectory(pagePath);
+  const resolved: string[] = [];
+  ((baseDir ? baseDir + "/" : "") + rawTarget).split("/").forEach(function (part) {
+    if (!part || part === ".") {
+      return;
+    }
+    if (part === "..") {
+      resolved.pop();
+      return;
+    }
+    resolved.push(part);
+  });
+  return resolved.join("/");
+}
 
 class WikiLinkWidget extends WidgetType {
   target: string;
@@ -64,6 +102,34 @@ class WikiLinkWidget extends WidgetType {
     link.type = "button";
     link.className = "cm-md-link";
     link.setAttribute("data-page-link", this.target);
+    link.textContent = this.label;
+    return link;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+class MarkdownLinkWidget extends WidgetType {
+  href: string;
+  label: string;
+
+  constructor(href: string, label: string) {
+    super();
+    this.href = href;
+    this.label = label;
+  }
+
+  eq(other: MarkdownLinkWidget): boolean {
+    return other.href === this.href && other.label === this.label;
+  }
+
+  toDOM(): HTMLButtonElement {
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "cm-md-link";
+    link.setAttribute("data-document-download", this.href);
     link.textContent = this.label;
     return link;
   }
@@ -209,6 +275,7 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
   const queryBlocks = state.field(queryBlocksField);
   const tasks = state.field(tasksField);
   const selection = state.selection.main;
+  const currentPagePath = state.field(pagePathField);
   let hiddenFrontmatterUntil = 0;
 
   if (state.doc.lines >= 1 && state.doc.line(1).text.trim() === "---") {
@@ -348,6 +415,38 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
         })
       );
     }
+
+    const markdownLinkPattern = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+    let markdownLinkMatch: RegExpExecArray | null = null;
+    while ((markdownLinkMatch = markdownLinkPattern.exec(text)) !== null) {
+      const label = String(markdownLinkMatch[1] || "").trim();
+      const target = String(markdownLinkMatch[2] || "").trim();
+      const resolvedPath = resolveRelativeTarget(currentPagePath, target);
+      if (!resolvedPath || /\.md$/i.test(resolvedPath) || /^[a-z]+:/i.test(target) || target.startsWith("#")) {
+        continue;
+      }
+      const href = "/api/documents/download?path=" + encodeURIComponent(resolvedPath);
+      const start = from + markdownLinkMatch.index;
+      const end = start + markdownLinkMatch[0].length;
+      const editingLink = selection.from <= end && selection.to >= start;
+      if (editingLink) {
+        builder.add(
+          start,
+          end,
+          Decoration.mark({
+            class: "cm-md-link-raw",
+          })
+        );
+        continue;
+      }
+      builder.add(
+        start,
+        end,
+        Decoration.replace({
+          widget: new MarkdownLinkWidget(href, label || href),
+        })
+      );
+    }
   }
 
   return builder.finish();
@@ -361,6 +460,20 @@ const renderModeField = StateField.define<boolean>({
     for (const effect of transaction.effects) {
       if (effect.is(setRenderModeEffect)) {
         return Boolean(effect.value);
+      }
+    }
+    return value;
+  },
+});
+
+const pagePathField = StateField.define<string>({
+  create() {
+    return "";
+  },
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setPagePathEffect)) {
+        return String(effect.value || "");
       }
     }
     return value;
@@ -411,6 +524,18 @@ window.NoteriousCodeEditor = {
           return true;
         }
 
+        const documentLink = target ? target.closest("[data-document-download]") : null;
+        if (documentLink) {
+          event.preventDefault();
+          host.dispatchEvent(new CustomEvent("noterious:document-download", {
+            detail: {
+              href: documentLink.getAttribute("data-document-download") || "",
+            },
+            bubbles: true,
+          }));
+          return true;
+        }
+
         const taskToggle = target ? target.closest("[data-task-toggle]") : null;
         if (taskToggle) {
           event.preventDefault();
@@ -442,6 +567,7 @@ window.NoteriousCodeEditor = {
           EditorView.lineWrapping,
           markdown(),
           renderModeField,
+          pagePathField,
           queryBlocksField,
           tasksField,
           renderedDecorationsField,
@@ -535,6 +661,11 @@ window.NoteriousCodeEditor = {
         host.classList.toggle("raw-mode", !enabled);
         view.dispatch({
           effects: setRenderModeEffect.of(Boolean(enabled)),
+        });
+      },
+      setPagePath(path: string) {
+        view.dispatch({
+          effects: setPagePathEffect.of(String(path || "")),
         });
       },
       setQueryBlocks(blocks: QueryBlockRender[]) {

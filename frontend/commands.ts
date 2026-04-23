@@ -26,6 +26,7 @@ export interface RenderCommandPaletteOptions {
   onToggleSource(): void;
   onOpenHelp(): void;
   onOpenSettings(): void;
+  onOpenDocuments(): void;
   onOpenQuickSwitcher(): void;
   onOpenSearch(): void;
   onFocusRail(tab: string): void;
@@ -65,6 +66,12 @@ function buildCommandEntries(options: RenderCommandPaletteOptions): CommandEntry
       keywords: "search find global",
       hint: options.hotkeys.globalSearch,
       run: options.onOpenSearch,
+    },
+    {
+      title: "Open Documents",
+      meta: "Documents",
+      keywords: "documents files attachments uploads",
+      run: options.onOpenDocuments,
     },
     {
       title: "Open Help",

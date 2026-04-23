@@ -223,6 +223,22 @@ export interface SearchPayload {
   queries: SearchSavedQueryResult[];
 }
 
+export interface DocumentRecord {
+  id: string;
+  path: string;
+  name: string;
+  contentType: string;
+  size: number;
+  createdAt: string;
+  downloadURL: string;
+}
+
+export interface DocumentListResponse {
+  documents: DocumentRecord[];
+  count: number;
+  query?: string;
+}
+
 export interface QueryFenceOptions {
   [key: string]: string;
 }
@@ -272,6 +288,7 @@ export interface NoteriousEditorApi {
   getScrollTop(): number;
   setScrollTop(value: number): void;
   getCaretRect(): DOMRect | null;
+  setPagePath(path: string): void;
   setRenderMode(enabled: boolean): void;
   setQueryBlocks(blocks: QueryBlockRender[]): void;
   setTasks(tasks: TaskRender[]): void;
