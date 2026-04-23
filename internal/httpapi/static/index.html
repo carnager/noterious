@@ -11,10 +11,13 @@
       <header class="topbar">
         <div class="topbar-actions topbar-actions-left">
           <button type="button" id="toggle-rail" class="topbar-toggle topbar-toggle-rail" aria-label="Toggle files">☰</button>
-          <button type="button" id="open-search" class="topbar-toggle topbar-toggle-search" aria-label="Global search">⌕</button>
+          <button type="button" id="open-quick-switcher" class="topbar-toggle topbar-toggle-open" aria-label="Open note">Open</button>
+          <button type="button" id="open-search" class="topbar-toggle topbar-toggle-search" aria-label="Global search">Search</button>
         </div>
         <p class="topbar-path" id="detail-path">Select a page</p>
-        <div class="topbar-actions topbar-actions-right" aria-hidden="true"></div>
+        <div class="topbar-actions topbar-actions-right">
+          <button type="button" id="open-help" class="topbar-toggle topbar-toggle-help" aria-label="Open help">Help</button>
+        </div>
       </header>
 
       <main class="workspace">
@@ -223,17 +226,77 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">Command Palette</p>
-            <h2>Commands & Pages</h2>
+            <h2>Commands</h2>
           </div>
           <button type="button" id="close-command-modal" aria-label="Close command palette">×</button>
         </div>
         <label class="search modal-field-wide">
-          <span>Command or page</span>
-          <input id="command-palette-input" type="text" placeholder="raw mode, files, tasks, kontakte" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          <span>Command</span>
+          <input id="command-palette-input" type="text" placeholder="quick switcher, raw mode, files, tasks" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
         </label>
         <div class="search-results" id="command-palette-results">
-          <div class="empty">Type to search commands and pages.</div>
+          <div class="empty">Type to search commands.</div>
         </div>
+      </div>
+    </div>
+
+    <div class="modal-shell hidden" id="quick-switcher-modal-shell">
+      <div class="modal-card search-modal-card">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Quick Switcher</p>
+            <h2>Open Note</h2>
+          </div>
+          <button type="button" id="close-quick-switcher-modal" aria-label="Close quick switcher">×</button>
+        </div>
+        <label class="search modal-field-wide">
+          <span>Note name</span>
+          <input id="quick-switcher-input" type="text" placeholder="kontakte, meeting-notes, projects/alpha" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+        </label>
+        <div class="search-results" id="quick-switcher-results">
+          <div class="empty">Type to open a note, or press Enter to create one.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-shell hidden" id="help-modal-shell">
+      <div class="modal-card help-modal-card">
+        <div class="section-head help-head">
+          <div>
+            <p class="eyebrow">Help</p>
+            <h2>Navigation & Shortcuts</h2>
+          </div>
+          <button type="button" id="close-help-modal" class="help-close" aria-label="Close help">×</button>
+        </div>
+        <p class="help-lead">Built-in actions are split into note opening, full search, commands, and editor actions so they stay predictable in the browser.</p>
+        <section class="help-section">
+          <h3>Core Shortcuts</h3>
+          <div class="shortcut-list">
+            <div class="shortcut-row"><span>Quick Switcher</span><span class="shortcut-keys"><kbd>Ctrl</kbd><kbd>K</kbd></span></div>
+            <div class="shortcut-row"><span>Full Search</span><span class="shortcut-keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>K</kbd></span></div>
+            <div class="shortcut-row"><span>Command Palette</span><span class="shortcut-keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>P</kbd></span></div>
+            <div class="shortcut-row"><span>Save Current Note</span><span class="shortcut-keys"><kbd>Ctrl</kbd><kbd>S</kbd></span></div>
+            <div class="shortcut-row"><span>Toggle Raw Mode</span><span class="shortcut-keys"><kbd>Ctrl</kbd><kbd>E</kbd></span></div>
+            <div class="shortcut-row"><span>Open Help</span><span class="shortcut-keys"><kbd>?</kbd></span></div>
+          </div>
+        </section>
+        <section class="help-section">
+          <h3>Editor</h3>
+          <div class="shortcut-list">
+            <div class="shortcut-row"><span>Slash Commands</span><span class="shortcut-keys"><kbd>/</kbd></span></div>
+            <div class="shortcut-row"><span>Open Link Under Caret</span><span class="shortcut-keys"><kbd>Shift</kbd><kbd>Enter</kbd></span></div>
+            <div class="shortcut-row"><span>Close Menus or Modals</span><span class="shortcut-keys"><kbd>Esc</kbd></span></div>
+          </div>
+        </section>
+        <section class="help-section">
+          <h3>Where Things Live</h3>
+          <ul class="help-bullets">
+            <li><strong>Open</strong> jumps to a note quickly and can create one if there is no exact match.</li>
+            <li><strong>Search</strong> searches pages, tasks, and saved queries across the whole app.</li>
+            <li><strong>Command Palette</strong> runs app commands like toggling raw mode or focusing a rail panel.</li>
+            <li><strong>Slash Commands</strong> are editor-only block commands, closer to Obsidian-style editing.</li>
+          </ul>
+        </section>
       </div>
     </div>
 

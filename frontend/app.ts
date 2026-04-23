@@ -7,7 +7,7 @@ import {
   saveTask,
   toggleTaskDone as toggleTaskDoneRequest,
 } from "./details";
-import { clearNode, optionalElement, optionalQuery, renderEmpty, requiredElement } from "./dom";
+import { clearNode, focusWithoutScroll, optionalElement, optionalQuery, renderEmpty, requiredElement } from "./dom";
 import {
   blockingOverlayOpen,
   captureEditorFocusSpec,
@@ -63,6 +63,7 @@ import {
   serializeDateTimeValue,
 } from "./properties";
 import { renderSavedQueryTree as renderSavedQueryTreeUI } from "./queryTree";
+import { renderQuickSwitcherResults as renderQuickSwitcherResultsUI } from "./quickSwitcher";
 import { applyURLState as applyURLStateUI, buildSelectionURL, navigateToPageSelection } from "./routing";
 import { renderGlobalSearchResults as renderGlobalSearchResultsUI } from "./search";
 import { closeSlashMenu, maybeOpenSlashMenu, moveSlashSelection } from "./slashMenu";
@@ -128,8 +129,10 @@ interface AppState {
   autosaveTimer: number | null;
   searchTimer: number | null;
   commandTimer: number | null;
+  quickSwitcherTimer: number | null;
   searchSelectionIndex: number;
   commandSelectionIndex: number;
+  quickSwitcherSelectionIndex: number;
   currentPage: PageRecord | null;
   currentDerived: DerivedPage | null;
   currentMarkdown: string;
@@ -174,8 +177,10 @@ interface AppState {
     autosaveTimer: null,
     searchTimer: null,
     commandTimer: null,
+    quickSwitcherTimer: null,
     searchSelectionIndex: -1,
     commandSelectionIndex: -1,
+    quickSwitcherSelectionIndex: -1,
     currentPage: null,
     currentDerived: null,
     currentMarkdown: "",
@@ -241,7 +246,9 @@ interface AppState {
     railPanelTags: requiredElement<HTMLElement>("rail-panel-tags"),
     noteLayout: requiredElement<HTMLElement>("note-layout"),
     toggleRail: requiredElement<HTMLButtonElement>("toggle-rail"),
+    openQuickSwitcher: requiredElement<HTMLButtonElement>("open-quick-switcher"),
     openSearch: requiredElement<HTMLButtonElement>("open-search"),
+    openHelp: requiredElement<HTMLButtonElement>("open-help"),
     reloadPages: optionalElement<HTMLButtonElement>("reload-pages"),
     reloadQueries: optionalElement<HTMLButtonElement>("reload-queries"),
     toggleDebug: optionalElement<HTMLButtonElement>("toggle-debug"),
@@ -268,6 +275,12 @@ interface AppState {
     closeCommandModal: requiredElement<HTMLButtonElement>("close-command-modal"),
     commandPaletteInput: requiredElement<HTMLInputElement>("command-palette-input"),
     commandPaletteResults: requiredElement<HTMLDivElement>("command-palette-results"),
+    quickSwitcherModalShell: requiredElement<HTMLElement>("quick-switcher-modal-shell"),
+    closeQuickSwitcherModal: requiredElement<HTMLButtonElement>("close-quick-switcher-modal"),
+    quickSwitcherInput: requiredElement<HTMLInputElement>("quick-switcher-input"),
+    quickSwitcherResults: requiredElement<HTMLDivElement>("quick-switcher-results"),
+    helpModalShell: requiredElement<HTMLElement>("help-modal-shell"),
+    closeHelpModal: requiredElement<HTMLButtonElement>("close-help-modal"),
     slashMenu: requiredElement<HTMLElement>("slash-menu"),
     slashMenuResults: requiredElement<HTMLDivElement>("slash-menu-results"),
   };
@@ -1147,6 +1160,11 @@ interface AppState {
   }
 
   function setSearchOpen(open: boolean): void {
+    if (open) {
+      els.commandModalShell.classList.add("hidden");
+      els.quickSwitcherModalShell.classList.add("hidden");
+      els.helpModalShell.classList.add("hidden");
+    }
     setPaletteOpen(els.searchModalShell, els.globalSearchInput, open);
   }
 
@@ -1162,12 +1180,20 @@ interface AppState {
     return paletteResultButtons(els.commandPaletteResults);
   }
 
+  function quickSwitcherResultButtons(): HTMLButtonElement[] {
+    return paletteResultButtons(els.quickSwitcherResults);
+  }
+
   function updateSearchSelection() {
     updatePaletteSelection(els.globalSearchResults, state.searchSelectionIndex);
   }
 
   function updateCommandSelection() {
     updatePaletteSelection(els.commandPaletteResults, state.commandSelectionIndex);
+  }
+
+  function updateQuickSwitcherSelection() {
+    updatePaletteSelection(els.quickSwitcherResults, state.quickSwitcherSelectionIndex);
   }
 
   function moveSearchSelection(delta: number): void {
@@ -1178,6 +1204,14 @@ interface AppState {
     state.commandSelectionIndex = movePaletteSelection(els.commandPaletteResults, state.commandSelectionIndex, delta);
   }
 
+  function moveQuickSwitcherSelection(delta: number): void {
+    state.quickSwitcherSelectionIndex = movePaletteSelection(
+      els.quickSwitcherResults,
+      state.quickSwitcherSelectionIndex,
+      delta
+    );
+  }
+
   function triggerSearchSelection() {
     triggerPaletteSelection(els.globalSearchResults, state.searchSelectionIndex);
   }
@@ -1186,12 +1220,52 @@ interface AppState {
     triggerPaletteSelection(els.commandPaletteResults, state.commandSelectionIndex);
   }
 
+  function triggerQuickSwitcherSelection() {
+    triggerPaletteSelection(els.quickSwitcherResults, state.quickSwitcherSelectionIndex);
+  }
+
   function setCommandPaletteOpen(open: boolean): void {
+    if (open) {
+      els.searchModalShell.classList.add("hidden");
+      els.quickSwitcherModalShell.classList.add("hidden");
+      els.helpModalShell.classList.add("hidden");
+    }
     setPaletteOpen(els.commandModalShell, els.commandPaletteInput, open);
   }
 
   function closeCommandPalette() {
     setCommandPaletteOpen(false);
+  }
+
+  function setQuickSwitcherOpen(open: boolean): void {
+    if (open) {
+      els.searchModalShell.classList.add("hidden");
+      els.commandModalShell.classList.add("hidden");
+      els.helpModalShell.classList.add("hidden");
+    }
+    setPaletteOpen(els.quickSwitcherModalShell, els.quickSwitcherInput, open);
+  }
+
+  function closeQuickSwitcher() {
+    setQuickSwitcherOpen(false);
+  }
+
+  function setHelpOpen(open: boolean): void {
+    if (open) {
+      els.searchModalShell.classList.add("hidden");
+      els.commandModalShell.classList.add("hidden");
+      els.quickSwitcherModalShell.classList.add("hidden");
+      els.helpModalShell.classList.remove("hidden");
+      window.requestAnimationFrame(function () {
+        focusWithoutScroll(els.closeHelpModal);
+      });
+      return;
+    }
+    els.helpModalShell.classList.add("hidden");
+  }
+
+  function closeHelpModal() {
+    setHelpOpen(false);
   }
 
   function renderGlobalSearchResults(payload: SearchPayload): void {
@@ -1246,6 +1320,40 @@ interface AppState {
     } catch (error) {
       els.globalSearchResults.textContent = errorMessage(error);
     }
+  }
+
+  function renderQuickSwitcherResults() {
+    state.quickSwitcherSelectionIndex = renderQuickSwitcherResultsUI({
+      container: els.quickSwitcherResults,
+      inputValue: els.quickSwitcherInput ? els.quickSwitcherInput.value : "",
+      pages: state.pages,
+      selectedPage: state.selectedPage,
+      onClose: closeQuickSwitcher,
+      onOpenPage: function (pagePath) {
+        navigateToPage(pagePath, false);
+      },
+      onCreatePage: function (pagePath) {
+        createPage(pagePath).catch(function (error) {
+          setNoteStatus("Create page failed: " + errorMessage(error));
+        });
+      },
+    });
+    if (state.quickSwitcherSelectionIndex >= 0) {
+      updateQuickSwitcherSelection();
+    }
+
+    if (els.quickSwitcherModalShell && !els.quickSwitcherModalShell.classList.contains("hidden") && els.quickSwitcherInput) {
+      window.requestAnimationFrame(function () {
+        if (document.activeElement !== els.quickSwitcherInput) {
+          els.quickSwitcherInput.focus({preventScroll: true});
+        }
+      });
+    }
+  }
+
+  function scheduleQuickSwitcherRefresh() {
+    window.clearTimeout(state.quickSwitcherTimer ?? undefined);
+    state.quickSwitcherTimer = window.setTimeout(renderQuickSwitcherResults, 50);
   }
 
   function scheduleGlobalSearch() {
@@ -1319,13 +1427,21 @@ interface AppState {
     state.commandSelectionIndex = renderCommandPaletteResultsUI({
       container: els.commandPaletteResults,
       inputValue: els.commandPaletteInput ? els.commandPaletteInput.value : "",
-      pages: state.pages,
       selectedPage: state.selectedPage,
       sourceOpen: state.sourceOpen,
       railOpen: state.railOpen,
       currentHomePage: currentHomePage(),
       onToggleSource: function () {
         setSourceOpen(!state.sourceOpen);
+      },
+      onOpenHelp: function () {
+        closeCommandPalette();
+        setHelpOpen(true);
+      },
+      onOpenQuickSwitcher: function () {
+        closeCommandPalette();
+        setQuickSwitcherOpen(true);
+        renderQuickSwitcherResults();
       },
       onOpenSearch: function () {
         setSearchOpen(true);
@@ -1360,22 +1476,6 @@ interface AppState {
         closeCommandPalette();
         renderCommandPaletteResults();
         setNoteStatus(state.configHomePage ? "Home page reset to configured default." : "Home page cleared.");
-      },
-      onMovePage: function (pagePath, targetPage) {
-        closeCommandPalette();
-        movePage(pagePath, targetPage).catch(function (error) {
-          setNoteStatus("Move page failed: " + errorMessage(error));
-        });
-      },
-      onCreatePage: function (pagePath) {
-        closeCommandPalette();
-        createPage(pagePath).catch(function (error) {
-          setNoteStatus("Create page failed: " + errorMessage(error));
-        });
-      },
-      onOpenPage: function (pagePath) {
-        closeCommandPalette();
-        navigateToPage(pagePath, false);
       },
     });
     if (state.commandSelectionIndex >= 0) {
@@ -1574,6 +1674,14 @@ interface AppState {
   }
 
   function wireEvents() {
+    function isTypingTarget(target: EventTarget | null): boolean {
+      const element = target instanceof Element ? target : null;
+      if (!element) {
+        return false;
+      }
+      return Boolean(element.closest("input, textarea, select, [contenteditable='true'], .cm-editor, .cm-content"));
+    }
+
     on(els.pageSearch, "input", loadPages);
     on(els.querySearch, "input", loadSavedQueryTree);
     on(els.reloadPages, "click", loadPages);
@@ -1584,12 +1692,21 @@ interface AppState {
         setRailOpen(!state.railOpen);
       }
     });
+    on(els.openHelp, "click", function () {
+      setHelpOpen(true);
+    });
+    on(els.openQuickSwitcher, "click", function () {
+      setQuickSwitcherOpen(true);
+      renderQuickSwitcherResults();
+    });
     on(els.openSearch, "click", function () {
       setSearchOpen(true);
       scheduleGlobalSearch();
     });
     on(els.closeCommandModal, "click", closeCommandPalette);
     on(els.commandPaletteInput, "input", scheduleCommandPaletteRefresh);
+    on(els.closeQuickSwitcherModal, "click", closeQuickSwitcher);
+    on(els.quickSwitcherInput, "input", scheduleQuickSwitcherRefresh);
     on(els.railTabFiles, "click", function () {
       setRailTab("files");
     });
@@ -1709,6 +1826,26 @@ interface AppState {
         }
       }
     });
+    on(els.quickSwitcherInput, "keydown", function (rawEvent) {
+      const event = rawEvent as KeyboardEvent;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        moveQuickSwitcherSelection(1);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        moveQuickSwitcherSelection(-1);
+        return;
+      }
+      if (event.key === "Enter") {
+        const buttons = quickSwitcherResultButtons();
+        if (buttons.length && state.quickSwitcherSelectionIndex >= 0) {
+          event.preventDefault();
+          triggerQuickSwitcherSelection();
+        }
+      }
+    });
     on(els.taskModalShell, "click", function (event) {
       if (event.target === els.taskModalShell) {
         closeTaskModal();
@@ -1722,6 +1859,17 @@ interface AppState {
     on(els.commandModalShell, "click", function (event) {
       if (event.target === els.commandModalShell) {
         closeCommandPalette();
+      }
+    });
+    on(els.quickSwitcherModalShell, "click", function (event) {
+      if (event.target === els.quickSwitcherModalShell) {
+        closeQuickSwitcher();
+      }
+    });
+    on(els.closeHelpModal, "click", closeHelpModal);
+    on(els.helpModalShell, "click", function (event) {
+      if (event.target === els.helpModalShell) {
+        closeHelpModal();
       }
     });
     document.addEventListener("mousedown", function (event) {
@@ -1753,6 +1901,14 @@ interface AppState {
         closeCommandPalette();
         return;
       }
+      if (event.key === "Escape" && els.quickSwitcherModalShell && !els.quickSwitcherModalShell.classList.contains("hidden")) {
+        closeQuickSwitcher();
+        return;
+      }
+      if (event.key === "Escape" && els.helpModalShell && !els.helpModalShell.classList.contains("hidden")) {
+        closeHelpModal();
+        return;
+      }
       if (event.key === "Escape" && (state.propertyDraft || state.propertyTypeMenuKey)) {
         dismissPropertyUI();
         const active = document.activeElement as HTMLElement | null;
@@ -1770,15 +1926,24 @@ interface AppState {
         event.preventDefault();
         setSourceOpen(!state.sourceOpen);
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setQuickSwitcherOpen(true);
+        renderQuickSwitcherResults();
+      }
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setSearchOpen(true);
         scheduleGlobalSearch();
       }
-      if ((event.metaKey || event.ctrlKey) && event.key === "/") {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "p") {
         event.preventDefault();
         setCommandPaletteOpen(true);
         renderCommandPaletteResults();
+      }
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "?" && !isTypingTarget(event.target)) {
+        event.preventDefault();
+        setHelpOpen(true);
       }
     });
     window.addEventListener("blur", function () {

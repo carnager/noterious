@@ -206,7 +206,7 @@ export interface SlashCommand {
   id: string;
   title: string;
   description: string;
-  matches(): boolean;
+  keywords?: string;
   apply(lineText: string): string;
 }
 

@@ -1,5 +1,4 @@
-import { pageLeafName, renderPaletteSections, type PaletteItem, type PaletteSection } from "./palette";
-import type { PageSummary } from "./types";
+import { renderPaletteSections, type PaletteItem, type PaletteSection } from "./palette";
 
 export interface CommandEntry {
   title: string;
@@ -12,12 +11,13 @@ export interface CommandEntry {
 export interface RenderCommandPaletteOptions {
   container: HTMLElement;
   inputValue: string;
-  pages: PageSummary[];
   selectedPage: string;
   sourceOpen: boolean;
   railOpen: boolean;
   currentHomePage: string;
   onToggleSource(): void;
+  onOpenHelp(): void;
+  onOpenQuickSwitcher(): void;
   onOpenSearch(): void;
   onFocusRail(tab: string): void;
   onToggleRail(): void;
@@ -25,9 +25,6 @@ export interface RenderCommandPaletteOptions {
   onSetHomePage(pagePath: string): void;
   onDeletePage(pagePath: string): void;
   onClearHomePage(): void;
-  onMovePage(pagePath: string, targetPage: string): void;
-  onCreatePage(pagePath: string): void;
-  onOpenPage(pagePath: string): void;
 }
 
 export function normalizePageDraftPath(value: string): string {
@@ -40,7 +37,8 @@ export function normalizePageDraftPath(value: string): string {
 }
 
 export function pageTitleFromPath(pagePath: string): string {
-  return pageLeafName(pagePath);
+  const parts = String(pagePath || "").split("/");
+  return parts[parts.length - 1] || pagePath;
 }
 
 function buildCommandEntries(options: RenderCommandPaletteOptions): CommandEntry[] {
@@ -56,8 +54,22 @@ function buildCommandEntries(options: RenderCommandPaletteOptions): CommandEntry
       title: "Global Search",
       meta: "Search",
       keywords: "search find global",
-      hint: "Ctrl+K",
+      hint: "Ctrl+Shift+K",
       run: options.onOpenSearch,
+    },
+    {
+      title: "Open Help",
+      meta: "Help",
+      keywords: "help shortcuts keyboard keymap",
+      hint: "?",
+      run: options.onOpenHelp,
+    },
+    {
+      title: "Open Quick Switcher",
+      meta: "Navigation",
+      keywords: "quick switcher open file note",
+      hint: "Ctrl+K",
+      run: options.onOpenQuickSwitcher,
     },
     {
       title: "Focus Files",
@@ -151,8 +163,6 @@ function buildCommandEntries(options: RenderCommandPaletteOptions): CommandEntry
 
 export function buildCommandPaletteSections(options: RenderCommandPaletteOptions): PaletteSection[] {
   const query = String(options.inputValue || "").trim().toLowerCase();
-  const rawQuery = String(options.inputValue || "").trim();
-  const normalizedDraftPath = normalizePageDraftPath(rawQuery);
   const commands = buildCommandEntries(options).filter(function (command) {
     if (!query) {
       return true;
@@ -160,67 +170,7 @@ export function buildCommandPaletteSections(options: RenderCommandPaletteOptions
     return [command.title, command.meta, command.keywords].join(" ").toLowerCase().indexOf(query) >= 0;
   });
 
-  const pageExists = normalizedDraftPath
-    ? options.pages.some(function (page) {
-        return String(page.path || "").toLowerCase() === normalizedDraftPath.toLowerCase();
-      })
-    : false;
-
-  const moveCommands: CommandEntry[] = options.selectedPage && normalizedDraftPath && !pageExists &&
-    normalizedDraftPath.toLowerCase() !== String(options.selectedPage).toLowerCase()
-    ? [{
-        title: "Move Page",
-        meta: options.selectedPage + " → " + normalizedDraftPath,
-        keywords: "move rename page note file",
-        hint: "Enter",
-        run: function () {
-          options.onMovePage(options.selectedPage, normalizedDraftPath);
-        },
-      }]
-    : [];
-
-  const createCommands: CommandEntry[] = normalizedDraftPath && !pageExists
-    ? [{
-        title: "Create Page",
-        meta: normalizedDraftPath,
-        keywords: "new page create note file",
-        hint: "Enter",
-        run: function () {
-          options.onCreatePage(normalizedDraftPath);
-        },
-      }]
-    : [];
-
-  const pages = options.pages.filter(function (page) {
-    if (!query) {
-      return true;
-    }
-    return [page.path, page.title || "", (page.tags || []).join(" ")].join(" ").toLowerCase().indexOf(query) >= 0;
-  }).slice(0, 20);
-
   return [
-    {
-      title: "Move",
-      items: moveCommands.map(function (command): PaletteItem {
-        return {
-          title: command.title,
-          meta: command.meta,
-          hint: command.hint || "",
-          onSelect: command.run,
-        };
-      }),
-    },
-    {
-      title: "Create",
-      items: createCommands.map(function (command): PaletteItem {
-        return {
-          title: command.title,
-          meta: command.meta,
-          hint: command.hint || "",
-          onSelect: command.run,
-        };
-      }),
-    },
     {
       title: "Commands",
       items: commands.map(function (command): PaletteItem {
@@ -229,20 +179,6 @@ export function buildCommandPaletteSections(options: RenderCommandPaletteOptions
           meta: command.meta,
           hint: command.hint || "",
           onSelect: command.run,
-        };
-      }),
-    },
-    {
-      title: "Pages",
-      items: pages.map(function (page): PaletteItem {
-        const leaf = pageLeafName(page.path);
-        const title = page.title && page.title !== leaf ? page.title : "";
-        return {
-          title: leaf,
-          meta: [page.path, title].concat(page.tags && page.tags.length ? [page.tags.join(", ")] : []).filter(Boolean).join(" · "),
-          onSelect: function () {
-            options.onOpenPage(page.path);
-          },
         };
       }),
     },

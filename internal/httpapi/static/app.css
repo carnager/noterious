@@ -137,6 +137,7 @@ select {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 0.25rem;
   position: relative;
   z-index: 1;
   min-width: 2rem;
@@ -1298,47 +1299,46 @@ select {
   left: 0;
   top: 0;
   z-index: 25;
-  min-width: 180px;
-  padding: 0.24rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  background: rgba(26, 27, 38, 0.98);
-  box-shadow: var(--shadow);
+  width: min(320px, calc(100vw - 2rem));
+  padding: 0.28rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0)),
+    rgba(24, 26, 34, 0.98);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.35);
 }
 
 .slash-menu-results {
   display: flex;
   flex-direction: column;
-  gap: 0.12rem;
+  gap: 0.08rem;
+  max-height: min(52vh, 320px);
+  overflow: auto;
+  scrollbar-width: thin;
 }
 
 .slash-menu-item {
-  width: 100%;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  padding: 0.38rem 0.48rem;
-  text-align: left;
-  color: var(--ink);
-  display: flex;
-  flex-direction: column;
-  gap: 0.08rem;
-  font-size: 0.78rem;
+  border-radius: 6px;
+  padding: 0.34rem 0.42rem;
+  gap: 0.06rem;
 }
 
 .slash-menu-item:hover,
 .slash-menu-item.active {
-  background: rgba(122, 162, 247, 0.12);
+  background: rgba(122, 162, 247, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(122, 162, 247, 0.16);
 }
 
-.slash-menu-item strong,
-.slash-menu-item small {
-  font: inherit;
+.slash-menu-item strong {
+  font-size: 0.74rem;
+  font-weight: 600;
 }
 
 .slash-menu-item small {
   color: var(--muted);
-  font-size: 0.68rem;
+  font-size: 0.63rem;
+  line-height: 1.35;
 }
 
 .search-results {
@@ -1519,6 +1519,140 @@ select {
   display: flex;
   flex-direction: column;
   gap: 0.48rem;
+}
+
+.help-modal-card {
+  width: min(640px, 100%);
+  gap: 0.9rem;
+  padding: 0.85rem 0.9rem 0.9rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0)),
+    rgba(24, 25, 34, 0.995);
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.help-lead {
+  margin: 0;
+  color: rgba(192, 202, 245, 0.8);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  max-width: 60ch;
+}
+
+.help-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.help-section h3 {
+  margin: 0;
+  font-size: 0.83rem;
+  font-weight: 650;
+  color: rgba(222, 228, 255, 0.94);
+}
+
+.help-head {
+  align-items: flex-start;
+}
+
+.help-head .eyebrow {
+  margin-bottom: 0.08rem;
+}
+
+.help-head h2 {
+  font-size: 1.45rem;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+}
+
+.help-close {
+  all: unset;
+  flex: 0 0 auto;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: rgba(192, 202, 245, 0.72);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.help-close:hover,
+.help-close:focus-visible {
+  color: var(--ink);
+  background: rgba(122, 162, 247, 0.08);
+  border-color: rgba(122, 162, 247, 0.16);
+}
+
+.shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.52rem 0.6rem;
+  border-radius: 10px;
+  background: rgba(19, 21, 30, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  font-size: 0.88rem;
+}
+
+.shortcut-row span {
+  color: var(--ink);
+}
+
+.shortcut-row > span:first-child {
+  font-weight: 500;
+}
+
+.shortcut-keys {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  margin-left: auto;
+}
+
+kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.85rem;
+  padding: 0.18rem 0.42rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
+    rgba(255, 255, 255, 0.025);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+  color: rgba(226, 231, 255, 0.92);
+  font-size: 0.72rem;
+  line-height: 1;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.help-bullets {
+  margin: 0;
+  padding-left: 1rem;
+  color: rgba(192, 202, 245, 0.84);
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.help-bullets strong {
+  color: rgba(230, 235, 255, 0.96);
+  font-weight: 600;
 }
 
 .modal-fields {

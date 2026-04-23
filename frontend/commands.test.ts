@@ -1,24 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { buildCommandPaletteSections, normalizePageDraftPath, pageTitleFromPath } from "./commands";
-import type { PageSummary } from "./types";
-
-function samplePage(path: string, title?: string): PageSummary {
-  return {
-    path,
-    title: title || path,
-    tags: [],
-    outgoingLinkCount: 0,
-    backlinkCount: 0,
-    taskCount: 0,
-    openTaskCount: 0,
-    doneTaskCount: 0,
-    queryBlockCount: 0,
-    createdAt: "",
-    updatedAt: "",
-  };
-}
-
 function paletteOptions(overrides: Partial<Parameters<typeof buildCommandPaletteSections>[0]> = {}) {
   const calls: string[] = [];
   return {
@@ -26,13 +8,18 @@ function paletteOptions(overrides: Partial<Parameters<typeof buildCommandPalette
     options: {
       container: {} as HTMLElement,
       inputValue: "",
-      pages: [samplePage("notes/alpha", "Alpha"), samplePage("projects/beta", "Project Beta")],
       selectedPage: "notes/alpha",
       sourceOpen: false,
       railOpen: false,
       currentHomePage: "notes/home",
       onToggleSource: function () {
         calls.push("toggle-source");
+      },
+      onOpenHelp: function () {
+        calls.push("open-help");
+      },
+      onOpenQuickSwitcher: function () {
+        calls.push("open-quick-switcher");
       },
       onOpenSearch: function () {
         calls.push("open-search");
@@ -55,15 +42,6 @@ function paletteOptions(overrides: Partial<Parameters<typeof buildCommandPalette
       onClearHomePage: function () {
         calls.push("clear-home");
       },
-      onMovePage: function (pagePath: string, targetPage: string) {
-        calls.push("move:" + pagePath + "->" + targetPage);
-      },
-      onCreatePage: function (pagePath: string) {
-        calls.push("create:" + pagePath);
-      },
-      onOpenPage: function (pagePath: string) {
-        calls.push("open-page:" + pagePath);
-      },
       ...overrides,
     },
   };
@@ -75,37 +53,47 @@ describe("command helpers", function () {
     expect(pageTitleFromPath("notes/alpha")).toBe("alpha");
   });
 
-  it("builds create and move entries for a new path draft", function () {
+  it("only shows command results in the command palette", function () {
     const { options } = paletteOptions({ inputValue: "notes/new-page" });
     const sections = buildCommandPaletteSections(options);
 
-    expect(sections[0].items[0].title).toBe("Move Page");
-    expect(sections[1].items[0].title).toBe("Create Page");
-    expect(sections[0].items[0].meta).toContain("notes/new-page");
-    expect(sections[1].items[0].meta).toBe("notes/new-page");
-    expect(sections[3].items).toEqual([]);
+    expect(sections).toHaveLength(1);
+    expect(sections[0].title).toBe("Commands");
+    expect(sections[0].items).toEqual([]);
   });
 
   it("wires command actions through palette item callbacks", function () {
     const { options, calls } = paletteOptions({ inputValue: "" });
     const sections = buildCommandPaletteSections(options);
 
-    const commands = sections[2].items;
+    const commands = sections[0].items;
     const setHome = commands.find(function (item) {
       return item.title === "Set Home Page";
     });
     const openHome = commands.find(function (item) {
       return item.title === "Open Home Page";
     });
+    const help = commands.find(function (item) {
+      return item.title === "Open Help";
+    });
+    const quickSwitcher = commands.find(function (item) {
+      return item.title === "Open Quick Switcher";
+    });
 
     expect(setHome).toBeTruthy();
     expect(openHome).toBeTruthy();
+    expect(help).toBeTruthy();
+    expect(quickSwitcher).toBeTruthy();
 
     setHome?.onSelect();
     openHome?.onSelect();
+    help?.onSelect();
+    quickSwitcher?.onSelect();
 
     expect(calls).toContain("set-home:notes/alpha");
     expect(calls).toContain("open-home:notes/home");
+    expect(calls).toContain("open-help");
+    expect(calls).toContain("open-quick-switcher");
   });
 
   it("suppresses set-home action when the selected page is already home", function () {
@@ -114,7 +102,7 @@ describe("command helpers", function () {
       currentHomePage: "notes/home",
     });
     const sections = buildCommandPaletteSections(options);
-    const setHome = sections[2].items.find(function (item) {
+    const setHome = sections[0].items.find(function (item) {
       return item.title === "Home Page Already Set";
     });
 

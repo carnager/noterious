@@ -174,7 +174,8 @@
     return String(value || "").trim().replace(/\\/g, "/").replace(/\.md$/i, "").replace(/^\/+/, "").replace(/\/+/g, "/");
   }
   function pageTitleFromPath(pagePath) {
-    return pageLeafName(pagePath);
+    const parts = String(pagePath || "").split("/");
+    return parts[parts.length - 1] || pagePath;
   }
   function buildCommandEntries(options) {
     const commands = [
@@ -189,8 +190,22 @@
         title: "Global Search",
         meta: "Search",
         keywords: "search find global",
-        hint: "Ctrl+K",
+        hint: "Ctrl+Shift+K",
         run: options.onOpenSearch
+      },
+      {
+        title: "Open Help",
+        meta: "Help",
+        keywords: "help shortcuts keyboard keymap",
+        hint: "?",
+        run: options.onOpenHelp
+      },
+      {
+        title: "Open Quick Switcher",
+        meta: "Navigation",
+        keywords: "quick switcher open file note",
+        hint: "Ctrl+K",
+        run: options.onOpenQuickSwitcher
       },
       {
         title: "Focus Files",
@@ -278,64 +293,13 @@
   }
   function buildCommandPaletteSections(options) {
     const query = String(options.inputValue || "").trim().toLowerCase();
-    const rawQuery = String(options.inputValue || "").trim();
-    const normalizedDraftPath = normalizePageDraftPath(rawQuery);
     const commands = buildCommandEntries(options).filter(function(command) {
       if (!query) {
         return true;
       }
       return [command.title, command.meta, command.keywords].join(" ").toLowerCase().indexOf(query) >= 0;
     });
-    const pageExists = normalizedDraftPath ? options.pages.some(function(page) {
-      return String(page.path || "").toLowerCase() === normalizedDraftPath.toLowerCase();
-    }) : false;
-    const moveCommands = options.selectedPage && normalizedDraftPath && !pageExists && normalizedDraftPath.toLowerCase() !== String(options.selectedPage).toLowerCase() ? [{
-      title: "Move Page",
-      meta: options.selectedPage + " \u2192 " + normalizedDraftPath,
-      keywords: "move rename page note file",
-      hint: "Enter",
-      run: function() {
-        options.onMovePage(options.selectedPage, normalizedDraftPath);
-      }
-    }] : [];
-    const createCommands = normalizedDraftPath && !pageExists ? [{
-      title: "Create Page",
-      meta: normalizedDraftPath,
-      keywords: "new page create note file",
-      hint: "Enter",
-      run: function() {
-        options.onCreatePage(normalizedDraftPath);
-      }
-    }] : [];
-    const pages = options.pages.filter(function(page) {
-      if (!query) {
-        return true;
-      }
-      return [page.path, page.title || "", (page.tags || []).join(" ")].join(" ").toLowerCase().indexOf(query) >= 0;
-    }).slice(0, 20);
     return [
-      {
-        title: "Move",
-        items: moveCommands.map(function(command) {
-          return {
-            title: command.title,
-            meta: command.meta,
-            hint: command.hint || "",
-            onSelect: command.run
-          };
-        })
-      },
-      {
-        title: "Create",
-        items: createCommands.map(function(command) {
-          return {
-            title: command.title,
-            meta: command.meta,
-            hint: command.hint || "",
-            onSelect: command.run
-          };
-        })
-      },
       {
         title: "Commands",
         items: commands.map(function(command) {
@@ -344,20 +308,6 @@
             meta: command.meta,
             hint: command.hint || "",
             onSelect: command.run
-          };
-        })
-      },
-      {
-        title: "Pages",
-        items: pages.map(function(page) {
-          const leaf = pageLeafName(page.path);
-          const title = page.title && page.title !== leaf ? page.title : "";
-          return {
-            title: leaf,
-            meta: [page.path, title].concat(page.tags && page.tags.length ? [page.tags.join(", ")] : []).filter(Boolean).join(" \xB7 "),
-            onSelect: function() {
-              options.onOpenPage(page.path);
-            }
           };
         })
       }
@@ -1706,6 +1656,89 @@
     }
   });
 
+  // frontend/quickSwitcher.ts
+  function scorePage(page, query, selectedPage) {
+    const path = String(page.path || "").toLowerCase();
+    const title = String(page.title || "").toLowerCase();
+    const target = String(query || "").trim().toLowerCase();
+    if (!target) {
+      const selectedBoost2 = path === String(selectedPage || "").toLowerCase() ? 2e12 : 0;
+      const updatedAt = page.updatedAt ? Date.parse(page.updatedAt) || 0 : 0;
+      return selectedBoost2 + updatedAt;
+    }
+    const exactPath = path === target ? 5e3 : 0;
+    const exactLeaf = pageLeafName(page.path).toLowerCase() === target ? 4500 : 0;
+    const prefixPath = path.startsWith(target) ? 3e3 : 0;
+    const prefixTitle = title.startsWith(target) ? 2500 : 0;
+    const includesPath = path.indexOf(target) >= 0 ? 1200 : 0;
+    const includesTitle = title.indexOf(target) >= 0 ? 1e3 : 0;
+    const selectedBoost = path === String(selectedPage || "").toLowerCase() ? 50 : 0;
+    const freshness = page.updatedAt ? (Date.parse(page.updatedAt) || 0) / 1e12 : 0;
+    return exactPath + exactLeaf + prefixPath + prefixTitle + includesPath + includesTitle + selectedBoost + freshness;
+  }
+  function matchesPage(page, query) {
+    const target = String(query || "").trim().toLowerCase();
+    if (!target) {
+      return true;
+    }
+    const haystack = [page.path, page.title || ""].join(" ").toLowerCase();
+    return haystack.indexOf(target) >= 0;
+  }
+  function buildQuickSwitcherSections(options) {
+    const query = String(options.inputValue || "").trim();
+    const normalizedDraftPath = normalizePageDraftPath(query);
+    const matchingPages = options.pages.filter(function(page) {
+      return matchesPage(page, query);
+    }).sort(function(left, right) {
+      return scorePage(right, query, options.selectedPage) - scorePage(left, query, options.selectedPage);
+    }).slice(0, query ? 20 : 15);
+    const hasExactMatch = normalizedDraftPath ? matchingPages.some(function(page) {
+      return String(page.path || "").toLowerCase() === normalizedDraftPath.toLowerCase();
+    }) : false;
+    const createItems = normalizedDraftPath && !hasExactMatch ? [{
+      title: "Create note",
+      meta: normalizedDraftPath,
+      hint: "Enter",
+      onSelect: function() {
+        options.onClose();
+        options.onCreatePage(normalizedDraftPath);
+      }
+    }] : [];
+    const recentTitle = query ? "Notes" : "Recent Notes";
+    const noteItems = matchingPages.map(function(page) {
+      const leaf = pageLeafName(page.path);
+      const title = page.title && page.title !== leaf ? page.title : "";
+      return {
+        title: leaf,
+        meta: [page.path, title].filter(Boolean).join(" \xB7 "),
+        onSelect: function() {
+          options.onClose();
+          options.onOpenPage(page.path);
+        }
+      };
+    });
+    return [
+      {
+        title: "Create",
+        items: createItems
+      },
+      {
+        title: recentTitle,
+        items: noteItems
+      }
+    ];
+  }
+  function renderQuickSwitcherResults(options) {
+    return renderPaletteSections(options.container, buildQuickSwitcherSections(options), "No matching notes.");
+  }
+  var init_quickSwitcher = __esm({
+    "frontend/quickSwitcher.ts"() {
+      "use strict";
+      init_palette();
+      init_commands();
+    }
+  });
+
   // frontend/routing.ts
   function parseURLState(href) {
     const url = new URL(href);
@@ -1838,31 +1871,141 @@
   });
 
   // frontend/slashMenu.ts
-  function slashCommandsForText(text) {
-    const raw = String(text || "");
-    const trimmed = raw.trim();
-    const match = trimmed.match(/(?:^|\s)\/([a-z]+)$/i);
-    if (!match) {
-      return [];
+  function fuzzyMatch(haystack, query) {
+    const source = String(haystack || "").toLowerCase();
+    const target = String(query || "").toLowerCase().trim();
+    if (!target) {
+      return true;
     }
-    const query = String(match[1] || "").toLowerCase();
-    const commands = [
+    let index = 0;
+    for (let i = 0; i < source.length && index < target.length; i += 1) {
+      if (source[i] === target[index]) {
+        index += 1;
+      }
+    }
+    return index === target.length;
+  }
+  function slashSearchTokens(command) {
+    return [command.id, command.title, command.keywords || ""].join(" ").toLowerCase().split(/[^a-z0-9]+/i).map(function(token) {
+      return token.trim();
+    }).filter(Boolean);
+  }
+  function replaceSlashToken(lineText, commandName, replacement) {
+    const source = String(lineText || "");
+    const pattern = new RegExp("(?:^|\\s)\\/" + commandName + "\\s*$", "i");
+    const updated = source.replace(pattern, "");
+    if (!updated.trim()) {
+      return replacement;
+    }
+    return updated.replace(/\s+$/, "") + " " + replacement;
+  }
+  function prefixLine(lineText, commandName, prefix) {
+    const source = replaceSlashToken(lineText, commandName, "").trim();
+    return source ? prefix + source : prefix;
+  }
+  function slashCommandCatalog() {
+    return [
       {
         id: "task",
-        title: "Task",
-        description: "Turn this line into a task",
-        matches: function() {
-          return "task".indexOf(query) === 0;
-        },
+        title: "Insert task",
+        description: "Turn the current line into a checkbox item.",
+        keywords: "todo checkbox checklist",
         apply: function(lineText) {
-          const source = String(lineText || "");
-          const remainder = source.replace(/(?:^|\s)\/task\s*$/i, "").trim();
-          return "- [ ] " + remainder;
+          return prefixLine(lineText, "task", "- [ ] ");
+        }
+      },
+      {
+        id: "bullet",
+        title: "Insert bullet list",
+        description: "Turn the current line into a bullet list item.",
+        keywords: "list unordered dash",
+        apply: function(lineText) {
+          return prefixLine(lineText, "bullet", "- ");
+        }
+      },
+      {
+        id: "number",
+        title: "Insert numbered list",
+        description: "Turn the current line into a numbered list item.",
+        keywords: "list ordered numbered",
+        apply: function(lineText) {
+          return prefixLine(lineText, "number", "1. ");
+        }
+      },
+      {
+        id: "h1",
+        title: "Heading 1",
+        description: "Insert a level 1 heading.",
+        keywords: "header title heading",
+        apply: function(lineText) {
+          return prefixLine(lineText, "h1", "# ");
+        }
+      },
+      {
+        id: "h2",
+        title: "Heading 2",
+        description: "Insert a level 2 heading.",
+        keywords: "header heading",
+        apply: function(lineText) {
+          return prefixLine(lineText, "h2", "## ");
+        }
+      },
+      {
+        id: "h3",
+        title: "Heading 3",
+        description: "Insert a level 3 heading.",
+        keywords: "header heading",
+        apply: function(lineText) {
+          return prefixLine(lineText, "h3", "### ");
+        }
+      },
+      {
+        id: "quote",
+        title: "Insert blockquote",
+        description: "Turn the current line into a blockquote.",
+        keywords: "blockquote cite",
+        apply: function(lineText) {
+          return prefixLine(lineText, "quote", "> ");
+        }
+      },
+      {
+        id: "code",
+        title: "Insert code block",
+        description: "Replace the current line with a fenced code block.",
+        keywords: "fence snippet",
+        apply: function() {
+          return "```\n\n```";
+        }
+      },
+      {
+        id: "callout",
+        title: "Insert callout",
+        description: "Replace the current line with an Obsidian-style callout.",
+        keywords: "note tip warning admonition",
+        apply: function() {
+          return "> [!note]\n> ";
         }
       }
     ];
-    return commands.filter(function(command) {
-      return command.matches();
+  }
+  function parseSlashQuery(text) {
+    const raw = String(text || "");
+    const trimmed = raw.trimEnd();
+    const match = trimmed.match(/(?:^|\s)\/([a-z0-9-]*)$/i);
+    if (!match) {
+      return null;
+    }
+    return String(match[1] || "").toLowerCase();
+  }
+  function slashCommandsForText(text) {
+    const query = parseSlashQuery(text);
+    if (query === null) {
+      return [];
+    }
+    return slashCommandCatalog().filter(function(command) {
+      return slashSearchTokens(command).some(function(token) {
+        return token.indexOf(query) === 0 || fuzzyMatch(token, query);
+      });
     });
   }
   function closeSlashMenu(state, elements) {
@@ -1876,7 +2019,7 @@
     if (!state.slashOpen) {
       return;
     }
-    Array.from(elements.slashMenuResults.querySelectorAll(".slash-menu-item")).forEach(function(item, index) {
+    resultButtons(elements.slashMenuResults).forEach(function(item, index) {
       item.classList.toggle("active", index === state.slashSelectionIndex);
     });
   }
@@ -1892,16 +2035,24 @@
     commands.forEach(function(command, index) {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "slash-menu-item" + (index === state.slashSelectionIndex ? " active" : "");
+      button.className = "search-result-item slash-menu-item" + (index === state.slashSelectionIndex ? " active" : "");
+      button.tabIndex = -1;
       button.addEventListener("mousedown", function(event) {
         event.preventDefault();
       });
       button.addEventListener("click", onApplySelection);
+      const head = document.createElement("div");
+      head.className = "search-result-head";
       const title = document.createElement("strong");
-      title.textContent = "/" + command.id;
+      title.textContent = command.title;
+      head.appendChild(title);
+      const hint = document.createElement("span");
+      hint.className = "search-result-hint";
+      hint.textContent = "/" + command.id;
+      head.appendChild(hint);
+      button.appendChild(head);
       const description = document.createElement("small");
       description.textContent = command.description;
-      button.appendChild(title);
       button.appendChild(description);
       elements.slashMenuResults.appendChild(button);
     });
@@ -1913,13 +2064,14 @@
     if (!state.slashOpen) {
       return;
     }
-    const items = Array.from(elements.slashMenuResults.querySelectorAll(".slash-menu-item"));
+    const items = resultButtons(elements.slashMenuResults);
     if (!items.length) {
       return;
     }
     const nextIndex = Math.max(0, Math.min(items.length - 1, state.slashSelectionIndex + delta));
     state.slashSelectionIndex = nextIndex;
     updateSlashSelection(state, elements);
+    items[nextIndex].scrollIntoView({ block: "nearest" });
   }
   function maybeOpenSlashMenu(state, elements, editor, lineText, context, onApplySelection) {
     const commands = slashCommandsForText(lineText);
@@ -1942,6 +2094,7 @@
     "frontend/slashMenu.ts"() {
       "use strict";
       init_dom();
+      init_palette();
     }
   });
 
@@ -1959,6 +2112,7 @@
       init_pageViews();
       init_properties();
       init_queryTree();
+      init_quickSwitcher();
       init_routing();
       init_search();
       init_slashMenu();
@@ -1976,8 +2130,10 @@
           autosaveTimer: null,
           searchTimer: null,
           commandTimer: null,
+          quickSwitcherTimer: null,
           searchSelectionIndex: -1,
           commandSelectionIndex: -1,
+          quickSwitcherSelectionIndex: -1,
           currentPage: null,
           currentDerived: null,
           currentMarkdown: "",
@@ -2042,7 +2198,9 @@
           railPanelTags: requiredElement("rail-panel-tags"),
           noteLayout: requiredElement("note-layout"),
           toggleRail: requiredElement("toggle-rail"),
+          openQuickSwitcher: requiredElement("open-quick-switcher"),
           openSearch: requiredElement("open-search"),
+          openHelp: requiredElement("open-help"),
           reloadPages: optionalElement("reload-pages"),
           reloadQueries: optionalElement("reload-queries"),
           toggleDebug: optionalElement("toggle-debug"),
@@ -2069,6 +2227,12 @@
           closeCommandModal: requiredElement("close-command-modal"),
           commandPaletteInput: requiredElement("command-palette-input"),
           commandPaletteResults: requiredElement("command-palette-results"),
+          quickSwitcherModalShell: requiredElement("quick-switcher-modal-shell"),
+          closeQuickSwitcherModal: requiredElement("close-quick-switcher-modal"),
+          quickSwitcherInput: requiredElement("quick-switcher-input"),
+          quickSwitcherResults: requiredElement("quick-switcher-results"),
+          helpModalShell: requiredElement("help-modal-shell"),
+          closeHelpModal: requiredElement("close-help-modal"),
           slashMenu: requiredElement("slash-menu"),
           slashMenuResults: requiredElement("slash-menu-results")
         };
@@ -2858,6 +3022,11 @@
           els.taskModalShell.classList.add("hidden");
         }
         function setSearchOpen(open) {
+          if (open) {
+            els.commandModalShell.classList.add("hidden");
+            els.quickSwitcherModalShell.classList.add("hidden");
+            els.helpModalShell.classList.add("hidden");
+          }
           setPaletteOpen(els.searchModalShell, els.globalSearchInput, open);
         }
         function closeSearchModal() {
@@ -2869,11 +3038,17 @@
         function commandResultButtons() {
           return resultButtons(els.commandPaletteResults);
         }
+        function quickSwitcherResultButtons() {
+          return resultButtons(els.quickSwitcherResults);
+        }
         function updateSearchSelection() {
           updateSelection(els.globalSearchResults, state.searchSelectionIndex);
         }
         function updateCommandSelection() {
           updateSelection(els.commandPaletteResults, state.commandSelectionIndex);
+        }
+        function updateQuickSwitcherSelection() {
+          updateSelection(els.quickSwitcherResults, state.quickSwitcherSelectionIndex);
         }
         function moveSearchSelection(delta) {
           state.searchSelectionIndex = moveSelection(els.globalSearchResults, state.searchSelectionIndex, delta);
@@ -2881,17 +3056,59 @@
         function moveCommandSelection(delta) {
           state.commandSelectionIndex = moveSelection(els.commandPaletteResults, state.commandSelectionIndex, delta);
         }
+        function moveQuickSwitcherSelection(delta) {
+          state.quickSwitcherSelectionIndex = moveSelection(
+            els.quickSwitcherResults,
+            state.quickSwitcherSelectionIndex,
+            delta
+          );
+        }
         function triggerSearchSelection() {
           triggerSelection(els.globalSearchResults, state.searchSelectionIndex);
         }
         function triggerCommandSelection() {
           triggerSelection(els.commandPaletteResults, state.commandSelectionIndex);
         }
+        function triggerQuickSwitcherSelection() {
+          triggerSelection(els.quickSwitcherResults, state.quickSwitcherSelectionIndex);
+        }
         function setCommandPaletteOpen(open) {
+          if (open) {
+            els.searchModalShell.classList.add("hidden");
+            els.quickSwitcherModalShell.classList.add("hidden");
+            els.helpModalShell.classList.add("hidden");
+          }
           setPaletteOpen(els.commandModalShell, els.commandPaletteInput, open);
         }
         function closeCommandPalette() {
           setCommandPaletteOpen(false);
+        }
+        function setQuickSwitcherOpen(open) {
+          if (open) {
+            els.searchModalShell.classList.add("hidden");
+            els.commandModalShell.classList.add("hidden");
+            els.helpModalShell.classList.add("hidden");
+          }
+          setPaletteOpen(els.quickSwitcherModalShell, els.quickSwitcherInput, open);
+        }
+        function closeQuickSwitcher() {
+          setQuickSwitcherOpen(false);
+        }
+        function setHelpOpen(open) {
+          if (open) {
+            els.searchModalShell.classList.add("hidden");
+            els.commandModalShell.classList.add("hidden");
+            els.quickSwitcherModalShell.classList.add("hidden");
+            els.helpModalShell.classList.remove("hidden");
+            window.requestAnimationFrame(function() {
+              focusWithoutScroll(els.closeHelpModal);
+            });
+            return;
+          }
+          els.helpModalShell.classList.add("hidden");
+        }
+        function closeHelpModal() {
+          setHelpOpen(false);
         }
         function renderGlobalSearchResults2(payload) {
           state.searchSelectionIndex = renderGlobalSearchResults({
@@ -2943,6 +3160,37 @@
           } catch (error) {
             els.globalSearchResults.textContent = errorMessage(error);
           }
+        }
+        function renderQuickSwitcherResults2() {
+          state.quickSwitcherSelectionIndex = renderQuickSwitcherResults({
+            container: els.quickSwitcherResults,
+            inputValue: els.quickSwitcherInput ? els.quickSwitcherInput.value : "",
+            pages: state.pages,
+            selectedPage: state.selectedPage,
+            onClose: closeQuickSwitcher,
+            onOpenPage: function(pagePath) {
+              navigateToPage(pagePath, false);
+            },
+            onCreatePage: function(pagePath) {
+              createPage(pagePath).catch(function(error) {
+                setNoteStatus("Create page failed: " + errorMessage(error));
+              });
+            }
+          });
+          if (state.quickSwitcherSelectionIndex >= 0) {
+            updateQuickSwitcherSelection();
+          }
+          if (els.quickSwitcherModalShell && !els.quickSwitcherModalShell.classList.contains("hidden") && els.quickSwitcherInput) {
+            window.requestAnimationFrame(function() {
+              if (document.activeElement !== els.quickSwitcherInput) {
+                els.quickSwitcherInput.focus({ preventScroll: true });
+              }
+            });
+          }
+        }
+        function scheduleQuickSwitcherRefresh() {
+          window.clearTimeout(state.quickSwitcherTimer ?? void 0);
+          state.quickSwitcherTimer = window.setTimeout(renderQuickSwitcherResults2, 50);
         }
         function scheduleGlobalSearch() {
           window.clearTimeout(state.searchTimer ?? void 0);
@@ -3003,13 +3251,21 @@
           state.commandSelectionIndex = renderCommandPaletteResults({
             container: els.commandPaletteResults,
             inputValue: els.commandPaletteInput ? els.commandPaletteInput.value : "",
-            pages: state.pages,
             selectedPage: state.selectedPage,
             sourceOpen: state.sourceOpen,
             railOpen: state.railOpen,
             currentHomePage: currentHomePage(),
             onToggleSource: function() {
               setSourceOpen(!state.sourceOpen);
+            },
+            onOpenHelp: function() {
+              closeCommandPalette();
+              setHelpOpen(true);
+            },
+            onOpenQuickSwitcher: function() {
+              closeCommandPalette();
+              setQuickSwitcherOpen(true);
+              renderQuickSwitcherResults2();
             },
             onOpenSearch: function() {
               setSearchOpen(true);
@@ -3044,22 +3300,6 @@
               closeCommandPalette();
               renderCommandPaletteResults2();
               setNoteStatus(state.configHomePage ? "Home page reset to configured default." : "Home page cleared.");
-            },
-            onMovePage: function(pagePath, targetPage) {
-              closeCommandPalette();
-              movePage(pagePath, targetPage).catch(function(error) {
-                setNoteStatus("Move page failed: " + errorMessage(error));
-              });
-            },
-            onCreatePage: function(pagePath) {
-              closeCommandPalette();
-              createPage(pagePath).catch(function(error) {
-                setNoteStatus("Create page failed: " + errorMessage(error));
-              });
-            },
-            onOpenPage: function(pagePath) {
-              closeCommandPalette();
-              navigateToPage(pagePath, false);
             }
           });
           if (state.commandSelectionIndex >= 0) {
@@ -3239,6 +3479,13 @@
           });
         }
         function wireEvents() {
+          function isTypingTarget(target) {
+            const element = target instanceof Element ? target : null;
+            if (!element) {
+              return false;
+            }
+            return Boolean(element.closest("input, textarea, select, [contenteditable='true'], .cm-editor, .cm-content"));
+          }
           on(els.pageSearch, "input", loadPages);
           on(els.querySearch, "input", loadSavedQueryTree);
           on(els.reloadPages, "click", loadPages);
@@ -3249,12 +3496,21 @@
               setRailOpen(!state.railOpen);
             }
           });
+          on(els.openHelp, "click", function() {
+            setHelpOpen(true);
+          });
+          on(els.openQuickSwitcher, "click", function() {
+            setQuickSwitcherOpen(true);
+            renderQuickSwitcherResults2();
+          });
           on(els.openSearch, "click", function() {
             setSearchOpen(true);
             scheduleGlobalSearch();
           });
           on(els.closeCommandModal, "click", closeCommandPalette);
           on(els.commandPaletteInput, "input", scheduleCommandPaletteRefresh);
+          on(els.closeQuickSwitcherModal, "click", closeQuickSwitcher);
+          on(els.quickSwitcherInput, "input", scheduleQuickSwitcherRefresh);
           on(els.railTabFiles, "click", function() {
             setRailTab("files");
           });
@@ -3374,6 +3630,26 @@
               }
             }
           });
+          on(els.quickSwitcherInput, "keydown", function(rawEvent) {
+            const event = rawEvent;
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              moveQuickSwitcherSelection(1);
+              return;
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              moveQuickSwitcherSelection(-1);
+              return;
+            }
+            if (event.key === "Enter") {
+              const buttons = quickSwitcherResultButtons();
+              if (buttons.length && state.quickSwitcherSelectionIndex >= 0) {
+                event.preventDefault();
+                triggerQuickSwitcherSelection();
+              }
+            }
+          });
           on(els.taskModalShell, "click", function(event) {
             if (event.target === els.taskModalShell) {
               closeTaskModal();
@@ -3387,6 +3663,17 @@
           on(els.commandModalShell, "click", function(event) {
             if (event.target === els.commandModalShell) {
               closeCommandPalette();
+            }
+          });
+          on(els.quickSwitcherModalShell, "click", function(event) {
+            if (event.target === els.quickSwitcherModalShell) {
+              closeQuickSwitcher();
+            }
+          });
+          on(els.closeHelpModal, "click", closeHelpModal);
+          on(els.helpModalShell, "click", function(event) {
+            if (event.target === els.helpModalShell) {
+              closeHelpModal();
             }
           });
           document.addEventListener("mousedown", function(event) {
@@ -3418,6 +3705,14 @@
               closeCommandPalette();
               return;
             }
+            if (event.key === "Escape" && els.quickSwitcherModalShell && !els.quickSwitcherModalShell.classList.contains("hidden")) {
+              closeQuickSwitcher();
+              return;
+            }
+            if (event.key === "Escape" && els.helpModalShell && !els.helpModalShell.classList.contains("hidden")) {
+              closeHelpModal();
+              return;
+            }
             if (event.key === "Escape" && (state.propertyDraft || state.propertyTypeMenuKey)) {
               dismissPropertyUI();
               const active = document.activeElement;
@@ -3435,15 +3730,24 @@
               event.preventDefault();
               setSourceOpen(!state.sourceOpen);
             }
-            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+            if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "k") {
+              event.preventDefault();
+              setQuickSwitcherOpen(true);
+              renderQuickSwitcherResults2();
+            }
+            if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "k") {
               event.preventDefault();
               setSearchOpen(true);
               scheduleGlobalSearch();
             }
-            if ((event.metaKey || event.ctrlKey) && event.key === "/") {
+            if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "p") {
               event.preventDefault();
               setCommandPaletteOpen(true);
               renderCommandPaletteResults2();
+            }
+            if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "?" && !isTypingTarget(event.target)) {
+              event.preventDefault();
+              setHelpOpen(true);
             }
           });
           window.addEventListener("blur", function() {
