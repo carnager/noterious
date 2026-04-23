@@ -1531,6 +1531,11 @@ select {
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+.settings-modal-card {
+  width: min(680px, 100%);
+  gap: 0.72rem;
+}
+
 .help-lead {
   margin: 0;
   color: rgba(192, 202, 245, 0.8);
@@ -1653,6 +1658,22 @@ kbd {
 .help-bullets strong {
   color: rgba(230, 235, 255, 0.96);
   font-weight: 600;
+}
+
+.settings-modal-card .section-head > button {
+  all: unset;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.12rem 0.22rem;
+  border-radius: 6px;
+}
+
+.settings-modal-card .section-head > button:hover,
+.settings-modal-card .section-head > button:focus-visible {
+  background: rgba(122, 162, 247, 0.08);
+  color: var(--ink);
 }
 
 .modal-fields {

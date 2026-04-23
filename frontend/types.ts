@@ -143,6 +143,36 @@ export interface MetaResponse {
   database: string;
   serverTime: string;
   serverFirst: boolean;
+  restartRequired?: boolean;
+}
+
+export interface Hotkeys {
+  quickSwitcher: string;
+  globalSearch: string;
+  commandPalette: string;
+  help: string;
+  saveCurrentPage: string;
+  toggleRawMode: string;
+}
+
+export interface Preferences {
+  hotkeys: Hotkeys;
+}
+
+export interface WorkspaceSettings {
+  vaultPath: string;
+  homePage: string;
+}
+
+export interface AppSettings {
+  preferences: Preferences;
+  workspace: WorkspaceSettings;
+}
+
+export interface SettingsResponse {
+  settings: AppSettings;
+  appliedWorkspace: WorkspaceSettings;
+  restartRequired: boolean;
 }
 
 export interface PageListResponse {

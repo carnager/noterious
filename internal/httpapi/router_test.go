@@ -19,6 +19,7 @@ import (
 	"github.com/carnager/noterious/internal/config"
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
+	"github.com/carnager/noterious/internal/settings"
 	"github.com/carnager/noterious/internal/vault"
 )
 
@@ -116,6 +117,89 @@ Link to [[projects/alpha]].
 	}
 	if len(payload.Tasks[0].Who) != 1 || payload.Tasks[0].Who[0] != "Ralf" {
 		t.Fatalf("task who = %#v", payload.Tasks[0].Who)
+	}
+}
+
+func TestSettingsAPIStoresWorkspaceAndHotkeys(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(vaultDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "index.md"), []byte("# Home\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg := config.Config{
+		ListenAddr: ":8080",
+		VaultPath:  vaultDir,
+		DataDir:    dataDir,
+		HomePage:   "index",
+	}
+	settingsStore, err := settings.NewStore(dataDir, settings.DefaultSettingsFromConfig(cfg))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Config:   cfg,
+		Settings: settingsStore,
+	})
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	getResponse := httptest.NewRecorder()
+	router.ServeHTTP(getResponse, getRequest)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/settings status = %d want %d", getResponse.Code, http.StatusOK)
+	}
+
+	var initial settings.Snapshot
+	if err := json.NewDecoder(getResponse.Body).Decode(&initial); err != nil {
+		t.Fatalf("Decode(initial) error = %v", err)
+	}
+	if initial.Settings.Workspace.VaultPath != vaultDir {
+		t.Fatalf("initial vault path = %q want %q", initial.Settings.Workspace.VaultPath, vaultDir)
+	}
+
+	body := bytes.NewBufferString(`{
+	  "preferences": {
+	    "hotkeys": {
+	      "quickSwitcher": "Mod+O",
+	      "globalSearch": "Mod+Shift+F",
+	      "commandPalette": "Mod+/",
+	      "help": "?",
+	      "saveCurrentPage": "Mod+S",
+	      "toggleRawMode": "Mod+E"
+	    }
+	  },
+	  "workspace": {
+	    "vaultPath": "` + filepath.ToSlash(filepath.Join(rootDir, "other-vault")) + `",
+	    "homePage": "notes/start"
+	  }
+	}`)
+	putRequest := httptest.NewRequest(http.MethodPut, "/api/settings", body)
+	putRequest.Header.Set("Content-Type", "application/json")
+	putResponse := httptest.NewRecorder()
+	router.ServeHTTP(putResponse, putRequest)
+	if putResponse.Code != http.StatusOK {
+		t.Fatalf("PUT /api/settings status = %d want %d body=%s", putResponse.Code, http.StatusOK, putResponse.Body.String())
+	}
+
+	var updated settings.Snapshot
+	if err := json.NewDecoder(putResponse.Body).Decode(&updated); err != nil {
+		t.Fatalf("Decode(updated) error = %v", err)
+	}
+	if updated.Settings.Preferences.Hotkeys.GlobalSearch != "Mod+Shift+F" {
+		t.Fatalf("global search hotkey = %q want %q", updated.Settings.Preferences.Hotkeys.GlobalSearch, "Mod+Shift+F")
+	}
+	if !updated.RestartRequired {
+		t.Fatalf("updated settings should require restart after vault path change")
+	}
+	if updated.AppliedWorkspace.VaultPath != vaultDir {
+		t.Fatalf("applied vault path = %q want %q", updated.AppliedWorkspace.VaultPath, vaultDir)
 	}
 }
 

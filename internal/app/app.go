@@ -10,17 +10,28 @@ import (
 	"github.com/carnager/noterious/internal/httpapi"
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
+	"github.com/carnager/noterious/internal/settings"
 	"github.com/carnager/noterious/internal/vault"
 )
 
 type App struct {
 	cfg     config.Config
 	index   *index.Service
+	store   *settings.Store
 	server  *http.Server
 	watcher *VaultWatcher
 }
 
 func New(cfg config.Config) (*App, error) {
+	settingsStore, err := settings.NewStore(cfg.DataDir, settings.DefaultSettingsFromConfig(cfg))
+	if err != nil {
+		return nil, fmt.Errorf("init settings: %w", err)
+	}
+	appliedSettings := settingsStore.Settings()
+	cfg.VaultPath = appliedSettings.Workspace.VaultPath
+	cfg.HomePage = appliedSettings.Workspace.HomePage
+	settingsStore.SetAppliedWorkspace(appliedSettings.Workspace)
+
 	vaultService := vault.NewService(cfg.VaultPath)
 	indexService := index.NewService(cfg.DataDir)
 	queryService := query.NewService()
@@ -45,6 +56,7 @@ func New(cfg config.Config) (*App, error) {
 
 	router := httpapi.NewRouter(httpapi.Dependencies{
 		Config:        cfg,
+		Settings:      settingsStore,
 		Vault:         vaultService,
 		Index:         indexService,
 		Query:         queryService,
@@ -55,6 +67,7 @@ func New(cfg config.Config) (*App, error) {
 	return &App{
 		cfg:     cfg,
 		index:   indexService,
+		store:   settingsStore,
 		watcher: watcher,
 		server: &http.Server{
 			Addr:              cfg.ListenAddr,

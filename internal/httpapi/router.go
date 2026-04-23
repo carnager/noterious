@@ -16,11 +16,13 @@ import (
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/markdown"
 	"github.com/carnager/noterious/internal/query"
+	"github.com/carnager/noterious/internal/settings"
 	"github.com/carnager/noterious/internal/vault"
 )
 
 type Dependencies struct {
 	Config        config.Config
+	Settings      *settings.Store
 	Vault         *vault.Service
 	Index         *index.Service
 	Query         *query.Service
@@ -43,16 +45,52 @@ func NewRouter(deps Dependencies) http.Handler {
 	})
 
 	mux.HandleFunc("/api/meta", func(w http.ResponseWriter, _ *http.Request) {
+		workspace := settings.Workspace{
+			VaultPath: deps.Config.VaultPath,
+			HomePage:  deps.Config.HomePage,
+		}
+		restartRequired := false
+		if deps.Settings != nil {
+			snapshot := deps.Settings.Snapshot()
+			workspace = snapshot.Settings.Workspace
+			restartRequired = snapshot.RestartRequired
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"name":        "noterious",
 			"listenAddr":  deps.Config.ListenAddr,
-			"vaultPath":   deps.Config.VaultPath,
+			"vaultPath":   workspace.VaultPath,
 			"dataDir":     deps.Config.DataDir,
-			"homePage":    deps.Config.HomePage,
+			"homePage":    workspace.HomePage,
 			"database":    deps.Index.DatabasePath(),
 			"serverTime":  time.Now().UTC().Format(time.RFC3339),
 			"serverFirst": true,
+			"restartRequired": restartRequired,
 		})
+	})
+
+	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Settings == nil {
+			http.Error(w, "settings unavailable", http.StatusInternalServerError)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, deps.Settings.Snapshot())
+		case http.MethodPut:
+			var payload settings.AppSettings
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			snapshot, err := deps.Settings.Update(payload)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			writeJSON(w, http.StatusOK, snapshot)
+		default:
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodPut)
+		}
 	})
 
 	mux.HandleFunc("/api/pages/", func(w http.ResponseWriter, r *http.Request) {

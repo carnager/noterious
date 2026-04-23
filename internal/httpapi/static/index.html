@@ -16,6 +16,7 @@
         </div>
         <p class="topbar-path" id="detail-path">Select a page</p>
         <div class="topbar-actions topbar-actions-right">
+          <button type="button" id="open-settings" class="topbar-toggle topbar-toggle-settings" aria-label="Open settings">Settings</button>
           <button type="button" id="open-help" class="topbar-toggle topbar-toggle-help" aria-label="Open help">Help</button>
         </div>
       </header>
@@ -271,22 +272,11 @@
         <p class="help-lead">Built-in actions are split into note opening, full search, commands, and editor actions so they stay predictable in the browser.</p>
         <section class="help-section">
           <h3>Core Shortcuts</h3>
-          <div class="shortcut-list">
-            <div class="shortcut-row"><span>Quick Switcher</span><span class="shortcut-keys"><kbd>Ctrl</kbd><kbd>K</kbd></span></div>
-            <div class="shortcut-row"><span>Full Search</span><span class="shortcut-keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>K</kbd></span></div>
-            <div class="shortcut-row"><span>Command Palette</span><span class="shortcut-keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>P</kbd></span></div>
-            <div class="shortcut-row"><span>Save Current Note</span><span class="shortcut-keys"><kbd>Ctrl</kbd><kbd>S</kbd></span></div>
-            <div class="shortcut-row"><span>Toggle Raw Mode</span><span class="shortcut-keys"><kbd>Ctrl</kbd><kbd>E</kbd></span></div>
-            <div class="shortcut-row"><span>Open Help</span><span class="shortcut-keys"><kbd>?</kbd></span></div>
-          </div>
+          <div class="shortcut-list" id="help-shortcuts-core"></div>
         </section>
         <section class="help-section">
           <h3>Editor</h3>
-          <div class="shortcut-list">
-            <div class="shortcut-row"><span>Slash Commands</span><span class="shortcut-keys"><kbd>/</kbd></span></div>
-            <div class="shortcut-row"><span>Open Link Under Caret</span><span class="shortcut-keys"><kbd>Shift</kbd><kbd>Enter</kbd></span></div>
-            <div class="shortcut-row"><span>Close Menus or Modals</span><span class="shortcut-keys"><kbd>Esc</kbd></span></div>
-          </div>
+          <div class="shortcut-list" id="help-shortcuts-editor"></div>
         </section>
         <section class="help-section">
           <h3>Where Things Live</h3>
@@ -297,6 +287,58 @@
             <li><strong>Slash Commands</strong> are editor-only block commands, closer to Obsidian-style editing.</li>
           </ul>
         </section>
+      </div>
+    </div>
+
+    <div class="modal-shell hidden" id="settings-modal-shell">
+      <div class="modal-card settings-modal-card">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Settings</p>
+            <h2>Workspace & Hotkeys</h2>
+          </div>
+          <button type="button" id="close-settings-modal" aria-label="Close settings">×</button>
+        </div>
+        <p class="help-lead">Workspace settings are stored on the server. Changing the vault path updates the saved workspace and may require a restart.</p>
+        <div class="modal-fields">
+          <label class="search modal-field-wide">
+            <span>Vault Path</span>
+            <input id="settings-vault-path" type="text" placeholder="./vault" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+          <label class="search modal-field-wide">
+            <span>Home Page</span>
+            <input id="settings-home-page" type="text" placeholder="notes/home" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+          <label class="search">
+            <span>Quick Switcher</span>
+            <input id="settings-hotkey-quick-switcher" type="text" placeholder="Mod+K" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+          <label class="search">
+            <span>Full Search</span>
+            <input id="settings-hotkey-global-search" type="text" placeholder="Mod+Shift+K" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+          <label class="search">
+            <span>Command Palette</span>
+            <input id="settings-hotkey-command-palette" type="text" placeholder="Mod+Shift+P" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+          <label class="search">
+            <span>Open Help</span>
+            <input id="settings-hotkey-help" type="text" placeholder="?" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+          <label class="search">
+            <span>Save Current Note</span>
+            <input id="settings-hotkey-save-current-page" type="text" placeholder="Mod+S" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+          <label class="search">
+            <span>Toggle Raw Mode</span>
+            <input id="settings-hotkey-toggle-raw-mode" type="text" placeholder="Mod+E" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+        </div>
+        <p id="settings-status" class="help-lead">Settings are stored in the server data directory.</p>
+        <div class="task-modal-footer">
+          <button type="button" id="cancel-settings">Cancel</button>
+          <button type="button" id="save-settings">Save Settings</button>
+        </div>
       </div>
     </div>
 

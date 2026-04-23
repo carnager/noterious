@@ -183,28 +183,34 @@
         title: options.sourceOpen ? "Close Raw Mode" : "Open Raw Mode",
         meta: "Editor",
         keywords: "raw mode markdown source editor",
-        hint: "Ctrl+E",
+        hint: options.hotkeys.toggleRawMode,
         run: options.onToggleSource
       },
       {
         title: "Global Search",
         meta: "Search",
         keywords: "search find global",
-        hint: "Ctrl+Shift+K",
+        hint: options.hotkeys.globalSearch,
         run: options.onOpenSearch
       },
       {
         title: "Open Help",
         meta: "Help",
         keywords: "help shortcuts keyboard keymap",
-        hint: "?",
+        hint: options.hotkeys.help,
         run: options.onOpenHelp
+      },
+      {
+        title: "Open Settings",
+        meta: "Settings",
+        keywords: "settings preferences hotkeys workspace",
+        run: options.onOpenSettings
       },
       {
         title: "Open Quick Switcher",
         meta: "Navigation",
         keywords: "quick switcher open file note",
-        hint: "Ctrl+K",
+        hint: options.hotkeys.quickSwitcher,
         run: options.onOpenQuickSwitcher
       },
       {
@@ -715,6 +721,120 @@
     "frontend/editorState.ts"() {
       "use strict";
       init_dom();
+    }
+  });
+
+  // frontend/hotkeys.ts
+  function normalizeToken(token) {
+    return String(token || "").trim().toLowerCase();
+  }
+  function normalizeKeyName(value) {
+    const token = normalizeToken(value);
+    switch (token) {
+      case "mod":
+        return "mod";
+      case "cmd":
+      case "command":
+      case "meta":
+        return "meta";
+      case "ctrl":
+      case "control":
+        return "ctrl";
+      case "alt":
+      case "option":
+        return "alt";
+      case "shift":
+        return "shift";
+      case "esc":
+        return "escape";
+      case "slash":
+        return "/";
+      case "question":
+        return "?";
+      default:
+        return token;
+    }
+  }
+  function hotkeyLabel(value) {
+    return String(value || "").split("+").map(function(part) {
+      const token = normalizeKeyName(part);
+      switch (token) {
+        case "mod":
+          return "Ctrl";
+        case "meta":
+          return "Cmd";
+        case "ctrl":
+          return "Ctrl";
+        case "alt":
+          return "Alt";
+        case "shift":
+          return "Shift";
+        case "escape":
+          return "Esc";
+        default:
+          return token.length === 1 ? token.toUpperCase() : token.charAt(0).toUpperCase() + token.slice(1);
+      }
+    }).join("+");
+  }
+  function matchesHotkey(hotkey, event) {
+    const binding = String(hotkey || "").trim();
+    if (!binding) {
+      return false;
+    }
+    const tokens = binding.split("+").map(normalizeKeyName).filter(Boolean);
+    const modifiers = {
+      meta: false,
+      ctrl: false,
+      alt: false,
+      shift: false
+    };
+    let explicitShift = false;
+    let key = "";
+    tokens.forEach(function(token) {
+      if (token === "mod") {
+        modifiers.meta = true;
+        modifiers.ctrl = true;
+        return;
+      }
+      if (token === "meta" || token === "ctrl" || token === "alt" || token === "shift") {
+        modifiers[token] = true;
+        if (token === "shift") {
+          explicitShift = true;
+        }
+        return;
+      }
+      key = token;
+    });
+    if (tokens.indexOf("mod") >= 0) {
+      if (!(event.metaKey || event.ctrlKey)) {
+        return false;
+      }
+    } else {
+      if (event.metaKey !== modifiers.meta) {
+        return false;
+      }
+      if (event.ctrlKey !== modifiers.ctrl) {
+        return false;
+      }
+    }
+    if (event.altKey !== modifiers.alt) {
+      return false;
+    }
+    if (explicitShift && event.shiftKey !== modifiers.shift) {
+      return false;
+    }
+    const eventKey = normalizeKeyName(event.key);
+    if (!key) {
+      return true;
+    }
+    if (!explicitShift && event.shiftKey && /^[a-z0-9]$/i.test(key)) {
+      return false;
+    }
+    return eventKey === key;
+  }
+  var init_hotkeys = __esm({
+    "frontend/hotkeys.ts"() {
+      "use strict";
     }
   });
 
@@ -2107,6 +2227,7 @@
       init_editorState();
       init_http();
       init_markdown();
+      init_hotkeys();
       init_noteView();
       init_palette();
       init_pageViews();
@@ -2117,7 +2238,6 @@
       init_search();
       init_slashMenu();
       (function() {
-        const HOME_PAGE_STORAGE_KEY = "noterious.homePage";
         const state = {
           selectedPage: "",
           selectedSavedQuery: "",
@@ -2149,6 +2269,27 @@
           railOpen: false,
           railTab: "files",
           sourceOpen: false,
+          settings: {
+            preferences: {
+              hotkeys: {
+                quickSwitcher: "Mod+K",
+                globalSearch: "Mod+Shift+K",
+                commandPalette: "Mod+Shift+P",
+                help: "?",
+                saveCurrentPage: "Mod+S",
+                toggleRawMode: "Mod+E"
+              }
+            },
+            workspace: {
+              vaultPath: "./vault",
+              homePage: ""
+            }
+          },
+          appliedWorkspace: {
+            vaultPath: "./vault",
+            homePage: ""
+          },
+          settingsRestartRequired: false,
           configHomePage: "",
           homePage: "",
           markdownEditorApi: null,
@@ -2201,6 +2342,7 @@
           openQuickSwitcher: requiredElement("open-quick-switcher"),
           openSearch: requiredElement("open-search"),
           openHelp: requiredElement("open-help"),
+          openSettings: requiredElement("open-settings"),
           reloadPages: optionalElement("reload-pages"),
           reloadQueries: optionalElement("reload-queries"),
           toggleDebug: optionalElement("toggle-debug"),
@@ -2233,6 +2375,21 @@
           quickSwitcherResults: requiredElement("quick-switcher-results"),
           helpModalShell: requiredElement("help-modal-shell"),
           closeHelpModal: requiredElement("close-help-modal"),
+          helpShortcutCore: requiredElement("help-shortcuts-core"),
+          helpShortcutEditor: requiredElement("help-shortcuts-editor"),
+          settingsModalShell: requiredElement("settings-modal-shell"),
+          closeSettingsModal: requiredElement("close-settings-modal"),
+          cancelSettings: requiredElement("cancel-settings"),
+          saveSettings: requiredElement("save-settings"),
+          settingsVaultPath: requiredElement("settings-vault-path"),
+          settingsHomePage: requiredElement("settings-home-page"),
+          settingsQuickSwitcher: requiredElement("settings-hotkey-quick-switcher"),
+          settingsGlobalSearch: requiredElement("settings-hotkey-global-search"),
+          settingsCommandPalette: requiredElement("settings-hotkey-command-palette"),
+          settingsHelp: requiredElement("settings-hotkey-help"),
+          settingsSaveCurrentPage: requiredElement("settings-hotkey-save-current-page"),
+          settingsToggleRawMode: requiredElement("settings-hotkey-toggle-raw-mode"),
+          settingsStatus: requiredElement("settings-status"),
           slashMenu: requiredElement("slash-menu"),
           slashMenuResults: requiredElement("slash-menu-results")
         };
@@ -2275,35 +2432,17 @@
         function encodePath(path) {
           return path.split("/").map(encodeURIComponent).join("/");
         }
-        function getStoredHomePage() {
-          try {
-            return normalizePageDraftPath(window.localStorage.getItem(HOME_PAGE_STORAGE_KEY) || "");
-          } catch (_error) {
-            return "";
-          }
-        }
-        function writeStoredHomePage(pagePath) {
-          const normalized = normalizePageDraftPath(pagePath);
-          try {
-            if (normalized) {
-              window.localStorage.setItem(HOME_PAGE_STORAGE_KEY, normalized);
-            } else {
-              window.localStorage.removeItem(HOME_PAGE_STORAGE_KEY);
-            }
-          } catch (_error) {
-          }
-        }
         function setHomePage(pagePath) {
           const normalized = normalizePageDraftPath(pagePath);
           state.homePage = normalized;
-          writeStoredHomePage(normalized);
+          state.settings.workspace.homePage = normalized;
         }
         function clearHomePage() {
-          state.homePage = normalizePageDraftPath(state.configHomePage || "");
-          writeStoredHomePage("");
+          state.homePage = "";
+          state.settings.workspace.homePage = "";
         }
         function currentHomePage() {
-          return normalizePageDraftPath(state.homePage || state.configHomePage || "");
+          return normalizePageDraftPath(state.homePage || state.settings.workspace.homePage || "");
         }
         function syncURLState(replace) {
           const url = buildSelectionURL(window.location.href, state.selectedPage, state.selectedSavedQuery);
@@ -2713,17 +2852,87 @@
           els.derivedView.textContent = pretty(derived);
           els.rawView.textContent = raw || "";
         }
+        function shortcutRow(label, hotkey) {
+          const row = document.createElement("div");
+          row.className = "shortcut-row";
+          const title = document.createElement("span");
+          title.textContent = label;
+          row.appendChild(title);
+          const keys = document.createElement("span");
+          keys.className = "shortcut-keys";
+          hotkeyLabel(hotkey).split("+").forEach(function(part) {
+            const key = document.createElement("kbd");
+            key.textContent = part;
+            keys.appendChild(key);
+          });
+          row.appendChild(keys);
+          return row;
+        }
+        function renderHelpShortcuts() {
+          clearNode(els.helpShortcutCore);
+          clearNode(els.helpShortcutEditor);
+          [
+            ["Quick Switcher", state.settings.preferences.hotkeys.quickSwitcher],
+            ["Full Search", state.settings.preferences.hotkeys.globalSearch],
+            ["Command Palette", state.settings.preferences.hotkeys.commandPalette],
+            ["Save Current Note", state.settings.preferences.hotkeys.saveCurrentPage],
+            ["Toggle Raw Mode", state.settings.preferences.hotkeys.toggleRawMode],
+            ["Open Help", state.settings.preferences.hotkeys.help]
+          ].forEach(function(entry) {
+            els.helpShortcutCore.appendChild(shortcutRow(entry[0], entry[1]));
+          });
+          [
+            ["Slash Commands", "/"],
+            ["Open Link Under Caret", "Shift+Enter"],
+            ["Close Menus or Modals", "Esc"]
+          ].forEach(function(entry) {
+            els.helpShortcutEditor.appendChild(shortcutRow(entry[0], entry[1]));
+          });
+        }
+        function renderSettingsForm() {
+          els.settingsVaultPath.value = state.settings.workspace.vaultPath || "";
+          els.settingsHomePage.value = state.settings.workspace.homePage || "";
+          els.settingsQuickSwitcher.value = state.settings.preferences.hotkeys.quickSwitcher || "";
+          els.settingsGlobalSearch.value = state.settings.preferences.hotkeys.globalSearch || "";
+          els.settingsCommandPalette.value = state.settings.preferences.hotkeys.commandPalette || "";
+          els.settingsHelp.value = state.settings.preferences.hotkeys.help || "";
+          els.settingsSaveCurrentPage.value = state.settings.preferences.hotkeys.saveCurrentPage || "";
+          els.settingsToggleRawMode.value = state.settings.preferences.hotkeys.toggleRawMode || "";
+          if (state.settingsRestartRequired) {
+            els.settingsStatus.textContent = "Vault path changed. Restart the server to apply the new workspace root.";
+            return;
+          }
+          els.settingsStatus.textContent = "Settings are stored in the server data directory.";
+        }
+        function setSettingsSnapshot(snapshot) {
+          state.settings = snapshot.settings;
+          state.appliedWorkspace = snapshot.appliedWorkspace;
+          state.settingsRestartRequired = snapshot.restartRequired;
+          state.homePage = normalizePageDraftPath(snapshot.settings.workspace.homePage || "");
+          renderHelpShortcuts();
+          renderSettingsForm();
+        }
+        async function loadSettings() {
+          try {
+            const snapshot = await fetchJSON("/api/settings");
+            setSettingsSnapshot(snapshot);
+          } catch (error) {
+            els.settingsStatus.textContent = errorMessage(error);
+          }
+        }
         async function loadMeta() {
           try {
             const meta = await fetchJSON("/api/meta");
-            state.configHomePage = normalizePageDraftPath(meta.homePage || "");
-            state.homePage = getStoredHomePage() || state.configHomePage;
-            setMetaPills([
+            const pills = [
               "Listening " + meta.listenAddr,
               "Vault " + meta.vaultPath,
               "DB " + meta.database,
               "Time " + meta.serverTime
-            ]);
+            ];
+            if (meta.restartRequired) {
+              pills.splice(2, 0, "Restart required");
+            }
+            setMetaPills(pills);
           } catch (error) {
             setMetaPills(["Meta error", errorMessage(error)]);
           }
@@ -3110,6 +3319,60 @@
         function closeHelpModal() {
           setHelpOpen(false);
         }
+        function setSettingsOpen(open) {
+          if (open) {
+            els.searchModalShell.classList.add("hidden");
+            els.commandModalShell.classList.add("hidden");
+            els.quickSwitcherModalShell.classList.add("hidden");
+            els.helpModalShell.classList.add("hidden");
+            els.settingsModalShell.classList.remove("hidden");
+            renderSettingsForm();
+            window.requestAnimationFrame(function() {
+              focusWithoutScroll(els.settingsVaultPath);
+            });
+            return;
+          }
+          els.settingsModalShell.classList.add("hidden");
+        }
+        function closeSettingsModal() {
+          setSettingsOpen(false);
+        }
+        function collectSettingsForm() {
+          return {
+            workspace: {
+              vaultPath: String(els.settingsVaultPath.value || "").trim(),
+              homePage: normalizePageDraftPath(els.settingsHomePage.value || "")
+            },
+            preferences: {
+              hotkeys: {
+                quickSwitcher: String(els.settingsQuickSwitcher.value || "").trim(),
+                globalSearch: String(els.settingsGlobalSearch.value || "").trim(),
+                commandPalette: String(els.settingsCommandPalette.value || "").trim(),
+                help: String(els.settingsHelp.value || "").trim(),
+                saveCurrentPage: String(els.settingsSaveCurrentPage.value || "").trim(),
+                toggleRawMode: String(els.settingsToggleRawMode.value || "").trim()
+              }
+            }
+          };
+        }
+        async function persistSettings() {
+          els.settingsStatus.textContent = "Saving settings\u2026";
+          try {
+            const snapshot = await fetchJSON("/api/settings", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(collectSettingsForm())
+            });
+            setSettingsSnapshot(snapshot);
+            await loadMeta();
+            if (state.selectedPage || state.selectedSavedQuery) {
+              syncURLState(true);
+            }
+            els.settingsStatus.textContent = snapshot.restartRequired ? "Saved. Restart the server to apply the new vault path." : "Settings saved.";
+          } catch (error) {
+            els.settingsStatus.textContent = errorMessage(error);
+          }
+        }
         function renderGlobalSearchResults2(payload) {
           state.searchSelectionIndex = renderGlobalSearchResults({
             container: els.globalSearchResults,
@@ -3255,12 +3518,17 @@
             sourceOpen: state.sourceOpen,
             railOpen: state.railOpen,
             currentHomePage: currentHomePage(),
+            hotkeys: state.settings.preferences.hotkeys,
             onToggleSource: function() {
               setSourceOpen(!state.sourceOpen);
             },
             onOpenHelp: function() {
               closeCommandPalette();
               setHelpOpen(true);
+            },
+            onOpenSettings: function() {
+              closeCommandPalette();
+              setSettingsOpen(true);
             },
             onOpenQuickSwitcher: function() {
               closeCommandPalette();
@@ -3299,7 +3567,7 @@
               clearHomePage();
               closeCommandPalette();
               renderCommandPaletteResults2();
-              setNoteStatus(state.configHomePage ? "Home page reset to configured default." : "Home page cleared.");
+              setNoteStatus("Home page cleared.");
             }
           });
           if (state.commandSelectionIndex >= 0) {
@@ -3499,6 +3767,9 @@
           on(els.openHelp, "click", function() {
             setHelpOpen(true);
           });
+          on(els.openSettings, "click", function() {
+            setSettingsOpen(true);
+          });
           on(els.openQuickSwitcher, "click", function() {
             setQuickSwitcherOpen(true);
             renderQuickSwitcherResults2();
@@ -3676,6 +3947,18 @@
               closeHelpModal();
             }
           });
+          on(els.closeSettingsModal, "click", closeSettingsModal);
+          on(els.cancelSettings, "click", closeSettingsModal);
+          on(els.saveSettings, "click", function() {
+            persistSettings().catch(function(error) {
+              els.settingsStatus.textContent = errorMessage(error);
+            });
+          });
+          on(els.settingsModalShell, "click", function(event) {
+            if (event.target === els.settingsModalShell) {
+              closeSettingsModal();
+            }
+          });
           document.addEventListener("mousedown", function(event) {
             const target = event.target instanceof Element ? event.target : null;
             const withinProperties = target ? target.closest("#page-properties") || target.closest("#add-property") : null;
@@ -3713,6 +3996,10 @@
               closeHelpModal();
               return;
             }
+            if (event.key === "Escape" && els.settingsModalShell && !els.settingsModalShell.classList.contains("hidden")) {
+              closeSettingsModal();
+              return;
+            }
             if (event.key === "Escape" && (state.propertyDraft || state.propertyTypeMenuKey)) {
               dismissPropertyUI();
               const active = document.activeElement;
@@ -3722,32 +4009,38 @@
               event.preventDefault();
               return;
             }
-            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s" && state.selectedPage) {
+            if (matchesHotkey(state.settings.preferences.hotkeys.saveCurrentPage, event) && state.selectedPage) {
               event.preventDefault();
               saveCurrentPage();
+              return;
             }
-            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "e" && state.selectedPage) {
+            if (matchesHotkey(state.settings.preferences.hotkeys.toggleRawMode, event) && state.selectedPage) {
               event.preventDefault();
               setSourceOpen(!state.sourceOpen);
+              return;
             }
-            if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "k") {
+            if (matchesHotkey(state.settings.preferences.hotkeys.quickSwitcher, event)) {
               event.preventDefault();
               setQuickSwitcherOpen(true);
               renderQuickSwitcherResults2();
+              return;
             }
-            if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "k") {
+            if (matchesHotkey(state.settings.preferences.hotkeys.globalSearch, event)) {
               event.preventDefault();
               setSearchOpen(true);
               scheduleGlobalSearch();
+              return;
             }
-            if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "p") {
+            if (matchesHotkey(state.settings.preferences.hotkeys.commandPalette, event)) {
               event.preventDefault();
               setCommandPaletteOpen(true);
               renderCommandPaletteResults2();
+              return;
             }
-            if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "?" && !isTypingTarget(event.target)) {
+            if (matchesHotkey(state.settings.preferences.hotkeys.help, event) && !isTypingTarget(event.target)) {
               event.preventDefault();
               setHelpOpen(true);
+              return;
             }
           });
           window.addEventListener("blur", function() {
@@ -3851,8 +4144,10 @@
           renderPageTasks2([]);
           renderPageContext2();
           renderPageProperties2();
+          renderHelpShortcuts();
+          renderSettingsForm();
           wireEvents();
-          await Promise.all([loadMeta(), loadPages(), loadSavedQueryTree()]);
+          await Promise.all([loadSettings(), loadMeta(), loadPages(), loadSavedQueryTree()]);
           applyURLState2();
           connectEvents();
         }

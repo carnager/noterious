@@ -15,8 +15,17 @@ export interface RenderCommandPaletteOptions {
   sourceOpen: boolean;
   railOpen: boolean;
   currentHomePage: string;
+  hotkeys: {
+    globalSearch: string;
+    commandPalette: string;
+    quickSwitcher: string;
+    help: string;
+    saveCurrentPage: string;
+    toggleRawMode: string;
+  };
   onToggleSource(): void;
   onOpenHelp(): void;
+  onOpenSettings(): void;
   onOpenQuickSwitcher(): void;
   onOpenSearch(): void;
   onFocusRail(tab: string): void;
@@ -47,28 +56,34 @@ function buildCommandEntries(options: RenderCommandPaletteOptions): CommandEntry
       title: options.sourceOpen ? "Close Raw Mode" : "Open Raw Mode",
       meta: "Editor",
       keywords: "raw mode markdown source editor",
-      hint: "Ctrl+E",
+      hint: options.hotkeys.toggleRawMode,
       run: options.onToggleSource,
     },
     {
       title: "Global Search",
       meta: "Search",
       keywords: "search find global",
-      hint: "Ctrl+Shift+K",
+      hint: options.hotkeys.globalSearch,
       run: options.onOpenSearch,
     },
     {
       title: "Open Help",
       meta: "Help",
       keywords: "help shortcuts keyboard keymap",
-      hint: "?",
+      hint: options.hotkeys.help,
       run: options.onOpenHelp,
+    },
+    {
+      title: "Open Settings",
+      meta: "Settings",
+      keywords: "settings preferences hotkeys workspace",
+      run: options.onOpenSettings,
     },
     {
       title: "Open Quick Switcher",
       meta: "Navigation",
       keywords: "quick switcher open file note",
-      hint: "Ctrl+K",
+      hint: options.hotkeys.quickSwitcher,
       run: options.onOpenQuickSwitcher,
     },
     {

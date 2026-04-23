@@ -12,11 +12,22 @@ function paletteOptions(overrides: Partial<Parameters<typeof buildCommandPalette
       sourceOpen: false,
       railOpen: false,
       currentHomePage: "notes/home",
+      hotkeys: {
+        quickSwitcher: "Mod+K",
+        globalSearch: "Mod+Shift+K",
+        commandPalette: "Mod+Shift+P",
+        help: "?",
+        saveCurrentPage: "Mod+S",
+        toggleRawMode: "Mod+E",
+      },
       onToggleSource: function () {
         calls.push("toggle-source");
       },
       onOpenHelp: function () {
         calls.push("open-help");
+      },
+      onOpenSettings: function () {
+        calls.push("open-settings");
       },
       onOpenQuickSwitcher: function () {
         calls.push("open-quick-switcher");
@@ -76,6 +87,9 @@ describe("command helpers", function () {
     const help = commands.find(function (item) {
       return item.title === "Open Help";
     });
+    const settings = commands.find(function (item) {
+      return item.title === "Open Settings";
+    });
     const quickSwitcher = commands.find(function (item) {
       return item.title === "Open Quick Switcher";
     });
@@ -83,16 +97,19 @@ describe("command helpers", function () {
     expect(setHome).toBeTruthy();
     expect(openHome).toBeTruthy();
     expect(help).toBeTruthy();
+    expect(settings).toBeTruthy();
     expect(quickSwitcher).toBeTruthy();
 
     setHome?.onSelect();
     openHome?.onSelect();
     help?.onSelect();
+    settings?.onSelect();
     quickSwitcher?.onSelect();
 
     expect(calls).toContain("set-home:notes/alpha");
     expect(calls).toContain("open-home:notes/home");
     expect(calls).toContain("open-help");
+    expect(calls).toContain("open-settings");
     expect(calls).toContain("open-quick-switcher");
   });
 

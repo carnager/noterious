@@ -11,7 +11,7 @@ bin/
 node_modules/
 
 data/
-vault/
+/vault/
 
 /noterious
 *.log
