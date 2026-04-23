@@ -1,3 +1,4 @@
+"use strict";
 (() => {
   var __getOwnPropNames = Object.getOwnPropertyNames;
   var __esm = (fn, res) => function __init() {
@@ -24804,9 +24805,9 @@
     }
   });
 
-  // frontend/editor.js
+  // frontend/editor.ts
   var require_editor = __commonJS({
-    "frontend/editor.js"() {
+    "frontend/editor.ts"() {
       init_dist();
       init_dist2();
       init_dist6();
@@ -24928,7 +24929,7 @@
         update(value, transaction) {
           for (const effect of transaction.effects) {
             if (effect.is(setQueryBlocksEffect)) {
-              return effect.value instanceof Map ? effect.value : /* @__PURE__ */ new Map();
+              return effect.value;
             }
           }
           return value;
@@ -24941,7 +24942,7 @@
         update(value, transaction) {
           for (const effect of transaction.effects) {
             if (effect.is(setTasksEffect)) {
-              return effect.value instanceof Map ? effect.value : /* @__PURE__ */ new Map();
+              return effect.value;
             }
           }
           return value;
@@ -25100,7 +25101,7 @@
           }
           const host = document.createElement("div");
           host.className = "markdown-editor-host hidden";
-          textarea.parentNode.insertBefore(host, textarea);
+          textarea.parentNode?.insertBefore(host, textarea);
           textarea.classList.add("markdown-editor-native");
           let suppressInput = false;
           const eventHandlers = EditorView.domEventHandlers({
@@ -25219,7 +25220,8 @@
             },
             getCaretRect() {
               const head = view.state.selection.main.head;
-              return view.coordsAtPos(head);
+              const rect = view.coordsAtPos(head);
+              return rect ? new DOMRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top) : null;
             },
             setRenderMode(enabled) {
               host.classList.toggle("render-mode", Boolean(enabled));
@@ -25261,7 +25263,7 @@
               });
             },
             isRenderMode() {
-              return view.state.field(renderModeField, false);
+              return Boolean(view.state.field(renderModeField, false));
             },
             onKeydown(handler) {
               view.dom.addEventListener("keydown", handler);

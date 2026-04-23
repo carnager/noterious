@@ -7,8 +7,12 @@
     "doc": "docs"
   },
   "scripts": {
-    "build:ui": "esbuild frontend/editor.js --bundle --format=iife --platform=browser --target=es2020 --outfile=internal/httpapi/static/editor.bundle.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build:ui": "npm run typecheck && npm run build:ui:app && npm run build:ui:editor",
+    "build:ui:app": "esbuild frontend/app.ts --bundle --format=iife --platform=browser --target=es2020 --outfile=internal/httpapi/static/app.js",
+    "build:ui:editor": "esbuild frontend/editor.ts --bundle --format=iife --platform=browser --target=es2020 --outfile=internal/httpapi/static/editor.bundle.js",
+    "test:ui": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "keywords": [],
   "author": "",
@@ -26,5 +30,9 @@
     "@codemirror/view": "^6.41.1",
     "@lezer/highlight": "^1.2.3",
     "esbuild": "^0.28.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
   }
 }

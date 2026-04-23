@@ -1,33 +1,46 @@
 import {EditorState, StateEffect, StateField, RangeSetBuilder} from "@codemirror/state";
-import {EditorView, keymap, drawSelection, highlightActiveLine, Decoration, WidgetType} from "@codemirror/view";
+import {EditorView, keymap, drawSelection, highlightActiveLine, Decoration, type DecorationSet, WidgetType} from "@codemirror/view";
 import {defaultKeymap, history, historyKeymap} from "@codemirror/commands";
 import {markdown} from "@codemirror/lang-markdown";
+import type { NoteriousEditorApi, QueryBlockRender, TaskRender } from "./types";
 
-function syncTextareaValue(textarea, value) {
+interface EditorTaskState {
+  ref: string;
+  text: string;
+  done: boolean;
+  due: string;
+  remind: string;
+  who: string[];
+}
+
+function syncTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
   textarea.value = value;
   textarea.dispatchEvent(new Event("input", {bubbles: true}));
 }
 
-function setTextareaValue(textarea, value) {
+function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
   textarea.value = value;
 }
 
-const setRenderModeEffect = StateEffect.define();
-const setQueryBlocksEffect = StateEffect.define();
-const setTasksEffect = StateEffect.define();
+const setRenderModeEffect = StateEffect.define<boolean>();
+const setQueryBlocksEffect = StateEffect.define<Map<string, string>>();
+const setTasksEffect = StateEffect.define<Map<number, EditorTaskState>>();
 
 class WikiLinkWidget extends WidgetType {
-  constructor(target, label) {
+  target: string;
+  label: string;
+
+  constructor(target: string, label: string) {
     super();
     this.target = target;
     this.label = label;
   }
 
-  eq(other) {
+  eq(other: WikiLinkWidget): boolean {
     return other.target === this.target && other.label === this.label;
   }
 
-  toDOM() {
+  toDOM(): HTMLButtonElement {
     const link = document.createElement("button");
     link.type = "button";
     link.className = "cm-md-link";
@@ -42,17 +55,20 @@ class WikiLinkWidget extends WidgetType {
 }
 
 class TaskCheckboxWidget extends WidgetType {
-  constructor(done, ref) {
+  done: boolean;
+  ref: string;
+
+  constructor(done: boolean, ref?: string) {
     super();
     this.done = done;
     this.ref = ref || "";
   }
 
-  eq(other) {
+  eq(other: TaskCheckboxWidget): boolean {
     return other.done === this.done && other.ref === this.ref;
   }
 
-  toDOM() {
+  toDOM(): HTMLButtonElement {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "cm-md-task-toggle";
@@ -70,16 +86,18 @@ class TaskCheckboxWidget extends WidgetType {
 }
 
 class TaskMetaWidget extends WidgetType {
-  constructor(task) {
+  task: EditorTaskState;
+
+  constructor(task: EditorTaskState) {
     super();
     this.task = task;
   }
 
-  eq(other) {
+  eq(other: TaskMetaWidget): boolean {
     return JSON.stringify(other.task) === JSON.stringify(this.task);
   }
 
-  toDOM() {
+  toDOM(): HTMLSpanElement {
     const meta = document.createElement("span");
     meta.className = "cm-md-task-meta";
 
@@ -112,16 +130,18 @@ class TaskMetaWidget extends WidgetType {
 }
 
 class QueryBlockWidget extends WidgetType {
-  constructor(html) {
+  html: string;
+
+  constructor(html: string) {
     super();
     this.html = html;
   }
 
-  eq(other) {
+  eq(other: QueryBlockWidget): boolean {
     return other.html === this.html;
   }
 
-  toDOM() {
+  toDOM(): HTMLDivElement {
     const wrapper = document.createElement("div");
     wrapper.className = "cm-md-query-block";
     wrapper.innerHTML = this.html;
@@ -133,40 +153,40 @@ class QueryBlockWidget extends WidgetType {
   }
 }
 
-const queryBlocksField = StateField.define({
+const queryBlocksField = StateField.define<Map<string, string>>({
   create() {
-    return new Map();
+    return new Map<string, string>();
   },
   update(value, transaction) {
     for (const effect of transaction.effects) {
       if (effect.is(setQueryBlocksEffect)) {
-        return effect.value instanceof Map ? effect.value : new Map();
+        return effect.value;
       }
     }
     return value;
   },
 });
 
-const tasksField = StateField.define({
+const tasksField = StateField.define<Map<number, EditorTaskState>>({
   create() {
-    return new Map();
+    return new Map<number, EditorTaskState>();
   },
   update(value, transaction) {
     for (const effect of transaction.effects) {
       if (effect.is(setTasksEffect)) {
-        return effect.value instanceof Map ? effect.value : new Map();
+        return effect.value;
       }
     }
     return value;
   },
 });
 
-function buildRenderedDecorations(state) {
+function buildRenderedDecorations(state: EditorState): DecorationSet {
   if (!state.field(renderModeField, false)) {
     return Decoration.none;
   }
 
-  const builder = new RangeSetBuilder();
+  const builder = new RangeSetBuilder<Decoration>();
   const queryBlocks = state.field(queryBlocksField);
   const tasks = state.field(tasksField);
   let hiddenFrontmatterUntil = 0;
@@ -272,7 +292,7 @@ function buildRenderedDecorations(state) {
     }
 
     const wikiPattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
-    let wikiMatch = null;
+    let wikiMatch: RegExpExecArray | null = null;
     while ((wikiMatch = wikiPattern.exec(text)) !== null) {
       const target = String(wikiMatch[1] || "").trim();
       const label = String(wikiMatch[2] || wikiMatch[1] || "").trim();
@@ -291,7 +311,7 @@ function buildRenderedDecorations(state) {
   return builder.finish();
 }
 
-const renderModeField = StateField.define({
+const renderModeField = StateField.define<boolean>({
   create() {
     return false;
   },
@@ -305,7 +325,7 @@ const renderModeField = StateField.define({
   },
 });
 
-const renderedDecorationsField = StateField.define({
+const renderedDecorationsField = StateField.define<DecorationSet>({
   create(state) {
     return buildRenderedDecorations(state);
   },
@@ -320,14 +340,14 @@ const renderedDecorationsField = StateField.define({
 });
 
 window.NoteriousCodeEditor = {
-  create(textarea) {
+  create(textarea: HTMLTextAreaElement): NoteriousEditorApi | null {
     if (!textarea || textarea.__noteriousEditor) {
       return textarea && textarea.__noteriousEditor ? textarea.__noteriousEditor : null;
     }
 
     const host = document.createElement("div");
     host.className = "markdown-editor-host hidden";
-    textarea.parentNode.insertBefore(host, textarea);
+    textarea.parentNode?.insertBefore(host, textarea);
     textarea.classList.add("markdown-editor-native");
 
     let suppressInput = false;
@@ -396,13 +416,13 @@ window.NoteriousCodeEditor = {
       parent: host,
     });
 
-    const api = {
+    const api: NoteriousEditorApi = {
       host,
       view,
       getValue() {
         return view.state.doc.toString();
       },
-      setValue(value) {
+      setValue(value: string) {
         const nextValue = String(value || "");
         const current = view.state.doc.toString();
         if (nextValue === current) {
@@ -416,7 +436,7 @@ window.NoteriousCodeEditor = {
         suppressInput = false;
         setTextareaValue(textarea, nextValue);
       },
-      focus(options) {
+      focus(options?: FocusOptions) {
         try {
           view.focus();
           if (options && options.preventScroll) {
@@ -452,17 +472,18 @@ window.NoteriousCodeEditor = {
       },
       getCaretRect() {
         const head = view.state.selection.main.head;
-        return view.coordsAtPos(head);
+        const rect = view.coordsAtPos(head);
+        return rect ? new DOMRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top) : null;
       },
-      setRenderMode(enabled) {
+      setRenderMode(enabled: boolean) {
         host.classList.toggle("render-mode", Boolean(enabled));
         host.classList.toggle("raw-mode", !enabled);
         view.dispatch({
           effects: setRenderModeEffect.of(Boolean(enabled)),
         });
       },
-      setQueryBlocks(blocks) {
-        const map = new Map();
+      setQueryBlocks(blocks: QueryBlockRender[]) {
+        const map = new Map<string, string>();
         (Array.isArray(blocks) ? blocks : []).forEach((block) => {
           const source = String(block && block.source ? block.source : "").replace(/\r\n/g, "\n").trim();
           const html = String(block && block.html ? block.html : "");
@@ -474,8 +495,8 @@ window.NoteriousCodeEditor = {
           effects: setQueryBlocksEffect.of(map),
         });
       },
-      setTasks(tasks) {
-        const map = new Map();
+      setTasks(tasks: TaskRender[]) {
+        const map = new Map<number, EditorTaskState>();
         (Array.isArray(tasks) ? tasks : []).forEach((task) => {
           const line = Number(task && task.line);
           if (line > 0) {
@@ -494,9 +515,9 @@ window.NoteriousCodeEditor = {
         });
       },
       isRenderMode() {
-        return view.state.field(renderModeField, false);
+        return Boolean(view.state.field(renderModeField, false));
       },
-      onKeydown(handler) {
+      onKeydown(handler: EventListenerOrEventListenerObject) {
         view.dom.addEventListener("keydown", handler);
       },
     };
