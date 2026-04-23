@@ -1,9 +1,17 @@
 .DS_Store
+Thumbs.db
+
 .idea/
 .vscode/
+.codex
+
 .gobuild/
 .gomodcache/
 bin/
+node_modules/
+
 data/
 vault/
+
 noterious
+*.log

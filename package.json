@@ -1,0 +1,30 @@
+{
+  "name": "noterious",
+  "version": "1.0.0",
+  "description": "Noterious is a server-first, markdown-backed knowledge base designed for fast clients, structured queries, and companion/mobile integrations.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build:ui": "esbuild frontend/editor.js --bundle --format=iife --platform=browser --target=es2020 --outfile=internal/httpapi/static/editor.bundle.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.20.1",
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/highlight": "^0.19.8",
+    "@codemirror/history": "^0.19.2",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/search": "^6.7.0",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.1",
+    "@lezer/highlight": "^1.2.3",
+    "esbuild": "^0.28.0"
+  }
+}

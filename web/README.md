@@ -1,13 +1,12 @@
 # Web Client
 
-This directory is reserved for the thin web client.
+The repo currently ships a small embedded exploratory UI directly from the Go server at `/`.
 
-Expected responsibilities:
+That UI is intentionally minimal and exists for:
 
 - page viewing
-- markdown editing
-- semantic edit popovers
-- API consumption
-- SSE subscriptions
+- saved-query inspection
+- API dogfooding
+- SSE inspection
 
-The client should assume the server owns expensive derived state.
+This directory remains reserved for a future fuller thin web client once the API settles.

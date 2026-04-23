@@ -14,30 +14,48 @@ import (
 )
 
 type App struct {
-	cfg    config.Config
-	index  *index.Service
-	server *http.Server
+	cfg     config.Config
+	index   *index.Service
+	server  *http.Server
+	watcher *VaultWatcher
 }
 
 func New(cfg config.Config) (*App, error) {
 	vaultService := vault.NewService(cfg.VaultPath)
 	indexService := index.NewService(cfg.DataDir)
 	queryService := query.NewService()
+	eventBroker := httpapi.NewEventBroker()
 
 	if err := indexService.Open(context.Background()); err != nil {
 		return nil, fmt.Errorf("open index: %w", err)
 	}
+	if err := indexService.RebuildFromVault(context.Background(), vaultService); err != nil {
+		_ = indexService.Close()
+		return nil, fmt.Errorf("rebuild index from vault: %w", err)
+	}
+	if err := queryService.RefreshAll(context.Background(), indexService); err != nil {
+		_ = indexService.Close()
+		return nil, fmt.Errorf("refresh query caches: %w", err)
+	}
+	watcher, err := NewVaultWatcher(context.Background(), vaultService, indexService, queryService, eventBroker)
+	if err != nil {
+		_ = indexService.Close()
+		return nil, fmt.Errorf("init vault watcher: %w", err)
+	}
 
 	router := httpapi.NewRouter(httpapi.Dependencies{
-		Config: cfg,
-		Vault:  vaultService,
-		Index:  indexService,
-		Query:  queryService,
+		Config:        cfg,
+		Vault:         vaultService,
+		Index:         indexService,
+		Query:         queryService,
+		Events:        eventBroker,
+		OnPageChanged: watcher.Acknowledge,
 	})
 
 	return &App{
-		cfg:   cfg,
-		index: indexService,
+		cfg:     cfg,
+		index:   indexService,
+		watcher: watcher,
 		server: &http.Server{
 			Addr:              cfg.ListenAddr,
 			Handler:           router,
@@ -58,6 +76,10 @@ func (a *App) Run(ctx context.Context) error {
 		}
 		close(errCh)
 	}()
+
+	if a.watcher != nil && a.cfg.WatchInterval > 0 {
+		go a.watcher.Run(ctx, a.cfg.WatchInterval)
+	}
 
 	select {
 	case <-ctx.Done():

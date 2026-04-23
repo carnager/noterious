@@ -56,3 +56,17 @@ Phase 1 is intentionally narrow:
 3. Add a first page API returning raw source plus derived metadata.
 4. Add query block parsing and execution against the server index.
 5. Add SSE invalidation for page and query results.
+
+## Exploratory UI
+
+The server now ships a small embedded exploratory UI at `/`.
+
+It is intentionally thin and API-driven:
+
+- note-first page browser with preview-first reading and edit mode
+- semantic task popup editing, including clickable tasks inside the rendered note
+- page context summaries for backlinks, links, and embedded queries
+- a hidden debug drawer for raw/derived views, saved queries, query lab, and SSE events
+- open-task snapshot for quick navigation across the vault
+
+The goal is fast dogfooding of the current API, not a polished long-term client yet.
