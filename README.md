@@ -60,6 +60,18 @@ Build the embedded frontend assets:
 npm run build:ui
 ```
 
+Verify that committed embedded assets are up to date:
+
+```bash
+npm run verify:ui
+```
+
+Or use the local build wrapper:
+
+```bash
+make build
+```
+
 Build the server binary:
 
 ```bash
@@ -80,6 +92,8 @@ go run ./cmd/noterious
 ```
 
 Important: the web UI is served through Go `embed`, so after `npm run build:ui` you must restart the Go process for updated frontend assets to be included.
+
+The repository also includes CI that rebuilds the embedded frontend assets and fails if committed generated files are stale.
 
 By default the app uses:
 
