@@ -1,6 +1,7 @@
 import { clearNode } from "./dom";
+import { pageLeafName } from "./palette";
 import { resultButtons } from "./palette";
-import type { SlashCommand, SlashMenuContext } from "./types";
+import type { PageSummary, SlashCommand, SlashMenuContext } from "./types";
 
 export interface SlashMenuState {
   slashOpen: boolean;
@@ -62,6 +63,7 @@ function slashCommandCatalog(): SlashCommand[] {
       title: "Insert task",
       description: "Turn the current line into a checkbox item.",
       keywords: "todo checkbox checklist",
+      hint: "/task",
       apply: function (lineText: string) {
         return prefixLine(lineText, "task", "- [ ] ");
       },
@@ -71,6 +73,7 @@ function slashCommandCatalog(): SlashCommand[] {
       title: "Insert bullet list",
       description: "Turn the current line into a bullet list item.",
       keywords: "list unordered dash",
+      hint: "/bullet",
       apply: function (lineText: string) {
         return prefixLine(lineText, "bullet", "- ");
       },
@@ -80,6 +83,7 @@ function slashCommandCatalog(): SlashCommand[] {
       title: "Insert numbered list",
       description: "Turn the current line into a numbered list item.",
       keywords: "list ordered numbered",
+      hint: "/number",
       apply: function (lineText: string) {
         return prefixLine(lineText, "number", "1. ");
       },
@@ -89,6 +93,7 @@ function slashCommandCatalog(): SlashCommand[] {
       title: "Heading 1",
       description: "Insert a level 1 heading.",
       keywords: "header title heading",
+      hint: "/h1",
       apply: function (lineText: string) {
         return prefixLine(lineText, "h1", "# ");
       },
@@ -98,6 +103,7 @@ function slashCommandCatalog(): SlashCommand[] {
       title: "Heading 2",
       description: "Insert a level 2 heading.",
       keywords: "header heading",
+      hint: "/h2",
       apply: function (lineText: string) {
         return prefixLine(lineText, "h2", "## ");
       },
@@ -107,6 +113,7 @@ function slashCommandCatalog(): SlashCommand[] {
       title: "Heading 3",
       description: "Insert a level 3 heading.",
       keywords: "header heading",
+      hint: "/h3",
       apply: function (lineText: string) {
         return prefixLine(lineText, "h3", "### ");
       },
@@ -116,6 +123,7 @@ function slashCommandCatalog(): SlashCommand[] {
       title: "Insert blockquote",
       description: "Turn the current line into a blockquote.",
       keywords: "blockquote cite",
+      hint: "/quote",
       apply: function (lineText: string) {
         return prefixLine(lineText, "quote", "> ");
       },
@@ -125,6 +133,7 @@ function slashCommandCatalog(): SlashCommand[] {
       title: "Insert code block",
       description: "Replace the current line with a fenced code block.",
       keywords: "fence snippet",
+      hint: "/code",
       apply: function () {
         return "```\n\n```";
       },
@@ -134,6 +143,7 @@ function slashCommandCatalog(): SlashCommand[] {
       title: "Insert callout",
       description: "Replace the current line with an Obsidian-style callout.",
       keywords: "note tip warning admonition",
+      hint: "/callout",
       apply: function () {
         return "> [!note]\n> ";
       },
@@ -161,6 +171,88 @@ export function slashCommandsForText(text: string): SlashCommand[] {
     return slashSearchTokens(command).some(function (token) {
       return token.indexOf(query) === 0 || fuzzyMatch(token, query);
     });
+  });
+}
+
+interface WikilinkTrigger {
+  start: number;
+  end: number;
+  query: string;
+  embed: boolean;
+}
+
+function findWikilinkTrigger(lineText: string, caretInLine: number): WikilinkTrigger | null {
+  const beforeCaret = String(lineText || "").slice(0, Math.max(0, caretInLine));
+  const match = beforeCaret.match(/(!?)\[\[([^\]\n]*)$/);
+  if (!match) {
+    return null;
+  }
+  return {
+    start: beforeCaret.length - match[0].length,
+    end: beforeCaret.length,
+    query: String(match[2] || "").trim().toLowerCase(),
+    embed: match[1] === "!",
+  };
+}
+
+function scorePage(page: PageSummary, query: string): number {
+  const path = String(page.path || "").toLowerCase();
+  const leaf = pageLeafName(page.path).toLowerCase();
+  const title = String(page.title || "").toLowerCase();
+  if (!query) {
+    return page.updatedAt ? Date.parse(page.updatedAt) || 0 : 0;
+  }
+  return (
+    (path === query ? 5000 : 0) +
+    (leaf === query ? 4500 : 0) +
+    (leaf.startsWith(query) ? 3200 : 0) +
+    (path.startsWith(query) ? 2800 : 0) +
+    (title.startsWith(query) ? 2400 : 0) +
+    (path.indexOf(query) >= 0 ? 1200 : 0) +
+    (title.indexOf(query) >= 0 ? 900 : 0)
+  );
+}
+
+export function wikilinkCommandsForContext(
+  lineText: string,
+  caretInLine: number,
+  pages: PageSummary[]
+): SlashCommand[] {
+  const trigger = findWikilinkTrigger(lineText, caretInLine);
+  if (!trigger) {
+    return [];
+  }
+
+  const matches = pages
+    .filter(function (page) {
+      if (!trigger.query) {
+        return true;
+      }
+      const haystack = [page.path, page.title || ""].join(" ").toLowerCase();
+      return haystack.indexOf(trigger.query) >= 0;
+    })
+    .sort(function (left, right) {
+      return scorePage(right, trigger.query) - scorePage(left, trigger.query);
+    })
+    .slice(0, 12);
+
+  return matches.map(function (page): SlashCommand {
+    const replacement = (trigger.embed ? "![[": "[[") + page.path + "]]";
+    const titleLeaf = pageLeafName(page.path);
+    return {
+      id: page.path,
+      title: titleLeaf,
+      description: page.title && page.title !== titleLeaf
+        ? page.path + " · " + page.title
+        : page.path,
+      hint: trigger.embed ? "![[": "[[",
+      apply: function (sourceLine: string): string {
+        return String(sourceLine || "").slice(0, trigger.start) + replacement + String(sourceLine || "").slice(trigger.end);
+      },
+      caret: function (): number {
+        return trigger.start + replacement.length;
+      },
+    };
   });
 }
 
@@ -216,7 +308,7 @@ function openSlashMenu(
 
     const hint = document.createElement("span");
     hint.className = "search-result-hint";
-    hint.textContent = "/" + command.id;
+    hint.textContent = command.hint || ("/" + command.id);
     head.appendChild(hint);
     button.appendChild(head);
 
@@ -260,13 +352,36 @@ export function maybeOpenSlashMenu(
     return;
   }
 
-  const noteRect = elements.noteLayout.getBoundingClientRect();
   const editorRect = editor.getBoundingClientRect();
   openSlashMenu(state, elements, commands, {
     editor: context.editor || editor,
     commands,
-    left: Math.max(0, typeof context.left === "number" ? context.left : (editorRect.left - noteRect.left)),
-    top: Math.max(0, typeof context.top === "number" ? context.top : (editorRect.bottom - noteRect.top + 4)),
+    left: Math.max(0, typeof context.left === "number" ? context.left : editorRect.left),
+    top: Math.max(0, typeof context.top === "number" ? context.top : (editorRect.bottom + 4)),
+    type: context.type,
+    lineIndex: context.lineIndex,
+  }, onApplySelection);
+}
+
+export function openSlashMenuWithCommands(
+  state: SlashMenuState,
+  elements: SlashMenuElements,
+  editor: HTMLElement,
+  commands: SlashCommand[],
+  context: Omit<SlashMenuContext, "commands">,
+  onApplySelection: () => void
+): void {
+  if (!commands.length) {
+    closeSlashMenu(state, elements);
+    return;
+  }
+
+  const editorRect = editor.getBoundingClientRect();
+  openSlashMenu(state, elements, commands, {
+    editor: context.editor || editor,
+    commands,
+    left: Math.max(0, typeof context.left === "number" ? context.left : editorRect.left),
+    top: Math.max(0, typeof context.top === "number" ? context.top : (editorRect.bottom + 4)),
     type: context.type,
     lineIndex: context.lineIndex,
   }, onApplySelection);

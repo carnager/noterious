@@ -237,7 +237,9 @@ export interface SlashCommand {
   title: string;
   description: string;
   keywords?: string;
+  hint?: string;
   apply(lineText: string): string;
+  caret?(updatedLine: string): number;
 }
 
 export interface SlashMenuContext {

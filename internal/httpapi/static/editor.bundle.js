@@ -24812,6 +24812,23 @@
       init_dist2();
       init_dist6();
       init_dist16();
+      var measureCanvas = document.createElement("canvas");
+      var measureContext = measureCanvas.getContext("2d");
+      function measuredTextWidth(text, element) {
+        const source = String(text || "").replace(/\t/g, "  ");
+        if (!measureContext) {
+          return source.length * 8;
+        }
+        const style = window.getComputedStyle(element);
+        measureContext.font = style.font || [
+          style.fontStyle,
+          style.fontVariant,
+          style.fontWeight,
+          style.fontSize,
+          style.fontFamily
+        ].filter(Boolean).join(" ");
+        return measureContext.measureText(source).width;
+      }
       function syncTextareaValue(textarea, value) {
         textarea.value = value;
         textarea.dispatchEvent(new Event("input", { bubbles: true }));
@@ -24955,6 +24972,7 @@
         const builder = new RangeSetBuilder();
         const queryBlocks = state.field(queryBlocksField);
         const tasks = state.field(tasksField);
+        const selection = state.selection.main;
         let hiddenFrontmatterUntil = 0;
         if (state.doc.lines >= 1 && state.doc.line(1).text.trim() === "---") {
           for (let lineNumber = 2; lineNumber <= state.doc.lines; lineNumber += 1) {
@@ -24980,6 +24998,7 @@
           const line = state.doc.line(lineNumber);
           const text = line.text;
           const from = line.from;
+          const editingLine = selection.from <= line.to && selection.to >= line.from;
           if (/^```query(?:\s|$)/i.test(text.trim())) {
             let endLineNumber = lineNumber;
             while (endLineNumber < state.doc.lines) {
@@ -25006,7 +25025,17 @@
           let match = text.match(/^(#{1,6})(\s+)/);
           if (match) {
             builder.add(from, from, Decoration.line({ class: "cm-md-heading cm-md-heading-" + String(match[1].length) }));
-            builder.add(from, from + match[0].length, Decoration.replace({}));
+            if (editingLine) {
+              builder.add(
+                from,
+                from + match[0].length,
+                Decoration.mark({
+                  class: "cm-md-heading-raw"
+                })
+              );
+            } else {
+              builder.add(from, from + match[0].length, Decoration.replace({}));
+            }
           }
           match = text.match(/^(>\s?)/);
           if (match) {
@@ -25057,6 +25086,17 @@
             const label = String(wikiMatch[2] || wikiMatch[1] || "").trim();
             const start = from + wikiMatch.index;
             const end = start + wikiMatch[0].length;
+            const editingLink = selection.from <= end && selection.to >= start;
+            if (editingLink) {
+              builder.add(
+                start,
+                end,
+                Decoration.mark({
+                  class: "cm-md-link-raw"
+                })
+              );
+              continue;
+            }
             builder.add(
               start,
               end,
@@ -25220,7 +25260,19 @@
             },
             getCaretRect() {
               const head = view.state.selection.main.head;
-              const rect = view.coordsAtPos(head);
+              const line = view.state.doc.lineAt(head);
+              const domAtPos = view.domAtPos(Math.max(line.from, Math.min(head, line.to)));
+              const element = domAtPos.node instanceof Element ? domAtPos.node : domAtPos.node.parentElement;
+              const lineElement = element instanceof HTMLElement ? element.closest(".cm-line") : null;
+              if (lineElement) {
+                const lineRect = lineElement.getBoundingClientRect();
+                const style = window.getComputedStyle(lineElement);
+                const lineHeight = Number.parseFloat(style.lineHeight || "") || Number.parseFloat(style.fontSize || "") || 16;
+                const prefix = line.text.slice(0, Math.max(0, head - line.from));
+                const left = lineRect.left + measuredTextWidth(prefix, lineElement);
+                return new DOMRect(left, lineRect.top, 1, lineHeight);
+              }
+              const rect = view.coordsAtPos(head, 1);
               return rect ? new DOMRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top) : null;
             },
             setRenderMode(enabled) {
@@ -25266,7 +25318,7 @@
               return Boolean(view.state.field(renderModeField, false));
             },
             onKeydown(handler) {
-              view.dom.addEventListener("keydown", handler);
+              view.dom.addEventListener("keydown", handler, { capture: true });
             }
           };
           textarea.__noteriousEditor = api;

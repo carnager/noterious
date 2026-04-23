@@ -2030,6 +2030,7 @@
         title: "Insert task",
         description: "Turn the current line into a checkbox item.",
         keywords: "todo checkbox checklist",
+        hint: "/task",
         apply: function(lineText) {
           return prefixLine(lineText, "task", "- [ ] ");
         }
@@ -2039,6 +2040,7 @@
         title: "Insert bullet list",
         description: "Turn the current line into a bullet list item.",
         keywords: "list unordered dash",
+        hint: "/bullet",
         apply: function(lineText) {
           return prefixLine(lineText, "bullet", "- ");
         }
@@ -2048,6 +2050,7 @@
         title: "Insert numbered list",
         description: "Turn the current line into a numbered list item.",
         keywords: "list ordered numbered",
+        hint: "/number",
         apply: function(lineText) {
           return prefixLine(lineText, "number", "1. ");
         }
@@ -2057,6 +2060,7 @@
         title: "Heading 1",
         description: "Insert a level 1 heading.",
         keywords: "header title heading",
+        hint: "/h1",
         apply: function(lineText) {
           return prefixLine(lineText, "h1", "# ");
         }
@@ -2066,6 +2070,7 @@
         title: "Heading 2",
         description: "Insert a level 2 heading.",
         keywords: "header heading",
+        hint: "/h2",
         apply: function(lineText) {
           return prefixLine(lineText, "h2", "## ");
         }
@@ -2075,6 +2080,7 @@
         title: "Heading 3",
         description: "Insert a level 3 heading.",
         keywords: "header heading",
+        hint: "/h3",
         apply: function(lineText) {
           return prefixLine(lineText, "h3", "### ");
         }
@@ -2084,6 +2090,7 @@
         title: "Insert blockquote",
         description: "Turn the current line into a blockquote.",
         keywords: "blockquote cite",
+        hint: "/quote",
         apply: function(lineText) {
           return prefixLine(lineText, "quote", "> ");
         }
@@ -2093,6 +2100,7 @@
         title: "Insert code block",
         description: "Replace the current line with a fenced code block.",
         keywords: "fence snippet",
+        hint: "/code",
         apply: function() {
           return "```\n\n```";
         }
@@ -2102,6 +2110,7 @@
         title: "Insert callout",
         description: "Replace the current line with an Obsidian-style callout.",
         keywords: "note tip warning admonition",
+        hint: "/callout",
         apply: function() {
           return "> [!note]\n> ";
         }
@@ -2126,6 +2135,59 @@
       return slashSearchTokens(command).some(function(token) {
         return token.indexOf(query) === 0 || fuzzyMatch(token, query);
       });
+    });
+  }
+  function findWikilinkTrigger(lineText, caretInLine) {
+    const beforeCaret = String(lineText || "").slice(0, Math.max(0, caretInLine));
+    const match = beforeCaret.match(/(!?)\[\[([^\]\n]*)$/);
+    if (!match) {
+      return null;
+    }
+    return {
+      start: beforeCaret.length - match[0].length,
+      end: beforeCaret.length,
+      query: String(match[2] || "").trim().toLowerCase(),
+      embed: match[1] === "!"
+    };
+  }
+  function scorePage2(page, query) {
+    const path = String(page.path || "").toLowerCase();
+    const leaf = pageLeafName(page.path).toLowerCase();
+    const title = String(page.title || "").toLowerCase();
+    if (!query) {
+      return page.updatedAt ? Date.parse(page.updatedAt) || 0 : 0;
+    }
+    return (path === query ? 5e3 : 0) + (leaf === query ? 4500 : 0) + (leaf.startsWith(query) ? 3200 : 0) + (path.startsWith(query) ? 2800 : 0) + (title.startsWith(query) ? 2400 : 0) + (path.indexOf(query) >= 0 ? 1200 : 0) + (title.indexOf(query) >= 0 ? 900 : 0);
+  }
+  function wikilinkCommandsForContext(lineText, caretInLine, pages) {
+    const trigger = findWikilinkTrigger(lineText, caretInLine);
+    if (!trigger) {
+      return [];
+    }
+    const matches = pages.filter(function(page) {
+      if (!trigger.query) {
+        return true;
+      }
+      const haystack = [page.path, page.title || ""].join(" ").toLowerCase();
+      return haystack.indexOf(trigger.query) >= 0;
+    }).sort(function(left, right) {
+      return scorePage2(right, trigger.query) - scorePage2(left, trigger.query);
+    }).slice(0, 12);
+    return matches.map(function(page) {
+      const replacement = (trigger.embed ? "![[" : "[[") + page.path + "]]";
+      const titleLeaf = pageLeafName(page.path);
+      return {
+        id: page.path,
+        title: titleLeaf,
+        description: page.title && page.title !== titleLeaf ? page.path + " \xB7 " + page.title : page.path,
+        hint: trigger.embed ? "![[" : "[[",
+        apply: function(sourceLine) {
+          return String(sourceLine || "").slice(0, trigger.start) + replacement + String(sourceLine || "").slice(trigger.end);
+        },
+        caret: function() {
+          return trigger.start + replacement.length;
+        }
+      };
     });
   }
   function closeSlashMenu(state, elements) {
@@ -2168,7 +2230,7 @@
       head.appendChild(title);
       const hint = document.createElement("span");
       hint.className = "search-result-hint";
-      hint.textContent = "/" + command.id;
+      hint.textContent = command.hint || "/" + command.id;
       head.appendChild(hint);
       button.appendChild(head);
       const description = document.createElement("small");
@@ -2199,13 +2261,27 @@
       closeSlashMenu(state, elements);
       return;
     }
-    const noteRect = elements.noteLayout.getBoundingClientRect();
     const editorRect = editor.getBoundingClientRect();
     openSlashMenu(state, elements, commands, {
       editor: context.editor || editor,
       commands,
-      left: Math.max(0, typeof context.left === "number" ? context.left : editorRect.left - noteRect.left),
-      top: Math.max(0, typeof context.top === "number" ? context.top : editorRect.bottom - noteRect.top + 4),
+      left: Math.max(0, typeof context.left === "number" ? context.left : editorRect.left),
+      top: Math.max(0, typeof context.top === "number" ? context.top : editorRect.bottom + 4),
+      type: context.type,
+      lineIndex: context.lineIndex
+    }, onApplySelection);
+  }
+  function openSlashMenuWithCommands(state, elements, editor, commands, context, onApplySelection) {
+    if (!commands.length) {
+      closeSlashMenu(state, elements);
+      return;
+    }
+    const editorRect = editor.getBoundingClientRect();
+    openSlashMenu(state, elements, commands, {
+      editor: context.editor || editor,
+      commands,
+      left: Math.max(0, typeof context.left === "number" ? context.left : editorRect.left),
+      top: Math.max(0, typeof context.top === "number" ? context.top : editorRect.bottom + 4),
       type: context.type,
       lineIndex: context.lineIndex
     }, onApplySelection);
@@ -2214,6 +2290,7 @@
     "frontend/slashMenu.ts"() {
       "use strict";
       init_dom();
+      init_palette();
       init_palette();
     }
   });
@@ -2319,6 +2396,7 @@
           detailTitle: requiredElement("detail-title"),
           detailPath: requiredElement("detail-path"),
           noteHeading: requiredElement("note-heading"),
+          toggleSourceMode: requiredElement("toggle-source-mode"),
           noteStatus: requiredElement("note-status"),
           markdownEditor: requiredElement("markdown-editor"),
           structuredView: requiredElement("structured-view"),
@@ -2339,6 +2417,8 @@
           railPanelTags: requiredElement("rail-panel-tags"),
           noteLayout: requiredElement("note-layout"),
           toggleRail: requiredElement("toggle-rail"),
+          historyBack: requiredElement("history-back"),
+          historyForward: requiredElement("history-forward"),
           openQuickSwitcher: requiredElement("open-quick-switcher"),
           openSearch: requiredElement("open-search"),
           openHelp: requiredElement("open-help"),
@@ -2446,6 +2526,9 @@
         }
         function syncURLState(replace) {
           const url = buildSelectionURL(window.location.href, state.selectedPage, state.selectedSavedQuery);
+          if (url.href === window.location.href) {
+            return;
+          }
           if (replace) {
             window.history.replaceState({}, "", url);
           } else {
@@ -2568,7 +2651,7 @@
           state.currentMarkdown = nextValue;
           els.rawView.textContent = state.currentMarkdown;
           scheduleAutosave();
-          const caret = rawContext.lineStart + updated.length;
+          const caret = rawContext.lineStart + (typeof command.caret === "function" ? command.caret(updated) : updated.length);
           focusMarkdownEditor(state, els, { preventScroll: true });
           setMarkdownEditorSelection(state, els, caret, caret);
           setMarkdownEditorScrollTop(state, els, scrollTop);
@@ -2589,6 +2672,14 @@
           els.noteHeading.textContent = page.title || fallbackPath;
           renderPageTags2();
           renderPageProperties2();
+        }
+        function renderSourceModeButton() {
+          const hasPage = Boolean(state.selectedPage && state.currentPage);
+          els.toggleSourceMode.disabled = !hasPage;
+          els.toggleSourceMode.classList.toggle("active", state.sourceOpen);
+          els.toggleSourceMode.setAttribute("aria-pressed", state.sourceOpen ? "true" : "false");
+          els.toggleSourceMode.textContent = state.sourceOpen ? "Preview" : "Raw";
+          els.toggleSourceMode.title = state.sourceOpen ? "Switch to rendered preview (" + hotkeyLabel(state.settings.preferences.hotkeys.toggleRawMode) + ")" : "Switch to raw markdown (" + hotkeyLabel(state.settings.preferences.hotkeys.toggleRawMode) + ")";
         }
         function updateMarkdownBodyRange(start, end, replacement) {
           const split = splitFrontmatter(state.currentMarkdown);
@@ -2635,6 +2726,7 @@
           if (!page) {
             setMarkdownEditorValue(state, els, "");
             setNoteStatus("Select a page to edit and preview markdown.");
+            renderSourceModeButton();
             return;
           }
           setMarkdownEditorValue(state, els, state.currentMarkdown);
@@ -2652,6 +2744,7 @@
           }
           els.rawView.textContent = state.currentMarkdown;
           refreshLivePageChrome();
+          renderSourceModeButton();
           if (hasUnsavedPageChanges()) {
             setNoteStatus("Unsaved local edits on " + state.selectedPage + ".");
             scheduleAutosave();
@@ -2840,6 +2933,7 @@
           els.noteHeading.textContent = "Waiting for selection";
           closeTaskModal();
           renderNoteStudio();
+          renderSourceModeButton();
           renderPageTasks2([]);
           renderPageTags2();
           renderPageContext2();
@@ -2875,6 +2969,8 @@
             ["Quick Switcher", state.settings.preferences.hotkeys.quickSwitcher],
             ["Full Search", state.settings.preferences.hotkeys.globalSearch],
             ["Command Palette", state.settings.preferences.hotkeys.commandPalette],
+            ["Back", "Alt+Left"],
+            ["Forward", "Alt+Right"],
             ["Save Current Note", state.settings.preferences.hotkeys.saveCurrentPage],
             ["Toggle Raw Mode", state.settings.preferences.hotkeys.toggleRawMode],
             ["Open Help", state.settings.preferences.hotkeys.help]
@@ -2911,6 +3007,7 @@
           state.homePage = normalizePageDraftPath(snapshot.settings.workspace.homePage || "");
           renderHelpShortcuts();
           renderSettingsForm();
+          renderSourceModeButton();
         }
         async function loadSettings() {
           try {
@@ -3607,6 +3704,7 @@
           if (state.markdownEditorApi && state.markdownEditorApi.host) {
             state.markdownEditorApi.host.classList.remove("hidden");
           }
+          renderSourceModeButton();
           window.setTimeout(function() {
             focusMarkdownEditor(state, els, { preventScroll: true });
             setMarkdownEditorSelection(state, els, selectionStart, selectionEnd);
@@ -3778,6 +3876,18 @@
             setSearchOpen(true);
             scheduleGlobalSearch();
           });
+          on(els.historyBack, "click", function() {
+            window.history.back();
+          });
+          on(els.historyForward, "click", function() {
+            window.history.forward();
+          });
+          on(els.toggleSourceMode, "click", function() {
+            if (!state.selectedPage) {
+              return;
+            }
+            setSourceOpen(!state.sourceOpen);
+          });
           on(els.closeCommandModal, "click", closeCommandPalette);
           on(els.commandPaletteInput, "input", scheduleCommandPaletteRefresh);
           on(els.closeQuickSwitcherModal, "click", closeQuickSwitcher);
@@ -3802,15 +3912,22 @@
           on(els.runQuery, "click", runQueryWorkbench);
           on(els.markdownEditor, "input", function() {
             state.currentMarkdown = els.markdownEditor.value;
-            const rawContext = currentRawLineContext(state, els);
-            const slashAnchor = state.markdownEditorApi && state.markdownEditorApi.host ? state.markdownEditorApi.host : els.markdownEditor;
-            const caretRect = markdownEditorCaretRect(state);
-            const noteRect = els.noteLayout ? els.noteLayout.getBoundingClientRect() : { left: 0, top: 0 };
-            maybeOpenSlashMenu(state, els, slashAnchor, rawContext.lineText, {
-              type: "raw",
-              left: caretRect ? Math.max(0, caretRect.left - noteRect.left) : void 0,
-              top: caretRect ? Math.max(0, caretRect.bottom - noteRect.top + 6) : void 0
-            }, applySlashSelection);
+            window.requestAnimationFrame(function() {
+              const rawContext = currentRawLineContext(state, els);
+              const slashAnchor = state.markdownEditorApi && state.markdownEditorApi.host ? state.markdownEditorApi.host : els.markdownEditor;
+              const caretRect = markdownEditorCaretRect(state);
+              const menuContext = {
+                type: "raw",
+                left: caretRect ? Math.max(0, caretRect.left) : void 0,
+                top: caretRect ? Math.max(0, caretRect.bottom + 6) : void 0
+              };
+              const wikilinkCommands = wikilinkCommandsForContext(rawContext.lineText, rawContext.caretInLine, state.pages);
+              if (wikilinkCommands.length) {
+                openSlashMenuWithCommands(state, els, slashAnchor, wikilinkCommands, menuContext, applySlashSelection);
+              } else {
+                maybeOpenSlashMenu(state, els, slashAnchor, rawContext.lineText, menuContext, applySlashSelection);
+              }
+            });
             if (state.currentPage) {
               els.rawView.textContent = state.currentMarkdown;
               refreshLivePageChrome();
@@ -3847,9 +3964,10 @@
               moveSlashSelection(state, els, 1);
               return;
             }
-            if (event.key === "Enter" && state.slashOpen) {
+            if ((event.key === "Enter" || event.key === "Tab") && state.slashOpen) {
               event.preventDefault();
               applySlashSelection();
+              return;
             }
           };
           on(els.markdownEditor, "keydown", handleMarkdownEditorKeydown);
@@ -3976,6 +4094,16 @@
             }
           });
           window.addEventListener("keydown", function(event) {
+            if (!event.ctrlKey && !event.metaKey && !event.shiftKey && event.altKey && event.key === "ArrowLeft") {
+              event.preventDefault();
+              window.history.back();
+              return;
+            }
+            if (!event.ctrlKey && !event.metaKey && !event.shiftKey && event.altKey && event.key === "ArrowRight") {
+              event.preventDefault();
+              window.history.forward();
+              return;
+            }
             if (event.key === "Escape" && !els.taskModalShell.classList.contains("hidden")) {
               closeTaskModal();
               return;
@@ -4073,26 +4201,10 @@
             }
             on(markdownEditorApi.host, "click", function(event) {
               const eventTarget = event.target instanceof Element ? event.target : null;
-              const target = eventTarget ? eventTarget.closest("[data-page-link]") : null;
-              if (!target) {
+              if (eventTarget && eventTarget.closest("[data-page-link]")) {
+                event.preventDefault();
                 return;
               }
-              event.preventDefault();
-              const page = String(target.getAttribute("data-page-link") || "").trim();
-              const line = String(target.getAttribute("data-page-line") || "").trim();
-              const taskRef = String(target.getAttribute("data-task-ref") || "").trim();
-              if (!page) {
-                return;
-              }
-              if (taskRef) {
-                navigateToPageAtTask(page, taskRef, Number(line), false);
-                return;
-              }
-              if (line) {
-                navigateToPageAtLine(page, Number(line), false);
-                return;
-              }
-              navigateToPage(page, false);
             });
             on(markdownEditorApi.host, "noterious:page-link", function(event) {
               const detail = event.detail || {};

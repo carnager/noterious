@@ -586,12 +586,32 @@ select {
   margin-bottom: 0.15rem;
 }
 
+.note-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
 .note-heading {
   margin: 0;
   font-size: 1.62rem;
   line-height: 1.18;
   letter-spacing: -0.03em;
   font-weight: 700;
+  min-width: 0;
+}
+
+.note-mode-button {
+  flex: 0 0 auto;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.76rem;
+  line-height: 1.1;
+}
+
+.note-mode-button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .property-list {
@@ -1154,6 +1174,11 @@ select {
   letter-spacing: -0.01em;
 }
 
+.markdown-editor-host.render-mode .cm-md-heading-raw {
+  color: var(--muted);
+  opacity: 0.8;
+}
+
 .markdown-editor-host.render-mode .cm-md-heading-1 {
   font-size: 1.22rem;
 }
@@ -1189,6 +1214,13 @@ select {
 .markdown-editor-host.render-mode .cm-md-link:focus-visible {
   color: var(--accent);
   outline: none;
+}
+
+.markdown-editor-host.render-mode .cm-md-link-raw {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.12em;
 }
 
 .markdown-editor-host.render-mode .cm-md-task-toggle {
@@ -1295,7 +1327,7 @@ select {
 }
 
 .slash-menu {
-  position: absolute;
+  position: fixed;
   left: 0;
   top: 0;
   z-index: 25;

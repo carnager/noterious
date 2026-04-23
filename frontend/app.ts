@@ -67,7 +67,7 @@ import { renderSavedQueryTree as renderSavedQueryTreeUI } from "./queryTree";
 import { renderQuickSwitcherResults as renderQuickSwitcherResultsUI } from "./quickSwitcher";
 import { applyURLState as applyURLStateUI, buildSelectionURL, navigateToPageSelection } from "./routing";
 import { renderGlobalSearchResults as renderGlobalSearchResultsUI } from "./search";
-import { closeSlashMenu, maybeOpenSlashMenu, moveSlashSelection } from "./slashMenu";
+import { closeSlashMenu, maybeOpenSlashMenu, moveSlashSelection, openSlashMenuWithCommands, wikilinkCommandsForContext } from "./slashMenu";
 import type {
   AppSettings as SettingsModel,
   BacklinkRecord,
@@ -252,6 +252,7 @@ interface AppState {
     detailTitle: requiredElement<HTMLElement>("detail-title"),
     detailPath: requiredElement<HTMLElement>("detail-path"),
     noteHeading: requiredElement<HTMLElement>("note-heading"),
+    toggleSourceMode: requiredElement<HTMLButtonElement>("toggle-source-mode"),
     noteStatus: requiredElement<HTMLElement>("note-status"),
     markdownEditor: requiredElement<HTMLTextAreaElement>("markdown-editor"),
     structuredView: requiredElement<HTMLElement>("structured-view"),
@@ -272,6 +273,8 @@ interface AppState {
     railPanelTags: requiredElement<HTMLElement>("rail-panel-tags"),
     noteLayout: requiredElement<HTMLElement>("note-layout"),
     toggleRail: requiredElement<HTMLButtonElement>("toggle-rail"),
+    historyBack: requiredElement<HTMLButtonElement>("history-back"),
+    historyForward: requiredElement<HTMLButtonElement>("history-forward"),
     openQuickSwitcher: requiredElement<HTMLButtonElement>("open-quick-switcher"),
     openSearch: requiredElement<HTMLButtonElement>("open-search"),
     openHelp: requiredElement<HTMLButtonElement>("open-help"),
@@ -389,6 +392,9 @@ interface AppState {
 
   function syncURLState(replace: boolean) {
     const url = buildSelectionURL(window.location.href, state.selectedPage, state.selectedSavedQuery);
+    if (url.href === window.location.href) {
+      return;
+    }
     if (replace) {
       window.history.replaceState({}, "", url);
     } else {
@@ -518,7 +524,7 @@ interface AppState {
     state.currentMarkdown = nextValue;
     els.rawView.textContent = state.currentMarkdown;
     scheduleAutosave();
-    const caret = rawContext.lineStart + updated.length;
+    const caret = rawContext.lineStart + (typeof command.caret === "function" ? command.caret(updated) : updated.length);
     focusMarkdownEditor(state, els, {preventScroll: true});
     setMarkdownEditorSelection(state, els, caret, caret);
     setMarkdownEditorScrollTop(state, els, scrollTop);
@@ -543,6 +549,17 @@ interface AppState {
     els.noteHeading.textContent = page.title || fallbackPath;
     renderPageTags();
     renderPageProperties();
+  }
+
+  function renderSourceModeButton(): void {
+    const hasPage = Boolean(state.selectedPage && state.currentPage);
+    els.toggleSourceMode.disabled = !hasPage;
+    els.toggleSourceMode.classList.toggle("active", state.sourceOpen);
+    els.toggleSourceMode.setAttribute("aria-pressed", state.sourceOpen ? "true" : "false");
+    els.toggleSourceMode.textContent = state.sourceOpen ? "Preview" : "Raw";
+    els.toggleSourceMode.title = state.sourceOpen
+      ? "Switch to rendered preview (" + hotkeyLabel(state.settings.preferences.hotkeys.toggleRawMode) + ")"
+      : "Switch to raw markdown (" + hotkeyLabel(state.settings.preferences.hotkeys.toggleRawMode) + ")";
   }
 
   function updateMarkdownBodyRange(start: number, end: number, replacement: string): void {
@@ -597,6 +614,7 @@ interface AppState {
     if (!page) {
       setMarkdownEditorValue(state, els, "");
       setNoteStatus("Select a page to edit and preview markdown.");
+      renderSourceModeButton();
       return;
     }
 
@@ -615,6 +633,7 @@ interface AppState {
     }
     els.rawView.textContent = state.currentMarkdown;
     refreshLivePageChrome();
+    renderSourceModeButton();
 
     if (hasUnsavedPageChanges()) {
       setNoteStatus("Unsaved local edits on " + state.selectedPage + ".");
@@ -830,6 +849,7 @@ interface AppState {
     els.noteHeading.textContent = "Waiting for selection";
     closeTaskModal();
     renderNoteStudio();
+    renderSourceModeButton();
     renderPageTasks([]);
     renderPageTags();
     renderPageContext();
@@ -871,6 +891,8 @@ interface AppState {
       ["Quick Switcher", state.settings.preferences.hotkeys.quickSwitcher],
       ["Full Search", state.settings.preferences.hotkeys.globalSearch],
       ["Command Palette", state.settings.preferences.hotkeys.commandPalette],
+      ["Back", "Alt+Left"],
+      ["Forward", "Alt+Right"],
       ["Save Current Note", state.settings.preferences.hotkeys.saveCurrentPage],
       ["Toggle Raw Mode", state.settings.preferences.hotkeys.toggleRawMode],
       ["Open Help", state.settings.preferences.hotkeys.help],
@@ -910,6 +932,7 @@ interface AppState {
     state.homePage = normalizePageDraftPath(snapshot.settings.workspace.homePage || "");
     renderHelpShortcuts();
     renderSettingsForm();
+    renderSourceModeButton();
   }
 
   async function loadSettings() {
@@ -1683,6 +1706,7 @@ interface AppState {
     if (state.markdownEditorApi && state.markdownEditorApi.host) {
       state.markdownEditorApi.host.classList.remove("hidden");
     }
+    renderSourceModeButton();
     window.setTimeout(function () {
       focusMarkdownEditor(state, els, {preventScroll: true});
       setMarkdownEditorSelection(state, els, selectionStart, selectionEnd);
@@ -1871,6 +1895,18 @@ interface AppState {
       setSearchOpen(true);
       scheduleGlobalSearch();
     });
+    on(els.historyBack, "click", function () {
+      window.history.back();
+    });
+    on(els.historyForward, "click", function () {
+      window.history.forward();
+    });
+    on(els.toggleSourceMode, "click", function () {
+      if (!state.selectedPage) {
+        return;
+      }
+      setSourceOpen(!state.sourceOpen);
+    });
     on(els.closeCommandModal, "click", closeCommandPalette);
     on(els.commandPaletteInput, "input", scheduleCommandPaletteRefresh);
     on(els.closeQuickSwitcherModal, "click", closeQuickSwitcher);
@@ -1895,15 +1931,22 @@ interface AppState {
     on(els.runQuery, "click", runQueryWorkbench);
     on(els.markdownEditor, "input", function () {
       state.currentMarkdown = els.markdownEditor.value;
-      const rawContext = currentRawLineContext(state, els);
-      const slashAnchor = state.markdownEditorApi && state.markdownEditorApi.host ? state.markdownEditorApi.host : els.markdownEditor;
-      const caretRect = markdownEditorCaretRect(state);
-      const noteRect = els.noteLayout ? els.noteLayout.getBoundingClientRect() : { left: 0, top: 0 };
-      maybeOpenSlashMenu(state, els, slashAnchor, rawContext.lineText, {
-        type: "raw",
-        left: caretRect ? Math.max(0, caretRect.left - noteRect.left) : undefined,
-        top: caretRect ? Math.max(0, caretRect.bottom - noteRect.top + 6) : undefined,
-      }, applySlashSelection);
+      window.requestAnimationFrame(function () {
+        const rawContext = currentRawLineContext(state, els);
+        const slashAnchor = state.markdownEditorApi && state.markdownEditorApi.host ? state.markdownEditorApi.host : els.markdownEditor;
+        const caretRect = markdownEditorCaretRect(state);
+        const menuContext = {
+          type: "raw",
+          left: caretRect ? Math.max(0, caretRect.left) : undefined,
+          top: caretRect ? Math.max(0, caretRect.bottom + 6) : undefined,
+        };
+        const wikilinkCommands = wikilinkCommandsForContext(rawContext.lineText, rawContext.caretInLine, state.pages);
+        if (wikilinkCommands.length) {
+          openSlashMenuWithCommands(state, els, slashAnchor, wikilinkCommands, menuContext, applySlashSelection);
+        } else {
+          maybeOpenSlashMenu(state, els, slashAnchor, rawContext.lineText, menuContext, applySlashSelection);
+        }
+      });
       if (state.currentPage) {
         els.rawView.textContent = state.currentMarkdown;
         refreshLivePageChrome();
@@ -1940,9 +1983,10 @@ interface AppState {
         moveSlashSelection(state, els, 1);
         return;
       }
-      if (event.key === "Enter" && state.slashOpen) {
+      if ((event.key === "Enter" || event.key === "Tab") && state.slashOpen) {
         event.preventDefault();
         applySlashSelection();
+        return;
       }
     };
     on(els.markdownEditor, "keydown", handleMarkdownEditorKeydown);
@@ -2069,6 +2113,16 @@ interface AppState {
       }
     });
     window.addEventListener("keydown", function (event: KeyboardEvent) {
+      if (!event.ctrlKey && !event.metaKey && !event.shiftKey && event.altKey && event.key === "ArrowLeft") {
+        event.preventDefault();
+        window.history.back();
+        return;
+      }
+      if (!event.ctrlKey && !event.metaKey && !event.shiftKey && event.altKey && event.key === "ArrowRight") {
+        event.preventDefault();
+        window.history.forward();
+        return;
+      }
       if (event.key === "Escape" && !els.taskModalShell.classList.contains("hidden")) {
         closeTaskModal();
         return;
@@ -2167,28 +2221,10 @@ interface AppState {
       }
       on(markdownEditorApi.host, "click", function (event) {
         const eventTarget = event.target instanceof Element ? event.target : null;
-        const target = eventTarget
-          ? eventTarget.closest("[data-page-link]")
-          : null;
-        if (!target) {
+        if (eventTarget && eventTarget.closest("[data-page-link]")) {
+          event.preventDefault();
           return;
         }
-        event.preventDefault();
-        const page = String(target.getAttribute("data-page-link") || "").trim();
-        const line = String(target.getAttribute("data-page-line") || "").trim();
-        const taskRef = String(target.getAttribute("data-task-ref") || "").trim();
-        if (!page) {
-          return;
-        }
-        if (taskRef) {
-          navigateToPageAtTask(page, taskRef, Number(line), false);
-          return;
-        }
-        if (line) {
-          navigateToPageAtLine(page, Number(line), false);
-          return;
-        }
-        navigateToPage(page, false);
       });
       on(markdownEditorApi.host, "noterious:page-link", function (event) {
         const detail = (event as CustomEvent<PageLinkDetail>).detail || {};

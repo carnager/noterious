@@ -11,6 +11,8 @@
       <header class="topbar">
         <div class="topbar-actions topbar-actions-left">
           <button type="button" id="toggle-rail" class="topbar-toggle topbar-toggle-rail" aria-label="Toggle files">☰</button>
+          <button type="button" id="history-back" class="topbar-toggle topbar-toggle-history" aria-label="Go back">←</button>
+          <button type="button" id="history-forward" class="topbar-toggle topbar-toggle-history" aria-label="Go forward">→</button>
           <button type="button" id="open-quick-switcher" class="topbar-toggle topbar-toggle-open" aria-label="Open note">Open</button>
           <button type="button" id="open-search" class="topbar-toggle topbar-toggle-search" aria-label="Global search">Search</button>
         </div>
@@ -83,7 +85,10 @@
             <section class="note-column">
               <section class="card note-card">
                 <div class="note-frame">
-                  <h1 class="note-heading" id="note-heading">Waiting for selection</h1>
+                  <div class="note-heading-row">
+                    <h1 class="note-heading" id="note-heading">Waiting for selection</h1>
+                    <button type="button" id="toggle-source-mode" class="mode-button note-mode-button" aria-pressed="false">Raw</button>
+                  </div>
                 </div>
                 <div class="property-list" id="page-properties">
                   <div class="empty">Select a page to see properties.</div>

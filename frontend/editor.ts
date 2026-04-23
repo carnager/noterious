@@ -13,6 +13,25 @@ interface EditorTaskState {
   who: string[];
 }
 
+const measureCanvas = document.createElement("canvas");
+const measureContext = measureCanvas.getContext("2d");
+
+function measuredTextWidth(text: string, element: HTMLElement): number {
+  const source = String(text || "").replace(/\t/g, "  ");
+  if (!measureContext) {
+    return source.length * 8;
+  }
+  const style = window.getComputedStyle(element);
+  measureContext.font = style.font || [
+    style.fontStyle,
+    style.fontVariant,
+    style.fontWeight,
+    style.fontSize,
+    style.fontFamily,
+  ].filter(Boolean).join(" ");
+  return measureContext.measureText(source).width;
+}
+
 function syncTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
   textarea.value = value;
   textarea.dispatchEvent(new Event("input", {bubbles: true}));
@@ -189,6 +208,7 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   const queryBlocks = state.field(queryBlocksField);
   const tasks = state.field(tasksField);
+  const selection = state.selection.main;
   let hiddenFrontmatterUntil = 0;
 
   if (state.doc.lines >= 1 && state.doc.line(1).text.trim() === "---") {
@@ -216,6 +236,7 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
     const line = state.doc.line(lineNumber);
     const text = line.text;
     const from = line.from;
+    const editingLine = selection.from <= line.to && selection.to >= line.from;
 
     if (/^```query(?:\s|$)/i.test(text.trim())) {
       let endLineNumber = lineNumber;
@@ -244,7 +265,17 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
     let match = text.match(/^(#{1,6})(\s+)/);
     if (match) {
       builder.add(from, from, Decoration.line({class: "cm-md-heading cm-md-heading-" + String(match[1].length)}));
-      builder.add(from, from + match[0].length, Decoration.replace({}));
+      if (editingLine) {
+        builder.add(
+          from,
+          from + match[0].length,
+          Decoration.mark({
+            class: "cm-md-heading-raw",
+          })
+        );
+      } else {
+        builder.add(from, from + match[0].length, Decoration.replace({}));
+      }
     }
 
     match = text.match(/^(>\s?)/);
@@ -298,6 +329,17 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
       const label = String(wikiMatch[2] || wikiMatch[1] || "").trim();
       const start = from + wikiMatch.index;
       const end = start + wikiMatch[0].length;
+      const editingLink = selection.from <= end && selection.to >= start;
+      if (editingLink) {
+        builder.add(
+          start,
+          end,
+          Decoration.mark({
+            class: "cm-md-link-raw",
+          })
+        );
+        continue;
+      }
       builder.add(
         start,
         end,
@@ -472,7 +514,20 @@ window.NoteriousCodeEditor = {
       },
       getCaretRect() {
         const head = view.state.selection.main.head;
-        const rect = view.coordsAtPos(head);
+        const line = view.state.doc.lineAt(head);
+        const domAtPos = view.domAtPos(Math.max(line.from, Math.min(head, line.to)));
+        const element = domAtPos.node instanceof Element ? domAtPos.node : domAtPos.node.parentElement;
+        const lineElement = element instanceof HTMLElement ? element.closest(".cm-line") as HTMLElement | null : null;
+        if (lineElement) {
+          const lineRect = lineElement.getBoundingClientRect();
+          const style = window.getComputedStyle(lineElement);
+          const lineHeight = Number.parseFloat(style.lineHeight || "") || Number.parseFloat(style.fontSize || "") || 16;
+          const prefix = line.text.slice(0, Math.max(0, head - line.from));
+          const left = lineRect.left + measuredTextWidth(prefix, lineElement);
+          return new DOMRect(left, lineRect.top, 1, lineHeight);
+        }
+
+        const rect = view.coordsAtPos(head, 1);
         return rect ? new DOMRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top) : null;
       },
       setRenderMode(enabled: boolean) {
@@ -518,7 +573,7 @@ window.NoteriousCodeEditor = {
         return Boolean(view.state.field(renderModeField, false));
       },
       onKeydown(handler: EventListenerOrEventListenerObject) {
-        view.dom.addEventListener("keydown", handler);
+        view.dom.addEventListener("keydown", handler, {capture: true});
       },
     };
 
