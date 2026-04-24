@@ -126,6 +126,57 @@ func (s *Service) DeletePage(pagePath string) error {
 	return nil
 }
 
+func (s *Service) DeleteFolder(folderPath string) error {
+	normalized := normalizePagePath(folderPath)
+	if normalized == "" || normalized == "." || strings.HasPrefix(normalized, "../") || normalized == ".." {
+		return fmt.Errorf("invalid folder path %q", folderPath)
+	}
+
+	fullPath := filepath.Join(s.rootPath, filepath.FromSlash(normalized))
+	if err := os.RemoveAll(fullPath); err != nil {
+		return fmt.Errorf("delete folder %q: %w", normalized, err)
+	}
+	return nil
+}
+
+func (s *Service) MoveFolder(fromFolderPath string, targetFolderPath string) (string, error) {
+	fromNormalized := normalizePagePath(fromFolderPath)
+	targetNormalized := normalizePagePath(targetFolderPath)
+	if fromNormalized == "" || fromNormalized == "." || strings.HasPrefix(fromNormalized, "../") || fromNormalized == ".." {
+		return "", fmt.Errorf("invalid folder path %q", fromFolderPath)
+	}
+	if targetNormalized == "." {
+		targetNormalized = ""
+	}
+	if strings.HasPrefix(targetNormalized, "../") || targetNormalized == ".." {
+		return "", fmt.Errorf("invalid target folder path %q", targetFolderPath)
+	}
+
+	folderName := path.Base(fromNormalized)
+	destination := folderName
+	if targetNormalized != "" {
+		destination = normalizePagePath(path.Join(targetNormalized, folderName))
+	}
+	if destination == fromNormalized || strings.HasPrefix(targetNormalized+"/", fromNormalized+"/") {
+		return "", fmt.Errorf("invalid folder move %q to %q", fromNormalized, targetFolderPath)
+	}
+
+	fromFullPath := filepath.Join(s.rootPath, filepath.FromSlash(fromNormalized))
+	toFullPath := filepath.Join(s.rootPath, filepath.FromSlash(destination))
+	if err := os.MkdirAll(filepath.Dir(toFullPath), 0o755); err != nil {
+		return "", fmt.Errorf("create folder dir for %q: %w", destination, err)
+	}
+	if _, err := os.Stat(toFullPath); err == nil {
+		return "", fmt.Errorf("target folder %q already exists", destination)
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("stat target folder %q: %w", destination, err)
+	}
+	if err := os.Rename(fromFullPath, toFullPath); err != nil {
+		return "", fmt.Errorf("move folder %q to %q: %w", fromNormalized, destination, err)
+	}
+	return destination, nil
+}
+
 func (s *Service) MovePage(fromPath string, toPath string) error {
 	fromNormalized, err := normalizeRequestedPage(fromPath)
 	if err != nil {

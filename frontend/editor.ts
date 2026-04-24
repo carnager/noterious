@@ -2,6 +2,16 @@ import {EditorState, StateEffect, StateField, RangeSetBuilder} from "@codemirror
 import {EditorView, keymap, drawSelection, highlightActiveLine, Decoration, type DecorationSet, WidgetType} from "@codemirror/view";
 import {defaultKeymap, history, historyKeymap} from "@codemirror/commands";
 import {markdown} from "@codemirror/lang-markdown";
+import {LanguageDescription, HighlightStyle, syntaxHighlighting} from "@codemirror/language";
+import {javascript} from "@codemirror/lang-javascript";
+import {json} from "@codemirror/lang-json";
+import {css} from "@codemirror/lang-css";
+import {html} from "@codemirror/lang-html";
+import {python} from "@codemirror/lang-python";
+import {go} from "@codemirror/lang-go";
+import {yaml} from "@codemirror/lang-yaml";
+import {sql} from "@codemirror/lang-sql";
+import {tags} from "@lezer/highlight";
 import type { NoteriousEditorApi, QueryBlockRender, TaskRender } from "./types";
 
 interface EditorTaskState {
@@ -15,6 +25,19 @@ interface EditorTaskState {
 
 const measureCanvas = document.createElement("canvas");
 const measureContext = measureCanvas.getContext("2d");
+
+function bindTransientScrollClass(element: HTMLElement, className: string): void {
+  let clearTimer = 0;
+  element.addEventListener("scroll", function () {
+    element.classList.add(className);
+    if (clearTimer) {
+      window.clearTimeout(clearTimer);
+    }
+    clearTimer = window.setTimeout(function () {
+      element.classList.remove(className);
+    }, 650);
+  }, {passive: true});
+}
 
 function measuredTextWidth(text: string, element: HTMLElement): number {
   const source = String(text || "").replace(/\t/g, "  ");
@@ -45,6 +68,42 @@ const setRenderModeEffect = StateEffect.define<boolean>();
 const setQueryBlocksEffect = StateEffect.define<Map<string, string>>();
 const setTasksEffect = StateEffect.define<Map<number, EditorTaskState>>();
 const setPagePathEffect = StateEffect.define<string>();
+const setHighlightedLineEffect = StateEffect.define<number | null>();
+
+const codeLanguages = [
+  LanguageDescription.of({name: "JavaScript", alias: ["js", "javascript"], extensions: ["js", "mjs", "cjs"], support: javascript()}),
+  LanguageDescription.of({name: "TypeScript", alias: ["ts", "typescript"], extensions: ["ts", "tsx"], support: javascript({typescript: true})}),
+  LanguageDescription.of({name: "JSON", alias: ["json"], extensions: ["json"], support: json()}),
+  LanguageDescription.of({name: "CSS", alias: ["css"], extensions: ["css"], support: css()}),
+  LanguageDescription.of({name: "HTML", alias: ["html"], extensions: ["html", "htm"], support: html()}),
+  LanguageDescription.of({name: "Python", alias: ["py", "python"], extensions: ["py"], support: python()}),
+  LanguageDescription.of({name: "Go", alias: ["go", "golang"], extensions: ["go"], support: go()}),
+  LanguageDescription.of({name: "YAML", alias: ["yaml", "yml"], extensions: ["yaml", "yml"], support: yaml()}),
+  LanguageDescription.of({name: "SQL", alias: ["sql"], extensions: ["sql"], support: sql()}),
+];
+
+const solarizedDarkHighlight = HighlightStyle.define([
+  {tag: tags.keyword, color: "#859900"},
+  {tag: [tags.name, tags.deleted, tags.character, tags.propertyName, tags.macroName], color: "#b58900"},
+  {tag: [tags.variableName], color: "#268bd2"},
+  {tag: [tags.function(tags.variableName), tags.labelName], color: "#268bd2"},
+  {tag: [tags.color, tags.constant(tags.name), tags.standard(tags.name)], color: "#cb4b16"},
+  {tag: [tags.definition(tags.name), tags.separator], color: "#b58900"},
+  {tag: [tags.brace, tags.squareBracket, tags.angleBracket], color: "#93a1a1"},
+  {tag: [tags.number, tags.changed, tags.annotation, tags.modifier, tags.self, tags.namespace], color: "#d33682"},
+  {tag: [tags.typeName, tags.className], color: "#b58900"},
+  {tag: [tags.operator, tags.operatorKeyword], color: "#6c71c4"},
+  {tag: [tags.tagName, tags.attributeName], color: "#268bd2"},
+  {tag: [tags.special(tags.variableName), tags.special(tags.string)], color: "#2aa198"},
+  {tag: [tags.regexp, tags.escape, tags.link, tags.url], color: "#2aa198"},
+  {tag: [tags.meta, tags.comment], color: "#586e75", fontStyle: "italic"},
+  {tag: [tags.strong], fontWeight: "700", color: "#93a1a1"},
+  {tag: [tags.emphasis], fontStyle: "italic", color: "#93a1a1"},
+  {tag: [tags.strikethrough], textDecoration: "line-through"},
+  {tag: [tags.atom, tags.bool, tags.special(tags.brace)], color: "#cb4b16"},
+  {tag: [tags.processingInstruction, tags.string, tags.inserted], color: "#2aa198"},
+  {tag: [tags.invalid], color: "#dc322f"},
+]);
 
 function normalizeRelativePath(value: string): string {
   return String(value || "")
@@ -132,6 +191,32 @@ class MarkdownLinkWidget extends WidgetType {
     link.setAttribute("data-document-download", this.href);
     link.textContent = this.label;
     return link;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+class CodeCopyWidget extends WidgetType {
+  content: string;
+
+  constructor(content: string) {
+    super();
+    this.content = content;
+  }
+
+  eq(other: CodeCopyWidget): boolean {
+    return other.content === this.content;
+  }
+
+  toDOM(): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "cm-md-code-copy";
+    button.setAttribute("data-code-copy", encodeURIComponent(this.content));
+    button.textContent = "Copy";
+    return button;
   }
 
   ignoreEvent() {
@@ -266,6 +351,58 @@ const tasksField = StateField.define<Map<number, EditorTaskState>>({
   },
 });
 
+const highlightedLineField = StateField.define<number | null>({
+  create() {
+    return null;
+  },
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setHighlightedLineEffect)) {
+        const next = Number(effect.value);
+        if (!Number.isFinite(next) || next <= 0) {
+          return null;
+        }
+        return Math.floor(next);
+      }
+    }
+    if (value !== null && transaction.selection) {
+      const currentLine = transaction.state.doc.lineAt(transaction.state.selection.main.head).number;
+      if (currentLine !== value) {
+        return null;
+      }
+    }
+    return value;
+  },
+});
+
+const highlightedLineDecorationsField = StateField.define<DecorationSet>({
+  create(state) {
+    const highlightedLine = state.field(highlightedLineField);
+    if (highlightedLine === null || highlightedLine < 1 || highlightedLine > state.doc.lines) {
+      return Decoration.none;
+    }
+    const line = state.doc.line(highlightedLine);
+    const builder = new RangeSetBuilder<Decoration>();
+    builder.add(line.from, line.from, Decoration.line({class: "cm-search-hit-line"}));
+    return builder.finish();
+  },
+  update(value, transaction) {
+    const lineChanged = transaction.startState.field(highlightedLineField) !== transaction.state.field(highlightedLineField);
+    if (!lineChanged && !transaction.docChanged) {
+      return value;
+    }
+    const highlightedLine = transaction.state.field(highlightedLineField);
+    if (highlightedLine === null || highlightedLine < 1 || highlightedLine > transaction.state.doc.lines) {
+      return Decoration.none;
+    }
+    const line = transaction.state.doc.line(highlightedLine);
+    const builder = new RangeSetBuilder<Decoration>();
+    builder.add(line.from, line.from, Decoration.line({class: "cm-search-hit-line"}));
+    return builder.finish();
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
+
 function buildRenderedDecorations(state: EditorState): DecorationSet {
   if (!state.field(renderModeField, false)) {
     return Decoration.none;
@@ -325,6 +462,44 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
           widget: new QueryBlockWidget(html),
         })
       );
+      lineNumber = endLineNumber;
+      continue;
+    }
+
+    if (/^```/.test(text.trim())) {
+      let endLineNumber = lineNumber;
+      while (endLineNumber < state.doc.lines) {
+        const candidate = state.doc.line(endLineNumber + 1);
+        endLineNumber += 1;
+        if (/^```/.test(candidate.text.trim())) {
+          break;
+        }
+      }
+      const codeContent = endLineNumber - lineNumber > 1
+        ? state.doc.sliceString(state.doc.line(lineNumber + 1).from, state.doc.line(endLineNumber - 1).to)
+        : "";
+      for (let codeLineNumber = lineNumber; codeLineNumber <= endLineNumber; codeLineNumber += 1) {
+        const codeLine = state.doc.line(codeLineNumber);
+        const classNames = ["cm-md-code-block"];
+        if (codeLineNumber === lineNumber) {
+          classNames.push("cm-md-code-block-start", "cm-md-code-fence");
+        } else if (codeLineNumber === endLineNumber) {
+          classNames.push("cm-md-code-block-end", "cm-md-code-fence");
+        } else {
+          classNames.push("cm-md-code-block-body");
+        }
+        builder.add(codeLine.from, codeLine.from, Decoration.line({class: classNames.join(" ")}));
+        if (codeLineNumber === lineNumber) {
+          builder.add(
+            codeLine.to,
+            codeLine.to,
+            Decoration.widget({
+              side: 1,
+              widget: new CodeCopyWidget(codeContent),
+            })
+          );
+        }
+      }
       lineNumber = endLineNumber;
       continue;
     }
@@ -504,6 +679,7 @@ window.NoteriousCodeEditor = {
     host.className = "markdown-editor-host hidden";
     textarea.parentNode?.insertBefore(host, textarea);
     textarea.classList.add("markdown-editor-native");
+    bindTransientScrollClass(textarea, "is-scrolling");
 
     let suppressInput = false;
 
@@ -530,6 +706,18 @@ window.NoteriousCodeEditor = {
           host.dispatchEvent(new CustomEvent("noterious:document-download", {
             detail: {
               href: documentLink.getAttribute("data-document-download") || "",
+            },
+            bubbles: true,
+          }));
+          return true;
+        }
+
+        const codeCopy = target ? target.closest("[data-code-copy]") : null;
+        if (codeCopy) {
+          event.preventDefault();
+          host.dispatchEvent(new CustomEvent("noterious:code-copy", {
+            detail: {
+              code: decodeURIComponent(codeCopy.getAttribute("data-code-copy") || ""),
             },
             bubbles: true,
           }));
@@ -565,11 +753,16 @@ window.NoteriousCodeEditor = {
           highlightActiveLine(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           EditorView.lineWrapping,
-          markdown(),
+          markdown({
+            codeLanguages,
+          }),
+          syntaxHighlighting(solarizedDarkHighlight, {fallback: true}),
           renderModeField,
           pagePathField,
+          highlightedLineField,
           queryBlocksField,
           tasksField,
+          highlightedLineDecorationsField,
           renderedDecorationsField,
           eventHandlers,
           EditorView.updateListener.of((update) => {
@@ -583,6 +776,7 @@ window.NoteriousCodeEditor = {
       }),
       parent: host,
     });
+    bindTransientScrollClass(view.scrollDOM, "is-scrolling");
 
     const api: NoteriousEditorApi = {
       host,
@@ -655,6 +849,11 @@ window.NoteriousCodeEditor = {
 
         const rect = view.coordsAtPos(head, 1);
         return rect ? new DOMRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top) : null;
+      },
+      setHighlightedLine(lineNumber: number | null) {
+        view.dispatch({
+          effects: setHighlightedLineEffect.of(typeof lineNumber === "number" ? lineNumber : null),
+        });
       },
       setRenderMode(enabled: boolean) {
         host.classList.toggle("render-mode", Boolean(enabled));

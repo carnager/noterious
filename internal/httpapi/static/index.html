@@ -13,14 +13,31 @@
           <button type="button" id="toggle-rail" class="topbar-toggle topbar-toggle-rail" aria-label="Toggle files">☰</button>
           <button type="button" id="history-back" class="topbar-toggle topbar-toggle-history" aria-label="Go back">←</button>
           <button type="button" id="history-forward" class="topbar-toggle topbar-toggle-history" aria-label="Go forward">→</button>
-          <button type="button" id="open-quick-switcher" class="topbar-toggle topbar-toggle-open" aria-label="Open note">Open</button>
-          <button type="button" id="open-documents" class="topbar-toggle topbar-toggle-documents" aria-label="Documents">Docs</button>
-          <button type="button" id="open-search" class="topbar-toggle topbar-toggle-search" aria-label="Global search">Search</button>
         </div>
         <p class="topbar-path" id="detail-path">Select a page</p>
         <div class="topbar-actions topbar-actions-right">
-          <button type="button" id="open-settings" class="topbar-toggle topbar-toggle-settings" aria-label="Open settings">Settings</button>
-          <button type="button" id="open-help" class="topbar-toggle topbar-toggle-help" aria-label="Open help">Help</button>
+          <button type="button" id="open-quick-switcher" class="topbar-toggle topbar-toggle-icon" aria-label="Open note" title="Open note">
+            <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><path d="M5 4.5h8.5L19 10v9.5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1Zm8 1.5v4h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="sr-only">Open note</span>
+          </button>
+          <button type="button" id="open-documents" class="topbar-toggle topbar-toggle-icon" aria-label="Documents" title="Documents">
+            <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><path d="M7 4.5h7l4 4V19a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-13.5a1 1 0 0 1 1-1Zm7 0v4h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 13h6M9 16h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <span class="sr-only">Documents</span>
+          </button>
+          <button type="button" id="open-search" class="topbar-toggle topbar-toggle-icon" aria-label="Global search" title="Global search">
+            <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><circle cx="11" cy="11" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 15.5 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <span class="sr-only">Global search</span>
+          </button>
+          <div class="session-menu" id="session-menu">
+            <button type="button" id="open-session-menu" class="topbar-toggle topbar-toggle-icon topbar-toggle-session" aria-label="Session menu" aria-haspopup="menu" aria-expanded="false" title="Session menu">
+              <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.5 18.5c1.4-2.6 3.3-3.9 5.5-3.9s4.1 1.3 5.5 3.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <span class="sr-only">Session menu</span>
+            </button>
+            <div id="session-menu-panel" class="session-menu-panel hidden" role="menu" aria-label="Session">
+              <button type="button" id="open-settings" class="session-menu-item" role="menuitem">Settings</button>
+              <button type="button" id="open-help" class="session-menu-item" role="menuitem">Help</button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -34,10 +51,13 @@
           </div>
 
           <section class="section rail-panel rail-panel-files" id="rail-panel-files">
-            <div class="section-head">
+            <div class="section-head rail-section-head">
               <h2>Files</h2>
+              <button type="button" id="toggle-page-search" class="rail-section-action" aria-label="Search files" aria-expanded="false">
+                <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><circle cx="11" cy="11" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 15.5 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              </button>
             </div>
-            <label class="search">
+            <label class="search rail-search hidden" id="page-search-shell">
               <span>Search pages</span>
               <input id="page-search" type="text" placeholder="daily, project, alpha" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
             </label>
@@ -46,7 +66,9 @@
 
           <section class="section rail-panel rail-panel-context hidden" id="rail-panel-context">
             <section class="card compact-card">
-              <h3>Context</h3>
+              <div class="section-head rail-section-head">
+                <h2>Context</h2>
+              </div>
               <div class="context-list" id="page-context">
                 <div class="empty">Select a page to see backlinks, links, and query blocks.</div>
               </div>
@@ -55,7 +77,9 @@
 
           <section class="section rail-panel rail-panel-tasks hidden" id="rail-panel-tasks">
             <section class="card compact-card">
-              <h3>Tasks In This Note</h3>
+              <div class="section-head rail-section-head">
+                <h2>Tasks</h2>
+              </div>
               <div class="page-task-list" id="page-task-list">
                 <div class="empty">Tasks inside the note will show up here too.</div>
               </div>
@@ -64,7 +88,9 @@
 
           <section class="section rail-panel rail-panel-tags hidden" id="rail-panel-tags">
             <section class="card compact-card">
-              <h3>Tags</h3>
+              <div class="section-head rail-section-head">
+                <h2>Tags</h2>
+              </div>
               <div class="tag-list" id="page-tags">
                 <div class="empty">No tags on this page.</div>
               </div>
@@ -333,6 +359,26 @@
           <label class="search modal-field-wide">
             <span>Home Page</span>
             <input id="settings-home-page" type="text" placeholder="notes/home" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+          <label class="search">
+            <span>Font</span>
+            <select id="settings-ui-font-family">
+              <option value="mono">Mono</option>
+              <option value="sans">Sans</option>
+              <option value="serif">Serif</option>
+            </select>
+          </label>
+          <label class="search">
+            <span>Font Size</span>
+            <select id="settings-ui-font-size">
+              <option value="14">14 px</option>
+              <option value="15">15 px</option>
+              <option value="16">16 px</option>
+              <option value="17">17 px</option>
+              <option value="18">18 px</option>
+              <option value="19">19 px</option>
+              <option value="20">20 px</option>
+            </select>
           </label>
           <label class="search">
             <span>Quick Switcher</span>

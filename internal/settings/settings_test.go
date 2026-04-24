@@ -28,7 +28,13 @@ func TestStorePersistsAndMarksRestartRequiredForVaultPath(t *testing.T) {
 	}
 
 	updated, err := store.Update(AppSettings{
-		Preferences: initial.Settings.Preferences,
+		Preferences: Preferences{
+			Hotkeys: initial.Settings.Preferences.Hotkeys,
+			UI: UI{
+				FontFamily: "sans",
+				FontSize:   "18",
+			},
+		},
 		Workspace: Workspace{
 			VaultPath: filepath.Join(rootDir, "vault-b"),
 			HomePage:  "notes/start",
@@ -54,5 +60,8 @@ func TestStorePersistsAndMarksRestartRequiredForVaultPath(t *testing.T) {
 	}
 	if snapshot.Settings.Workspace.HomePage != "notes/start" {
 		t.Fatalf("home page not persisted: got %q", snapshot.Settings.Workspace.HomePage)
+	}
+	if snapshot.Settings.Preferences.UI.FontFamily != "sans" || snapshot.Settings.Preferences.UI.FontSize != "18" {
+		t.Fatalf("ui settings not persisted: %#v", snapshot.Settings.Preferences.UI)
 	}
 }

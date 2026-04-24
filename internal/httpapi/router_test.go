@@ -168,6 +168,10 @@ func TestSettingsAPIStoresWorkspaceAndHotkeys(t *testing.T) {
 
 	body := bytes.NewBufferString(`{
 	  "preferences": {
+	    "ui": {
+	      "fontFamily": "sans",
+	      "fontSize": "18"
+	    },
 	    "hotkeys": {
 	      "quickSwitcher": "Mod+O",
 	      "globalSearch": "Mod+Shift+F",
@@ -196,6 +200,9 @@ func TestSettingsAPIStoresWorkspaceAndHotkeys(t *testing.T) {
 	}
 	if updated.Settings.Preferences.Hotkeys.GlobalSearch != "Mod+Shift+F" {
 		t.Fatalf("global search hotkey = %q want %q", updated.Settings.Preferences.Hotkeys.GlobalSearch, "Mod+Shift+F")
+	}
+	if updated.Settings.Preferences.UI.FontFamily != "sans" || updated.Settings.Preferences.UI.FontSize != "18" {
+		t.Fatalf("ui settings = %#v", updated.Settings.Preferences.UI)
 	}
 	if !updated.RestartRequired {
 		t.Fatalf("updated settings should require restart after vault path change")
@@ -847,6 +854,98 @@ func TestDeletePageRemovesMarkdownAndIndexEntry(t *testing.T) {
 	getRecorder := httptest.NewRecorder()
 	router.ServeHTTP(getRecorder, getRequest)
 	if getRecorder.Code != http.StatusNotFound {
+		t.Fatalf("get status = %d, body = %s", getRecorder.Code, getRecorder.Body.String())
+	}
+}
+
+func TestDeleteFolderRemovesNestedMarkdownAndRebuildsIndex(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes", "team"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "team", "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "team", "beta.md"), []byte("# Beta\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	request := httptest.NewRequest(http.MethodDelete, "/api/folders/notes/team", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(vaultDir, "notes", "team")); !os.IsNotExist(err) {
+		t.Fatalf("Stat() error = %v, want not exists", err)
+	}
+
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/pages", nil)
+	listRecorder := httptest.NewRecorder()
+	router.ServeHTTP(listRecorder, listRequest)
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listRecorder.Code, listRecorder.Body.String())
+	}
+
+	var payload struct {
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if payload.Count != 0 {
+		t.Fatalf("count = %d, want 0", payload.Count)
+	}
+}
+
+func TestMoveFolderRenamesNestedMarkdownAndRebuildsIndex(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes", "team"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(vaultDir, "archive"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "team", "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/folders/notes/team/move", strings.NewReader(`{"targetFolder":"archive"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(vaultDir, "notes", "team")); !os.IsNotExist(err) {
+		t.Fatalf("old Stat() error = %v, want not exists", err)
+	}
+	if _, err := os.Stat(filepath.Join(vaultDir, "archive", "team", "alpha.md")); err != nil {
+		t.Fatalf("new Stat() error = %v", err)
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/pages/archive/team/alpha", nil)
+	getRecorder := httptest.NewRecorder()
+	router.ServeHTTP(getRecorder, getRequest)
+	if getRecorder.Code != http.StatusOK {
 		t.Fatalf("get status = %d, body = %s", getRecorder.Code, getRecorder.Body.String())
 	}
 }

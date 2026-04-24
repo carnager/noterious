@@ -22,6 +22,12 @@ type Hotkeys struct {
 
 type Preferences struct {
 	Hotkeys Hotkeys `json:"hotkeys"`
+	UI      UI      `json:"ui"`
+}
+
+type UI struct {
+	FontFamily string `json:"fontFamily"`
+	FontSize   string `json:"fontSize"`
 }
 
 type Workspace struct {
@@ -58,6 +64,10 @@ func DefaultSettingsFromConfig(cfg config.Config) AppSettings {
 				Help:           "?",
 				SaveCurrent:    "Mod+S",
 				ToggleRawMode:  "Mod+E",
+			},
+			UI: UI{
+				FontFamily: "mono",
+				FontSize:   "16",
 			},
 		},
 		Workspace: Workspace{
@@ -181,6 +191,12 @@ func normalizeSettings(input AppSettings, defaults AppSettings) AppSettings {
 	if strings.TrimSpace(normalized.Preferences.Hotkeys.ToggleRawMode) == "" {
 		normalized.Preferences.Hotkeys.ToggleRawMode = defaults.Preferences.Hotkeys.ToggleRawMode
 	}
+	if strings.TrimSpace(normalized.Preferences.UI.FontFamily) == "" {
+		normalized.Preferences.UI.FontFamily = defaults.Preferences.UI.FontFamily
+	}
+	if strings.TrimSpace(normalized.Preferences.UI.FontSize) == "" {
+		normalized.Preferences.UI.FontSize = defaults.Preferences.UI.FontSize
+	}
 
 	return normalized
 }
@@ -188,6 +204,16 @@ func normalizeSettings(input AppSettings, defaults AppSettings) AppSettings {
 func validateSettings(settings AppSettings) error {
 	if strings.TrimSpace(settings.Workspace.VaultPath) == "" {
 		return fmt.Errorf("vault path must not be empty")
+	}
+	switch strings.TrimSpace(settings.Preferences.UI.FontFamily) {
+	case "mono", "sans", "serif":
+	default:
+		return fmt.Errorf("font family must be mono, sans, or serif")
+	}
+	switch strings.TrimSpace(settings.Preferences.UI.FontSize) {
+	case "14", "15", "16", "17", "18", "19", "20":
+	default:
+		return fmt.Errorf("font size must be between 14 and 20")
 	}
 	return nil
 }

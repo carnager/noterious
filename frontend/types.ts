@@ -157,6 +157,12 @@ export interface Hotkeys {
 
 export interface Preferences {
   hotkeys: Hotkeys;
+  ui: UISettings;
+}
+
+export interface UISettings {
+  fontFamily: "mono" | "sans" | "serif";
+  fontSize: string;
 }
 
 export interface WorkspaceSettings {
@@ -288,6 +294,7 @@ export interface NoteriousEditorApi {
   getScrollTop(): number;
   setScrollTop(value: number): void;
   getCaretRect(): DOMRect | null;
+  setHighlightedLine(lineNumber: number | null): void;
   setPagePath(path: string): void;
   setRenderMode(enabled: boolean): void;
   setQueryBlocks(blocks: QueryBlockRender[]): void;

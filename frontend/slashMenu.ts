@@ -1,5 +1,6 @@
 import { clearNode } from "./dom";
 import { markdownLinkForDocument } from "./documents";
+import { normalizePageDraftPath } from "./commands";
 import { pageLeafName } from "./palette";
 import { resultButtons } from "./palette";
 import type { DocumentRecord, PageSummary, SlashCommand, SlashMenuContext } from "./types";
@@ -258,6 +259,31 @@ export function wikilinkCommandsForContext(
     })
     .slice(0, 12);
 
+  const normalizedDraftPath = normalizePageDraftPath(trigger.query);
+  const hasExactMatch = normalizedDraftPath
+    ? pages.some(function (page) {
+        return String(page.path || "").toLowerCase() === normalizedDraftPath.toLowerCase();
+      })
+    : false;
+
+  const createCommands: SlashCommand[] = normalizedDraftPath && !hasExactMatch
+    ? [{
+        id: "create:" + normalizedDraftPath,
+        title: "Create note",
+        description: normalizedDraftPath,
+        keywords: "create new note page",
+        hint: "Enter",
+        apply: function (sourceLine: string): string {
+          const replacement = (trigger.embed ? "![[": "[[") + normalizedDraftPath + "]]";
+          return String(sourceLine || "").slice(0, trigger.start) + replacement + String(sourceLine || "").slice(trigger.end);
+        },
+        caret: function (): number {
+          const replacement = (trigger.embed ? "![[": "[[") + normalizedDraftPath + "]]";
+          return trigger.start + replacement.length;
+        },
+      }]
+    : [];
+
   return matches.map(function (page): SlashCommand {
     const replacement = (trigger.embed ? "![[": "[[") + page.path + "]]";
     const titleLeaf = pageLeafName(page.path);
@@ -275,7 +301,7 @@ export function wikilinkCommandsForContext(
         return trigger.start + replacement.length;
       },
     };
-  });
+  }).concat(createCommands);
 }
 
 export function documentCommandsForText(text: string, documents: DocumentRecord[], currentPagePath: string): SlashCommand[] {

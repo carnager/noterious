@@ -552,7 +552,7 @@
       return CharCategory.Other;
     };
   }
-  function combineConfig(configs, defaults, combine = {}) {
+  function combineConfig(configs, defaults2, combine = {}) {
     let result = {};
     for (let config of configs)
       for (let key of Object.keys(config)) {
@@ -565,9 +565,9 @@
         else
           throw new Error("Config merge conflict for field " + key);
       }
-    for (let key in defaults)
+    for (let key in defaults2)
       if (result[key] === void 0)
-        result[key] = defaults[key];
+        result[key] = defaults2[key];
     return result;
   }
   function cmpVal(a, b) {
@@ -1388,10 +1388,10 @@
         Create a change desc from its JSON representation (as produced
         by [`toJSON`](https://codemirror.net/6/docs/ref/#state.ChangeDesc.toJSON).
         */
-        static fromJSON(json) {
-          if (!Array.isArray(json) || json.length % 2 || json.some((a) => typeof a != "number"))
+        static fromJSON(json2) {
+          if (!Array.isArray(json2) || json2.length % 2 || json2.some((a) => typeof a != "number"))
             throw new RangeError("Invalid JSON representation of ChangeDesc");
-          return new _ChangeDesc(json);
+          return new _ChangeDesc(json2);
         }
         /**
         @internal
@@ -1594,12 +1594,12 @@
         Create a changeset from its JSON representation (as produced by
         [`toJSON`](https://codemirror.net/6/docs/ref/#state.ChangeSet.toJSON).
         */
-        static fromJSON(json) {
-          if (!Array.isArray(json))
+        static fromJSON(json2) {
+          if (!Array.isArray(json2))
             throw new RangeError("Invalid JSON representation of ChangeSet");
           let sections = [], inserted = [];
-          for (let i = 0; i < json.length; i++) {
-            let part = json[i];
+          for (let i = 0; i < json2.length; i++) {
+            let part = json2[i];
             if (typeof part == "number") {
               sections.push(part, -1);
             } else if (!Array.isArray(part) || typeof part[0] != "number" || part.some((e, i2) => i2 && typeof e != "string")) {
@@ -1764,10 +1764,10 @@
         Convert a JSON representation of a range to a `SelectionRange`
         instance.
         */
-        static fromJSON(json) {
-          if (!json || typeof json.anchor != "number" || typeof json.head != "number")
+        static fromJSON(json2) {
+          if (!json2 || typeof json2.anchor != "number" || typeof json2.head != "number")
             throw new RangeError("Invalid JSON representation for SelectionRange");
-          return EditorSelection.range(json.anchor, json.head);
+          return EditorSelection.range(json2.anchor, json2.head);
         }
         /**
         @internal
@@ -1844,10 +1844,10 @@
         /**
         Create a selection from a JSON representation.
         */
-        static fromJSON(json) {
-          if (!json || !Array.isArray(json.ranges) || typeof json.main != "number" || json.main >= json.ranges.length)
+        static fromJSON(json2) {
+          if (!json2 || !Array.isArray(json2.ranges) || typeof json2.main != "number" || json2.main >= json2.ranges.length)
             throw new RangeError("Invalid JSON representation for EditorSelection");
-          return new _EditorSelection(json.ranges.map((r) => SelectionRange.fromJSON(r)), json.main);
+          return new _EditorSelection(json2.ranges.map((r) => SelectionRange.fromJSON(r)), json2.main);
         }
         /**
         Create a selection holding a single range.
@@ -2608,20 +2608,20 @@
         to [`toJSON`](https://codemirror.net/6/docs/ref/#state.EditorState.toJSON) when serializing as
         third argument.
         */
-        static fromJSON(json, config = {}, fields) {
-          if (!json || typeof json.doc != "string")
+        static fromJSON(json2, config = {}, fields) {
+          if (!json2 || typeof json2.doc != "string")
             throw new RangeError("Invalid JSON representation for EditorState");
           let fieldInit = [];
           if (fields)
             for (let prop in fields) {
-              if (Object.prototype.hasOwnProperty.call(json, prop)) {
-                let field = fields[prop], value = json[prop];
+              if (Object.prototype.hasOwnProperty.call(json2, prop)) {
+                let field = fields[prop], value = json2[prop];
                 fieldInit.push(field.init((state) => field.spec.fromJSON(value, state)));
               }
             }
           return _EditorState.create({
-            doc: json.doc,
-            selection: EditorSelection.fromJSON(json.selection),
+            doc: json2.doc,
+            selection: EditorSelection.fromJSON(json2.selection),
             extensions: config.extensions ? fieldInit.concat([config.extensions]) : fieldInit
           });
         }
@@ -7033,8 +7033,8 @@
         }
       };
       TileBuilder = class {
-        constructor(cache2, root, blockWrappers2) {
-          this.cache = cache2;
+        constructor(cache4, root, blockWrappers2) {
+          this.cache = cache4;
           this.root = root;
           this.blockWrappers = blockWrappers2;
           this.curLine = null;
@@ -12103,12 +12103,12 @@
           this.fresh = fresh;
           this.order = order;
         }
-        static update(cache2, changes) {
-          if (changes.empty && !cache2.some((c) => c.fresh))
-            return cache2;
-          let result = [], lastDir = cache2.length ? cache2[cache2.length - 1].dir : Direction.LTR;
-          for (let i = Math.max(0, cache2.length - 10); i < cache2.length; i++) {
-            let entry = cache2[i];
+        static update(cache4, changes) {
+          if (changes.empty && !cache4.some((c) => c.fresh))
+            return cache4;
+          let result = [], lastDir = cache4.length ? cache4[cache4.length - 1].dir : Direction.LTR;
+          for (let i = Math.max(0, cache4.length - 10); i < cache4.length; i++) {
+            let entry = cache4[i];
             if (entry.dir == lastDir && !changes.touchesRange(entry.from, entry.to))
               result.push(new _CachedOrder(changes.mapPos(entry.from, 1), changes.mapPos(entry.to, -1), entry.dir, entry.isolates, false, entry.order));
           }
@@ -12996,11 +12996,11 @@
       NodeProp.lookAhead = new NodeProp({ perNode: true });
       NodeProp.mounted = new NodeProp({ perNode: true });
       MountedTree = class {
-        constructor(tree, overlay, parser5, bracketed = false) {
+        constructor(tree, overlay, parser11, bracketed2 = false) {
           this.tree = tree;
           this.overlay = overlay;
-          this.parser = parser5;
-          this.bracketed = bracketed;
+          this.parser = parser11;
+          this.bracketed = bracketed2;
         }
         /**
         @internal
@@ -13998,10 +13998,10 @@
         get node() {
           if (!this.buffer)
             return this._tree;
-          let cache2 = this.bufferNode, result = null, depth = 0;
-          if (cache2 && cache2.context == this.buffer) {
+          let cache4 = this.bufferNode, result = null, depth = 0;
+          if (cache4 && cache4.context == this.buffer) {
             scan: for (let index = this.index, d = this.stack.length; d >= 0; ) {
-              for (let c = cache2; c; c = c._parent)
+              for (let c = cache4; c; c = c._parent)
                 if (c.index == index) {
                   if (index == this.index)
                     return c;
@@ -14250,23 +14250,23 @@
         }
       };
       InnerParse = class {
-        constructor(parser5, parse, overlay, bracketed, target, from) {
-          this.parser = parser5;
+        constructor(parser11, parse, overlay, bracketed2, target, from) {
+          this.parser = parser11;
           this.parse = parse;
           this.overlay = overlay;
-          this.bracketed = bracketed;
+          this.bracketed = bracketed2;
           this.target = target;
           this.from = from;
         }
       };
       ActiveOverlay = class {
-        constructor(parser5, predicate, mounts, index, start, bracketed, target, prev) {
-          this.parser = parser5;
+        constructor(parser11, predicate, mounts, index, start, bracketed2, target, prev) {
+          this.parser = parser11;
           this.predicate = predicate;
           this.mounts = mounts;
           this.index = index;
           this.start = start;
-          this.bracketed = bracketed;
+          this.bracketed = bracketed2;
           this.target = target;
           this.prev = prev;
           this.depth = 0;
@@ -14476,14 +14476,14 @@
             this.inner = new StructureCursor(frag.tree, -frag.offset);
           }
         }
-        findMounts(pos, parser5) {
+        findMounts(pos, parser11) {
           var _a2;
           let result = [];
           if (this.inner) {
             this.inner.cursor.moveTo(pos, 1);
             for (let pos2 = this.inner.cursor.node; pos2; pos2 = pos2.parent) {
               let mount = (_a2 = pos2.tree) === null || _a2 === void 0 ? void 0 : _a2.prop(NodeProp.mounted);
-              if (mount && mount.parser == parser5) {
+              if (mount && mount.parser == parser11) {
                 for (let i = this.fragI; i < this.fragments.length; i++) {
                   let frag = this.fragments[i];
                   if (frag.from >= pos2.to)
@@ -14583,7 +14583,27 @@
       scope
     };
   }
-  var nextTagID, Tag, nextModifierID, Modifier, ruleNodeProp, Rule, t, comment, name, typeName, propertyName, literal, string, number, content, heading, keyword, operator, punctuation, bracket, meta, tags, classHighlighter;
+  function highlightTags(highlighters, tags3) {
+    let result = null;
+    for (let highlighter of highlighters) {
+      let value = highlighter.style(tags3);
+      if (value)
+        result = result ? result + " " + value : value;
+    }
+    return result;
+  }
+  function highlightTree(tree, highlighter, putStyle, from = 0, to = tree.length) {
+    let builder = new HighlightBuilder(from, Array.isArray(highlighter) ? highlighter : [highlighter], putStyle);
+    builder.highlightRange(tree.cursor(), from, to, "", builder.highlighters);
+    builder.flush(to);
+  }
+  function getStyleTags(node) {
+    let rule = node.type.prop(ruleNodeProp);
+    while (rule && rule.context && !node.matchContext(rule.context))
+      rule = rule.next;
+    return rule || null;
+  }
+  var nextTagID, Tag, nextModifierID, Modifier, ruleNodeProp, Rule, HighlightBuilder, t, comment, name, typeName, propertyName, literal, string, number, content, heading, keyword, operator, punctuation, bracket, meta, tags, classHighlighter;
   var init_dist4 = __esm({
     "node_modules/@lezer/highlight/dist/index.js"() {
       init_dist3();
@@ -14713,6 +14733,86 @@
         }
       };
       Rule.empty = new Rule([], 2, null);
+      HighlightBuilder = class {
+        constructor(at, highlighters, span) {
+          this.at = at;
+          this.highlighters = highlighters;
+          this.span = span;
+          this.class = "";
+        }
+        startSpan(at, cls) {
+          if (cls != this.class) {
+            this.flush(at);
+            if (at > this.at)
+              this.at = at;
+            this.class = cls;
+          }
+        }
+        flush(to) {
+          if (to > this.at && this.class)
+            this.span(this.at, to, this.class);
+        }
+        highlightRange(cursor, from, to, inheritedClass, highlighters) {
+          let { type, from: start, to: end } = cursor;
+          if (start >= to || end <= from)
+            return;
+          if (type.isTop)
+            highlighters = this.highlighters.filter((h) => !h.scope || h.scope(type));
+          let cls = inheritedClass;
+          let rule = getStyleTags(cursor) || Rule.empty;
+          let tagCls = highlightTags(highlighters, rule.tags);
+          if (tagCls) {
+            if (cls)
+              cls += " ";
+            cls += tagCls;
+            if (rule.mode == 1)
+              inheritedClass += (inheritedClass ? " " : "") + tagCls;
+          }
+          this.startSpan(Math.max(from, start), cls);
+          if (rule.opaque)
+            return;
+          let mounted = cursor.tree && cursor.tree.prop(NodeProp.mounted);
+          if (mounted && mounted.overlay) {
+            let inner = cursor.node.enter(mounted.overlay[0].from + start, 1);
+            let innerHighlighters = this.highlighters.filter((h) => !h.scope || h.scope(mounted.tree.type));
+            let hasChild2 = cursor.firstChild();
+            for (let i = 0, pos = start; ; i++) {
+              let next = i < mounted.overlay.length ? mounted.overlay[i] : null;
+              let nextPos = next ? next.from + start : end;
+              let rangeFrom2 = Math.max(from, pos), rangeTo2 = Math.min(to, nextPos);
+              if (rangeFrom2 < rangeTo2 && hasChild2) {
+                while (cursor.from < rangeTo2) {
+                  this.highlightRange(cursor, rangeFrom2, rangeTo2, inheritedClass, highlighters);
+                  this.startSpan(Math.min(rangeTo2, cursor.to), cls);
+                  if (cursor.to >= nextPos || !cursor.nextSibling())
+                    break;
+                }
+              }
+              if (!next || nextPos > to)
+                break;
+              pos = next.to + start;
+              if (pos > from) {
+                this.highlightRange(inner.cursor(), Math.max(from, next.from + start), Math.min(to, pos), "", innerHighlighters);
+                this.startSpan(Math.min(to, pos), cls);
+              }
+            }
+            if (hasChild2)
+              cursor.parent();
+          } else if (cursor.firstChild()) {
+            if (mounted)
+              inheritedClass = "";
+            do {
+              if (cursor.to <= from)
+                continue;
+              if (cursor.from >= to)
+                break;
+              this.highlightRange(cursor, from, to, inheritedClass, highlighters);
+              this.startSpan(Math.min(to, cursor.to), cls);
+            } while (cursor.nextSibling());
+            cursor.parent();
+          }
+        }
+      };
       t = Tag.define;
       comment = t();
       name = t();
@@ -15242,8 +15342,8 @@
       if (!next.type.isSkipped) {
         if (next.from >= lineEnd2)
           return null;
-        let space4 = /^ */.exec(openLine.text.slice(openToken.to - openLine.from))[0].length;
-        return { from: openToken.from, to: openToken.to + space4 };
+        let space6 = /^ */.exec(openLine.text.slice(openToken.to - openLine.from))[0].length;
+        return { from: openToken.from, to: openToken.to + space6 };
       }
       pos = next.to;
     }
@@ -15252,8 +15352,8 @@
     return (context) => delimitedStrategy(context, align, units, closing);
   }
   function delimitedStrategy(context, align, units, closing, closedAt) {
-    let after = context.textAfter, space4 = after.match(/^\s*/)[0].length;
-    let closed = closing && after.slice(space4, space4 + closing.length) == closing || closedAt == context.pos + space4;
+    let after = context.textAfter, space6 = after.match(/^\s*/)[0].length;
+    let closed = closing && after.slice(space6, space6 + closing.length) == closing || closedAt == context.pos + space6;
     let aligned = align ? bracketedAligned(context) : null;
     if (aligned)
       return closed ? context.column(aligned.from) : context.column(aligned.to);
@@ -15268,6 +15368,27 @@
   function foldInside(node) {
     let first = node.firstChild, last = node.lastChild;
     return first && first.to < last.from ? { from: first.to, to: last.type.isError ? node.to : last.from } : null;
+  }
+  function getHighlighters(state) {
+    let main = state.facet(highlighterFacet);
+    return main.length ? main : state.facet(fallbackHighlighter);
+  }
+  function syntaxHighlighting(highlighter, options) {
+    let ext = [treeHighlighter], themeType;
+    if (highlighter instanceof HighlightStyle) {
+      if (highlighter.module)
+        ext.push(EditorView.styleModule.of(highlighter.module));
+      themeType = highlighter.themeType;
+    }
+    if (options === null || options === void 0 ? void 0 : options.fallback)
+      ext.push(fallbackHighlighter.of(highlighter));
+    else if (themeType)
+      ext.push(highlighterFacet.computeN([EditorView.darkTheme], (state) => {
+        return state.facet(EditorView.darkTheme) == (themeType == "dark") ? [highlighter] : [];
+      }));
+    else
+      ext.push(highlighterFacet.of(highlighter));
+    return ext;
   }
   function matchingNodes(node, dir, brackets) {
     let byProp = node.prop(dir < 0 ? NodeProp.openedBy : NodeProp.closedBy);
@@ -15397,7 +15518,7 @@
     typeArray.push(type);
     return type.id;
   }
-  var _a, languageDataProp, sublanguageProp, Language, LRLanguage, DocInput, currentContext, ParseContext, LanguageState, requestIdle, isInputPending, parseWorker, language, LanguageSupport, LanguageDescription, indentService, indentUnit, IndentContext, indentNodeProp, TreeIndentContext, flatIndent, foldService, foldNodeProp, HighlightStyle, defaultHighlightStyle, DefaultScanDist, DefaultBrackets, bracketMatchingHandle, noTokens, typeArray, warned, byTag, defaultTable, marks;
+  var _a, languageDataProp, sublanguageProp, Language, LRLanguage, DocInput, currentContext, ParseContext, LanguageState, requestIdle, isInputPending, parseWorker, language, LanguageSupport, LanguageDescription, indentService, indentUnit, IndentContext, indentNodeProp, TreeIndentContext, flatIndent, foldService, foldNodeProp, HighlightStyle, highlighterFacet, fallbackHighlighter, TreeHighlighter, treeHighlighter, defaultHighlightStyle, DefaultScanDist, DefaultBrackets, bracketMatchingHandle, noTokens, typeArray, warned, byTag, defaultTable, marks;
   var init_dist5 = __esm({
     "node_modules/@codemirror/language/dist/index.js"() {
       init_dist3();
@@ -15415,14 +15536,14 @@
         configure your parser to [attach](https://codemirror.net/6/docs/ref/#language.languageDataProp) it
         to the language's outer syntax node.
         */
-        constructor(data2, parser5, extraExtensions = [], name2 = "") {
+        constructor(data2, parser11, extraExtensions = [], name2 = "") {
           this.data = data2;
           this.name = name2;
           if (!EditorState.prototype.hasOwnProperty("tree"))
             Object.defineProperty(EditorState.prototype, "tree", { get() {
               return syntaxTree(this);
             } });
-          this.parser = parser5;
+          this.parser = parser11;
           this.extension = [
             language.of(this),
             EditorState.languageData.of((state, pos, side) => {
@@ -15500,9 +15621,9 @@
       };
       Language.setState = /* @__PURE__ */ StateEffect.define();
       LRLanguage = class _LRLanguage extends Language {
-        constructor(data2, parser5, name2) {
-          super(data2, parser5, [], name2);
-          this.parser = parser5;
+        constructor(data2, parser11, name2) {
+          super(data2, parser11, [], name2);
+          this.parser = parser11;
         }
         /**
         Define a language from a parser.
@@ -15550,17 +15671,17 @@
           return true;
         }
         read(from, to) {
-          let stringStart = this.cursorPos - this.string.length;
-          if (from < stringStart || to >= this.cursorPos)
+          let stringStart2 = this.cursorPos - this.string.length;
+          if (from < stringStart2 || to >= this.cursorPos)
             return this.doc.sliceString(from, to);
           else
-            return this.string.slice(from - stringStart, to - stringStart);
+            return this.string.slice(from - stringStart2, to - stringStart2);
         }
       };
       currentContext = null;
       ParseContext = class _ParseContext {
-        constructor(parser5, state, fragments = [], tree, treeLen, viewport, skipped, scheduleOn) {
-          this.parser = parser5;
+        constructor(parser11, state, fragments = [], tree, treeLen, viewport, skipped, scheduleOn) {
+          this.parser = parser11;
           this.state = state;
           this.fragments = fragments;
           this.tree = tree;
@@ -15574,8 +15695,8 @@
         /**
         @internal
         */
-        static create(parser5, state, viewport) {
-          return new _ParseContext(parser5, state, [], Tree.empty, 0, viewport, [], null);
+        static create(parser11, state, viewport) {
+          return new _ParseContext(parser11, state, [], Tree.empty, 0, viewport, [], null);
         }
         startParse() {
           return this.parser.startParse(new DocInput(this.state.doc), this.fragments);
@@ -15723,7 +15844,7 @@
           return new class extends Parser {
             createParse(input, fragments, ranges) {
               let from = ranges[0].from, to = ranges[ranges.length - 1].to;
-              let parser5 = {
+              let parser11 = {
                 parsedPos: from,
                 advance() {
                   let cx = currentContext;
@@ -15740,7 +15861,7 @@
                 stopAt() {
                 }
               };
-              return parser5;
+              return parser11;
             }
           }();
         }
@@ -16185,6 +16306,47 @@
           return new _HighlightStyle(specs, options || {});
         }
       };
+      highlighterFacet = /* @__PURE__ */ Facet.define();
+      fallbackHighlighter = /* @__PURE__ */ Facet.define({
+        combine(values2) {
+          return values2.length ? [values2[0]] : null;
+        }
+      });
+      TreeHighlighter = class {
+        constructor(view) {
+          this.markCache = /* @__PURE__ */ Object.create(null);
+          this.tree = syntaxTree(view.state);
+          this.decorations = this.buildDeco(view, getHighlighters(view.state));
+          this.decoratedTo = view.viewport.to;
+        }
+        update(update) {
+          let tree = syntaxTree(update.state), highlighters = getHighlighters(update.state);
+          let styleChange = highlighters != getHighlighters(update.startState);
+          let { viewport } = update.view, decoratedToMapped = update.changes.mapPos(this.decoratedTo, 1);
+          if (tree.length < viewport.to && !styleChange && tree.type == this.tree.type && decoratedToMapped >= viewport.to) {
+            this.decorations = this.decorations.map(update.changes);
+            this.decoratedTo = decoratedToMapped;
+          } else if (tree != this.tree || update.viewportChanged || styleChange) {
+            this.tree = tree;
+            this.decorations = this.buildDeco(update.view, highlighters);
+            this.decoratedTo = viewport.to;
+          }
+        }
+        buildDeco(view, highlighters) {
+          if (!highlighters || !this.tree.length)
+            return Decoration.none;
+          let builder = new RangeSetBuilder();
+          for (let { from, to } of view.visibleRanges) {
+            highlightTree(this.tree, highlighters, (from2, to2, style) => {
+              builder.add(from2, to2, this.markCache[style] || (this.markCache[style] = Decoration.mark({ class: style })));
+            }, from, to);
+          }
+          return builder.finish();
+        }
+      };
+      treeHighlighter = /* @__PURE__ */ Prec.high(/* @__PURE__ */ ViewPlugin.fromClass(TreeHighlighter, {
+        decorations: (v) => v.decorations
+      }));
       defaultHighlightStyle = /* @__PURE__ */ HighlightStyle.define([
         {
           tag: tags.meta,
@@ -16361,21 +16523,21 @@
     return ranges;
   }
   function changeBlockComment(option, state, ranges = state.selection.ranges) {
-    let tokens = ranges.map((r) => getConfig(state, r.from).block);
-    if (!tokens.every((c) => c))
+    let tokens2 = ranges.map((r) => getConfig(state, r.from).block);
+    if (!tokens2.every((c) => c))
       return null;
-    let comments = ranges.map((r, i) => findBlockComment(state, tokens[i], r.from, r.to));
+    let comments = ranges.map((r, i) => findBlockComment(state, tokens2[i], r.from, r.to));
     if (option != 2 && !comments.every((c) => c)) {
       return { changes: state.changes(ranges.map((range, i) => {
         if (comments[i])
           return [];
-        return [{ from: range.from, insert: tokens[i].open + " " }, { from: range.to, insert: " " + tokens[i].close }];
+        return [{ from: range.from, insert: tokens2[i].open + " " }, { from: range.to, insert: " " + tokens2[i].close }];
       })) };
     } else if (option != 1 && comments.some((c) => c)) {
       let changes = [];
       for (let i = 0, comment2; i < comments.length; i++)
         if (comment2 = comments[i]) {
-          let token = tokens[i], { open, close } = comment2;
+          let token = tokens2[i], { open, close } = comment2;
           changes.push({ from: open.pos - token.open.length, to: open.pos + open.margin }, { from: close.pos - close.margin, to: close.pos + token.close.length });
         }
       return { changes };
@@ -16396,12 +16558,12 @@
         }
         if (line.from > prevLine && (from == to || to > line.from)) {
           prevLine = line.from;
-          let indent = /^\s*/.exec(line.text)[0].length;
-          let empty = indent == line.length;
-          let comment2 = line.text.slice(indent, indent + token.length) == token ? indent : -1;
-          if (indent < line.text.length && indent < minIndent)
-            minIndent = indent;
-          lines.push({ line, comment: comment2, token, indent, empty, single: false });
+          let indent2 = /^\s*/.exec(line.text)[0].length;
+          let empty = indent2 == line.length;
+          let comment2 = line.text.slice(indent2, indent2 + token.length) == token ? indent2 : -1;
+          if (indent2 < line.text.length && indent2 < minIndent)
+            minIndent = indent2;
+          lines.push({ line, comment: comment2, token, indent: indent2, empty, single: false });
         }
         pos = line.to + 1;
       }
@@ -16415,9 +16577,9 @@
     }
     if (option != 2 && lines.some((l) => l.comment < 0 && (!l.empty || l.single))) {
       let changes = [];
-      for (let { line, token, indent, empty, single } of lines)
+      for (let { line, token, indent: indent2, empty, single } of lines)
         if (single || !empty)
-          changes.push({ from: line.from + indent, insert: token + " " });
+          changes.push({ from: line.from + indent2, insert: token + " " });
       let changeSet = state.changes(changes);
       return { changes: changeSet, selection: state.selection.map(changeSet, 1) };
     } else if (option != 1 && lines.some((l) => l.comment >= 0)) {
@@ -16633,9 +16795,9 @@
     if (moved.head == start.head && moved.head != (forward ? line.to : line.from))
       moved = view.moveToLineBoundary(start, forward, false);
     if (!forward && moved.head == line.from && line.length) {
-      let space4 = /^\s*/.exec(view.state.sliceDoc(line.from, Math.min(line.from + 100, line.to)))[0].length;
-      if (space4 && start.head != line.from + space4)
-        moved = EditorSelection.cursor(line.from + space4);
+      let space6 = /^\s*/.exec(view.state.sliceDoc(line.from, Math.min(line.from + 100, line.to)))[0].length;
+      if (space6 && start.head != line.from + space6)
+        moved = EditorSelection.cursor(line.from + space6);
     }
     return moved;
   }
@@ -16823,16 +16985,16 @@
         if (atEof)
           from = to = (to <= line.to ? line : state.doc.lineAt(to)).to;
         let cx = new IndentContext(state, { simulateBreak: from, simulateDoubleBreak: !!explode });
-        let indent = getIndentation(cx, from);
-        if (indent == null)
-          indent = countColumn(/^\s*/.exec(state.doc.lineAt(from).text)[0], state.tabSize);
+        let indent2 = getIndentation(cx, from);
+        if (indent2 == null)
+          indent2 = countColumn(/^\s*/.exec(state.doc.lineAt(from).text)[0], state.tabSize);
         while (to < line.to && /\s/.test(line.text[to - line.from]))
           to++;
         if (explode)
           ({ from, to } = explode);
         else if (from > line.from && from < line.from + 100 && !/\S/.test(line.text.slice(0, from)))
           from = line.from;
-        let insert2 = ["", indentString(state, indent)];
+        let insert2 = ["", indentString(state, indent2)];
         if (explode)
           insert2.push(indentString(state, cx.lineIndent(line.from, -1)));
         return {
@@ -16940,8 +17102,8 @@
         toJSON(value) {
           return { done: value.done.map((e) => e.toJSON()), undone: value.undone.map((e) => e.toJSON()) };
         },
-        fromJSON(json) {
-          return new HistoryState(json.done.map(HistEvent.fromJSON), json.undone.map(HistEvent.fromJSON));
+        fromJSON(json2) {
+          return new HistoryState(json2.done.map(HistEvent.fromJSON), json2.undone.map(HistEvent.fromJSON));
         }
       });
       undo = /* @__PURE__ */ cmd(0, false);
@@ -16968,8 +17130,8 @@
             selectionsAfter: this.selectionsAfter.map((s) => s.toJSON())
           };
         }
-        static fromJSON(json) {
-          return new _HistEvent(json.changes && ChangeSet.fromJSON(json.changes), [], json.mapped && ChangeDesc.fromJSON(json.mapped), json.startSelection && EditorSelection.fromJSON(json.startSelection), json.selectionsAfter.map(EditorSelection.fromJSON));
+        static fromJSON(json2) {
+          return new _HistEvent(json2.changes && ChangeSet.fromJSON(json2.changes), [], json2.mapped && ChangeDesc.fromJSON(json2.mapped), json2.startSelection && EditorSelection.fromJSON(json2.startSelection), json2.selectionsAfter.map(EditorSelection.fromJSON));
         }
         // This does not check `addToHistory` and such, it assumes the
         // transaction needs to be converted to an item. Returns null when
@@ -17273,15 +17435,15 @@
           return found == null ? -1 : found;
         } });
         let changes = changeBySelectedLine(state, (line, changes2, range) => {
-          let indent = getIndentation(context, line.from);
-          if (indent == null)
+          let indent2 = getIndentation(context, line.from);
+          if (indent2 == null)
             return;
           if (!/\S/.test(line.text))
-            indent = 0;
+            indent2 = 0;
           let cur = /^\s*/.exec(line.text)[0];
-          let norm = indentString(state, indent);
+          let norm = indentString(state, indent2);
           if (cur != norm || range.from < line.from + cur.length) {
-            updated[line.from] = indent;
+            updated[line.from] = indent2;
             changes2.push({ from: line.from, to: line.from + cur.length, insert: norm });
           }
         });
@@ -17301,14 +17463,14 @@
         if (state.readOnly)
           return false;
         dispatch(state.update(changeBySelectedLine(state, (line, changes) => {
-          let space4 = /^\s*/.exec(line.text)[0];
-          if (!space4)
+          let space6 = /^\s*/.exec(line.text)[0];
+          if (!space6)
             return;
-          let col = countColumn(space4, state.tabSize), keep = 0;
+          let col = countColumn(space6, state.tabSize), keep = 0;
           let insert2 = indentString(state, Math.max(0, col - getIndentUnit(state)));
-          while (keep < space4.length && keep < insert2.length && space4.charCodeAt(keep) == insert2.charCodeAt(keep))
+          while (keep < space6.length && keep < insert2.length && space6.charCodeAt(keep) == insert2.charCodeAt(keep))
             keep++;
-          changes.push({ from: line.from + keep, to: line.from + space4.length, insert: insert2.slice(keep) });
+          changes.push({ from: line.from + keep, to: line.from + space6.length, insert: insert2.slice(keep) });
         }), { userEvent: "delete.dedent" }));
         return true;
       };
@@ -17700,11 +17862,11 @@
           let lineObj = state.doc.lineAt(pos), baseIndent = /^\s*/.exec(lineObj.text)[0];
           for (let line of this.lines) {
             if (text.length) {
-              let indent = baseIndent, tabs = /^\t*/.exec(line)[0].length;
+              let indent2 = baseIndent, tabs = /^\t*/.exec(line)[0].length;
               for (let i = 0; i < tabs; i++)
-                indent += state.facet(indentUnit);
-              lineStart.push(pos + indent.length - tabs);
-              line = indent + line.slice(tabs);
+                indent2 += state.facet(indentUnit);
+              lineStart.push(pos + indent2.length - tabs);
+              line = indent2 + line.slice(tabs);
             }
             text.push(line);
             pos += line.length + 1;
@@ -18199,9 +18361,9 @@
           if (infoNode)
             info = input.read(infoNode.from, infoNode.to);
         }
-        let parser5 = codeParser(info);
-        if (parser5)
-          return { parser: parser5, overlay: (node2) => node2.type.id == Type.CodeText, bracketed: id2 == Type.FencedCode };
+        let parser11 = codeParser(info);
+        if (parser11)
+          return { parser: parser11, overlay: (node2) => node2.type.id == Type.CodeText, bracketed: id2 == Type.FencedCode };
       } else if (htmlParser && (id2 == Type.HTMLBlock || id2 == Type.HTMLTag || id2 == Type.CommentBlock)) {
         return { parser: htmlParser, overlay: leftOverSpace(node.node, node.from, node.to) };
       }
@@ -18306,18 +18468,18 @@
       init_dist4();
       CompositeBlock = class _CompositeBlock {
         static create(type, value, from, parentHash, end) {
-          let hash2 = parentHash + (parentHash << 8) + type + (value << 4) | 0;
-          return new _CompositeBlock(type, value, from, hash2, end, [], []);
+          let hash3 = parentHash + (parentHash << 8) + type + (value << 4) | 0;
+          return new _CompositeBlock(type, value, from, hash3, end, [], []);
         }
-        constructor(type, value, from, hash2, end, children, positions) {
+        constructor(type, value, from, hash3, end, children, positions) {
           this.type = type;
           this.value = value;
           this.from = from;
-          this.hash = hash2;
+          this.hash = hash3;
           this.end = end;
           this.children = children;
           this.positions = positions;
-          this.hashProp = [[NodeProp.contextHash, hash2]];
+          this.hashProp = [[NodeProp.contextHash, hash3]];
         }
         addChild(child, pos) {
           if (child.prop(NodeProp.contextHash) != this.hash)
@@ -18334,51 +18496,51 @@
           });
         }
       };
-      (function(Type2) {
-        Type2[Type2["Document"] = 1] = "Document";
-        Type2[Type2["CodeBlock"] = 2] = "CodeBlock";
-        Type2[Type2["FencedCode"] = 3] = "FencedCode";
-        Type2[Type2["Blockquote"] = 4] = "Blockquote";
-        Type2[Type2["HorizontalRule"] = 5] = "HorizontalRule";
-        Type2[Type2["BulletList"] = 6] = "BulletList";
-        Type2[Type2["OrderedList"] = 7] = "OrderedList";
-        Type2[Type2["ListItem"] = 8] = "ListItem";
-        Type2[Type2["ATXHeading1"] = 9] = "ATXHeading1";
-        Type2[Type2["ATXHeading2"] = 10] = "ATXHeading2";
-        Type2[Type2["ATXHeading3"] = 11] = "ATXHeading3";
-        Type2[Type2["ATXHeading4"] = 12] = "ATXHeading4";
-        Type2[Type2["ATXHeading5"] = 13] = "ATXHeading5";
-        Type2[Type2["ATXHeading6"] = 14] = "ATXHeading6";
-        Type2[Type2["SetextHeading1"] = 15] = "SetextHeading1";
-        Type2[Type2["SetextHeading2"] = 16] = "SetextHeading2";
-        Type2[Type2["HTMLBlock"] = 17] = "HTMLBlock";
-        Type2[Type2["LinkReference"] = 18] = "LinkReference";
-        Type2[Type2["Paragraph"] = 19] = "Paragraph";
-        Type2[Type2["CommentBlock"] = 20] = "CommentBlock";
-        Type2[Type2["ProcessingInstructionBlock"] = 21] = "ProcessingInstructionBlock";
-        Type2[Type2["Escape"] = 22] = "Escape";
-        Type2[Type2["Entity"] = 23] = "Entity";
-        Type2[Type2["HardBreak"] = 24] = "HardBreak";
-        Type2[Type2["Emphasis"] = 25] = "Emphasis";
-        Type2[Type2["StrongEmphasis"] = 26] = "StrongEmphasis";
-        Type2[Type2["Link"] = 27] = "Link";
-        Type2[Type2["Image"] = 28] = "Image";
-        Type2[Type2["InlineCode"] = 29] = "InlineCode";
-        Type2[Type2["HTMLTag"] = 30] = "HTMLTag";
-        Type2[Type2["Comment"] = 31] = "Comment";
-        Type2[Type2["ProcessingInstruction"] = 32] = "ProcessingInstruction";
-        Type2[Type2["Autolink"] = 33] = "Autolink";
-        Type2[Type2["HeaderMark"] = 34] = "HeaderMark";
-        Type2[Type2["QuoteMark"] = 35] = "QuoteMark";
-        Type2[Type2["ListMark"] = 36] = "ListMark";
-        Type2[Type2["LinkMark"] = 37] = "LinkMark";
-        Type2[Type2["EmphasisMark"] = 38] = "EmphasisMark";
-        Type2[Type2["CodeMark"] = 39] = "CodeMark";
-        Type2[Type2["CodeText"] = 40] = "CodeText";
-        Type2[Type2["CodeInfo"] = 41] = "CodeInfo";
-        Type2[Type2["LinkTitle"] = 42] = "LinkTitle";
-        Type2[Type2["LinkLabel"] = 43] = "LinkLabel";
-        Type2[Type2["URL"] = 44] = "URL";
+      (function(Type3) {
+        Type3[Type3["Document"] = 1] = "Document";
+        Type3[Type3["CodeBlock"] = 2] = "CodeBlock";
+        Type3[Type3["FencedCode"] = 3] = "FencedCode";
+        Type3[Type3["Blockquote"] = 4] = "Blockquote";
+        Type3[Type3["HorizontalRule"] = 5] = "HorizontalRule";
+        Type3[Type3["BulletList"] = 6] = "BulletList";
+        Type3[Type3["OrderedList"] = 7] = "OrderedList";
+        Type3[Type3["ListItem"] = 8] = "ListItem";
+        Type3[Type3["ATXHeading1"] = 9] = "ATXHeading1";
+        Type3[Type3["ATXHeading2"] = 10] = "ATXHeading2";
+        Type3[Type3["ATXHeading3"] = 11] = "ATXHeading3";
+        Type3[Type3["ATXHeading4"] = 12] = "ATXHeading4";
+        Type3[Type3["ATXHeading5"] = 13] = "ATXHeading5";
+        Type3[Type3["ATXHeading6"] = 14] = "ATXHeading6";
+        Type3[Type3["SetextHeading1"] = 15] = "SetextHeading1";
+        Type3[Type3["SetextHeading2"] = 16] = "SetextHeading2";
+        Type3[Type3["HTMLBlock"] = 17] = "HTMLBlock";
+        Type3[Type3["LinkReference"] = 18] = "LinkReference";
+        Type3[Type3["Paragraph"] = 19] = "Paragraph";
+        Type3[Type3["CommentBlock"] = 20] = "CommentBlock";
+        Type3[Type3["ProcessingInstructionBlock"] = 21] = "ProcessingInstructionBlock";
+        Type3[Type3["Escape"] = 22] = "Escape";
+        Type3[Type3["Entity"] = 23] = "Entity";
+        Type3[Type3["HardBreak"] = 24] = "HardBreak";
+        Type3[Type3["Emphasis"] = 25] = "Emphasis";
+        Type3[Type3["StrongEmphasis"] = 26] = "StrongEmphasis";
+        Type3[Type3["Link"] = 27] = "Link";
+        Type3[Type3["Image"] = 28] = "Image";
+        Type3[Type3["InlineCode"] = 29] = "InlineCode";
+        Type3[Type3["HTMLTag"] = 30] = "HTMLTag";
+        Type3[Type3["Comment"] = 31] = "Comment";
+        Type3[Type3["ProcessingInstruction"] = 32] = "ProcessingInstruction";
+        Type3[Type3["Autolink"] = 33] = "Autolink";
+        Type3[Type3["HeaderMark"] = 34] = "HeaderMark";
+        Type3[Type3["QuoteMark"] = 35] = "QuoteMark";
+        Type3[Type3["ListMark"] = 36] = "ListMark";
+        Type3[Type3["LinkMark"] = 37] = "LinkMark";
+        Type3[Type3["EmphasisMark"] = 38] = "EmphasisMark";
+        Type3[Type3["CodeMark"] = 39] = "CodeMark";
+        Type3[Type3["CodeText"] = 40] = "CodeText";
+        Type3[Type3["CodeInfo"] = 41] = "CodeInfo";
+        Type3[Type3["LinkTitle"] = 42] = "LinkTitle";
+        Type3[Type3["LinkLabel"] = 43] = "LinkLabel";
+        Type3[Type3["URL"] = 44] = "URL";
       })(Type || (Type = {}));
       LeafBlock = class {
         /**
@@ -18450,9 +18612,9 @@
         /**
         Move the line's base position forward to the given _column_.
         */
-        moveBaseColumn(indent) {
-          this.baseIndent = indent;
-          this.basePos = this.findColumn(indent);
+        moveBaseColumn(indent2) {
+          this.baseIndent = indent2;
+          this.basePos = this.findColumn(indent2);
         }
         /**
         Store a composite-block-level marker. Should be called from
@@ -18466,18 +18628,18 @@
         Find the column position at `to`, optionally starting at a given
         position and column.
         */
-        countIndent(to, from = 0, indent = 0) {
+        countIndent(to, from = 0, indent2 = 0) {
           for (let i = from; i < to; i++)
-            indent += this.text.charCodeAt(i) == 9 ? 4 - indent % 4 : 1;
-          return indent;
+            indent2 += this.text.charCodeAt(i) == 9 ? 4 - indent2 % 4 : 1;
+          return indent2;
         }
         /**
         Find the position corresponding to the given column.
         */
         findColumn(goal) {
           let i = 0;
-          for (let indent = 0; i < this.text.length && indent < goal; i++)
-            indent += this.text.charCodeAt(i) == 9 ? 4 - indent % 4 : 1;
+          for (let indent2 = 0; i < this.text.length && indent2 < goal; i++)
+            indent2 += this.text.charCodeAt(i) == 9 ? 4 - indent2 % 4 : 1;
           return i;
         }
         /**
@@ -18804,8 +18966,8 @@
         /**
         @internal
         */
-        constructor(parser5, input, fragments, ranges) {
-          this.parser = parser5;
+        constructor(parser11, input, fragments, ranges) {
+          this.parser = parser11;
           this.input = input;
           this.ranges = ranges;
           this.line = new Line2();
@@ -18861,9 +19023,9 @@
           let leaf = new LeafBlock(this.lineStart + line.pos, line.text.slice(line.pos));
           for (let parse of this.parser.leafBlockParsers)
             if (parse) {
-              let parser5 = parse(this, leaf);
-              if (parser5)
-                leaf.parsers.push(parser5);
+              let parser11 = parse(this, leaf);
+              if (parser11)
+                leaf.parsers.push(parser11);
             }
           lines: while (this.nextLine()) {
             if (line.pos == line.text.length)
@@ -18873,8 +19035,8 @@
                 if (stop(this, line, leaf))
                   break lines;
             }
-            for (let parser5 of leaf.parsers)
-              if (parser5.nextLine(this, line, leaf))
+            for (let parser11 of leaf.parsers)
+              if (parser11.nextLine(this, line, leaf))
                 return null;
             leaf.content += "\n" + line.scrub();
             for (let m of line.markers)
@@ -19007,8 +19169,8 @@
         lineChunkAt(pos) {
           let next = this.input.chunk(pos), text;
           if (!this.input.lineChunks) {
-            let eol = next.indexOf("\n");
-            text = eol < 0 ? next : next.slice(0, eol);
+            let eol2 = next.indexOf("\n");
+            text = eol2 < 0 ? next : next.slice(0, eol2);
           } else {
             text = next == "\n" ? "" : next;
           }
@@ -19078,8 +19240,8 @@
         @internal
         */
         finishLeaf(leaf) {
-          for (let parser5 of leaf.parsers)
-            if (parser5.finish(this, leaf))
+          for (let parser11 of leaf.parsers)
+            if (parser11.finish(this, leaf))
               return;
           let inline = injectMarks(this.parser.parseInline(leaf.content, leaf.start), leaf.marks);
           this.addNode(this.buffer.writeElements(inline, -leaf.start).finish(Type.Paragraph, leaf.content.length), leaf.start);
@@ -19467,8 +19629,8 @@
         /**
         @internal
         */
-        constructor(parser5, text, offset) {
-          this.parser = parser5;
+        constructor(parser11, text, offset) {
+          this.parser = parser11;
           this.text = text;
           this.offset = offset;
           this.parts = [];
@@ -19677,9 +19839,9 @@
               return false;
           }
         }
-        matches(hash2) {
+        matches(hash3) {
           let tree = this.cursor.tree;
-          return tree && tree.prop(NodeProp.contextHash) == hash2;
+          return tree && tree.prop(NodeProp.contextHash) == hash3;
         }
         takeNodes(cx) {
           let cur = this.cursor, off = this.fragment.offset, fragEnd = this.fragmentEnd - (this.fragment.openEnd ? 1 : 0);
@@ -19922,7 +20084,7 @@
   });
 
   // node_modules/@lezer/lr/dist/index.js
-  function decodeArray(input, Type2 = Uint16Array) {
+  function decodeArray(input, Type3 = Uint16Array) {
     if (typeof input != "string")
       return input;
     let array = null;
@@ -19951,12 +20113,12 @@
       if (array)
         array[out++] = value;
       else
-        array = new Type2(value);
+        array = new Type3(value);
     }
     return array;
   }
   function readToken(data2, input, stack, group, precTable, precOffset) {
-    let state = 0, groupMask = 1 << group, { dialect } = stack.p.parser;
+    let state = 0, groupMask = 1 << group, { dialect: dialect2 } = stack.p.parser;
     scan: for (; ; ) {
       if ((groupMask & data2[state]) == 0)
         break;
@@ -19964,7 +20126,7 @@
       for (let i = state + 3; i < accEnd; i += 2)
         if ((data2[i + 1] & groupMask) > 0) {
           let term = data2[i];
-          if (dialect.allows(term) && (input.token.value == -1 || input.token.value == term || overrides(term, input.token.value, precTable, precOffset))) {
+          if (dialect2.allows(term) && (input.token.value == -1 || input.token.value == term || overrides(term, input.token.value, precTable, precOffset))) {
             input.acceptToken(term);
             break;
           }
@@ -20118,23 +20280,23 @@
         reduce(action) {
           var _a2;
           let depth = action >> 19, type = action & 65535;
-          let { parser: parser5 } = this.p;
+          let { parser: parser11 } = this.p;
           let lookaheadRecord = this.reducePos < this.pos - 25 && this.setLookAhead(this.pos);
-          let dPrec = parser5.dynamicPrecedence(type);
+          let dPrec = parser11.dynamicPrecedence(type);
           if (dPrec)
             this.score += dPrec;
           if (depth == 0) {
-            if (type < parser5.minRepeatTerm && this.reducePos < this.pos)
+            if (type < parser11.minRepeatTerm && this.reducePos < this.pos)
               this.reducePos = this.pos;
-            this.pushState(parser5.getGoto(this.state, type, true), this.reducePos);
-            if (type < parser5.minRepeatTerm)
+            this.pushState(parser11.getGoto(this.state, type, true), this.reducePos);
+            if (type < parser11.minRepeatTerm)
               this.storeNode(type, this.reducePos, this.reducePos, lookaheadRecord ? 8 : 4, true);
             this.reduceContext(type, this.reducePos);
             return;
           }
           let base2 = this.stack.length - (depth - 1) * 3 - (action & 262144 ? 6 : 0);
           let start = base2 ? this.stack[base2 - 2] : this.p.ranges[0].from;
-          if (type < parser5.minRepeatTerm && start == this.reducePos && this.reducePos < this.pos)
+          if (type < parser11.minRepeatTerm && start == this.reducePos && this.reducePos < this.pos)
             this.reducePos = this.pos;
           let size = this.reducePos - start;
           if (size >= 2e3 && !((_a2 = this.p.parser.nodeSet.types[type]) === null || _a2 === void 0 ? void 0 : _a2.isAnonymous)) {
@@ -20148,8 +20310,8 @@
             }
           }
           let bufferBase = base2 ? this.stack[base2 - 1] : 0, count2 = this.bufferBase + this.buffer.length - bufferBase;
-          if (type < parser5.minRepeatTerm || action & 131072) {
-            let pos = parser5.stateFlag(
+          if (type < parser11.minRepeatTerm || action & 131072) {
+            let pos = parser11.stateFlag(
               this.state,
               1
               /* StateFlag.Skipped */
@@ -20160,7 +20322,7 @@
             this.state = this.stack[base2];
           } else {
             let baseStateID = this.stack[base2 - 3];
-            this.state = parser5.getGoto(baseStateID, type, true);
+            this.state = parser11.getGoto(baseStateID, type, true);
           }
           while (this.stack.length > base2)
             this.stack.pop();
@@ -20219,18 +20381,18 @@
           if (action & 131072) {
             this.pushState(action & 65535, this.pos);
           } else if ((action & 262144) == 0) {
-            let nextState = action, { parser: parser5 } = this.p;
+            let nextState = action, { parser: parser11 } = this.p;
             this.pos = end;
-            let skipped = parser5.stateFlag(
+            let skipped = parser11.stateFlag(
               nextState,
               1
               /* StateFlag.Skipped */
             );
-            if (!skipped && (end > start || type <= parser5.maxNode))
+            if (!skipped && (end > start || type <= parser11.maxNode))
               this.reducePos = end;
             this.pushState(nextState, skipped ? start : Math.min(start, this.reducePos));
             this.shiftContext(type, start);
-            if (type <= parser5.maxNode)
+            if (type <= parser11.maxNode)
               this.buffer.push(type, start, end, 4);
           } else {
             this.pos = end;
@@ -20366,18 +20528,18 @@
         @internal
         */
         forceReduce() {
-          let { parser: parser5 } = this.p;
-          let reduce = parser5.stateSlot(
+          let { parser: parser11 } = this.p;
+          let reduce = parser11.stateSlot(
             this.state,
             5
             /* ParseState.ForcedReduce */
           );
           if ((reduce & 65536) == 0)
             return false;
-          if (!parser5.validAction(this.state, reduce)) {
+          if (!parser11.validAction(this.state, reduce)) {
             let depth = reduce >> 19, term = reduce & 65535;
             let target = this.stack.length - depth * 3;
-            if (target < 0 || parser5.getGoto(this.stack[target], term, false) < 0) {
+            if (target < 0 || parser11.getGoto(this.stack[target], term, false) < 0) {
               let backup = this.findForcedReduction();
               if (backup == null)
                 return false;
@@ -20396,18 +20558,18 @@
         isn't a valid action. @internal
         */
         findForcedReduction() {
-          let { parser: parser5 } = this.p, seen = [];
+          let { parser: parser11 } = this.p, seen = [];
           let explore = (state, depth) => {
             if (seen.includes(state))
               return;
             seen.push(state);
-            return parser5.allActions(state, (action) => {
+            return parser11.allActions(state, (action) => {
               if (action & (262144 | 131072)) ;
               else if (action & 65536) {
                 let rDepth = (action >> 19) - depth;
                 if (rDepth > 1) {
                   let term = action & 65535, target = this.stack.length - rDepth * 3;
-                  if (target >= 0 && parser5.getGoto(this.stack[target], term, false) >= 0)
+                  if (target >= 0 && parser11.getGoto(this.stack[target], term, false) >= 0)
                     return rDepth << 19 | 65536 | term;
                 }
               } else {
@@ -20443,12 +20605,12 @@
         get deadEnd() {
           if (this.stack.length != 3)
             return false;
-          let { parser: parser5 } = this.p;
-          return parser5.data[parser5.stateSlot(
+          let { parser: parser11 } = this.p;
+          return parser11.data[parser11.stateSlot(
             this.state,
             1
             /* ParseState.Actions */
-          )] == 65535 && !parser5.stateSlot(
+          )] == 65535 && !parser11.stateSlot(
             this.state,
             4
             /* ParseState.DefaultReduce */
@@ -20838,8 +21000,8 @@
           this.id = id2;
         }
         token(input, stack) {
-          let { parser: parser5 } = stack.p;
-          readToken(this.data, input, stack, this.id, parser5.data, parser5.tokenPrecTable);
+          let { parser: parser11 } = stack.p;
+          readToken(this.data, input, stack, this.id, parser11.data, parser11.tokenPrecTable);
         }
       };
       TokenGroup.prototype.contextual = TokenGroup.prototype.fallback = TokenGroup.prototype.extend = false;
@@ -20971,18 +21133,18 @@
         }
       };
       TokenCache = class {
-        constructor(parser5, stream) {
+        constructor(parser11, stream) {
           this.stream = stream;
           this.tokens = [];
           this.mainToken = null;
           this.actions = [];
-          this.tokens = parser5.tokenizers.map((_) => new CachedToken());
+          this.tokens = parser11.tokenizers.map((_) => new CachedToken());
         }
         getActions(stack) {
           let actionIndex = 0;
           let main = null;
-          let { parser: parser5 } = stack.p, { tokenizers } = parser5;
-          let mask = parser5.stateSlot(
+          let { parser: parser11 } = stack.p, { tokenizers } = parser11;
+          let mask = parser11.stateSlot(
             stack.state,
             3
             /* ParseState.TokenizerMask */
@@ -21040,10 +21202,10 @@
           let start = this.stream.clipPos(stack.pos);
           tokenizer.token(this.stream.reset(start, token), stack);
           if (token.value > -1) {
-            let { parser: parser5 } = stack.p;
-            for (let i = 0; i < parser5.specialized.length; i++)
-              if (parser5.specialized[i] == token.value) {
-                let result = parser5.specializers[i](this.stream.read(token.start, token.end), stack);
+            let { parser: parser11 } = stack.p;
+            for (let i = 0; i < parser11.specialized.length; i++)
+              if (parser11.specialized[i] == token.value) {
+                let result = parser11.specializers[i](this.stream.read(token.start, token.end), stack);
                 if (result >= 0 && stack.p.parser.dialect.allows(result >> 1)) {
                   if ((result & 1) == 0)
                     token.value = result >> 1;
@@ -21067,9 +21229,9 @@
           return index;
         }
         addActions(stack, token, end, index) {
-          let { state } = stack, { parser: parser5 } = stack.p, { data: data2 } = parser5;
+          let { state } = stack, { parser: parser11 } = stack.p, { data: data2 } = parser11;
           for (let set = 0; set < 2; set++) {
-            for (let i = parser5.stateSlot(
+            for (let i = parser11.stateSlot(
               state,
               set ? 2 : 1
               /* ParseState.Actions */
@@ -21091,8 +21253,8 @@
         }
       };
       Parse = class {
-        constructor(parser5, input, fragments, ranges) {
-          this.parser = parser5;
+        constructor(parser11, input, fragments, ranges) {
+          this.parser = parser11;
           this.input = input;
           this.ranges = ranges;
           this.recovering = 0;
@@ -21104,11 +21266,11 @@
           this.lastBigReductionSize = 0;
           this.bigReductionCount = 0;
           this.stream = new InputStream(input, ranges);
-          this.tokens = new TokenCache(parser5, this.stream);
-          this.topTerm = parser5.top[1];
+          this.tokens = new TokenCache(parser11, this.stream);
+          this.topTerm = parser11.top[1];
           let { from } = ranges[0];
-          this.stacks = [Stack.start(this, parser5.top[0], from)];
-          this.fragments = fragments.length && this.stream.end - from > parser5.bufferLength * 4 ? new FragmentCursor3(fragments, parser5.nodeSet) : null;
+          this.stacks = [Stack.start(this, parser11.top[0], from)];
+          this.fragments = fragments.length && this.stream.end - from > parser11.bufferLength * 4 ? new FragmentCursor3(fragments, parser11.nodeSet) : null;
         }
         get parsedPos() {
           return this.minStackPos;
@@ -21221,18 +21383,18 @@
         // given, stacks split off by ambiguous operations will be pushed to
         // `split`, or added to `stacks` if they move `pos` forward.
         advanceStack(stack, stacks, split) {
-          let start = stack.pos, { parser: parser5 } = this;
+          let start = stack.pos, { parser: parser11 } = this;
           let base2 = verbose ? this.stackID(stack) + " -> " : "";
           if (this.stoppedAt != null && start > this.stoppedAt)
             return stack.forceReduce() ? stack : null;
           if (this.fragments) {
             let strictCx = stack.curContext && stack.curContext.tracker.strict, cxHash = strictCx ? stack.curContext.hash : 0;
             for (let cached = this.fragments.nodeAt(start); cached; ) {
-              let match = this.parser.nodeSet.types[cached.type.id] == cached.type ? parser5.getGoto(stack.state, cached.type.id) : -1;
+              let match = this.parser.nodeSet.types[cached.type.id] == cached.type ? parser11.getGoto(stack.state, cached.type.id) : -1;
               if (match > -1 && cached.length && (!strictCx || (cached.prop(NodeProp.contextHash) || 0) == cxHash)) {
                 stack.useNode(cached, match);
                 if (verbose)
-                  console.log(base2 + this.stackID(stack) + ` (via reuse of ${parser5.getName(cached.type.id)})`);
+                  console.log(base2 + this.stackID(stack) + ` (via reuse of ${parser11.getName(cached.type.id)})`);
                 return true;
               }
               if (!(cached instanceof Tree) || cached.children.length == 0 || cached.positions[0] > 0)
@@ -21244,7 +21406,7 @@
                 break;
             }
           }
-          let defaultReduce = parser5.stateSlot(
+          let defaultReduce = parser11.stateSlot(
             stack.state,
             4
             /* ParseState.DefaultReduce */
@@ -21252,7 +21414,7 @@
           if (defaultReduce > 0) {
             stack.reduce(defaultReduce);
             if (verbose)
-              console.log(base2 + this.stackID(stack) + ` (via always-reduce ${parser5.getName(
+              console.log(base2 + this.stackID(stack) + ` (via always-reduce ${parser11.getName(
                 defaultReduce & 65535
                 /* Action.ValueMask */
               )})`);
@@ -21270,10 +21432,10 @@
             let main = this.tokens.mainToken;
             localStack.apply(action, term, main ? main.start : localStack.pos, end);
             if (verbose)
-              console.log(base2 + this.stackID(localStack) + ` (via ${(action & 65536) == 0 ? "shift" : `reduce of ${parser5.getName(
+              console.log(base2 + this.stackID(localStack) + ` (via ${(action & 65536) == 0 ? "shift" : `reduce of ${parser11.getName(
                 action & 65535
                 /* Action.ValueMask */
-              )}`} for ${parser5.getName(term)} @ ${start}${localStack == stack ? "" : ", split"})`);
+              )}`} for ${parser11.getName(term)} @ ${start}${localStack == stack ? "" : ", split"})`);
             if (last)
               return true;
             else if (localStack.pos > start)
@@ -21297,10 +21459,10 @@
             }
           }
         }
-        runRecovery(stacks, tokens, newStacks) {
+        runRecovery(stacks, tokens2, newStacks) {
           let finished = null, restarted = false;
           for (let i = 0; i < stacks.length; i++) {
-            let stack = stacks[i], token = tokens[i << 1], tokenEnd = tokens[(i << 1) + 1];
+            let stack = stacks[i], token = tokens2[i << 1], tokenEnd = tokens2[(i << 1) + 1];
             let base2 = verbose ? this.stackID(stack) + " -> " : "";
             if (stack.deadEnd) {
               if (restarted)
@@ -21662,10 +21824,10 @@
         /**
         @internal
         */
-        parseDialect(dialect) {
+        parseDialect(dialect2) {
           let values2 = Object.keys(this.dialects), flags = values2.map(() => false);
-          if (dialect)
-            for (let part of dialect.split(" ")) {
+          if (dialect2)
+            for (let part of dialect2.split(" ")) {
               let id2 = values2.indexOf(part);
               if (id2 >= 0)
                 flags[id2] = true;
@@ -21676,7 +21838,7 @@
               for (let j = this.dialects[values2[i]], id2; (id2 = this.data[j++]) != 65535; )
                 (disabled || (disabled = new Uint8Array(this.maxTerm + 1)))[id2] = 1;
             }
-          return new Dialect(dialect, flags, disabled);
+          return new Dialect(dialect2, flags, disabled);
         }
         /**
         Used by the output of the parser generator. Not available to
@@ -23772,14 +23934,14 @@
     return (context) => htmlCompletionFor(schema, context);
   }
   function html(config = {}) {
-    let dialect = "", wrap;
+    let dialect2 = "", wrap;
     if (config.matchClosingTags === false)
-      dialect = "noMatch";
+      dialect2 = "noMatch";
     if (config.selfClosingTags === true)
-      dialect = (dialect ? dialect + " " : "") + "selfClosing";
+      dialect2 = (dialect2 ? dialect2 + " " : "") + "selfClosing";
     if (config.nestedLanguages && config.nestedLanguages.length || config.nestedAttributes && config.nestedAttributes.length)
       wrap = configureNesting((config.nestedLanguages || []).concat(defaultNesting), (config.nestedAttributes || []).concat(defaultAttrs));
-    let lang = wrap ? htmlPlain.configure({ wrap, dialect }) : dialect ? htmlLanguage.configure({ dialect }) : htmlLanguage;
+    let lang = wrap ? htmlPlain.configure({ wrap, dialect: dialect2 }) : dialect2 ? htmlLanguage.configure({ dialect: dialect2 }) : htmlLanguage;
     return new LanguageSupport(lang, [
       htmlLanguage.data.of({ autocomplete: htmlCompletionSourceWith(config) }),
       config.autoCloseTags !== false ? autoCloseTags2 : [],
@@ -24392,8 +24554,8 @@
     }
     return last.to;
   }
-  function mkLang(parser5) {
-    return new Language(data, parser5, [], "markdown");
+  function mkLang(parser11) {
+    return new Language(data, parser11, [], "markdown");
   }
   function getCodeParser(languages, defaultLanguage) {
     return (info) => {
@@ -24472,17 +24634,17 @@
     if (!blank || state.facet(indentUnit) != "	")
       return content2;
     let col = countColumn(content2, 4, blank);
-    let space4 = "";
+    let space6 = "";
     for (let i = col; i > 0; ) {
       if (i >= 4) {
-        space4 += "	";
+        space6 += "	";
         i -= 4;
       } else {
-        space4 += " ";
+        space6 += " ";
         i--;
       }
     }
-    return space4 + content2.slice(blank);
+    return space6 + content2.slice(blank);
   }
   function isMark(node) {
     return node.name == "QuoteMark" || node.name == "ListMark";
@@ -24523,8 +24685,8 @@
     return node;
   }
   function markdown(config = {}) {
-    let { codeLanguages, defaultCodeLanguage, addKeymap = true, base: { parser: parser5 } = commonmarkLanguage, completeHTMLTags = true, pasteURLAsLink: pasteURL = true, htmlTagLanguage = htmlNoMatch } = config;
-    if (!(parser5 instanceof MarkdownParser))
+    let { codeLanguages, defaultCodeLanguage, addKeymap = true, base: { parser: parser11 } = commonmarkLanguage, completeHTMLTags = true, pasteURLAsLink: pasteURL = true, htmlTagLanguage = htmlNoMatch } = config;
+    if (!(parser11 instanceof MarkdownParser))
       throw new RangeError("Base parser provided to `markdown` should be a Markdown parser");
     let extensions = config.extensions ? [config.extensions] : [];
     let support = [htmlTagLanguage.support, headerIndent], defaultCode;
@@ -24540,7 +24702,7 @@
     extensions.push(parseCode({ codeParser, htmlParser: htmlTagLanguage.language.parser }));
     if (addKeymap)
       support.push(Prec.high(keymap.of(markdownKeymap)));
-    let lang = mkLang(parser5.configure(extensions));
+    let lang = mkLang(parser11.configure(extensions));
     if (completeHTMLTags)
       support.push(lang.data.of({ autocomplete: htmlTagCompletion }));
     return new LanguageSupport(lang, support);
@@ -24805,6 +24967,2350 @@
     }
   });
 
+  // node_modules/@lezer/json/dist/index.js
+  var jsonHighlighting, parser5;
+  var init_dist17 = __esm({
+    "node_modules/@lezer/json/dist/index.js"() {
+      init_dist9();
+      init_dist4();
+      jsonHighlighting = styleTags({
+        String: tags.string,
+        Number: tags.number,
+        "True False": tags.bool,
+        PropertyName: tags.propertyName,
+        Null: tags.null,
+        ", :": tags.separator,
+        "[ ]": tags.squareBracket,
+        "{ }": tags.brace
+      });
+      parser5 = LRParser.deserialize({
+        version: 14,
+        states: "$bOVQPOOOOQO'#Cb'#CbOnQPO'#CeOvQPO'#ClOOQO'#Cr'#CrQOQPOOOOQO'#Cg'#CgO}QPO'#CfO!SQPO'#CtOOQO,59P,59PO![QPO,59PO!aQPO'#CuOOQO,59W,59WO!iQPO,59WOVQPO,59QOqQPO'#CmO!nQPO,59`OOQO1G.k1G.kOVQPO'#CnO!vQPO,59aOOQO1G.r1G.rOOQO1G.l1G.lOOQO,59X,59XOOQO-E6k-E6kOOQO,59Y,59YOOQO-E6l-E6l",
+        stateData: "#O~OeOS~OQSORSOSSOTSOWQO_ROgPO~OVXOgUO~O^[O~PVO[^O~O]_OVhX~OVaO~O]bO^iX~O^dO~O]_OVha~O]bO^ia~O",
+        goto: "!kjPPPPPPkPPkqwPPPPk{!RPPP!XP!e!hXSOR^bQWQRf_TVQ_Q`WRg`QcZRicQTOQZRQe^RhbRYQR]R",
+        nodeNames: "\u26A0 JsonText True False Null Number String } { Object Property PropertyName : , ] [ Array",
+        maxTerm: 25,
+        nodeProps: [
+          ["isolate", -2, 6, 11, ""],
+          ["openedBy", 7, "{", 14, "["],
+          ["closedBy", 8, "}", 15, "]"]
+        ],
+        propSources: [jsonHighlighting],
+        skippedNodes: [0],
+        repeatNodeCount: 2,
+        tokenData: "(|~RaXY!WYZ!W]^!Wpq!Wrs!]|}$u}!O$z!Q!R%T!R![&c![!]&t!}#O&y#P#Q'O#Y#Z'T#b#c'r#h#i(Z#o#p(r#q#r(w~!]Oe~~!`Wpq!]qr!]rs!xs#O!]#O#P!}#P;'S!];'S;=`$o<%lO!]~!}Og~~#QXrs!]!P!Q!]#O#P!]#U#V!]#Y#Z!]#b#c!]#f#g!]#h#i!]#i#j#m~#pR!Q![#y!c!i#y#T#Z#y~#|R!Q![$V!c!i$V#T#Z$V~$YR!Q![$c!c!i$c#T#Z$c~$fR!Q![!]!c!i!]#T#Z!]~$rP;=`<%l!]~$zO]~~$}Q!Q!R%T!R![&c~%YRT~!O!P%c!g!h%w#X#Y%w~%fP!Q![%i~%nRT~!Q![%i!g!h%w#X#Y%w~%zR{|&T}!O&T!Q![&Z~&WP!Q![&Z~&`PT~!Q![&Z~&hST~!O!P%c!Q![&c!g!h%w#X#Y%w~&yO[~~'OO_~~'TO^~~'WP#T#U'Z~'^P#`#a'a~'dP#g#h'g~'jP#X#Y'm~'rOR~~'uP#i#j'x~'{P#`#a(O~(RP#`#a(U~(ZOS~~(^P#f#g(a~(dP#i#j(g~(jP#X#Y(m~(rOQ~~(wOW~~(|OV~",
+        tokenizers: [0],
+        topRules: { "JsonText": [0, 1] },
+        tokenPrec: 0
+      });
+    }
+  });
+
+  // node_modules/@codemirror/lang-json/dist/index.js
+  function json() {
+    return new LanguageSupport(jsonLanguage);
+  }
+  var jsonLanguage;
+  var init_dist18 = __esm({
+    "node_modules/@codemirror/lang-json/dist/index.js"() {
+      init_dist17();
+      init_dist5();
+      jsonLanguage = /* @__PURE__ */ LRLanguage.define({
+        name: "json",
+        parser: /* @__PURE__ */ parser5.configure({
+          props: [
+            /* @__PURE__ */ indentNodeProp.add({
+              Object: /* @__PURE__ */ continuedIndent({ except: /^\s*\}/ }),
+              Array: /* @__PURE__ */ continuedIndent({ except: /^\s*\]/ })
+            }),
+            /* @__PURE__ */ foldNodeProp.add({
+              "Object Array": foldInside
+            })
+          ]
+        }),
+        languageData: {
+          closeBrackets: { brackets: ["[", "{", '"'] },
+          indentOnInput: /^\s*[\}\]]$/
+        }
+      });
+    }
+  });
+
+  // node_modules/@lezer/python/dist/index.js
+  function isLineBreak(ch) {
+    return ch == newline3 || ch == carriageReturn;
+  }
+  function isHex2(ch) {
+    return ch >= 48 && ch <= 57 || ch >= 65 && ch <= 70 || ch >= 97 && ch <= 102;
+  }
+  function Context2(parent, indent2, flags) {
+    this.parent = parent;
+    this.indent = indent2;
+    this.flags = flags;
+    this.hash = (parent ? parent.hash + parent.hash << 8 : 0) + indent2 + (indent2 << 4) + flags + (flags << 6);
+  }
+  function countIndent(space6) {
+    let depth = 0;
+    for (let i = 0; i < space6.length; i++)
+      depth += space6.charCodeAt(i) == tab ? 8 - depth % 8 : 1;
+    return depth;
+  }
+  function skipEscape(input, ch) {
+    if (ch == letter_o) {
+      for (let i = 0; i < 2 && input.next >= 48 && input.next <= 55; i++) input.advance();
+    } else if (ch == letter_x) {
+      for (let i = 0; i < 2 && isHex2(input.next); i++) input.advance();
+    } else if (ch == letter_u) {
+      for (let i = 0; i < 4 && isHex2(input.next); i++) input.advance();
+    } else if (ch == letter_U) {
+      for (let i = 0; i < 8 && isHex2(input.next); i++) input.advance();
+    } else if (ch == letter_N) {
+      if (input.next == braceOpen) {
+        input.advance();
+        while (input.next >= 0 && input.next != braceClose && input.next != singleQuote && input.next != doubleQuote && input.next != newline3) input.advance();
+        if (input.next == braceClose) input.advance();
+      }
+    }
+  }
+  var printKeyword, indent, dedent, newline$1, blankLineStart, newlineBracketed, eof, stringContent, Escape, replacementStart, stringEnd, ParenL, ParenthesizedExpression, TupleExpression, ComprehensionExpression, BracketL, ArrayExpression, ArrayComprehensionExpression, BraceL, DictionaryExpression, DictionaryComprehensionExpression, SetExpression, SetComprehensionExpression, ArgList, subscript, String$1, stringStart, stringStartD, stringStartL, stringStartLD, stringStartR, stringStartRD, stringStartRL, stringStartRLD, FormatString, stringStartF, stringStartFD, stringStartFL, stringStartFLD, stringStartFR, stringStartFRD, stringStartFRL, stringStartFRLD, FormatReplacement, nestedFormatReplacement, importList, TypeParamList, ParamList, SequencePattern, MappingPattern, PatternArgList, newline3, carriageReturn, space4, tab, hash2, parenOpen, dot2, braceOpen, braceClose, singleQuote, doubleQuote, backslash2, letter_o, letter_x, letter_N, letter_u, letter_U, bracketed, newlines, indentation, cx_Bracketed, cx_String, cx_DoubleQuote, cx_Long, cx_Raw, cx_Format, topIndent2, stringFlags, trackIndent, legacyPrint, strings, pythonHighlighting, spec_identifier3, parser6;
+  var init_dist19 = __esm({
+    "node_modules/@lezer/python/dist/index.js"() {
+      init_dist9();
+      init_dist4();
+      printKeyword = 1;
+      indent = 194;
+      dedent = 195;
+      newline$1 = 196;
+      blankLineStart = 197;
+      newlineBracketed = 198;
+      eof = 199;
+      stringContent = 200;
+      Escape = 2;
+      replacementStart = 3;
+      stringEnd = 201;
+      ParenL = 24;
+      ParenthesizedExpression = 25;
+      TupleExpression = 49;
+      ComprehensionExpression = 50;
+      BracketL = 55;
+      ArrayExpression = 56;
+      ArrayComprehensionExpression = 57;
+      BraceL = 59;
+      DictionaryExpression = 60;
+      DictionaryComprehensionExpression = 61;
+      SetExpression = 62;
+      SetComprehensionExpression = 63;
+      ArgList = 65;
+      subscript = 238;
+      String$1 = 71;
+      stringStart = 241;
+      stringStartD = 242;
+      stringStartL = 243;
+      stringStartLD = 244;
+      stringStartR = 245;
+      stringStartRD = 246;
+      stringStartRL = 247;
+      stringStartRLD = 248;
+      FormatString = 72;
+      stringStartF = 249;
+      stringStartFD = 250;
+      stringStartFL = 251;
+      stringStartFLD = 252;
+      stringStartFR = 253;
+      stringStartFRD = 254;
+      stringStartFRL = 255;
+      stringStartFRLD = 256;
+      FormatReplacement = 73;
+      nestedFormatReplacement = 77;
+      importList = 263;
+      TypeParamList = 112;
+      ParamList = 130;
+      SequencePattern = 151;
+      MappingPattern = 152;
+      PatternArgList = 155;
+      newline3 = 10;
+      carriageReturn = 13;
+      space4 = 32;
+      tab = 9;
+      hash2 = 35;
+      parenOpen = 40;
+      dot2 = 46;
+      braceOpen = 123;
+      braceClose = 125;
+      singleQuote = 39;
+      doubleQuote = 34;
+      backslash2 = 92;
+      letter_o = 111;
+      letter_x = 120;
+      letter_N = 78;
+      letter_u = 117;
+      letter_U = 85;
+      bracketed = /* @__PURE__ */ new Set([
+        ParenthesizedExpression,
+        TupleExpression,
+        ComprehensionExpression,
+        importList,
+        ArgList,
+        ParamList,
+        ArrayExpression,
+        ArrayComprehensionExpression,
+        subscript,
+        SetExpression,
+        SetComprehensionExpression,
+        FormatString,
+        FormatReplacement,
+        nestedFormatReplacement,
+        DictionaryExpression,
+        DictionaryComprehensionExpression,
+        SequencePattern,
+        MappingPattern,
+        PatternArgList,
+        TypeParamList
+      ]);
+      newlines = new ExternalTokenizer((input, stack) => {
+        let prev;
+        if (input.next < 0) {
+          input.acceptToken(eof);
+        } else if (stack.context.flags & cx_Bracketed) {
+          if (isLineBreak(input.next)) input.acceptToken(newlineBracketed, 1);
+        } else if (((prev = input.peek(-1)) < 0 || isLineBreak(prev)) && stack.canShift(blankLineStart)) {
+          let spaces2 = 0;
+          while (input.next == space4 || input.next == tab) {
+            input.advance();
+            spaces2++;
+          }
+          if (input.next == newline3 || input.next == carriageReturn || input.next == hash2)
+            input.acceptToken(blankLineStart, -spaces2);
+        } else if (isLineBreak(input.next)) {
+          input.acceptToken(newline$1, 1);
+        }
+      }, { contextual: true });
+      indentation = new ExternalTokenizer((input, stack) => {
+        let context = stack.context;
+        if (context.flags) return;
+        let prev = input.peek(-1);
+        if (prev == newline3 || prev == carriageReturn) {
+          let depth = 0, chars = 0;
+          for (; ; ) {
+            if (input.next == space4) depth++;
+            else if (input.next == tab) depth += 8 - depth % 8;
+            else break;
+            input.advance();
+            chars++;
+          }
+          if (depth != context.indent && input.next != newline3 && input.next != carriageReturn && input.next != hash2) {
+            if (depth < context.indent) input.acceptToken(dedent, -chars);
+            else input.acceptToken(indent);
+          }
+        }
+      });
+      cx_Bracketed = 1;
+      cx_String = 2;
+      cx_DoubleQuote = 4;
+      cx_Long = 8;
+      cx_Raw = 16;
+      cx_Format = 32;
+      topIndent2 = new Context2(null, 0, 0);
+      stringFlags = new Map([
+        [stringStart, 0],
+        [stringStartD, cx_DoubleQuote],
+        [stringStartL, cx_Long],
+        [stringStartLD, cx_Long | cx_DoubleQuote],
+        [stringStartR, cx_Raw],
+        [stringStartRD, cx_Raw | cx_DoubleQuote],
+        [stringStartRL, cx_Raw | cx_Long],
+        [stringStartRLD, cx_Raw | cx_Long | cx_DoubleQuote],
+        [stringStartF, cx_Format],
+        [stringStartFD, cx_Format | cx_DoubleQuote],
+        [stringStartFL, cx_Format | cx_Long],
+        [stringStartFLD, cx_Format | cx_Long | cx_DoubleQuote],
+        [stringStartFR, cx_Format | cx_Raw],
+        [stringStartFRD, cx_Format | cx_Raw | cx_DoubleQuote],
+        [stringStartFRL, cx_Format | cx_Raw | cx_Long],
+        [stringStartFRLD, cx_Format | cx_Raw | cx_Long | cx_DoubleQuote]
+      ].map(([term, flags]) => [term, flags | cx_String]));
+      trackIndent = new ContextTracker({
+        start: topIndent2,
+        reduce(context, term, _, input) {
+          if (context.flags & cx_Bracketed && bracketed.has(term) || (term == String$1 || term == FormatString) && context.flags & cx_String)
+            return context.parent;
+          return context;
+        },
+        shift(context, term, stack, input) {
+          if (term == indent)
+            return new Context2(context, countIndent(input.read(input.pos, stack.pos)), 0);
+          if (term == dedent)
+            return context.parent;
+          if (term == ParenL || term == BracketL || term == BraceL || term == replacementStart)
+            return new Context2(context, 0, cx_Bracketed);
+          if (stringFlags.has(term))
+            return new Context2(context, 0, stringFlags.get(term) | context.flags & cx_Bracketed);
+          return context;
+        },
+        hash(context) {
+          return context.hash;
+        }
+      });
+      legacyPrint = new ExternalTokenizer((input) => {
+        for (let i = 0; i < 5; i++) {
+          if (input.next != "print".charCodeAt(i)) return;
+          input.advance();
+        }
+        if (/\w/.test(String.fromCharCode(input.next))) return;
+        for (let off = 0; ; off++) {
+          let next = input.peek(off);
+          if (next == space4 || next == tab) continue;
+          if (next != parenOpen && next != dot2 && next != newline3 && next != carriageReturn && next != hash2)
+            input.acceptToken(printKeyword);
+          return;
+        }
+      });
+      strings = new ExternalTokenizer((input, stack) => {
+        let { flags } = stack.context;
+        let quote = flags & cx_DoubleQuote ? doubleQuote : singleQuote;
+        let long = (flags & cx_Long) > 0;
+        let escapes = !(flags & cx_Raw);
+        let format = (flags & cx_Format) > 0;
+        let start = input.pos;
+        for (; ; ) {
+          if (input.next < 0) {
+            break;
+          } else if (format && input.next == braceOpen) {
+            if (input.peek(1) == braceOpen) {
+              input.advance(2);
+            } else {
+              if (input.pos == start) {
+                input.acceptToken(replacementStart, 1);
+                return;
+              }
+              break;
+            }
+          } else if (escapes && input.next == backslash2) {
+            if (input.pos == start) {
+              input.advance();
+              let escaped = input.next;
+              if (escaped >= 0) {
+                input.advance();
+                skipEscape(input, escaped);
+              }
+              input.acceptToken(Escape);
+              return;
+            }
+            break;
+          } else if (input.next == backslash2 && !escapes && input.peek(1) > -1) {
+            input.advance(2);
+          } else if (input.next == quote && (!long || input.peek(1) == quote && input.peek(2) == quote)) {
+            if (input.pos == start) {
+              input.acceptToken(stringEnd, long ? 3 : 1);
+              return;
+            }
+            break;
+          } else if (input.next == newline3) {
+            if (long) {
+              input.advance();
+            } else if (input.pos == start) {
+              input.acceptToken(stringEnd);
+              return;
+            }
+            break;
+          } else {
+            input.advance();
+          }
+        }
+        if (input.pos > start) input.acceptToken(stringContent);
+      });
+      pythonHighlighting = styleTags({
+        'async "*" "**" FormatConversion FormatSpec': tags.modifier,
+        "for while if elif else try except finally return raise break continue with pass assert await yield match case": tags.controlKeyword,
+        "in not and or is del": tags.operatorKeyword,
+        "from def class global nonlocal lambda": tags.definitionKeyword,
+        import: tags.moduleKeyword,
+        "with as print": tags.keyword,
+        Boolean: tags.bool,
+        None: tags.null,
+        VariableName: tags.variableName,
+        "CallExpression/VariableName": tags.function(tags.variableName),
+        "FunctionDefinition/VariableName": tags.function(tags.definition(tags.variableName)),
+        "ClassDefinition/VariableName": tags.definition(tags.className),
+        PropertyName: tags.propertyName,
+        "CallExpression/MemberExpression/PropertyName": tags.function(tags.propertyName),
+        Comment: tags.lineComment,
+        Number: tags.number,
+        String: tags.string,
+        FormatString: tags.special(tags.string),
+        Escape: tags.escape,
+        UpdateOp: tags.updateOperator,
+        "ArithOp!": tags.arithmeticOperator,
+        BitOp: tags.bitwiseOperator,
+        CompareOp: tags.compareOperator,
+        AssignOp: tags.definitionOperator,
+        Ellipsis: tags.punctuation,
+        At: tags.meta,
+        "( )": tags.paren,
+        "[ ]": tags.squareBracket,
+        "{ }": tags.brace,
+        ".": tags.derefOperator,
+        ", ;": tags.separator
+      });
+      spec_identifier3 = { __proto__: null, await: 44, or: 54, and: 56, in: 60, not: 62, is: 64, if: 70, else: 72, lambda: 76, yield: 94, from: 96, async: 102, for: 104, None: 162, True: 164, False: 164, del: 178, pass: 182, break: 186, continue: 190, return: 194, raise: 202, import: 206, as: 208, global: 212, nonlocal: 214, assert: 218, type: 223, elif: 236, while: 240, try: 246, except: 248, finally: 250, with: 254, def: 258, class: 268, match: 279, case: 285 };
+      parser6 = LRParser.deserialize({
+        version: 14,
+        states: "##jO`QeOOP$}OSOOO&WQtO'#HUOOQS'#Co'#CoOOQS'#Cp'#CpO'vQdO'#CnO*UQtO'#HTOOQS'#HU'#HUOOQS'#DU'#DUOOQS'#HT'#HTO*rQdO'#D_O+VQdO'#DfO+gQdO'#DjO+zOWO'#DuO,VOWO'#DvO.[QtO'#GuOOQS'#Gu'#GuO'vQdO'#GtO0ZQtO'#GtOOQS'#Eb'#EbO0rQdO'#EcOOQS'#Gs'#GsO0|QdO'#GrOOQV'#Gr'#GrO1XQdO'#FYOOQS'#G^'#G^O1^QdO'#FXOOQV'#IS'#ISOOQV'#Gq'#GqOOQV'#Fq'#FqQ`QeOOO'vQdO'#CqO1lQdO'#C}O1sQdO'#DRO2RQdO'#HYO2cQtO'#EVO'vQdO'#EWOOQS'#EY'#EYOOQS'#E['#E[OOQS'#E^'#E^O2wQdO'#E`O3_QdO'#EdO3rQdO'#EfO3zQtO'#EfO1XQdO'#EiO0rQdO'#ElO1XQdO'#EnO0rQdO'#EtO0rQdO'#EwO4VQdO'#EyO4^QdO'#FOO4iQdO'#EzO0rQdO'#FOO1XQdO'#FQO1XQdO'#FVO4nQdO'#F[P4uOdO'#GpPOOO)CBd)CBdOOQS'#Ce'#CeOOQS'#Cf'#CfOOQS'#Cg'#CgOOQS'#Ch'#ChOOQS'#Ci'#CiOOQS'#Cj'#CjOOQS'#Cl'#ClO'vQdO,59OO'vQdO,59OO'vQdO,59OO'vQdO,59OO'vQdO,59OO'vQdO,59OO5TQdO'#DoOOQS,5:Y,5:YO5hQdO'#HdOOQS,5:],5:]O5uQ!fO,5:]O5zQtO,59YO1lQdO,59bO1lQdO,59bO1lQdO,59bO8jQdO,59bO8oQdO,59bO8vQdO,59jO8}QdO'#HTO:TQdO'#HSOOQS'#HS'#HSOOQS'#D['#D[O:lQdO,59aO'vQdO,59aO:zQdO,59aOOQS,59y,59yO;PQdO,5:RO'vQdO,5:ROOQS,5:Q,5:QO;_QdO,5:QO;dQdO,5:XO'vQdO,5:XO'vQdO,5:VOOQS,5:U,5:UO;uQdO,5:UO;zQdO,5:WOOOW'#Fy'#FyO<POWO,5:aOOQS,5:a,5:aO<[QdO'#HwOOOW'#Dw'#DwOOOW'#Fz'#FzO<lOWO,5:bOOQS,5:b,5:bOOQS'#F}'#F}O<zQtO,5:iO?lQtO,5=`O@VQ#xO,5=`O@vQtO,5=`OOQS,5:},5:}OA_QeO'#GWOBqQdO,5;^OOQV,5=^,5=^OB|QtO'#IPOCkQdO,5;tOOQS-E:[-E:[OOQV,5;s,5;sO4dQdO'#FQOOQV-E9o-E9oOCsQtO,59]OEzQtO,59iOFeQdO'#HVOFpQdO'#HVO1XQdO'#HVOF{QdO'#DTOGTQdO,59mOGYQdO'#HZO'vQdO'#HZO0rQdO,5=tOOQS,5=t,5=tO0rQdO'#EROOQS'#ES'#ESOGwQdO'#GPOHXQdO,58|OHXQdO,58|O*xQdO,5:oOHgQtO'#H]OOQS,5:r,5:rOOQS,5:z,5:zOHzQdO,5;OOI]QdO'#IOO1XQdO'#H}OOQS,5;Q,5;QOOQS'#GT'#GTOIqQtO,5;QOJPQdO,5;QOJUQdO'#IQOOQS,5;T,5;TOJdQdO'#H|OOQS,5;W,5;WOJuQdO,5;YO4iQdO,5;`O4iQdO,5;cOJ}QtO'#ITO'vQdO'#ITOKXQdO,5;eO4VQdO,5;eO0rQdO,5;jO1XQdO,5;lOK^QeO'#EuOLjQgO,5;fO!!kQdO'#IUO4iQdO,5;jO!!vQdO,5;lO!#OQdO,5;qO!#ZQtO,5;vO'vQdO,5;vPOOO,5=[,5=[P!#bOSO,5=[P!#jOdO,5=[O!&bQtO1G.jO!&iQtO1G.jO!)YQtO1G.jO!)dQtO1G.jO!+}QtO1G.jO!,bQtO1G.jO!,uQdO'#HcO!-TQtO'#GuO0rQdO'#HcO!-_QdO'#HbOOQS,5:Z,5:ZO!-gQdO,5:ZO!-lQdO'#HeO!-wQdO'#HeO!.[QdO,5>OOOQS'#Ds'#DsOOQS1G/w1G/wOOQS1G.|1G.|O!/[QtO1G.|O!/cQtO1G.|O1lQdO1G.|O!0OQdO1G/UOOQS'#DZ'#DZO0rQdO,59tOOQS1G.{1G.{O!0VQdO1G/eO!0gQdO1G/eO!0oQdO1G/fO'vQdO'#H[O!0tQdO'#H[O!0yQtO1G.{O!1ZQdO,59iO!2aQdO,5=zO!2qQdO,5=zO!2yQdO1G/mO!3OQtO1G/mOOQS1G/l1G/lO!3`QdO,5=uO!4VQdO,5=uO0rQdO1G/qO!4tQdO1G/sO!4yQtO1G/sO!5ZQtO1G/qOOQS1G/p1G/pOOQS1G/r1G/rOOOW-E9w-E9wOOQS1G/{1G/{O!5kQdO'#HxO0rQdO'#HxO!5|QdO,5>cOOOW-E9x-E9xOOQS1G/|1G/|OOQS-E9{-E9{O!6[Q#xO1G2zO!6{QtO1G2zO'vQdO,5<jOOQS,5<j,5<jOOQS-E9|-E9|OOQS,5<r,5<rOOQS-E:U-E:UOOQV1G0x1G0xO1XQdO'#GRO!7dQtO,5>kOOQS1G1`1G1`O!8RQdO1G1`OOQS'#DV'#DVO0rQdO,5=qOOQS,5=q,5=qO!8WQdO'#FrO!8cQdO,59oO!8kQdO1G/XO!8uQtO,5=uOOQS1G3`1G3`OOQS,5:m,5:mO!9fQdO'#GtOOQS,5<k,5<kOOQS-E9}-E9}O!9wQdO1G.hOOQS1G0Z1G0ZO!:VQdO,5=wO!:gQdO,5=wO0rQdO1G0jO0rQdO1G0jO!:xQdO,5>jO!;ZQdO,5>jO1XQdO,5>jO!;lQdO,5>iOOQS-E:R-E:RO!;qQdO1G0lO!;|QdO1G0lO!<RQdO,5>lO!<aQdO,5>lO!<oQdO,5>hO!=VQdO,5>hO!=hQdO'#EpO0rQdO1G0tO!=sQdO1G0tO!=xQgO1G0zO!AvQgO1G0}O!EqQdO,5>oO!E{QdO,5>oO!FTQtO,5>oO0rQdO1G1PO!F_QdO1G1PO4iQdO1G1UO!!vQdO1G1WOOQV,5;a,5;aO!FdQfO,5;aO!FiQgO1G1QO!JjQdO'#GZO4iQdO1G1QO4iQdO1G1QO!JzQdO,5>pO!KXQdO,5>pO1XQdO,5>pOOQV1G1U1G1UO!KaQdO'#FSO!KrQ!fO1G1WO!KzQdO1G1WOOQV1G1]1G1]O4iQdO1G1]O!LPQdO1G1]O!LXQdO'#F^OOQV1G1b1G1bO!#ZQtO1G1bPOOO1G2v1G2vP!L^OSO1G2vOOQS,5=},5=}OOQS'#Dp'#DpO0rQdO,5=}O!LfQdO,5=|O!LyQdO,5=|OOQS1G/u1G/uO!MRQdO,5>PO!McQdO,5>PO!MkQdO,5>PO!NOQdO,5>PO!N`QdO,5>POOQS1G3j1G3jOOQS7+$h7+$hO!8kQdO7+$pO#!RQdO1G.|O#!YQdO1G.|OOQS1G/`1G/`OOQS,5<`,5<`O'vQdO,5<`OOQS7+%P7+%PO#!aQdO7+%POOQS-E9r-E9rOOQS7+%Q7+%QO#!qQdO,5=vO'vQdO,5=vOOQS7+$g7+$gO#!vQdO7+%PO##OQdO7+%QO##TQdO1G3fOOQS7+%X7+%XO##eQdO1G3fO##mQdO7+%XOOQS,5<_,5<_O'vQdO,5<_O##rQdO1G3aOOQS-E9q-E9qO#$iQdO7+%]OOQS7+%_7+%_O#$wQdO1G3aO#%fQdO7+%_O#%kQdO1G3gO#%{QdO1G3gO#&TQdO7+%]O#&YQdO,5>dO#&sQdO,5>dO#&sQdO,5>dOOQS'#Dx'#DxO#'UO&jO'#DzO#'aO`O'#HyOOOW1G3}1G3}O#'fQdO1G3}O#'nQdO1G3}O#'yQ#xO7+(fO#(jQtO1G2UP#)TQdO'#GOOOQS,5<m,5<mOOQS-E:P-E:POOQS7+&z7+&zOOQS1G3]1G3]OOQS,5<^,5<^OOQS-E9p-E9pOOQS7+$s7+$sO#)bQdO,5=`O#){QdO,5=`O#*^QtO,5<aO#*qQdO1G3cOOQS-E9s-E9sOOQS7+&U7+&UO#+RQdO7+&UO#+aQdO,5<nO#+uQdO1G4UOOQS-E:Q-E:QO#,WQdO1G4UOOQS1G4T1G4TOOQS7+&W7+&WO#,iQdO7+&WOOQS,5<p,5<pO#,tQdO1G4WOOQS-E:S-E:SOOQS,5<l,5<lO#-SQdO1G4SOOQS-E:O-E:OO1XQdO'#EqO#-jQdO'#EqO#-uQdO'#IRO#-}QdO,5;[OOQS7+&`7+&`O0rQdO7+&`O#.SQgO7+&fO!JmQdO'#GXO4iQdO7+&fO4iQdO7+&iO#2QQtO,5<tO'vQdO,5<tO#2[QdO1G4ZOOQS-E:W-E:WO#2fQdO1G4ZO4iQdO7+&kO0rQdO7+&kOOQV7+&p7+&pO!KrQ!fO7+&rO!KzQdO7+&rO`QeO1G0{OOQV-E:X-E:XO4iQdO7+&lO4iQdO7+&lOOQV,5<u,5<uO#2nQdO,5<uO!JmQdO,5<uOOQV7+&l7+&lO#2yQgO7+&lO#6tQdO,5<vO#7PQdO1G4[OOQS-E:Y-E:YO#7^QdO1G4[O#7fQdO'#IWO#7tQdO'#IWO1XQdO'#IWOOQS'#IW'#IWO#8PQdO'#IVOOQS,5;n,5;nO#8XQdO,5;nO0rQdO'#FUOOQV7+&r7+&rO4iQdO7+&rOOQV7+&w7+&wO4iQdO7+&wO#8^QfO,5;xOOQV7+&|7+&|POOO7+(b7+(bO#8cQdO1G3iOOQS,5<c,5<cO#8qQdO1G3hOOQS-E9u-E9uO#9UQdO,5<dO#9aQdO,5<dO#9tQdO1G3kOOQS-E9v-E9vO#:UQdO1G3kO#:^QdO1G3kO#:nQdO1G3kO#:UQdO1G3kOOQS<<H[<<H[O#:yQtO1G1zOOQS<<Hk<<HkP#;WQdO'#FtO8vQdO1G3bO#;eQdO1G3bO#;jQdO<<HkOOQS<<Hl<<HlO#;zQdO7+)QOOQS<<Hs<<HsO#<[QtO1G1yP#<{QdO'#FsO#=YQdO7+)RO#=jQdO7+)RO#=rQdO<<HwO#=wQdO7+({OOQS<<Hy<<HyO#>nQdO,5<bO'vQdO,5<bOOQS-E9t-E9tOOQS<<Hw<<HwOOQS,5<g,5<gO0rQdO,5<gO#>sQdO1G4OOOQS-E9y-E9yO#?^QdO1G4OO<[QdO'#H{OOOO'#D{'#D{OOOO'#F|'#F|O#?oO&jO,5:fOOOW,5>e,5>eOOOW7+)i7+)iO#?zQdO7+)iO#@SQdO1G2zO#@mQdO1G2zP'vQdO'#FuO0rQdO<<IpO1XQdO1G2YP1XQdO'#GSO#AOQdO7+)pO#AaQdO7+)pOOQS<<Ir<<IrP1XQdO'#GUP0rQdO'#GQOOQS,5;],5;]O#ArQdO,5>mO#BQQdO,5>mOOQS1G0v1G0vOOQS<<Iz<<IzOOQV-E:V-E:VO4iQdO<<JQOOQV,5<s,5<sO4iQdO,5<sOOQV<<JQ<<JQOOQV<<JT<<JTO#BYQtO1G2`P#BdQdO'#GYO#BkQdO7+)uO#BuQgO<<JVO4iQdO<<JVOOQV<<J^<<J^O4iQdO<<J^O!KrQ!fO<<J^O#FpQgO7+&gOOQV<<JW<<JWO#FzQgO<<JWOOQV1G2a1G2aO1XQdO1G2aO#JuQdO1G2aO4iQdO<<JWO1XQdO1G2bP0rQdO'#G[O#KQQdO7+)vO#K_QdO7+)vOOQS'#FT'#FTO0rQdO,5>rO#KgQdO,5>rO#KrQdO,5>rO#K}QdO,5>qO#L`QdO,5>qOOQS1G1Y1G1YOOQS,5;p,5;pOOQV<<Jc<<JcO#LhQdO1G1dOOQS7+)T7+)TP#LmQdO'#FwO#L}QdO1G2OO#MbQdO1G2OO#MrQdO1G2OP#M}QdO'#FxO#N[QdO7+)VO#NlQdO7+)VO#NlQdO7+)VO#NtQdO7+)VO$ UQdO7+(|O8vQdO7+(|OOQSAN>VAN>VO$ oQdO<<LmOOQSAN>cAN>cO0rQdO1G1|O$!PQtO1G1|P$!ZQdO'#FvOOQS1G2R1G2RP$!hQdO'#F{O$!uQdO7+)jO$#`QdO,5>gOOOO-E9z-E9zOOOW<<MT<<MTO$#nQdO7+(fOOQSAN?[AN?[OOQS7+'t7+'tO$$XQdO<<M[OOQS,5<q,5<qO$$jQdO1G4XOOQS-E:T-E:TOOQVAN?lAN?lOOQV1G2_1G2_O4iQdOAN?qO$$xQgOAN?qOOQVAN?xAN?xO4iQdOAN?xOOQV<<JR<<JRO4iQdOAN?rO4iQdO7+'{OOQV7+'{7+'{O1XQdO7+'{OOQVAN?rAN?rOOQS7+'|7+'|O$(sQdO<<MbOOQS1G4^1G4^O0rQdO1G4^OOQS,5<w,5<wO$)QQdO1G4]OOQS-E:Z-E:ZOOQU'#G_'#G_O$)cQfO7+'OO$)nQdO'#F_O$*uQdO7+'jO$+VQdO7+'jOOQS7+'j7+'jO$+bQdO<<LqO$+rQdO<<LqO$+rQdO<<LqO$+zQdO'#H^OOQS<<Lh<<LhO$,UQdO<<LhOOQS7+'h7+'hOOQS'#D|'#D|OOOO1G4R1G4RO$,oQdO1G4RO$,wQdO1G4RP!=hQdO'#GVOOQVG25]G25]O4iQdOG25]OOQVG25dG25dOOQVG25^G25^OOQV<<Kg<<KgO4iQdO<<KgOOQS7+)x7+)xP$-SQdO'#G]OOQU-E:]-E:]OOQV<<Jj<<JjO$-vQtO'#FaOOQS'#Fc'#FcO$.WQdO'#FbO$.xQdO'#FbOOQS'#Fb'#FbO$.}QdO'#IYO$)nQdO'#FiO$)nQdO'#FiO$/fQdO'#FjO$)nQdO'#FkO$/mQdO'#IZOOQS'#IZ'#IZO$0[QdO,5;yOOQS<<KU<<KUO$0dQdO<<KUO$0tQdOANB]O$1UQdOANB]O$1^QdO'#H_OOQS'#H_'#H_O1sQdO'#DcO$1wQdO,5=xOOQSANBSANBSOOOO7+)m7+)mO$2`QdO7+)mOOQVLD*wLD*wOOQVANARANARO5uQ!fO'#GaO$2hQtO,5<SO$)nQdO'#FmOOQS,5<W,5<WOOQS'#Fd'#FdO$3YQdO,5;|O$3_QdO,5;|OOQS'#Fg'#FgO$)nQdO'#G`O$4PQdO,5<QO$4kQdO,5>tO$4{QdO,5>tO1XQdO,5<PO$5^QdO,5<TO$5cQdO,5<TO$)nQdO'#I[O$5hQdO'#I[O$5mQdO,5<UOOQS,5<V,5<VO0rQdO'#FpOOQU1G1e1G1eO4iQdO1G1eOOQSAN@pAN@pO$5rQdOG27wO$6SQdO,59}OOQS1G3d1G3dOOOO<<MX<<MXOOQS,5<{,5<{OOQS-E:_-E:_O$6XQtO'#FaO$6`QdO'#I]O$6nQdO'#I]O$6vQdO,5<XOOQS1G1h1G1hO$6{QdO1G1hO$7QQdO,5<zOOQS-E:^-E:^O$7lQdO,5=OO$8TQdO1G4`OOQS-E:b-E:bOOQS1G1k1G1kOOQS1G1o1G1oO$8eQdO,5>vO$)nQdO,5>vOOQS1G1p1G1pOOQS,5<[,5<[OOQU7+'P7+'PO$+zQdO1G/iO$)nQdO,5<YO$8sQdO,5>wO$8zQdO,5>wOOQS1G1s1G1sOOQS7+'S7+'SP$)nQdO'#GdO$9SQdO1G4bO$9^QdO1G4bO$9fQdO1G4bOOQS7+%T7+%TO$9tQdO1G1tO$:SQtO'#FaO$:ZQdO,5<}OOQS,5<},5<}O$:iQdO1G4cOOQS-E:a-E:aO$)nQdO,5<|O$:pQdO,5<|O$:uQdO7+)|OOQS-E:`-E:`O$;PQdO7+)|O$)nQdO,5<ZP$)nQdO'#GcO$;XQdO1G2hO$)nQdO1G2hP$;gQdO'#GbO$;nQdO<<MhO$;xQdO1G1uO$<WQdO7+(SO8vQdO'#C}O8vQdO,59bO8vQdO,59bO8vQdO,59bO$<fQtO,5=`O8vQdO1G.|O0rQdO1G/XO0rQdO7+$pP$<yQdO'#GOO'vQdO'#GtO$=WQdO,59bO$=]QdO,59bO$=dQdO,59mO$=iQdO1G/UO1sQdO'#DRO8vQdO,59j",
+        stateData: "$>S~O%cOS%^OSSOS%]PQ~OPdOVaOfoOhYOopOs!POvqO!PrO!Q{O!T!SO!U!RO!XZO!][O!h`O!r`O!s`O!t`O!{tO!}uO#PvO#RwO#TxO#XyO#ZzO#^|O#_|O#a}O#c!OO#l!QO#o!TO#s!UO#u!VO#z!WO#}hO$P!XO%oRO%pRO%tSO%uWO&Z]O&[]O&]]O&^]O&_]O&`]O&a]O&b]O&c^O&d^O&e^O&f^O&g^O&h^O&i^O&j^O~O%]!YO~OV!aO_!aOa!bOh!iO!X!kO!f!mO%j![O%k!]O%l!^O%m!_O%n!_O%o!`O%p!`O%q!aO%r!aO%s!aO~Ok%xXl%xXm%xXn%xXo%xXp%xXs%xXz%xX{%xX!x%xX#g%xX%[%xX%_%xX%z%xXg%xX!T%xX!U%xX%{%xX!W%xX![%xX!Q%xX#[%xXt%xX!m%xX~P%SOfoOhYO!XZO!][O!h`O!r`O!s`O!t`O%oRO%pRO%tSO%uWO&Z]O&[]O&]]O&^]O&_]O&`]O&a]O&b]O&c^O&d^O&e^O&f^O&g^O&h^O&i^O&j^O~Oz%wX{%wX#g%wX%[%wX%_%wX%z%wX~Ok!pOl!qOm!oOn!oOo!rOp!sOs!tO!x%wX~P)pOV!zOg!|Oo0cOv0qO!PrO~P'vOV#OOo0cOv0qO!W#PO~P'vOV#SOa#TOo0cOv0qO![#UO~P'vOQ#XO%`#XO%a#ZO~OQ#^OR#[O%`#^O%a#`O~OV%iX_%iXa%iXh%iXk%iXl%iXm%iXn%iXo%iXp%iXs%iXz%iX!X%iX!f%iX%j%iX%k%iX%l%iX%m%iX%n%iX%o%iX%p%iX%q%iX%r%iX%s%iXg%iX!T%iX!U%iX~O&Z]O&[]O&]]O&^]O&_]O&`]O&a]O&b]O&c^O&d^O&e^O&f^O&g^O&h^O&i^O&j^O{%iX!x%iX#g%iX%[%iX%_%iX%z%iX%{%iX!W%iX![%iX!Q%iX#[%iXt%iX!m%iX~P,eOz#dO{%hX!x%hX#g%hX%[%hX%_%hX%z%hX~Oo0cOv0qO~P'vO#g#gO%[#iO%_#iO~O%uWO~O!T#nO#u!VO#z!WO#}hO~OopO~P'vOV#sOa#tO%uWO{wP~OV#xOo0cOv0qO!Q#yO~P'vO{#{O!x$QO%z#|O#g!yX%[!yX%_!yX~OV#xOo0cOv0qO#g#SX%[#SX%_#SX~P'vOo0cOv0qO#g#WX%[#WX%_#WX~P'vOh$WO%uWO~O!f$YO!r$YO%uWO~OV$eO~P'vO!U$gO#s$hO#u$iO~O{$jO~OV$qO~P'vOS$sO%[$rO%_$rO%c$tO~OV$}Oa$}Og%POo0cOv0qO~P'vOo0cOv0qO{%SO~P'vO&Y%UO~Oa!bOh!iO!X!kO!f!mOVba_bakbalbambanbaobapbasbazba{ba!xba#gba%[ba%_ba%jba%kba%lba%mba%nba%oba%pba%qba%rba%sba%zbagba!Tba!Uba%{ba!Wba![ba!Qba#[batba!mba~On%ZO~Oo%ZO~P'vOo0cO~P'vOk0eOl0fOm0dOn0dOo0mOp0nOs0rOg%wX!T%wX!U%wX%{%wX!W%wX![%wX!Q%wX#[%wX!m%wX~P)pO%{%]Og%vXz%vX!T%vX!U%vX!W%vX{%vX~Og%_Oz%`O!T%dO!U%cO~Og%_O~Oz%gO!T%dO!U%cO!W&SX~O!W%kO~Oz%lO{%nO!T%dO!U%cO![%}X~O![%rO~O![%sO~OQ#XO%`#XO%a%uO~OV%wOo0cOv0qO!PrO~P'vOQ#^OR#[O%`#^O%a%zO~OV!qa_!qaa!qah!qak!qal!qam!qan!qao!qap!qas!qaz!qa{!qa!X!qa!f!qa!x!qa#g!qa%[!qa%_!qa%j!qa%k!qa%l!qa%m!qa%n!qa%o!qa%p!qa%q!qa%r!qa%s!qa%z!qag!qa!T!qa!U!qa%{!qa!W!qa![!qa!Q!qa#[!qat!qa!m!qa~P#yOz%|O{%ha!x%ha#g%ha%[%ha%_%ha%z%ha~P%SOV&OOopOvqO{%ha!x%ha#g%ha%[%ha%_%ha%z%ha~P'vOz%|O{%ha!x%ha#g%ha%[%ha%_%ha%z%ha~OPdOVaOopOvqO!PrO!Q{O!{tO!}uO#PvO#RwO#TxO#XyO#ZzO#^|O#_|O#a}O#c!OO#g$zX%[$zX%_$zX~P'vO#g#gO%[&TO%_&TO~O!f&UOh&sX%[&sXz&sX#[&sX#g&sX%_&sX#Z&sXg&sX~Oh!iO%[&WO~Okealeameaneaoeapeaseazea{ea!xea#gea%[ea%_ea%zeagea!Tea!Uea%{ea!Wea![ea!Qea#[eatea!mea~P%SOsqazqa{qa#gqa%[qa%_qa%zqa~Ok!pOl!qOm!oOn!oOo!rOp!sO!xqa~PEcO%z&YOz%yX{%yX~O%uWOz%yX{%yX~Oz&]O{wX~O{&_O~Oz%lO#g%}X%[%}X%_%}Xg%}X{%}X![%}X!m%}X%z%}X~OV0lOo0cOv0qO!PrO~P'vO%z#|O#gUa%[Ua%_Ua~Oz&hO#g&PX%[&PX%_&PXn&PX~P%SOz&kO!Q&jO#g#Wa%[#Wa%_#Wa~Oz&lO#[&nO#g&rX%[&rX%_&rXg&rX~O!f$YO!r$YO#Z&qO%uWO~O#Z&qO~Oz&sO#g&tX%[&tX%_&tX~Oz&uO#g&pX%[&pX%_&pX{&pX~O!X&wO%z&xO~Oz&|On&wX~P%SOn'PO~OPdOVaOopOvqO!PrO!Q{O!{tO!}uO#PvO#RwO#TxO#XyO#ZzO#^|O#_|O#a}O#c!OO%['UO~P'vOt'YO#p'WO#q'XOP#naV#naf#nah#nao#nas#nav#na!P#na!Q#na!T#na!U#na!X#na!]#na!h#na!r#na!s#na!t#na!{#na!}#na#P#na#R#na#T#na#X#na#Z#na#^#na#_#na#a#na#c#na#l#na#o#na#s#na#u#na#z#na#}#na$P#na%X#na%o#na%p#na%t#na%u#na&Z#na&[#na&]#na&^#na&_#na&`#na&a#na&b#na&c#na&d#na&e#na&f#na&g#na&h#na&i#na&j#na%Z#na%_#na~Oz'ZO#[']O{&xX~Oh'_O!X&wO~Oh!iO{$jO!X&wO~O{'eO~P%SO%['hO%_'hO~OS'iO%['hO%_'hO~OV!aO_!aOa!bOh!iO!X!kO!f!mO%l!^O%m!_O%n!_O%o!`O%p!`O%q!aO%r!aO%s!aOkWilWimWinWioWipWisWizWi{Wi!xWi#gWi%[Wi%_Wi%jWi%zWigWi!TWi!UWi%{Wi!WWi![Wi!QWi#[WitWi!mWi~O%k!]O~P!#uO%kWi~P!#uOV!aO_!aOa!bOh!iO!X!kO!f!mO%o!`O%p!`O%q!aO%r!aO%s!aOkWilWimWinWioWipWisWizWi{Wi!xWi#gWi%[Wi%_Wi%jWi%kWi%lWi%zWigWi!TWi!UWi%{Wi!WWi![Wi!QWi#[WitWi!mWi~O%m!_O%n!_O~P!&pO%mWi%nWi~P!&pOa!bOh!iO!X!kO!f!mOkWilWimWinWioWipWisWizWi{Wi!xWi#gWi%[Wi%_Wi%jWi%kWi%lWi%mWi%nWi%oWi%pWi%zWigWi!TWi!UWi%{Wi!WWi![Wi!QWi#[WitWi!mWi~OV!aO_!aO%q!aO%r!aO%s!aO~P!)nOVWi_Wi%qWi%rWi%sWi~P!)nO!T%dO!U%cOg&VXz&VX~O%z'kO%{'kO~P,eOz'mOg&UX~Og'oO~Oz'pO{'rO!W&XX~Oo0cOv0qOz'pO{'sO!W&XX~P'vO!W'uO~Om!oOn!oOo!rOp!sOkjisjizji{ji!xji#gji%[ji%_ji%zji~Ol!qO~P!.aOlji~P!.aOk0eOl0fOm0dOn0dOo0mOp0nO~Ot'wO~P!/jOV'|Og'}Oo0cOv0qO~P'vOg'}Oz(OO~Og(QO~O!U(SO~Og(TOz(OO!T%dO!U%cO~P%SOk0eOl0fOm0dOn0dOo0mOp0nOgqa!Tqa!Uqa%{qa!Wqa![qa!Qqa#[qatqa!mqa~PEcOV'|Oo0cOv0qO!W&Sa~P'vOz(WO!W&Sa~O!W(XO~Oz(WO!T%dO!U%cO!W&Sa~P%SOV(]Oo0cOv0qO![%}a#g%}a%[%}a%_%}ag%}a{%}a!m%}a%z%}a~P'vOz(^O![%}a#g%}a%[%}a%_%}ag%}a{%}a!m%}a%z%}a~O![(aO~Oz(^O!T%dO!U%cO![%}a~P%SOz(dO!T%dO!U%cO![&Ta~P%SOz(gO{&lX![&lX!m&lX%z&lX~O{(kO![(mO!m(nO%z(jO~OV&OOopOvqO{%hi!x%hi#g%hi%[%hi%_%hi%z%hi~P'vOz(pO{%hi!x%hi#g%hi%[%hi%_%hi%z%hi~O!f&UOh&sa%[&saz&sa#[&sa#g&sa%_&sa#Z&sag&sa~O%[(uO~OV#sOa#tO%uWO~Oz&]O{wa~OopOvqO~P'vOz(^O#g%}a%[%}a%_%}ag%}a{%}a![%}a!m%}a%z%}a~P%SOz(zO#g%hX%[%hX%_%hX%z%hX~O%z#|O#gUi%[Ui%_Ui~O#g&Pa%[&Pa%_&Pan&Pa~P'vOz(}O#g&Pa%[&Pa%_&Pan&Pa~O%uWO#g&ra%[&ra%_&rag&ra~Oz)SO#g&ra%[&ra%_&rag&ra~Og)VO~OV)WOh$WO%uWO~O#Z)XO~O%uWO#g&ta%[&ta%_&ta~Oz)ZO#g&ta%[&ta%_&ta~Oo0cOv0qO#g&pa%[&pa%_&pa{&pa~P'vOz)^O#g&pa%[&pa%_&pa{&pa~OV)`Oa)`O%uWO~O%z)eO~Ot)hO#j)gOP#hiV#hif#hih#hio#his#hiv#hi!P#hi!Q#hi!T#hi!U#hi!X#hi!]#hi!h#hi!r#hi!s#hi!t#hi!{#hi!}#hi#P#hi#R#hi#T#hi#X#hi#Z#hi#^#hi#_#hi#a#hi#c#hi#l#hi#o#hi#s#hi#u#hi#z#hi#}#hi$P#hi%X#hi%o#hi%p#hi%t#hi%u#hi&Z#hi&[#hi&]#hi&^#hi&_#hi&`#hi&a#hi&b#hi&c#hi&d#hi&e#hi&f#hi&g#hi&h#hi&i#hi&j#hi%Z#hi%_#hi~Ot)iOP#kiV#kif#kih#kio#kis#kiv#ki!P#ki!Q#ki!T#ki!U#ki!X#ki!]#ki!h#ki!r#ki!s#ki!t#ki!{#ki!}#ki#P#ki#R#ki#T#ki#X#ki#Z#ki#^#ki#_#ki#a#ki#c#ki#l#ki#o#ki#s#ki#u#ki#z#ki#}#ki$P#ki%X#ki%o#ki%p#ki%t#ki%u#ki&Z#ki&[#ki&]#ki&^#ki&_#ki&`#ki&a#ki&b#ki&c#ki&d#ki&e#ki&f#ki&g#ki&h#ki&i#ki&j#ki%Z#ki%_#ki~OV)kOn&wa~P'vOz)lOn&wa~Oz)lOn&wa~P%SOn)pO~O%Y)tO~Ot)wO#p'WO#q)vOP#niV#nif#nih#nio#nis#niv#ni!P#ni!Q#ni!T#ni!U#ni!X#ni!]#ni!h#ni!r#ni!s#ni!t#ni!{#ni!}#ni#P#ni#R#ni#T#ni#X#ni#Z#ni#^#ni#_#ni#a#ni#c#ni#l#ni#o#ni#s#ni#u#ni#z#ni#}#ni$P#ni%X#ni%o#ni%p#ni%t#ni%u#ni&Z#ni&[#ni&]#ni&^#ni&_#ni&`#ni&a#ni&b#ni&c#ni&d#ni&e#ni&f#ni&g#ni&h#ni&i#ni&j#ni%Z#ni%_#ni~OV)zOo0cOv0qO{$jO~P'vOo0cOv0qO{&xa~P'vOz*OO{&xa~OV*SOa*TOg*WO%q*UO%uWO~O{$jO&{*YO~Oh'_O~Oh!iO{$jO~O%[*_O~O%[*aO%_*aO~OV$}Oa$}Oo0cOv0qOg&Ua~P'vOz*dOg&Ua~Oo0cOv0qO{*gO!W&Xa~P'vOz*hO!W&Xa~Oo0cOv0qOz*hO{*kO!W&Xa~P'vOo0cOv0qOz*hO!W&Xa~P'vOz*hO{*kO!W&Xa~Om0dOn0dOo0mOp0nOgjikjisjizji!Tji!Uji%{ji!Wji{ji![ji#gji%[ji%_ji!Qji#[jitji!mji%zji~Ol0fO~P!NkOlji~P!NkOV'|Og*pOo0cOv0qO~P'vOn*rO~Og*pOz*tO~Og*uO~OV'|Oo0cOv0qO!W&Si~P'vOz*vO!W&Si~O!W*wO~OV(]Oo0cOv0qO![%}i#g%}i%[%}i%_%}ig%}i{%}i!m%}i%z%}i~P'vOz*zO!T%dO!U%cO![&Ti~Oz*}O![%}i#g%}i%[%}i%_%}ig%}i{%}i!m%}i%z%}i~O![+OO~Oa+QOo0cOv0qO![&Ti~P'vOz*zO![&Ti~O![+SO~OV+UOo0cOv0qO{&la![&la!m&la%z&la~P'vOz+VO{&la![&la!m&la%z&la~O!]+YO&n+[O![!nX~O![+^O~O{(kO![+_O~O{(kO![+_O!m+`O~OV&OOopOvqO{%hq!x%hq#g%hq%[%hq%_%hq%z%hq~P'vOz$ri{$ri!x$ri#g$ri%[$ri%_$ri%z$ri~P%SOV&OOopOvqO~P'vOV&OOo0cOv0qO#g%ha%[%ha%_%ha%z%ha~P'vOz+aO#g%ha%[%ha%_%ha%z%ha~Oz$ia#g$ia%[$ia%_$ian$ia~P%SO#g&Pi%[&Pi%_&Pin&Pi~P'vOz+dO#g#Wq%[#Wq%_#Wq~O#[+eOz$va#g$va%[$va%_$vag$va~O%uWO#g&ri%[&ri%_&rig&ri~Oz+gO#g&ri%[&ri%_&rig&ri~OV+iOh$WO%uWO~O%uWO#g&ti%[&ti%_&ti~Oo0cOv0qO#g&pi%[&pi%_&pi{&pi~P'vO{#{Oz#eX!W#eX~Oz+mO!W&uX~O!W+oO~Ot+rO#j)gOP#hqV#hqf#hqh#hqo#hqs#hqv#hq!P#hq!Q#hq!T#hq!U#hq!X#hq!]#hq!h#hq!r#hq!s#hq!t#hq!{#hq!}#hq#P#hq#R#hq#T#hq#X#hq#Z#hq#^#hq#_#hq#a#hq#c#hq#l#hq#o#hq#s#hq#u#hq#z#hq#}#hq$P#hq%X#hq%o#hq%p#hq%t#hq%u#hq&Z#hq&[#hq&]#hq&^#hq&_#hq&`#hq&a#hq&b#hq&c#hq&d#hq&e#hq&f#hq&g#hq&h#hq&i#hq&j#hq%Z#hq%_#hq~On$|az$|a~P%SOV)kOn&wi~P'vOz+yOn&wi~Oz,TO{$jO#[,TO~O#q,VOP#nqV#nqf#nqh#nqo#nqs#nqv#nq!P#nq!Q#nq!T#nq!U#nq!X#nq!]#nq!h#nq!r#nq!s#nq!t#nq!{#nq!}#nq#P#nq#R#nq#T#nq#X#nq#Z#nq#^#nq#_#nq#a#nq#c#nq#l#nq#o#nq#s#nq#u#nq#z#nq#}#nq$P#nq%X#nq%o#nq%p#nq%t#nq%u#nq&Z#nq&[#nq&]#nq&^#nq&_#nq&`#nq&a#nq&b#nq&c#nq&d#nq&e#nq&f#nq&g#nq&h#nq&i#nq&j#nq%Z#nq%_#nq~O#[,WOz%Oa{%Oa~Oo0cOv0qO{&xi~P'vOz,YO{&xi~O{#{O%z,[Og&zXz&zX~O%uWOg&zXz&zX~Oz,`Og&yX~Og,bO~O%Y,eO~O!T%dO!U%cOg&Viz&Vi~OV$}Oa$}Oo0cOv0qOg&Ui~P'vO{,hOz$la!W$la~Oo0cOv0qO{,iOz$la!W$la~P'vOo0cOv0qO{*gO!W&Xi~P'vOz,lO!W&Xi~Oo0cOv0qOz,lO!W&Xi~P'vOz,lO{,oO!W&Xi~Og$hiz$hi!W$hi~P%SOV'|Oo0cOv0qO~P'vOn,qO~OV'|Og,rOo0cOv0qO~P'vOV'|Oo0cOv0qO!W&Sq~P'vOz$gi![$gi#g$gi%[$gi%_$gig$gi{$gi!m$gi%z$gi~P%SOV(]Oo0cOv0qO~P'vOa+QOo0cOv0qO![&Tq~P'vOz,sO![&Tq~O![,tO~OV(]Oo0cOv0qO![%}q#g%}q%[%}q%_%}qg%}q{%}q!m%}q%z%}q~P'vO{,uO~OV+UOo0cOv0qO{&li![&li!m&li%z&li~P'vOz,zO{&li![&li!m&li%z&li~O!]+YO&n+[O![!na~O{(kO![,}O~OV&OOo0cOv0qO#g%hi%[%hi%_%hi%z%hi~P'vOz-OO#g%hi%[%hi%_%hi%z%hi~O%uWO#g&rq%[&rq%_&rqg&rq~Oz-RO#g&rq%[&rq%_&rqg&rq~OV)`Oa)`O%uWO!W&ua~Oz-TO!W&ua~On$|iz$|i~P%SOV)kO~P'vOV)kOn&wq~P'vOt-XOP#myV#myf#myh#myo#mys#myv#my!P#my!Q#my!T#my!U#my!X#my!]#my!h#my!r#my!s#my!t#my!{#my!}#my#P#my#R#my#T#my#X#my#Z#my#^#my#_#my#a#my#c#my#l#my#o#my#s#my#u#my#z#my#}#my$P#my%X#my%o#my%p#my%t#my%u#my&Z#my&[#my&]#my&^#my&_#my&`#my&a#my&b#my&c#my&d#my&e#my&f#my&g#my&h#my&i#my&j#my%Z#my%_#my~O%Z-]O%_-]O~P`O#q-^OP#nyV#nyf#nyh#nyo#nys#nyv#ny!P#ny!Q#ny!T#ny!U#ny!X#ny!]#ny!h#ny!r#ny!s#ny!t#ny!{#ny!}#ny#P#ny#R#ny#T#ny#X#ny#Z#ny#^#ny#_#ny#a#ny#c#ny#l#ny#o#ny#s#ny#u#ny#z#ny#}#ny$P#ny%X#ny%o#ny%p#ny%t#ny%u#ny&Z#ny&[#ny&]#ny&^#ny&_#ny&`#ny&a#ny&b#ny&c#ny&d#ny&e#ny&f#ny&g#ny&h#ny&i#ny&j#ny%Z#ny%_#ny~Oz-aO{$jO#[-aO~Oo0cOv0qO{&xq~P'vOz-dO{&xq~O%z,[Og&zaz&za~O{#{Og&zaz&za~OV*SOa*TO%q*UO%uWOg&ya~Oz-hOg&ya~O$S-lO~OV$}Oa$}Oo0cOv0qO~P'vOo0cOv0qO{-mOz$li!W$li~P'vOo0cOv0qOz$li!W$li~P'vO{-mOz$li!W$li~Oo0cOv0qO{*gO~P'vOo0cOv0qO{*gO!W&Xq~P'vOz-pO!W&Xq~Oo0cOv0qOz-pO!W&Xq~P'vOs-sO!T%dO!U%cOg&Oq!W&Oq![&Oqz&Oq~P!/jOa+QOo0cOv0qO![&Ty~P'vOz$ji![$ji~P%SOa+QOo0cOv0qO~P'vOV+UOo0cOv0qO~P'vOV+UOo0cOv0qO{&lq![&lq!m&lq%z&lq~P'vO{(kO![-xO!m-yO%z-wO~OV&OOo0cOv0qO#g%hq%[%hq%_%hq%z%hq~P'vO%uWO#g&ry%[&ry%_&ryg&ry~OV)`Oa)`O%uWO!W&ui~Ot-}OP#m!RV#m!Rf#m!Rh#m!Ro#m!Rs#m!Rv#m!R!P#m!R!Q#m!R!T#m!R!U#m!R!X#m!R!]#m!R!h#m!R!r#m!R!s#m!R!t#m!R!{#m!R!}#m!R#P#m!R#R#m!R#T#m!R#X#m!R#Z#m!R#^#m!R#_#m!R#a#m!R#c#m!R#l#m!R#o#m!R#s#m!R#u#m!R#z#m!R#}#m!R$P#m!R%X#m!R%o#m!R%p#m!R%t#m!R%u#m!R&Z#m!R&[#m!R&]#m!R&^#m!R&_#m!R&`#m!R&a#m!R&b#m!R&c#m!R&d#m!R&e#m!R&f#m!R&g#m!R&h#m!R&i#m!R&j#m!R%Z#m!R%_#m!R~Oo0cOv0qO{&xy~P'vOV*SOa*TO%q*UO%uWOg&yi~O$S-lO%Z.VO%_.VO~OV.aOh._O!X.^O!].`O!h.YO!s.[O!t.[O%p.XO%uWO&Z]O&[]O&]]O&^]O&_]O&`]O&a]O&b]O~Oo0cOv0qOz$lq!W$lq~P'vO{.fOz$lq!W$lq~Oo0cOv0qO{*gO!W&Xy~P'vOz.gO!W&Xy~Oo0cOv.kO~P'vOs-sO!T%dO!U%cOg&Oy!W&Oy![&Oyz&Oy~P!/jO{(kO![.nO~O{(kO![.nO!m.oO~OV*SOa*TO%q*UO%uWO~Oh.tO!f.rOz$TX#[$TX%j$TXg$TX~Os$TX{$TX!W$TX![$TX~P$-bO%o.vO%p.vOs$UXz$UX{$UX#[$UX%j$UX!W$UXg$UX![$UX~O!h.xO~Oz.|O#[/OO%j.yOs&|X{&|X!W&|Xg&|X~Oa/RO~P$)zOh.tOs&}Xz&}X{&}X#[&}X%j&}X!W&}Xg&}X![&}X~Os/VO{$jO~Oo0cOv0qOz$ly!W$ly~P'vOo0cOv0qO{*gO!W&X!R~P'vOz/ZO!W&X!R~Og&RXs&RX!T&RX!U&RX!W&RX![&RXz&RX~P!/jOs-sO!T%dO!U%cOg&Qa!W&Qa![&Qaz&Qa~O{(kO![/^O~O!f.rOh$[as$[az$[a{$[a#[$[a%j$[a!W$[ag$[a![$[a~O!h/eO~O%o.vO%p.vOs$Uaz$Ua{$Ua#[$Ua%j$Ua!W$Uag$Ua![$Ua~O%j.yOs$Yaz$Ya{$Ya#[$Ya!W$Yag$Ya![$Ya~Os&|a{&|a!W&|ag&|a~P$)nOz/jOs&|a{&|a!W&|ag&|a~O!W/mO~Og/mO~O{/oO~O![/pO~Oo0cOv0qO{*gO!W&X!Z~P'vO{/sO~O%z/tO~P$-bOz/uO#[/OO%j.yOg'PX~Oz/uOg'PX~Og/wO~O!h/xO~O#[/OOs%Saz%Sa{%Sa%j%Sa!W%Sag%Sa![%Sa~O#[/OO%j.yOs%Waz%Wa{%Wa!W%Wag%Wa~Os&|i{&|i!W&|ig&|i~P$)nOz/zO#[/OO%j.yO!['Oa~Og'Pa~P$)nOz0SOg'Pa~Oa0UO!['Oi~P$)zOz0WO!['Oi~Oz0WO#[/OO%j.yO!['Oi~O#[/OO%j.yOg$biz$bi~O%z0ZO~P$-bO#[/OO%j.yOg%Vaz%Va~Og'Pi~P$)nO{0^O~Oa0UO!['Oq~P$)zOz0`O!['Oq~O#[/OO%j.yOz%Ui![%Ui~Oa0UO~P$)zOa0UO!['Oy~P$)zO#[/OO%j.yOg$ciz$ci~O#[/OO%j.yOz%Uq![%Uq~Oz+aO#g%ha%[%ha%_%ha%z%ha~P%SOV&OOo0cOv0qO~P'vOn0hO~Oo0hO~P'vO{0iO~Ot0jO~P!/jO&]&Z&j&h&i&g&f&d&e&c&b&`&a&_&^&[%u~",
+        goto: "!=j'QPPPPPP'RP'Z*s+[+t,_,y-fP.SP'Z.r.r'ZPPP'Z2[PPPPPP2[5PPP5PP7b7k=sPP=v>h>kPP'Z'ZPP>zPP'Z'ZPP'Z'Z'Z'Z'Z?O?w'ZP?zP@QDXGuGyPG|HWH['ZPPPH_Hk'RP'R'RP'RP'RP'RP'RP'R'R'RP'RPP'RPP'RP'RPHqH}IVPI^IdPI^PI^I^PPPI^PKrPK{LVL]KrPI^LfPI^PLmLsPLwM]MzNeLwLwNkNxLwLwLwLw! ^! d! g! l! o! y!!P!!]!!o!!u!#P!#V!#s!#y!$P!$Z!$a!$g!$y!%T!%Z!%a!%k!%q!%w!%}!&T!&Z!&e!&k!&u!&{!'U!'[!'k!'s!'}!(UPPPPPPPPPPP!([!(_!(e!(n!(x!)TPPPPPPPPPPPP!-u!/Z!3^!6oPP!6w!7W!7a!8Y!8P!8c!8i!8l!8o!8r!8z!9jPPPPPPPPPPPPPPPPP!9m!9q!9wP!:]!:a!:m!:v!;S!;j!;m!;p!;v!;|!<S!<VP!<_!<h!=d!=g]eOn#g$j)t,P'}`OTYZ[adnoprtxy}!P!Q!R!U!X!c!d!e!f!g!h!i!k!o!p!q!s!t!z#O#S#T#[#d#g#x#y#{#}$Q$e$g$h$j$q$}%S%Z%^%`%c%g%l%n%w%|&O&Z&_&h&j&k&u&x&|'P'W'Z'l'm'p'r's'w'|(O(S(W(](^(d(g(p(r(z(})^)e)g)k)l)p)t)z*O*Y*d*g*h*k*q*r*t*v*y*z*}+Q+U+V+Y+a+c+d+k+x+y,P,X,Y,],g,h,i,k,l,o,q,s,u,w,y,z-O-d-f-m-p-s.f.g/V/Z/s0c0d0e0f0h0i0j0k0l0n0r{!cQ#c#p$R$d$p%e%j%p%q&`'O'g(q(|)j*o*x+w,v0g}!dQ#c#p$R$d$p$u%e%j%p%q&`'O'g(q(|)j*o*x+w,v0g!P!eQ#c#p$R$d$p$u$v%e%j%p%q&`'O'g(q(|)j*o*x+w,v0g!R!fQ#c#p$R$d$p$u$v$w%e%j%p%q&`'O'g(q(|)j*o*x+w,v0g!T!gQ#c#p$R$d$p$u$v$w$x%e%j%p%q&`'O'g(q(|)j*o*x+w,v0g!V!hQ#c#p$R$d$p$u$v$w$x$y%e%j%p%q&`'O'g(q(|)j*o*x+w,v0g!Z!hQ!n#c#p$R$d$p$u$v$w$x$y$z%e%j%p%q&`'O'g(q(|)j*o*x+w,v0g'}TOTYZ[adnoprtxy}!P!Q!R!U!X!c!d!e!f!g!h!i!k!o!p!q!s!t!z#O#S#T#[#d#g#x#y#{#}$Q$e$g$h$j$q$}%S%Z%^%`%c%g%l%n%w%|&O&Z&_&h&j&k&u&x&|'P'W'Z'l'm'p'r's'w'|(O(S(W(](^(d(g(p(r(z(})^)e)g)k)l)p)t)z*O*Y*d*g*h*k*q*r*t*v*y*z*}+Q+U+V+Y+a+c+d+k+x+y,P,X,Y,],g,h,i,k,l,o,q,s,u,w,y,z-O-d-f-m-p-s.f.g/V/Z/s0c0d0e0f0h0i0j0k0l0n0r&eVOYZ[dnprxy}!P!Q!U!i!k!o!p!q!s!t#[#d#g#y#{#}$Q$h$j$}%S%Z%^%`%g%l%n%w%|&Z&_&j&k&u&x'P'W'Z'l'm'p'r's'w(O(W(^(d(g(p(r(z)^)e)g)p)t)z*O*Y*d*g*h*k*q*r*t*v*y*z*}+U+V+Y+a+d+k,P,X,Y,],g,h,i,k,l,o,q,s,u,w,y,z-O-d-f-m-p-s.f.g/V/Z/s0c0d0e0f0h0i0j0k0n0r%oXOYZ[dnrxy}!P!Q!U!i!k#[#d#g#y#{#}$Q$h$j$}%S%^%`%g%l%n%w%|&Z&_&j&k&u&x'P'W'Z'l'm'p'r's'w(O(W(^(d(g(p(r(z)^)e)g)p)t)z*O*Y*d*g*h*k*q*t*v*y*z*}+U+V+Y+a+d+k,P,X,Y,],g,h,i,k,l,o,s,u,w,y,z-O-d-f-m-p.f.g/V/Z0i0j0kQ#vqQ/[.kR0o0q't`OTYZ[adnoprtxy}!P!Q!R!U!X!c!d!e!f!g!h!k!o!p!q!s!t!z#O#S#T#[#d#g#x#y#{#}$Q$e$g$h$j$q$}%S%Z%^%`%c%g%l%n%w%|&O&Z&_&h&j&k&u&x&|'P'W'Z'l'p'r's'w'|(O(S(W(](^(d(g(p(r(z(})^)e)g)k)l)p)t)z*O*Y*g*h*k*q*r*t*v*y*z*}+Q+U+V+Y+a+c+d+k+x+y,P,X,Y,],h,i,k,l,o,q,s,u,w,y,z-O-d-f-m-p-s.f.g/V/Z/s0c0d0e0f0h0i0j0k0l0n0rh#jhz{$W$Z&l&q)S)X+f+g-RW#rq&].k0qQ$]|Q$a!OQ$n!VQ$o!WW$|!i'm*d,gS&[#s#tQ'S$iQ(s&UQ)U&nU)Y&s)Z+jW)a&w+m-T-{Q*Q']W*R'_,`-h.TQ+l)`S,_*S*TQ-Q+eQ-_,TQ-c,WQ.R-al.W-l.^._.a.z.|/R/j/o/t/y0U0Z0^Q/S.`Q/a.tQ/l/OU0P/u0S0[X0V/z0W0_0`R&Z#r!_!wYZ!P!Q!k%S%`%g'p'r's(O(W)g*g*h*k*q*t*v,h,i,k,l,o-m-p.f.g/ZR%^!vQ!{YQ%x#[Q&d#}Q&g$QR,{+YT.j-s/s!Y!jQ!n#c#p$R$d$p$u$v$w$x$y$z%e%j%p%q&`'O'g(q(|)j*o*x+w,v0gQ&X#kQ'c$oR*^'dR'l$|Q%V!mR/_.r'|_OTYZ[adnoprtxy}!P!Q!R!U!X!c!d!e!f!g!h!i!k!o!p!q!s!t!z#O#S#T#[#d#g#x#y#{#}$Q$e$g$h$j$q$}%S%Z%^%`%c%g%l%n%w%|&O&Z&_&h&j&k&u&x&|'P'W'Z'l'm'p'r's'w'|(O(S(W(](^(d(g(p(r(z(})^)e)g)k)l)p)t)z*O*Y*d*g*h*k*q*r*t*v*y*z*}+Q+U+V+Y+a+c+d+k+x+y,P,X,Y,],g,h,i,k,l,o,q,s,u,w,y,z-O-d-f-m-p-s.f.g/V/Z/s0c0d0e0f0h0i0j0k0l0n0rS#a_#b!P.[-l.^._.`.a.t.z.|/R/j/o/t/u/y/z0S0U0W0Z0[0^0_0`'|_OTYZ[adnoprtxy}!P!Q!R!U!X!c!d!e!f!g!h!i!k!o!p!q!s!t!z#O#S#T#[#d#g#x#y#{#}$Q$e$g$h$j$q$}%S%Z%^%`%c%g%l%n%w%|&O&Z&_&h&j&k&u&x&|'P'W'Z'l'm'p'r's'w'|(O(S(W(](^(d(g(p(r(z(})^)e)g)k)l)p)t)z*O*Y*d*g*h*k*q*r*t*v*y*z*}+Q+U+V+Y+a+c+d+k+x+y,P,X,Y,],g,h,i,k,l,o,q,s,u,w,y,z-O-d-f-m-p-s.f.g/V/Z/s0c0d0e0f0h0i0j0k0l0n0rT#a_#bT#^^#_R(o%xa(l%x(n(o+`,{-y-z.oT+[(k+]R-z,{Q$PsQ+l)aQ,^*RR-e,_X#}s$O$P&fQ&y$aQ'a$nQ'd$oR)s'SQ)b&wV-S+m-T-{ZgOn$j)t,PXkOn)t,PQ$k!TQ&z$bQ&{$cQ'^$mQ'b$oQ)q'RQ)x'WQ){'XQ)|'YQ*Z'`S*]'c'dQ+s)gQ+u)hQ+v)iQ+z)oS+|)r*[Q,Q)vQ,R)wS,S)y)zQ,d*^Q-V+rQ-W+tQ-Y+{S-Z+},OQ-`,UQ-b,VQ-|-XQ.O-[Q.P-^Q.Q-_Q.p-}Q.q.RQ/W.dR/r/XWkOn)t,PR#mjQ'`$nS)r'S'aR,O)sQ,]*RR-f,^Q*['`Q+})rR-[,OZiOjn)t,PQ'f$pR*`'gT-j,e-ku.c-l.^._.a.t.z.|/R/j/o/t/u/y0S0U0Z0[0^t.c-l.^._.a.t.z.|/R/j/o/t/u/y0S0U0Z0[0^Q/S.`X0V/z0W0_0`!P.Z-l.^._.`.a.t.z.|/R/j/o/t/u/y/z0S0U0W0Z0[0^0_0`Q.w.YR/f.xg.z.].{/b/i/n/|0O0Q0]0a0bu.b-l.^._.a.t.z.|/R/j/o/t/u/y0S0U0Z0[0^X.u.W.b/a0PR/c.tV0R/u0S0[R/X.dQnOS#on,PR,P)tQ&^#uR(x&^S%m#R#wS(_%m(bT(b%p&`Q%a!yQ%h!}W(P%a%h(U(YQ(U%eR(Y%jQ&i$RR)O&iQ(e%qQ*{(`T+R(e*{Q'n%OR*e'nS'q%R%SY*i'q*j,m-q.hU*j'r's'tU,m*k*l*mS-q,n,oR.h-rQ#Y]R%t#YQ#_^R%y#_Q(h%vS+W(h+XR+X(iQ+](kR,|+]Q#b_R%{#bQ#ebQ%}#cW&Q#e%}({+bQ({&cR+b0gQ$OsS&e$O&fR&f$PQ&v$_R)_&vQ&V#jR(t&VQ&m$VS)T&m+hR+h)UQ$Z{R&p$ZQ&t$]R)[&tQ+n)bR-U+nQ#hfR&S#hQ)f&zR+q)fQ&}$dS)m&})nR)n'OQ'V$kR)u'VQ'[$lS*P'[,ZR,Z*QQ,a*VR-i,aWjOn)t,PR#ljQ-k,eR.U-kd.{.]/b/i/n/|0O0Q0]0a0bR/h.{U.s.W/a0PR/`.sQ/{/nS0X/{0YR0Y/|S/v/b/cR0T/vQ.}.]R/k.}R!ZPXmOn)t,PWlOn)t,PR'T$jYfOn$j)t,PR&R#g[sOn#g$j)t,PR&d#}&dQOYZ[dnprxy}!P!Q!U!i!k!o!p!q!s!t#[#d#g#y#{#}$Q$h$j$}%S%Z%^%`%g%l%n%w%|&Z&_&j&k&u&x'P'W'Z'l'm'p'r's'w(O(W(^(d(g(p(r(z)^)e)g)p)t)z*O*Y*d*g*h*k*q*r*t*v*y*z*}+U+V+Y+a+d+k,P,X,Y,],g,h,i,k,l,o,q,s,u,w,y,z-O-d-f-m-p-s.f.g/V/Z/s0c0d0e0f0h0i0j0k0n0rQ!nTQ#caQ#poU$Rt%c(SS$d!R$gQ$p!XQ$u!cQ$v!dQ$w!eQ$x!fQ$y!gQ$z!hQ%e!zQ%j#OQ%p#SQ%q#TQ&`#xQ'O$eQ'g$qQ(q&OU(|&h(}+cW)j&|)l+x+yQ*o'|Q*x(]Q+w)kQ,v+QR0g0lQ!yYQ!}ZQ$b!PQ$c!QQ%R!kQ't%S^'{%`%g(O(W*q*t*v^*f'p*h,k,l-p.g/ZQ*l'rQ*m'sQ+t)gQ,j*gQ,n*kQ-n,hQ-o,iQ-r,oQ.e-mR/Y.f[bOn#g$j)t,P!^!vYZ!P!Q!k%S%`%g'p'r's(O(W)g*g*h*k*q*t*v,h,i,k,l,o-m-p.f.g/ZQ#R[Q#fdS#wrxQ$UyW$_}$Q'P)pS$l!U$hW${!i'm*d,gS%v#[+Y`&P#d%|(p(r(z+a-O0kQ&a#yQ&b#{Q&c#}Q'j$}Q'z%^W([%l(^*y*}Q(`%nQ(i%wQ(v&ZS(y&_0iQ)P&jQ)Q&kU)]&u)^+kQ)d&xQ)y'WY)}'Z*O,X,Y-dQ*b'lS*n'w0jW+P(d*z,s,wW+T(g+V,y,zQ+p)eQ,U)zQ,c*YQ,x+UQ-P+dQ-e,]Q-v,uQ.S-fR/q/VhUOn#d#g$j%|&_'w(p(r)t,P%U!uYZ[drxy}!P!Q!U!i!k#[#y#{#}$Q$h$}%S%^%`%g%l%n%w&Z&j&k&u&x'P'W'Z'l'm'p'r's(O(W(^(d(g(z)^)e)g)p)z*O*Y*d*g*h*k*q*t*v*y*z*}+U+V+Y+a+d+k,X,Y,],g,h,i,k,l,o,s,u,w,y,z-O-d-f-m-p.f.g/V/Z0i0j0kQ#qpW%W!o!s0d0nQ%X!pQ%Y!qQ%[!tQ%f0cS'v%Z0hQ'x0eQ'y0fQ,p*rQ-u,qS.i-s/sR0p0rU#uq.k0qR(w&][cOn#g$j)t,PZ!xY#[#}$Q+YQ#W[Q#zrR$TxQ%b!yQ%i!}Q%o#RQ'j${Q(V%eQ(Z%jQ(c%pQ(f%qQ*|(`Q,f*bQ-t,pQ.m-uR/].lQ$StQ(R%cR*s(SQ.l-sR/}/sR#QZR#V[R%Q!iQ%O!iV*c'm*d,g!Z!lQ!n#c#p$R$d$p$u$v$w$x$y$z%e%j%p%q&`'O'g(q(|)j*o*x+w,v0gR%T!kT#]^#_Q%x#[R,{+YQ(m%xS+_(n(oQ,}+`Q-x,{S.n-y-zR/^.oT+Z(k+]Q$`}Q&g$QQ)o'PR+{)pQ$XzQ)W&qR+i)XQ$XzQ&o$WQ)W&qR+i)XQ#khW$Vz$W&q)XQ$[{Q&r$ZZ)R&l)S+f+g-RR$^|R)c&wXlOn)t,PQ$f!RR'Q$gQ$m!UR'R$hR*X'_Q*V'_V-g,`-h.TQ.d-lQ/P.^R/Q._U.]-l.^._Q/U.aQ/b.tQ/g.zU/i.|/j/yQ/n/RQ/|/oQ0O/tU0Q/u0S0[Q0]0UQ0a0ZR0b0^R/T.`R/d.t",
+        nodeNames: "\u26A0 print Escape { Comment Script AssignStatement * BinaryExpression BitOp BitOp BitOp BitOp ArithOp ArithOp @ ArithOp ** UnaryExpression ArithOp BitOp AwaitExpression await ) ( ParenthesizedExpression BinaryExpression or and CompareOp in not is UnaryExpression ConditionalExpression if else LambdaExpression lambda ParamList VariableName AssignOp , : NamedExpression AssignOp YieldExpression yield from TupleExpression ComprehensionExpression async for LambdaExpression ] [ ArrayExpression ArrayComprehensionExpression } { DictionaryExpression DictionaryComprehensionExpression SetExpression SetComprehensionExpression CallExpression ArgList AssignOp MemberExpression . PropertyName Number String FormatString FormatReplacement FormatSelfDoc FormatConversion FormatSpec FormatReplacement FormatSelfDoc ContinuedString Ellipsis None Boolean TypeDef AssignOp UpdateStatement UpdateOp ExpressionStatement DeleteStatement del PassStatement pass BreakStatement break ContinueStatement continue ReturnStatement return YieldStatement PrintStatement RaiseStatement raise ImportStatement import as ScopeStatement global nonlocal AssertStatement assert TypeDefinition type TypeParamList TypeParam StatementGroup ; IfStatement Body elif WhileStatement while ForStatement TryStatement try except finally WithStatement with FunctionDefinition def ParamList AssignOp TypeDef ClassDefinition class DecoratedStatement Decorator At MatchStatement match MatchBody MatchClause case CapturePattern LiteralPattern ArithOp ArithOp AsPattern OrPattern LogicOp AttributePattern SequencePattern MappingPattern StarPattern ClassPattern PatternArgList KeywordPattern KeywordPattern Guard",
+        maxTerm: 277,
+        context: trackIndent,
+        nodeProps: [
+          ["isolate", -5, 4, 71, 72, 73, 77, ""],
+          ["group", -15, 6, 85, 87, 88, 90, 92, 94, 96, 98, 99, 100, 102, 105, 108, 110, "Statement Statement", -22, 8, 18, 21, 25, 40, 49, 50, 56, 57, 60, 61, 62, 63, 64, 67, 70, 71, 72, 79, 80, 81, 82, "Expression", -10, 114, 116, 119, 121, 122, 126, 128, 133, 135, 138, "Statement", -9, 143, 144, 147, 148, 150, 151, 152, 153, 154, "Pattern"],
+          ["openedBy", 23, "(", 54, "[", 58, "{"],
+          ["closedBy", 24, ")", 55, "]", 59, "}"]
+        ],
+        propSources: [pythonHighlighting],
+        skippedNodes: [0, 4],
+        repeatNodeCount: 34,
+        tokenData: "!2|~R!`OX%TXY%oY[%T[]%o]p%Tpq%oqr'ars)Yst*xtu%Tuv,dvw-hwx.Uxy/tyz0[z{0r{|2S|}2p}!O3W!O!P4_!P!Q:Z!Q!R;k!R![>_![!]Do!]!^Es!^!_FZ!_!`Gk!`!aHX!a!b%T!b!cIf!c!dJU!d!eK^!e!hJU!h!i!#f!i!tJU!t!u!,|!u!wJU!w!x!.t!x!}JU!}#O!0S#O#P&o#P#Q!0j#Q#R!1Q#R#SJU#S#T%T#T#UJU#U#VK^#V#YJU#Y#Z!#f#Z#fJU#f#g!,|#g#iJU#i#j!.t#j#oJU#o#p!1n#p#q!1s#q#r!2a#r#s!2f#s$g%T$g;'SJU;'S;=`KW<%lOJU`%YT&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%T`%lP;=`<%l%To%v]&n`%c_OX%TXY%oY[%T[]%o]p%Tpq%oq#O%T#O#P&o#P#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%To&tX&n`OY%TYZ%oZ]%T]^%o^#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tc'f[&n`O!_%T!_!`([!`#T%T#T#U(r#U#f%T#f#g(r#g#h(r#h#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tc(cTmR&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tc(yT!mR&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk)aV&n`&[ZOr%Trs)vs#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk){V&n`Or%Trs*bs#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk*iT&n`&^ZO#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%To+PZS_&n`OY*xYZ%TZ]*x]^%T^#o*x#o#p+r#p#q*x#q#r+r#r;'S*x;'S;=`,^<%lO*x_+wTS_OY+rZ]+r^;'S+r;'S;=`,W<%lO+r_,ZP;=`<%l+ro,aP;=`<%l*xj,kV%rQ&n`O!_%T!_!`-Q!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tj-XT!xY&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tj-oV%lQ&n`O!_%T!_!`-Q!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk.]V&n`&ZZOw%Twx.rx#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk.wV&n`Ow%Twx/^x#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk/eT&n`&]ZO#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk/{ThZ&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tc0cTgR&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk0yXVZ&n`Oz%Tz{1f{!_%T!_!`-Q!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk1mVaR&n`O!_%T!_!`-Q!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk2ZV%oZ&n`O!_%T!_!`-Q!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tc2wTzR&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%To3_W%pZ&n`O!_%T!_!`-Q!`!a3w!a#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Td4OT&{S&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk4fX!fQ&n`O!O%T!O!P5R!P!Q%T!Q![6T![#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk5WV&n`O!O%T!O!P5m!P#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk5tT!rZ&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Ti6[a!hX&n`O!Q%T!Q![6T![!g%T!g!h7a!h!l%T!l!m9s!m#R%T#R#S6T#S#X%T#X#Y7a#Y#^%T#^#_9s#_#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Ti7fZ&n`O{%T{|8X|}%T}!O8X!O!Q%T!Q![8s![#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Ti8^V&n`O!Q%T!Q![8s![#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Ti8z]!hX&n`O!Q%T!Q![8s![!l%T!l!m9s!m#R%T#R#S8s#S#^%T#^#_9s#_#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Ti9zT!hX&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk:bX%qR&n`O!P%T!P!Q:}!Q!_%T!_!`-Q!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tj;UV%sQ&n`O!_%T!_!`-Q!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Ti;ro!hX&n`O!O%T!O!P=s!P!Q%T!Q![>_![!d%T!d!e?q!e!g%T!g!h7a!h!l%T!l!m9s!m!q%T!q!rA]!r!z%T!z!{Bq!{#R%T#R#S>_#S#U%T#U#V?q#V#X%T#X#Y7a#Y#^%T#^#_9s#_#c%T#c#dA]#d#l%T#l#mBq#m#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Ti=xV&n`O!Q%T!Q![6T![#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Ti>fc!hX&n`O!O%T!O!P=s!P!Q%T!Q![>_![!g%T!g!h7a!h!l%T!l!m9s!m#R%T#R#S>_#S#X%T#X#Y7a#Y#^%T#^#_9s#_#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Ti?vY&n`O!Q%T!Q!R@f!R!S@f!S#R%T#R#S@f#S#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Ti@mY!hX&n`O!Q%T!Q!R@f!R!S@f!S#R%T#R#S@f#S#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%TiAbX&n`O!Q%T!Q!YA}!Y#R%T#R#SA}#S#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%TiBUX!hX&n`O!Q%T!Q!YA}!Y#R%T#R#SA}#S#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%TiBv]&n`O!Q%T!Q![Co![!c%T!c!iCo!i#R%T#R#SCo#S#T%T#T#ZCo#Z#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%TiCv]!hX&n`O!Q%T!Q![Co![!c%T!c!iCo!i#R%T#R#SCo#S#T%T#T#ZCo#Z#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%ToDvV{_&n`O!_%T!_!`E]!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%TcEdT%{R&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%TkEzT#gZ&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%TkFbXmR&n`O!^%T!^!_F}!_!`([!`!a([!a#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%TjGUV%mQ&n`O!_%T!_!`-Q!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%TkGrV%zZ&n`O!_%T!_!`([!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%TkH`WmR&n`O!_%T!_!`([!`!aHx!a#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%TjIPV%nQ&n`O!_%T!_!`-Q!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%TkIoV_Q#}P&n`O!_%T!_!`-Q!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%ToJ_]&n`&YS%uZO!Q%T!Q![JU![!c%T!c!}JU!}#R%T#R#SJU#S#T%T#T#oJU#p#q%T#r$g%T$g;'SJU;'S;=`KW<%lOJUoKZP;=`<%lJUoKge&n`&YS%uZOr%Trs)Ysw%Twx.Ux!Q%T!Q![JU![!c%T!c!tJU!t!uLx!u!}JU!}#R%T#R#SJU#S#T%T#T#fJU#f#gLx#g#oJU#p#q%T#r$g%T$g;'SJU;'S;=`KW<%lOJUoMRa&n`&YS%uZOr%TrsNWsw%Twx! vx!Q%T!Q![JU![!c%T!c!}JU!}#R%T#R#SJU#S#T%T#T#oJU#p#q%T#r$g%T$g;'SJU;'S;=`KW<%lOJUkN_V&n`&`ZOr%TrsNts#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%TkNyV&n`Or%Trs! `s#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk! gT&n`&bZO#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk! }V&n`&_ZOw%Twx!!dx#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk!!iV&n`Ow%Twx!#Ox#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk!#VT&n`&aZO#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%To!#oe&n`&YS%uZOr%Trs!%Qsw%Twx!&px!Q%T!Q![JU![!c%T!c!tJU!t!u!(`!u!}JU!}#R%T#R#SJU#S#T%T#T#fJU#f#g!(`#g#oJU#p#q%T#r$g%T$g;'SJU;'S;=`KW<%lOJUk!%XV&n`&dZOr%Trs!%ns#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk!%sV&n`Or%Trs!&Ys#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk!&aT&n`&fZO#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk!&wV&n`&cZOw%Twx!'^x#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk!'cV&n`Ow%Twx!'xx#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk!(PT&n`&eZO#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%To!(ia&n`&YS%uZOr%Trs!)nsw%Twx!+^x!Q%T!Q![JU![!c%T!c!}JU!}#R%T#R#SJU#S#T%T#T#oJU#p#q%T#r$g%T$g;'SJU;'S;=`KW<%lOJUk!)uV&n`&hZOr%Trs!*[s#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk!*aV&n`Or%Trs!*vs#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk!*}T&n`&jZO#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk!+eV&n`&gZOw%Twx!+zx#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk!,PV&n`Ow%Twx!,fx#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tk!,mT&n`&iZO#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%To!-Vi&n`&YS%uZOr%TrsNWsw%Twx! vx!Q%T!Q![JU![!c%T!c!dJU!d!eLx!e!hJU!h!i!(`!i!}JU!}#R%T#R#SJU#S#T%T#T#UJU#U#VLx#V#YJU#Y#Z!(`#Z#oJU#p#q%T#r$g%T$g;'SJU;'S;=`KW<%lOJUo!.}a&n`&YS%uZOr%Trs)Ysw%Twx.Ux!Q%T!Q![JU![!c%T!c!}JU!}#R%T#R#SJU#S#T%T#T#oJU#p#q%T#r$g%T$g;'SJU;'S;=`KW<%lOJUk!0ZT!XZ&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tc!0qT!WR&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%Tj!1XV%kQ&n`O!_%T!_!`-Q!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%T~!1sO!]~k!1zV%jR&n`O!_%T!_!`-Q!`#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%T~!2fO![~i!2mT%tX&n`O#o%T#p#q%T#r;'S%T;'S;=`%i<%lO%T",
+        tokenizers: [legacyPrint, indentation, newlines, strings, 0, 1, 2, 3, 4],
+        topRules: { "Script": [0, 5] },
+        specialized: [{ term: 221, get: (value) => spec_identifier3[value] || -1 }],
+        tokenPrec: 7668
+      });
+    }
+  });
+
+  // node_modules/@codemirror/lang-python/dist/index.js
+  function defID2(type) {
+    return (node, def, outer) => {
+      if (outer)
+        return false;
+      let id2 = node.node.getChild("VariableName");
+      if (id2)
+        def(id2, type);
+      return true;
+    };
+  }
+  function getScope2(doc2, node) {
+    let cached = cache2.get(node);
+    if (cached)
+      return cached;
+    let completions = [], top2 = true;
+    function def(node2, type) {
+      let name2 = doc2.sliceString(node2.from, node2.to);
+      completions.push({ label: name2, type });
+    }
+    node.cursor(IterMode.IncludeAnonymous).iterate((node2) => {
+      if (node2.name) {
+        let gather = gatherCompletions2[node2.name];
+        if (gather && gather(node2, def, top2) || !top2 && ScopeNodes2.has(node2.name))
+          return false;
+        top2 = false;
+      } else if (node2.to - node2.from > 8192) {
+        for (let c of getScope2(doc2, node2.node))
+          completions.push(c);
+        return false;
+      }
+    });
+    cache2.set(node, completions);
+    return completions;
+  }
+  function localCompletionSource2(context) {
+    let inner = syntaxTree(context.state).resolveInner(context.pos, -1);
+    if (dontComplete2.indexOf(inner.name) > -1)
+      return null;
+    let isWord = inner.name == "VariableName" || inner.to - inner.from < 20 && Identifier2.test(context.state.sliceDoc(inner.from, inner.to));
+    if (!isWord && !context.explicit)
+      return null;
+    let options = [];
+    for (let pos = inner; pos; pos = pos.parent) {
+      if (ScopeNodes2.has(pos.name))
+        options = options.concat(getScope2(context.state.doc, pos));
+    }
+    return {
+      options,
+      from: isWord ? inner.from : context.pos,
+      validFor: Identifier2
+    };
+  }
+  function innerBody(context) {
+    let { node, pos } = context;
+    let lineIndent = context.lineIndent(pos, -1);
+    let found = null;
+    for (; ; ) {
+      let before = node.childBefore(pos);
+      if (!before) {
+        break;
+      } else if (before.name == "Comment") {
+        pos = before.from;
+      } else if (before.name == "Body" || before.name == "MatchBody") {
+        if (context.baseIndentFor(before) + context.unit <= lineIndent)
+          found = before;
+        node = before;
+      } else if (before.name == "MatchClause") {
+        node = before;
+      } else if (before.type.is("Statement")) {
+        node = before;
+      } else {
+        break;
+      }
+    }
+    return found;
+  }
+  function indentBody(context, node) {
+    let base2 = context.baseIndentFor(node);
+    let line = context.lineAt(context.pos, -1), to = line.from + line.text.length;
+    if (/^\s*($|#)/.test(line.text) && context.node.to < to + 100 && !/\S/.test(context.state.sliceDoc(to, context.node.to)) && context.lineIndent(context.pos, -1) <= base2)
+      return null;
+    if (/^\s*(else:|elif |except |finally:|case\s+[^=:]+:)/.test(context.textAfter) && context.lineIndent(context.pos, -1) > base2)
+      return null;
+    return base2 + context.unit;
+  }
+  function python() {
+    return new LanguageSupport(pythonLanguage, [
+      pythonLanguage.data.of({ autocomplete: localCompletionSource2 }),
+      pythonLanguage.data.of({ autocomplete: globalCompletion })
+    ]);
+  }
+  var cache2, ScopeNodes2, gatherCompletions2, Identifier2, dontComplete2, globals, snippets2, globalCompletion, pythonLanguage;
+  var init_dist20 = __esm({
+    "node_modules/@codemirror/lang-python/dist/index.js"() {
+      init_dist19();
+      init_dist5();
+      init_dist3();
+      init_dist7();
+      cache2 = /* @__PURE__ */ new NodeWeakMap();
+      ScopeNodes2 = /* @__PURE__ */ new Set([
+        "Script",
+        "Body",
+        "FunctionDefinition",
+        "ClassDefinition",
+        "LambdaExpression",
+        "ForStatement",
+        "MatchClause"
+      ]);
+      gatherCompletions2 = {
+        FunctionDefinition: /* @__PURE__ */ defID2("function"),
+        ClassDefinition: /* @__PURE__ */ defID2("class"),
+        ForStatement(node, def, outer) {
+          if (outer)
+            for (let child = node.node.firstChild; child; child = child.nextSibling) {
+              if (child.name == "VariableName")
+                def(child, "variable");
+              else if (child.name == "in")
+                break;
+            }
+        },
+        ImportStatement(_node, def) {
+          var _a2, _b;
+          let { node } = _node;
+          let isFrom = ((_a2 = node.firstChild) === null || _a2 === void 0 ? void 0 : _a2.name) == "from";
+          for (let ch = node.getChild("import"); ch; ch = ch.nextSibling) {
+            if (ch.name == "VariableName" && ((_b = ch.nextSibling) === null || _b === void 0 ? void 0 : _b.name) != "as")
+              def(ch, isFrom ? "variable" : "namespace");
+          }
+        },
+        AssignStatement(node, def) {
+          for (let child = node.node.firstChild; child; child = child.nextSibling) {
+            if (child.name == "VariableName")
+              def(child, "variable");
+            else if (child.name == ":" || child.name == "AssignOp")
+              break;
+          }
+        },
+        ParamList(node, def) {
+          for (let prev = null, child = node.node.firstChild; child; child = child.nextSibling) {
+            if (child.name == "VariableName" && (!prev || !/\*|AssignOp/.test(prev.name)))
+              def(child, "variable");
+            prev = child;
+          }
+        },
+        CapturePattern: /* @__PURE__ */ defID2("variable"),
+        AsPattern: /* @__PURE__ */ defID2("variable"),
+        __proto__: null
+      };
+      Identifier2 = /^[\w\xa1-\uffff][\w\d\xa1-\uffff]*$/;
+      dontComplete2 = ["String", "FormatString", "Comment", "PropertyName"];
+      globals = /* @__PURE__ */ [
+        "__annotations__",
+        "__builtins__",
+        "__debug__",
+        "__doc__",
+        "__import__",
+        "__name__",
+        "__loader__",
+        "__package__",
+        "__spec__",
+        "False",
+        "None",
+        "True"
+      ].map((n) => ({ label: n, type: "constant" })).concat(/* @__PURE__ */ [
+        "ArithmeticError",
+        "AssertionError",
+        "AttributeError",
+        "BaseException",
+        "BlockingIOError",
+        "BrokenPipeError",
+        "BufferError",
+        "BytesWarning",
+        "ChildProcessError",
+        "ConnectionAbortedError",
+        "ConnectionError",
+        "ConnectionRefusedError",
+        "ConnectionResetError",
+        "DeprecationWarning",
+        "EOFError",
+        "Ellipsis",
+        "EncodingWarning",
+        "EnvironmentError",
+        "Exception",
+        "FileExistsError",
+        "FileNotFoundError",
+        "FloatingPointError",
+        "FutureWarning",
+        "GeneratorExit",
+        "IOError",
+        "ImportError",
+        "ImportWarning",
+        "IndentationError",
+        "IndexError",
+        "InterruptedError",
+        "IsADirectoryError",
+        "KeyError",
+        "KeyboardInterrupt",
+        "LookupError",
+        "MemoryError",
+        "ModuleNotFoundError",
+        "NameError",
+        "NotADirectoryError",
+        "NotImplemented",
+        "NotImplementedError",
+        "OSError",
+        "OverflowError",
+        "PendingDeprecationWarning",
+        "PermissionError",
+        "ProcessLookupError",
+        "RecursionError",
+        "ReferenceError",
+        "ResourceWarning",
+        "RuntimeError",
+        "RuntimeWarning",
+        "StopAsyncIteration",
+        "StopIteration",
+        "SyntaxError",
+        "SyntaxWarning",
+        "SystemError",
+        "SystemExit",
+        "TabError",
+        "TimeoutError",
+        "TypeError",
+        "UnboundLocalError",
+        "UnicodeDecodeError",
+        "UnicodeEncodeError",
+        "UnicodeError",
+        "UnicodeTranslateError",
+        "UnicodeWarning",
+        "UserWarning",
+        "ValueError",
+        "Warning",
+        "ZeroDivisionError"
+      ].map((n) => ({ label: n, type: "type" }))).concat(/* @__PURE__ */ [
+        "bool",
+        "bytearray",
+        "bytes",
+        "classmethod",
+        "complex",
+        "float",
+        "frozenset",
+        "int",
+        "list",
+        "map",
+        "memoryview",
+        "object",
+        "range",
+        "set",
+        "staticmethod",
+        "str",
+        "super",
+        "tuple",
+        "type"
+      ].map((n) => ({ label: n, type: "class" }))).concat(/* @__PURE__ */ [
+        "abs",
+        "aiter",
+        "all",
+        "anext",
+        "any",
+        "ascii",
+        "bin",
+        "breakpoint",
+        "callable",
+        "chr",
+        "compile",
+        "delattr",
+        "dict",
+        "dir",
+        "divmod",
+        "enumerate",
+        "eval",
+        "exec",
+        "exit",
+        "filter",
+        "format",
+        "getattr",
+        "globals",
+        "hasattr",
+        "hash",
+        "help",
+        "hex",
+        "id",
+        "input",
+        "isinstance",
+        "issubclass",
+        "iter",
+        "len",
+        "license",
+        "locals",
+        "max",
+        "min",
+        "next",
+        "oct",
+        "open",
+        "ord",
+        "pow",
+        "print",
+        "property",
+        "quit",
+        "repr",
+        "reversed",
+        "round",
+        "setattr",
+        "slice",
+        "sorted",
+        "sum",
+        "vars",
+        "zip"
+      ].map((n) => ({ label: n, type: "function" })));
+      snippets2 = [
+        /* @__PURE__ */ snippetCompletion("def ${name}(${params}):\n	${}", {
+          label: "def",
+          detail: "function",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("for ${name} in ${collection}:\n	${}", {
+          label: "for",
+          detail: "loop",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("while ${}:\n	${}", {
+          label: "while",
+          detail: "loop",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("try:\n	${}\nexcept ${error}:\n	${}", {
+          label: "try",
+          detail: "/ except block",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("if ${}:\n	\n", {
+          label: "if",
+          detail: "block",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("if ${}:\n	${}\nelse:\n	${}", {
+          label: "if",
+          detail: "/ else block",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("class ${name}:\n	def __init__(self, ${params}):\n			${}", {
+          label: "class",
+          detail: "definition",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("import ${module}", {
+          label: "import",
+          detail: "statement",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("from ${module} import ${names}", {
+          label: "from",
+          detail: "import",
+          type: "keyword"
+        })
+      ];
+      globalCompletion = /* @__PURE__ */ ifNotIn(dontComplete2, /* @__PURE__ */ completeFromList(/* @__PURE__ */ globals.concat(snippets2)));
+      pythonLanguage = /* @__PURE__ */ LRLanguage.define({
+        name: "python",
+        parser: /* @__PURE__ */ parser6.configure({
+          props: [
+            /* @__PURE__ */ indentNodeProp.add({
+              Body: (context) => {
+                var _a2;
+                let body = /^\s*(#|$)/.test(context.textAfter) && innerBody(context) || context.node;
+                return (_a2 = indentBody(context, body)) !== null && _a2 !== void 0 ? _a2 : context.continue();
+              },
+              MatchBody: (context) => {
+                var _a2;
+                let inner = innerBody(context);
+                return (_a2 = indentBody(context, inner || context.node)) !== null && _a2 !== void 0 ? _a2 : context.continue();
+              },
+              IfStatement: (cx) => /^\s*(else:|elif )/.test(cx.textAfter) ? cx.baseIndent : cx.continue(),
+              "ForStatement WhileStatement": (cx) => /^\s*else:/.test(cx.textAfter) ? cx.baseIndent : cx.continue(),
+              TryStatement: (cx) => /^\s*(except[ :]|finally:|else:)/.test(cx.textAfter) ? cx.baseIndent : cx.continue(),
+              MatchStatement: (cx) => {
+                if (/^\s*case /.test(cx.textAfter))
+                  return cx.baseIndent + cx.unit;
+                return cx.continue();
+              },
+              "TupleExpression ComprehensionExpression ParamList ArgList ParenthesizedExpression": /* @__PURE__ */ delimitedIndent({ closing: ")" }),
+              "DictionaryExpression DictionaryComprehensionExpression SetExpression SetComprehensionExpression": /* @__PURE__ */ delimitedIndent({ closing: "}" }),
+              "ArrayExpression ArrayComprehensionExpression": /* @__PURE__ */ delimitedIndent({ closing: "]" }),
+              MemberExpression: (cx) => cx.baseIndent + cx.unit,
+              "String FormatString": () => null,
+              Script: (context) => {
+                var _a2;
+                let inner = innerBody(context);
+                return (_a2 = inner && indentBody(context, inner)) !== null && _a2 !== void 0 ? _a2 : context.continue();
+              }
+            }),
+            /* @__PURE__ */ foldNodeProp.add({
+              "ArrayExpression DictionaryExpression SetExpression TupleExpression": foldInside,
+              Body: (node, state) => ({ from: node.from + 1, to: node.to - (node.to == state.doc.length ? 0 : 1) }),
+              "String FormatString": (node, state) => ({ from: state.doc.lineAt(node.from).to, to: node.to })
+            })
+          ]
+        }),
+        languageData: {
+          closeBrackets: {
+            brackets: ["(", "[", "{", "'", '"', "'''", '"""'],
+            stringPrefixes: [
+              "f",
+              "fr",
+              "rf",
+              "r",
+              "u",
+              "b",
+              "br",
+              "rb",
+              "F",
+              "FR",
+              "RF",
+              "R",
+              "U",
+              "B",
+              "BR",
+              "RB"
+            ]
+          },
+          commentTokens: { line: "#" },
+          // Indent logic logic are triggered upon below input patterns
+          indentOnInput: /^\s*([\}\]\)]|else:|elif |except |finally:|case\s+[^:]*:?)$/
+        }
+      });
+    }
+  });
+
+  // node_modules/@lezer/go/dist/index.js
+  var insertedSemi, space$1, identifier4, String2, closeParen$1, Number2, Rune, closeBrace$1, closeBracket, IncDecOp, _return, _break, _continue, fallthrough, newline4, carriageReturn2, space5, tab2, slash3, closeParen, closeBrace, semicolon2, trackedTokens, trackTokens, goHighlighting, spec_identifier4, parser7;
+  var init_dist21 = __esm({
+    "node_modules/@lezer/go/dist/index.js"() {
+      init_dist9();
+      init_dist4();
+      insertedSemi = 177;
+      space$1 = 179;
+      identifier4 = 184;
+      String2 = 12;
+      closeParen$1 = 13;
+      Number2 = 17;
+      Rune = 20;
+      closeBrace$1 = 25;
+      closeBracket = 53;
+      IncDecOp = 95;
+      _return = 142;
+      _break = 144;
+      _continue = 145;
+      fallthrough = 148;
+      newline4 = 10;
+      carriageReturn2 = 13;
+      space5 = 32;
+      tab2 = 9;
+      slash3 = 47;
+      closeParen = 41;
+      closeBrace = 125;
+      semicolon2 = new ExternalTokenizer((input, stack) => {
+        for (let scan = 0, next = input.next; ; ) {
+          if (stack.context && (next < 0 || next == newline4 || next == carriageReturn2 || next == slash3 && input.peek(scan + 1) == slash3) || next == closeParen || next == closeBrace)
+            input.acceptToken(insertedSemi);
+          if (next != space5 && next != tab2) break;
+          next = input.peek(++scan);
+        }
+      }, { contextual: true });
+      trackedTokens = /* @__PURE__ */ new Set([
+        IncDecOp,
+        identifier4,
+        Rune,
+        String2,
+        Number2,
+        _break,
+        _continue,
+        _return,
+        fallthrough,
+        closeParen$1,
+        closeBracket,
+        closeBrace$1
+      ]);
+      trackTokens = new ContextTracker({
+        start: false,
+        shift: (context, term) => term == space$1 ? context : trackedTokens.has(term)
+      });
+      goHighlighting = styleTags({
+        "func interface struct chan map const type var": tags.definitionKeyword,
+        "import package": tags.moduleKeyword,
+        "switch for go select return break continue goto fallthrough case if else defer": tags.controlKeyword,
+        "range": tags.keyword,
+        Bool: tags.bool,
+        String: tags.string,
+        Rune: tags.character,
+        Number: tags.number,
+        Nil: tags.null,
+        VariableName: tags.variableName,
+        DefName: tags.definition(tags.variableName),
+        TypeName: tags.typeName,
+        LabelName: tags.labelName,
+        FieldName: tags.propertyName,
+        "FunctionDecl/DefName": tags.function(tags.definition(tags.variableName)),
+        "TypeSpec/DefName": tags.definition(tags.typeName),
+        "CallExpr/VariableName": tags.function(tags.variableName),
+        LineComment: tags.lineComment,
+        BlockComment: tags.blockComment,
+        LogicOp: tags.logicOperator,
+        ArithOp: tags.arithmeticOperator,
+        BitOp: tags.bitwiseOperator,
+        "DerefOp .": tags.derefOperator,
+        "UpdateOp IncDecOp": tags.updateOperator,
+        CompareOp: tags.compareOperator,
+        "= :=": tags.definitionOperator,
+        "<-": tags.operator,
+        '~ "*"': tags.modifier,
+        "; ,": tags.separator,
+        "... :": tags.punctuation,
+        "( )": tags.paren,
+        "[ ]": tags.squareBracket,
+        "{ }": tags.brace
+      });
+      spec_identifier4 = { __proto__: null, package: 10, import: 18, true: 380, false: 380, nil: 383, struct: 48, func: 68, interface: 78, chan: 94, map: 118, make: 157, new: 159, const: 204, type: 212, var: 224, if: 236, else: 238, switch: 242, case: 248, default: 250, for: 260, range: 266, go: 270, select: 274, return: 284, break: 288, continue: 290, goto: 292, fallthrough: 296, defer: 300 };
+      parser7 = LRParser.deserialize({
+        version: 14,
+        states: "!=xO#{QQOOP$SOQOOO&UQTO'#CbO&]QRO'#FlO]QQOOOOQP'#Cn'#CnOOQP'#Co'#CoO&eQQO'#C|O(kQQO'#C{O)]QRO'#GiO+tQQO'#D_OOQP'#Ge'#GeO+{QQO'#GeO.aQTO'#GaO.hQQO'#D`OOQP'#Gm'#GmO.mQRO'#GdO/hQQO'#DgOOQP'#Gd'#GdO/uQQO'#DrO2bQQO'#DsO4QQTO'#GqO,^QTO'#GaO4XQQO'#DxO4^QQO'#D{OOQO'#EQ'#EQOOQO'#ER'#EROOQO'#ES'#ESOOQO'#ET'#ETO4cQQO'#EPO5}QQO'#EPOOQP'#Ga'#GaO6UQQO'#E`O6^QQO'#EcOOQP'#G`'#G`O6cQQO'#EsOOQP'#G_'#G_O&]QRO'#FnOOQO'#Fn'#FnO9QQQO'#G^QOQQOOO&]QROOO9XQQO'#C`O9^QSO'#CdO9lQQO'#C}O9tQQO'#DSO9yQQO'#D[O:kQQO'#CsO:pQQO'#DhO:uQQO'#EeO:}QQO'#EiO;VQQO'#EoO;_QQO'#EuO<uQQO'#ExO<|QQO'#FRO4cQQO'#FWO=WQQO'#FYO=]QRO'#F_O=jQRO'#FaO=uQQO'#FaOOQP'#Fe'#FeO4cQQO'#FgP=zOWO'#C^POOO)CAz)CAzOOQO'#G]'#G]OOQO,5<W,5<WOOQO-E9j-E9jO?TQTO'#CqOOQO'#C|'#C|OOQP,59g,59gO?tQQO'#D_O@fQSO'#FuO@kQQO'#C}O@pQQO'#D[O9XQQO'#FqO@uQRO,5=TOAyQQO,59yOCVQSO,5:[O@kQQO'#C}OCaQQO'#DjOOQP,59^,59^OOQO,5<a,5<aO?tQQO'#DeOOQO,5:e,5:eOOQO-E9s-E9sOOQP,59z,59zOOQP,59|,59|OCqQSO,5:QO(kQQO,5:ROC{QQO,5:RO&]QRO'#FxOOQO'#Fx'#FxOFjQQO'#GpOFwQQO,5:^OF|QQO,5:_OHdQQO,5:`OHlQQO,5:aOHvQRO'#FyOIaQRO,5=]OIuQQO'#DzOOQP,5:d,5:dOOQO'#EV'#EVOOQO'#EW'#EWOOQO'#EX'#EXOOQO'#EZ'#EZOOQO'#E['#E[O4cQQO,5:pO4cQQO,5:pO4cQQO,5:pO4cQQO,5:pO4cQQO,5:pO4cQQO,5:wOOQP,5:x,5:xO?tQQO'#EOOOQP,5:g,5:gOOQP,5:k,5:kO9yQQO,59vO4cQQO,5:zO4cQQO,5:}OI|QRO,5;_OOQO,5<Y,5<YOOQO-E9l-E9lO]QQOOOOQP'#Cb'#CbOOQP,58z,58zOOQP'#Cf'#CfOJWQQO'#CfOJ]QSO'#CkOOQP,59O,59OOJkQQO'#DPOLZQQO,5<UOLbQQO,59iOLsQQO,5<TOMpQQO'#DUOOQP,59n,59nOOQP,59v,59vONfQQO,59vONmQQO'#CwOOQP,59_,59_O?tQQO,5:SONxQRO'#EgO! VQQO'#EhOOQP,5;P,5;PO! |QQO'#EkO!!WQQO'#EnOOQP,5;T,5;TO!!`QRO'#EqO!!mQQO'#ErOOQP,5;Z,5;ZO!!uQTO'#CbO!!|QTO,5;aO&]QRO,5;aO!#WQQO,5;jO!$yQTO,5;dO!%WQQO'#EzOOQP,5;d,5;dO&]QRO,5;dO!%cQSO,5;mO!%mQQO'#E`O!%uQQO'#EcO!%zQQO'#FTO!&UQQO'#FTOOQP,5;m,5;mO!&ZQQO,5;mO!&`QTO,5;rO!&mQQO'#F[OOQP,5;t,5;tO!&xQTO'#GqOOQP,5;y,5;yOOQP'#Et'#EtOOQP,5;{,5;{O!']QTO,5<RPOOO'#Fk'#FkP!'jOWO,58xPOOO,58x,58xO!'uQQO,59yO!'zQQO'#GgOOQP,59i,59iO(kQQO,59vOOQP,5<],5<]OOQP-E9o-E9oOOQP1G/e1G/eOOQP1G/v1G/vO!([QSO'#DlO!(lQQO'#DlO!(wQQO'#DkOOQO'#Go'#GoO!(|QQO'#GoO!)UQQO,5:UO!)ZQQO'#GnO!)fQQO,5:PPOQO'#Cq'#CqO(kQQO1G/lOOQP1G/m1G/mO(kQQO1G/mOOQO,5<d,5<dOOQO-E9v-E9vOOQP1G/x1G/xO!)kQSO1G/yOOQP'#Cy'#CyOOQP1G/z1G/zO?tQQO1G/}O!)xQSO1G/{O!*YQQO1G/|O!*gQTO,5<eOOQP-E9w-E9wOOQP,5:f,5:fO!+QQQO,5:fOOQP1G0[1G0[O!,vQTO1G0[O!.wQTO1G0[O!/OQTO1G0[O!0pQTO1G0[O!1QQTO1G0cO!1bQQO,5:jOOQP1G/b1G/bOOQP1G0f1G0fOOQP1G0i1G0iOOQP1G0y1G0yOOQP,59Q,59QO&]QRO'#FmO!1mQSO,59VOOQP,59V,59VOOQO'#DQ'#DQO?tQQO'#DQO!1{QQO'#DQOOQO'#Gh'#GhO!2SQQO'#GhO!2[QQO,59kO!2aQSO'#CqOJkQQO'#DPOOQP,5=R,5=RO@kQQO1G1pOOQP1G/w1G/wO.hQQO'#ElO!2rQRO1G1oO@kQQO1G1oO@kQQO'#DVO?tQQO'#DWOOQP'#Gk'#GkO!2}QRO'#GjOOQP'#Gj'#GjO&]QRO'#FsO!3`QQO,59pOOQP,59p,59pO!3gQRO'#CxO!3uQQO'#CxO!3|QRO'#CxO.hQQO'#CxO&]QRO'#FoO!4XQQO,59cOOQP,59c,59cO!4dQQO1G/nO4cQQO,5;RO!4iQQO,5;RO&]QRO'#FzO!4nQQO,5;SOOQP,5;S,5;SO!6aQQO'#DgO?tQQO,5;VOOQP,5;V,5;VO&]QRO'#F}O!6hQQO,5;YOOQP,5;Y,5;YO!6pQRO,5;]O4cQQO,5;]O&]QRO'#GOO!6{QQO,5;^OOQP,5;^,5;^O!7TQRO1G0{O!7`QQO1G0{O4cQQO1G1UO!8vQQO1G1UOOQP1G1O1G1OO!9OQQO'#GPO!9YQQO,5;fOOQP,5;f,5;fO4cQQO'#E{O!9eQQO'#E{O<uQQO1G1OOOQP1G1X1G1XO!9jQQO,5:zO!9jQQO,5:}O!9tQSO,5;oO!:OQQO,5;oO!:VQQO,5;oO!9OQQO'#GRO!:aQQO,5;vOOQP,5;v,5;vO!<PQQO'#F]O!<WQQO'#F]POOO-E9i-E9iPOOO1G.d1G.dO!<]QQO,5:VO!<gQQO,5=ZO!<tQQO,5=ZOOQP1G/p1G/pO!<|QQO,5=YO!=WQQO,5=YOOQP1G/k1G/kOOQP7+%W7+%WOOQP7+%X7+%XOOQP7+%e7+%eO!=cQQO7+%eO!=hQQO7+%iOOQP7+%g7+%gO!=mQQO7+%gO!=rQQO7+%hO!>PQSO7+%hOOQP7+%h7+%hO4cQQO7+%hOOQP1G0Q1G0QO!>^QQO1G0QOOQP1G0U1G0UO!>fQQO1G0UOF|QQO1G0UOOQO,5<X,5<XOOQO-E9k-E9kOOQP1G.q1G.qOOQO,59l,59lO?tQQO,59lO!?cQQO,5=SO!?jQQO,5=SOOQP1G/V1G/VO!?rQQO,59yO!?}QRO7+'[O!@YQQO'#EmO!@dQQO'#HOO!@lQQO,5;WOOQP7+'Z7+'ZO!@qQRO7+'ZOOQP,59q,59qOOQP,59r,59rOOQO'#DZ'#DZO!@]QQO'#FtO!@|QRO,59tOOQO,5<_,5<_OOQO-E9q-E9qOOQP1G/[1G/[OOQP,59d,59dOHgQQO'#FpO!3uQQO,59dO!A_QRO,59dO!AjQRO,59dOOQO,5<Z,5<ZOOQO-E9m-E9mOOQP1G.}1G.}O(kQQO7+%YOOQP1G0m1G0mO4cQQO1G0mOOQO,5<f,5<fOOQO-E9x-E9xOOQP1G0n1G0nO!AxQQO'#GdOOQP1G0q1G0qOOQO,5<i,5<iOOQO-E9{-E9{OOQP1G0t1G0tO4cQQO1G0wOOQP1G0w1G0wOOQO,5<j,5<jOOQO-E9|-E9|OOQP1G0x1G0xO!B]QQO7+&gO!BeQSO7+&gO!CsQSO7+&pO!CzQQO7+&pOOQO,5<k,5<kOOQO-E9}-E9}OOQP1G1Q1G1QO!DRQQO,5;gOOQO,5;g,5;gO!DWQSO7+&jOOQP7+&j7+&jO!DbQQO7+&pO!7`QQO1G1[O!DgQQO1G1ZOOQO1G1Z1G1ZO!DnQSO1G1ZOOQO,5<m,5<mOOQO-E:P-E:POOQP1G1b1G1bO!DxQSO'#GqO!E]QQO'#F^O!EbQQO'#F^O!EgQQO,5;wOOQO,5;w,5;wO!ElQSO1G/qOOQO1G/q1G/qO!EyQSO'#DoO!FZQQO'#DoO!FfQQO'#DnOOQO,5<c,5<cO!FkQQO1G2uOOQO-E9u-E9uOOQO,5<b,5<bO!FxQQO1G2tOOQO-E9t-E9tOOQP<<IP<<IPOOQP<<IT<<ITOOQP<<IR<<IRO!GSQSO<<ISOOQP<<IS<<ISO4cQQO<<ISO!GaQSO<<ISOOQP7+%l7+%lO!GkQQO7+%lOOQP7+%p7+%pO!GpQQO7+%pO!GuQQO7+%pOOQO1G/W1G/WOOQO,5<^,5<^O!G}QQO1G2nOOQO-E9p-E9pOOQP<<Jv<<JvO.hQQO'#F{O!@YQQO,5;XOOQO,5;X,5;XO!HUQQO,5=jO!H^QQO,5=jOOQO1G0r1G0rOOQP<<Ju<<JuOOQP,5<`,5<`OOQP-E9r-E9rOOQO,5<[,5<[OOQO-E9n-E9nO!HfQRO1G/OOOQP1G/O1G/OOOQP<<Ht<<HtOOQP7+&X7+&XO!HqQQO'#DeOOQP7+&c7+&cOOQP<<JR<<JRO!HxQRO<<JRO!ITQQO<<J[O!I]QQO<<J[OOQO1G1R1G1ROOQP<<JU<<JUO4cQQO<<J[O!IbQSO7+&vOOQO7+&u7+&uO!IlQQO7+&uO4cQQO,5;xOOQO1G1c1G1cO!<]QQO,5:YP!<]QQO'#FwP?tQQO'#FvOOQPAN>nAN>nO4cQQOAN>nO!IsQSOAN>nOOQP<<IW<<IWOOQP<<I[<<I[O!I}QQO<<I[P!>nQQO'#FrOOQO,5<g,5<gOOQO-E9y-E9yOOQO1G0s1G0sOOQO,5<h,5<hO!JVQQO1G3UOOQO-E9z-E9zOOQP7+$j7+$jO!J_QQO'#GnO!B]QQOAN?mO!JjQQOAN?vO!JqQQOAN?vO!KzQSOAN?vOOQO<<Ja<<JaO!LRQSO1G1dO!L]QSO1G/tOOQO1G/t1G/tO!LjQSOG24YOOQPG24YG24YOOQPAN>vAN>vO!LtQQOAN>vP.hQQO'#F|OOQPG25XG25XO!LyQQOG25bO!MOQQO'#FPOOQPG25bG25bO!MZQQOG25bOOQPLD)tLD)tOOQPG24bG24bO!JqQQOLD*|O!9OQQO'#GQO!McQQO,5;kOOQP,5;k,5;kO?tQQO'#FQO!MnQQO'#FQO!MsQQOLD*|OOQP!$'Nh!$'NhOOQO,5<l,5<lOOQO-E:O-E:OOOQP1G1V1G1VO!MzQQO,5;lOOQO,5;l,5;lO!NPQQO!$'NhOOQO1G1W1G1WO!JqQQO!)9DSOOQP!.K9n!.K9nO# {QTO'#CqO#!`QTO'#CqO##}QSO'#CqO#$XQSO'#CqO#&]QSO'#CqO#&gQQO'#FyO#&tQQO'#FyO#'OQQO,5=]O#'ZQQO,5=]O#'cQQO,5:pO!7`QQO,5:pOF|QQO,5:pO#'cQQO,5:pO!7`QQO,5:pOF|QQO,5:pO#'cQQO,5:pO!7`QQO,5:pOF|QQO,5:pO#'cQQO,5:pO!7`QQO,5:pOF|QQO,5:pO#'cQQO,5:pO!7`QQO,5:pOF|QQO,5:pO!7`QQO,5:wO!7`QQO,5:zO!7`QQO,5:}O#(yQSO'#CbO#)}QSO'#CbO#*bQSO'#GqO#*rQSO'#GqO#+PQRO'#GgO#+yQSO,5<eO#,ZQSO,5<eO#,hQSO1G0[O#-rQTO1G0[O#-yQSO1G0[O#.TQSO1G0[O#0{QTO1G0[O#1SQSO1G0[O#2eQSO1G0[O#2lQTO1G0[O#2sQSO1G0[O#4XQSO1G0[O#4`QTO1G0[O#4jQSO1G0[O#4wQSO1G0cO#5dQTO'#CqO#5kQTO'#CqO#6bQSO'#GqO#'cQQO'#EPO!7`QQO'#EPOF|QQO'#EPO#8]QQO'#EPO#8gQQO'#EPO#8qQQO'#EPO#8{QQO'#E`O#9TQQO'#EcO@kQQO'#C}O?tQQO,5:RO#9YQQO,59vO#:iQQO,59vO?tQQO,59vO?tQQO1G/lO?tQQO1G/mO?tQQO7+%YO?tQQO'#C{O#:pQQO'#DgO#9YQQO'#D[O#:wQQO'#D[O#:|QSO,5:QO#;WQQO,5:RO#;]QQO1G/nO?tQQO,5:SO#;bQQO'#Dh",
+        stateData: "#;m~O$yOSPOS$zPQ~OVvOX{O[oO^YOaoOdoOh!POjcOr|Ow}O!P!OO!QnO!WaO!]!QO!phO!qhO#Y!RO#^!SO#d!TO#j!UO#m!VO#v!WO#{!XO#}!YO$S!ZO$U![O$V![O$W!]O$Y!^O$[!_O%OQO%UTO%VUO%YVO%fiO%giO%hjO%ikO%jlO$v%QP~OTzO~P]O$z!`O~OVeXZeX^eX^!TXj!TXnUXneX!QeX!WeX!W!TX!|eX#ReX#TeX#UeX#WUX$weX%YeX%`eX%feX%geX%ieX%jeX%keX%leX%meX%neX%oeX%peX%qeX~O!a#hX~P$XOV!bO$w!bO~O[!wX^pX^!wXa!wXd!wXhpXh!wXrpXr!wXwpXw!wX!PpX!P!wX!QpX!Q!wX!WpX!W!wX!]pX!]!wX!p!wX!q!wX%OpX%O!wX%U!wX%V!wX%YpX%Y!wX%f!wX%g!wX%h!wX%i!wX%j!wX~O^!hOh!POr!jOw}O!P!OO!Q!kO!WaO!]!QO%O!eO%Y!fO~On!lO#W%]XV%]X^%]Xh%]Xr%]Xw%]X!P%]X!Q%]X!W%]X!]%]X#T%]X$w%]X%O%]X%Y%]Xu%]X~O[oO^YOaoOdoOh!POr!pOw}O!P!OO!WaO!]!QO!phO!qhO%O+wO%UTO%VUO%YVO%fiO%giO%hjO%ikO%jlO~O!Q-OO~P*aOj!qO^%XX]%XXn%XX!V%XX~O!W!tOV%TXZ%TX^%TXn%TX!Q%TX!W%TX!|%TX#R%TX#T%TX#U%TX$w%TX%Y%TX%`%TX%f%TX%g%TX%i%TX%j%TX%k%TX%l%TX%m%TX%n%TX%o%TX%p%TX%q%TX]%TX!V%TXj%TXi%TX!a%TXu%TX~OZ!sO~P,^O%O!eO~O!W!tO^%WXj%WX]%WXn%WX!V%WXu%WXV%WX$w%WX%`%WX#T%WX[%WX!a%WX~Ou!{O!QnO!V!zO~P*aOV!}O[oO^YOaoOdoOh!POjcOr!pOw}O!P!OO!QnO!WaO!]!QO!phO!qhO#Y!RO#^!SO#d!TO#j!UO#m!VO#v!WO#{!XO#}!YO$S!ZO$U![O$V![O$W!]O$Y!^O$[!_O%OQO%UTO%VUO%YVO%fiO%giO%hjO%ikO%jlOi%dP~O^#QO~OZ#RO^#VOn#TO!Q#cO!W#SO#R#dO%Y#XO%`#ZO%fiO%giO%i#ZO%j#YO%k#XO%l#XO%m#YO%n#YO%o#YO%p#[O%q#]OV`X#T%eX#U%eX$w`X~O!|#`O~P2gO^#VO~O^#eO~O!QnO~P*aO[oO^YOaoOdoOh!POr!pOw}O!QnO!WaO!]!QO!phO!qhO%O+wO%UTO%VUO%YVO%fiO%giO%hjO%ikO%jlO~O!P#hO~P4jO#T#iO#U#iO~O#W#jO~O!a#kO~OVvO[oO^YOaoOdoOh!POjcOr|Ow}O!P!OO!QnO!WaO!]!QO!phO!qhO#Y!RO#^!SO#d!TO#j!UO#m!VO#v!WO#{!XO#}!YO$S!ZO$U![O$V![O$W!]O$Y!^O$[!_O%OQO%UTO%VUO%YVO%fiO%giO%hjO%ikO%jlO~O$v%QX~P6hO%O#oO~OZ#rO[#qO^#sO%O#oO~O^#uO%O#oO~Oj#yO~O^!hOh!POr!jOw}O!P!OO!Q#|O!WaO!]!QO%O!eO%Y!fO~Oj#}O~O!W$PO~O^$RO%O#oO~O^$UO%O#oO~O^$XO%O#oO~O[oO^YOaoOdoOh!POr!pOw}O!P!OO!Q-PO!WaO!]!QO!phO!qhO%O$ZO%UTO%VUO%YVO%fiO%giO%hjO%ikO%jlO~Oj$`O~P;_OV$fOjcO~P;_Oj$kO~O!QnOV$RX$w$RX~P*aO%O$oOV$TX$w$TX~O%O$oO~O${$rO$|$rO$}$tO~OZeX^!TX!W!TXj!TXn!TXh!TXr!TXw!TX{!TX!P!TX!Q!TX!]!TX%O!TX%Y!TX~O]!TX!V!TXu!TX#T!TXV!TX$w!TX%`!TX[!TX!a!TX~P>VO^!hOh!POr-TOw}O!P-_O!Q-`O!W-^O!]-eO%O!eO%Y!fO~OZ!sO~O^#uO~O!P$xO~On!lO#W%]aV%]a^%]ah%]ar%]aw%]a!P%]a!Q%]a!W%]a!]%]a#T%]a$w%]a%O%]a%Y%]au%]a~O]${O^#QO~OZ#RO^#VO!W#SO%Y#XO%`#ZO%fiO%giO%i#ZO%j#YO%k#XO%l#XO%m#YO%n#YO%o#YO%p#[O%q#]O~O]$|O!|,WO~PBROj!qOn%QO!QnOi%cP~P*aO!V%WO!|#`O~PBRO!V%YO~OV!}O[oO^YOaoOdoOh!POjcOr!pOw}O!P!OO!QnO!WaO!]!QO!phO!qhO#Y!RO#^!SO#d!TO#j!UO#m!VO#v!WO#{!XO#}!YO$S!ZO$U![O$V![O$W!]O$Y!^O$[!_O%OQO%UTO%VUO%YVO%fiO%giO%hjO%ikO%jlO~Oi%dX#p%dX#q%dX~PDQOi%]O~O[oO^YOaoOdoOh!POr!pOw}O!P!OO!Q-QO!WaO!]!QO!phO!qhO%O+{O%UTO%VUO%YVO%fiO%giO%hjO%ikO%jlO~O^%aO%O%_O~O!QnO!a%cO~P*aO!QnOn$mX#T$mX#U$mXV$mX$w$mX!a$mX~P*aOn#TO#T%ea#U%eaV%ea$w%ea!a%ea~O]%fO~PF|OV#ga$w#ga~PDTO[%sO~OZ#rO[#qO]%vO%O#oO~O^!hOh!POn%zOr-TOu%xOw}O!P-_O!Q-`O!W-^O!]-eO%O,dO%Y!fO]%[P~O^&OOh!POr!jOw}O!P!OO!Q!kO!WaO!]!QO%Y!fO^%ZXj%ZX~O%O%}O~PKfOjcO^qa]qanqa!Vqa~O^#uO!W&SO~O^!hOh!POr-TOw}O{&WO!P-_O!Q-`O!W-^O!]-eO%O,xO%Y!fO~Oi&^O~PL{O^!hOh!POr!jOw}O!Q!kO!WaO!]!QO%O!eO%Y!fO~O!P#hO~PMwOi&eO%O,yO%Y!fO~O#T&gOV#ZX$w#ZX~P?tO]&kO%O#oO~O^!hOh!POr-TOw}O!P-_O!Q-`O!]-eO%O!eO%Y!fO~O!W&lO#T&mO~P! _O]&qO%O#oO~O#T&sOV#eX$w#eX~P?tO]&vO%O#oO~OjeX~P$XOjcO!|,XO~P2gOn!lO#W&yO#W%]X~O^#VOn#TO!Q#cO!W#SO!|,XO#R#dO%Y#XO%`#ZO%fiO%giO%i#ZO%j#YO%k#XO%l#XO%m#YO%n#YO%o#YO%p#[O%q#]OV`X#T%eX#U%eX~OZ&zOj$`O$w`X~P!#cOi'OO#p'PO#q'QO~OZ#ROjcO~P!#cO#T'TO#U#iO~O#W'UO~OV'WO!QnO~P*aOV'XO~OjcO~O!|#`OV#za$w#za~PBROi'[O#p']O#q'^O~On#TO!|#`OV%eX$w%eX!a%eX~PBRO!|#`OV$Za$w$Za~PBRO${$rO$|$rO$}'`O~O]${O~O%O!eO]%ZXn%ZX!V%ZX~PKfO!|#`Oi!_Xn!_X!a!`X~PBROi!_Xn!_X!a!`X~O!a'aO~On'bOi%cX~Oi'dO~On'eO!V%bX!a%bX~O!V'gO~O]'jOn'kO!|,YO~PBROn'nO!V'mO!a'oO!|#`O~PBRO!QnO!V'qO!a'rO~P*aO!|#`On$ma#T$ma#U$maV$ma$w$ma!a$ma~PBRO]'sOu'tO~O%Y#XO%j#YO%k#XO%l#XO%m#YO%n#YO%o#YOV!xiZ!xi^!xin!xi!Q!xi!W!xi!|!xi#R!xi#T!xi#U!xi$w!xi%`!xi%f!xi%g!xi%i!xi%p!xi%q!xi~O!V!xii!xi!a!xi~P!+YO%Y#XO%`#ZO%fiO%giO%i#ZO%j#YO%k#XO%l#XO%m#YO%n#YO%o#YOV!xiZ!xi^!xin!xi!Q!xi!W!xi#R!xi#T!xi#U!xi$w!xi%p!xi%q!xi!V!xii!xi!a!xi~O!|!xi~P!-TO!|#`O~P!-TO%Y#XO%`#ZO%fiO%giO%i#ZO%j#YO%k#XO%l#XO%m#YO%n#YO%o#YO%p#[OV!xiZ!xi^!xin!xi!Q!xi!W!xi#R!xi#T!xi#U!xi$w!xi%q!xi~O!|#`O!V!xii!xi!a!xi~P!/VO!|#`OV#Pi$w#Pi!a#Pi~PBRO]'uOn'wOu'vO~OZ#rO[#qO]'zO%O#oO~Ou'|O~P?tOn'}O]%[X~O](PO~OZeX^mX^!TXj!TX!W!TX~OjcOV$]i$w$]i~O%`(ZOV%^X$w%^Xn%^X!V%^X~Oi(`O~PL{O[(aO!W!tOVlX$wlX~On(bO~P?tO[(aOVlX$wlX~Oi(hO%O,yO%Y!fO~O!V(iO~O#T(kO~O](nO%O#oO~O[oO^YOaoOdoOh!POr!pOu-bOw}O!P!OO!QnO!V-UO!WaO!]!QO!phO!qhO%UTO%VUO%YVO%fiO%giO%hjO%ikO%jlO~O%O+zO~P!4vO](sO%O#oO~O#T(tOV#ea$w#ea~O](xO%O#oO~O#k(yOV#ii$w#ii~O[oO^YOaoOdoOh!POr!pOw}O!P!OO!Q-PO!WaO!]!QO!phO!qhO%O+xO%UTO%VUO%YVO%fiO%giO%hjO%ikO%jlO~O^(|O%O%_O~O#p%dP#q%dP~P/uOi)PO#p'PO#q'QO~O!a)RO~O!QnO#y)VO~P*aOV)WO!|#`O~PBROj#wa~P;_OV)WO!QnO~P*aOi)]O#p']O#q'^O~O[oO^YOaoOdoOh!POr!pOw}O!P!OO!QnO!WaO!]!QO!phO!qhO%UTO%VUO%YVO%fiO%giO%hjO%ikO%jlO~O%O,eO~P!:lO!a)bO~Oj!qO!QnO~P*aOj!qO!QnOi%ca~P*aOn)iOi%ca~O!V%ba!a%ba~P?tOn)lO!V%ba!a%ba~O])nO~O])oO~O!V)pO~O!QnO!V)rO!a)sO~P*aO!V)rO!a)sO!|#`O~PBRO])uOn)vO~O])wOn)xO~O^!hOh!POr-TOu%xOw}O!P-_O!Q-`O!W-^O!]-eO%O,dO%Y!fO~O]%[a~P!>nOn)|O]%[a~O]${O]tXntX~OjcOV$^q$w$^q~On*PO{&WO~P?tOn*SO!V%rX~O!V*UO~OjcOV$]q$w$]q~O%`(ZOV|a$w|an|a!V|a~O[*]OVla$wla~O[*]O!W!tOVla$wla~On*PO{&WO!W*`O^%WXj%WX~P! _OjcO#j!UO~OjcO!|,XO~PBROZ*dO^#VO!W#SO%Y#XO%`#ZO%fiO%giO%i#ZO%j#YO%k#XO%l#XO%m#YO%n#YO%o#YO%p#[O%q#]O~O!|#`O~P!BoO#^*eO~P?tO!a*fO~Oj$`O!|,XO~P!BoO#W*hO~Oj#wi~P;_OV*kO!|#`O~PBROn#TO!Q#cO!|#`O!a$QX#T%eX~PBRO#T*lO~O#W*lO~O!a*mO~O!|#`Oi!_in!_i~PBRO!|#`Oi!bXn!bX!a!cX~PBROi!bXn!bX!a!cX~O!a*nO~Oj!qO!QnOi%ci~P*aO!V%bi!a%bi~P?tO!V*qO!a*rO!|#`O~PBRO!V*qO!|#`O~PBRO]*tO~O]*uO~O]*uOu*vO~O]%[i~P!>nO%O!eO!V%ra~On*|O!V%ra~O[+OOVli$wli~O%O+yO~P!4vO#k+QOV#iy$w#iy~O^+RO%O%_O~O]+SO~O!|,XOj#xq~PBROj#wq~P;_O!V+ZO!|#`O~PBRO]+[On+]O~O%O!eO!V%ri~O^#QOn'eO!V%bX~O#^+`O~P?tOj+aO~O^#VO!W#SO!|#`O%Y#XO%`#ZO%fiO%giO%i#ZO%j#YO%k#XO%l#XO%m#YO%n#YO%o#YO%p#[O%q#]O~OZ+cO~P!JvO!|#`O!a$Qi~PBRO!|#`Oi!bin!bi~PBRO!V+dO!|#`O~PBRO]+eO~O]+fO~Oi+iO#p+jO#q+kO~O^+lO%O%_O~Oi+pO#p+jO#q+kO~O!a+rO~O#^+sO~P?tO!a+tO~O]+uO~OZeX^eX^!TXj!TX!WeX!W!TX!|eX%YeX%`eX%feX%geX%ieX%jeX%keX%leX%meX%neX%oeX%peX%qeXVeXneX!QeX#ReX#TeX#UeX$weX~O]eX]!TX!VeXieX!aeX~P!NUOjeX~P!NUOZeX^eX^!TXj!TX!WeX!W!TX!|eX%YeX%`eX%feX%geX%ieX%jeX%keX%leX%meX%neX%oeX%peX%qeXn!TX!VeX~O]eX!V!TX~P#!gOh!TXr!TXw!TX{!TX!P!TX!Q!TX!]!TX%O!TX%Y!TX~P#!gOZeX^eX^!TXj!TXneX!WeX!W!TX!|eX%YeX%`eX%feX%geX%ieX%jeX%keX%leX%meX%neX%oeX%peX%qeX~O]eXueX~P#$xO]$mXn$mXu$mX~PF|Oj$mXn$mX~P!7`On+|O]%eau%ea~On+}Oj%ea~O[oO^YOaoOdoOh!POr!pOw}O!P!OO!Q-OO!WaO!]!QO!phO!qhO%O+yO%UTO%VUO%YVO%fiO%giO%hjO%ikO%jlO~OZeX]!TX^UXhUXnUXn!TXrUXuUXwUX!PUX!QUX!WUX!W!TX!]UX%OUX%YUX~OnUX!QeX!aeX#TeX#WUX~P#$xOn+|O!|,YO]%eXu%eX~PBROn+}O!|,XOj%eX~PBRO^&OOV%ZXj%ZX$w%ZX]%ZXn%ZX!V%ZXu%ZX%`%ZX#T%ZX[%ZX!a%ZX~P?wO!|,YO]$man$mau$ma~PBRO!|,XOj$man$ma~PBRO%Y#XO%j#YO%k#XO%l#XO%m#YO%n#YO%o#YOZ!xi]!xi^!xi!W!xi!|!xi%`!xi%f!xi%g!xi%i!xi%p!xi%q!xi~Oj!xi~P!+YOn!xiu!xi~P#,hO%Y#XO%`#ZO%fiO%giO%i#ZO%j#YO%k#XO%l#XO%m#YO%n#YO%o#YOZ!xi]!xi^!xi!W!xi!|!xi%p!xi%q!xi~O%Y#XO%`#ZO%fiO%giO%i#ZO%j#YO%k#XO%l#XO%m#YO%n#YO%o#YOV!xiZ!xi^!xij!xin!xi!Q!xi!W!xi#R!xi#T!xi#U!xi$w!xi%p!xi%q!xi~O!|!xi~P#/_On!xiu!xi~P#.TO%Y#XO%`#ZO%fiO%giO%i#ZO%j#YO%k#XO%l#XO%m#YO%n#YO%o#YOZ!xi]!xi^!xi!W!xi%p!xi%q!xi~O!|,WO~P#1^O!|,XO~P#/_O!|,YOn!xiu!xi~P#1^O%Y#XO%`#ZO%fiO%giO%i#ZO%j#YO%k#XO%l#XO%m#YO%n#YO%o#YO%p#[OZ!xi]!xi^!xi!W!xi%q!xi~O!|,WO~P#3QO!|,XOj!xi~P!/VO!|,YOn!xiu!xi~P#3QO!|,XOj#Pi~PBROV!TXZeX^mX!W!TX$w!TX~O%`!TX~P#5RO[!TXhmXnmXrmXwmX!PmX!QmX!WmX!]mX%OmX%YmX~P#5ROn#TO!Q,aO!|,XO#R#dOj`X#T%eX#U%eX~PBRO[oO^YOaoOdoOh!POr!pOw}O!P#hO!WaO!]!QO!phO!qhO%UTO%VUO%YVO%fiO%giO%hjO%ikO%jlO~O!Q-OO%O+yO~P#6{O!Q-PO%O+xO~P#6{O!Q-QO%O+{O~P#6{O#T,bO#U,bO~O#W,cO~O^!hOh!POr-TOw}O!P-_O!Q-WO!W-^O!]-eO%O!eO%Y!fO~O^!hOh!POr-TOw}O!Q-`O!W-^O!]-eO%O!eO%Y!fO~O!P-VO~P#9zO%O+wO~P!4vO!P-XO~O!V-YO!|#`O~PBRO!V-ZO~O!V-[O~O!W-dO~OP%ka%Oa~",
+        goto: "!FW%sPP%tP%wP%zP'SP'XPPPP'`'cP'u'uP)w'u-_PPP0j0m0qP1V4b1VP7s8WP1VP8a8d8hP8p8w1VPP1V8{<`?vPPCY-_-_-_PCdCuCxPC{DQ'u'uDV'uES'u'u'u'uGUIW'uPPJR'uJUMjMjMj'u! r! r!#SP!$`!%d!&d'cP'cPP'cP!&yP!'V!'^!&yP!'a!'h!'n!'w!&yP!'z!(R!&y!(U!(fPP!&yP!(x!)UPP!&y!)Y!)c!&yP!)g!)gP!&yP!&yP!)j!)m!&v!&yP!&yPPP!&yP!&yP!)q!)q!)w!)}!*U!*[!*d!*j!*p!*w!*}!+T!+Z!.q!.x!/O!/X!/m!/s!/z!0Q!0W!0^!0d!0jPPPPPPPPP!0p!1f!1k!1{!2kPP!7P!:^P!>u!?Z!?_!@Z!@fP!@p!D_!Df!Di!DuPPPPPPPPPPPP!FSR!aPRyO!WXOScw!R!T!U!W#O#k#n#u$R$X&O&j&u&|'W'Y']'})W)|*k*w+gQ#pzU#r{#s%uQ#x|U$T!S$U&pQ$^!VQ$y!lR)U'RVROS#nQ#t{T%t#s%uR#t{qrOScw!U!V!W#O#k#n&|'W'Y)W*k+g%PoOSYacmnw!U!V!W!X!Z!_!q#O#Q#S#T#V#^#_#`#a#b#c#i#j#k#n$f%c&g&l&s&x&y&|'P'R'T'U'W'X'Y']'a'b'o'r'w(k(t)V)W)i)s*`*h*k*l*n*o*r+g+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,{,|,}-O-P-Q-^%O]OSYacmnw!U!V!W!X!Z!_!q#O#Q#S#T#V#^#_#`#a#b#c#i#j#k#n$f%c&g&l&s&x&y&|'P'R'T'U'W'X'Y']'a'b'o'r'w(k(t)V)W)i)s*`*h*k*l*n*o*r+g+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,{,|,}-O-P-Q-^#u!iW^!O!h!t!z#e#h#u#v#y#|#}$P$Q$T$W$v$x%W%Y%a%x%y&O&S&W&]&`&b&d&m'e'|'}(S([(c(i(o(|)l)|*P*Q*S*p*w*|+R+^+j+l,h-U-V-W-X-Y-Z-[-]-_-d'cbOSWYacmnw!O!U!V!W!X!Z!_!h!q!t!z#O#Q#S#T#V#^#_#`#a#b#c#e#h#i#j#k#n#u#v#y#|$P$Q$T$W$f$v$x%W%Y%a%c%x%y&O&W&]&`&g&l&m&s&x&y&|'P'R'T'U'W'X'Y']'a'b'e'o'r'w'|'}(S([(c(i(k(o(t(|)V)W)i)l)s)|*Q*`*h*k*l*n*o*p*r*w+R+g+j+l+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,h,{,|,}-O-P-Q-U-V-W-X-Y-Z-[-]-^-_-dR$O!PT&c#}&dW%`#R&z*d+cQ&Q#vS&V#y&]S&`#}&dR*Y(b'cZOSWYacmnw!O!U!V!W!X!Z!_!h!q!t!z#O#Q#S#T#V#^#_#`#a#b#c#e#h#i#j#k#n#u#v#y#|$P$Q$T$W$f$v$x%W%Y%a%c%x%y&O&W&]&`&g&l&m&s&x&y&|'P'R'T'U'W'X'Y']'a'b'e'o'r'w'|'}(S([(c(i(k(o(t(|)V)W)i)l)s)|*Q*`*h*k*l*n*o*p*r*w+R+g+j+l+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,h,{,|,}-O-P-Q-U-V-W-X-Y-Z-[-]-^-_-d%fWOSWYacmnw!O!U!V!W!X!Z!_!q!z#O#Q#S#T#V#^#_#`#a#b#c#h#i#j#k#n#v#|$f$v$x%W%Y%c&g&l&s&x&y&|'P'R'T'U'W'X'Y']'a'b'o'r'w(i(k(t)V)W)i)s*`*h*k*l*n*o*r+g+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,{,|,}-O-P-Q-^S&b#}&d!{-]!h!t#e#u#y$P$Q$T$W%a%x%y&O&W&]&`&m'e'|'}(S([(c(o(|)l)|*Q*p*w+R+j+l,h-U-V-W-X-Y-Z-[-]-_-dQ#v|S$v!j!pU&P#v$v,hZ,h#x&Q&U&V-TS%{#u&OV){'})|*wR#z}T&[#y&]]&X#y&](S([(o*QZ&Z#y&](S(o*QT([&Y(]'s_OSWYacmnw!O!U!V!W!X!Z!_!h!q!t!z#O#Q#S#T#V#^#_#`#a#b#c#e#h#i#j#k#n#u#v#y#|#}$P$Q$T$W$f$v$x%W%Y%a%c%x%y&O&S&W&]&`&b&d&g&l&m&s&x&y&|'P'R'T'U'W'X'Y']'a'b'e'o'r'w'|'}(S([(c(i(k(o(t(|)V)W)i)l)s)|*P*Q*S*`*h*k*l*n*o*p*r*w*|+R+^+g+j+l+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,h,{,|,}-O-P-Q-U-V-W-X-Y-Z-[-]-^-_-d'r_OSWYacmnw!O!U!V!W!X!Z!_!h!q!t!z#O#Q#S#T#V#^#_#`#a#b#c#e#h#i#j#k#n#u#v#y#|#}$P$Q$T$W$f$v$x%W%Y%a%c%x%y&O&S&W&]&`&b&d&g&l&m&s&x&y&|'P'R'T'U'W'X'Y']'a'b'e'o'r'w'|'}(S([(c(i(k(o(t(|)V)W)i)l)s)|*P*Q*S*`*h*k*l*n*o*p*r*w*|+R+^+g+j+l+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,h,{,|,}-O-P-Q-U-V-W-X-Y-Z-[-]-^-_-dR!w^'bbOSWYacmnw!O!U!V!W!X!Z!_!h!q!t!z#O#Q#S#T#V#^#_#`#a#b#c#e#h#i#j#k#n#u#v#y#|$P$Q$T$W$f$v$x%W%Y%a%c%x%y&O&W&]&`&g&l&m&s&x&y&|'P'R'T'U'W'X'Y']'a'b'e'o'r'w'|'}(S([(c(i(k(o(t(|)V)W)i)l)s)|*Q*`*h*k*l*n*o*p*r*w+R+g+j+l+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,h,{,|,}-O-P-Q-U-V-W-X-Y-Z-[-]-^-_-dS&a#}&dR(d&bS!u]fX!x`&_(e(oQ!r[Q%O!qQ)d'aU)f'b)i*oR+X*nR%R!qR%P!qV)h'b)i*oV)g'b)i*odtOScw#O#k#n&|'Y+gQ$h!WQ&R#wQ&w$[S'S$c$iQ(V&TQ*O(RQ*V(WQ*b(yQ*c(zR+_+Q%PfOSYacmnw!U!V!W!X!Z!_!q#O#Q#S#T#V#^#_#`#a#b#c#i#j#k#n$f%c&g&l&s&x&y&|'P'R'T'U'W'X'Y']'a'b'o'r'w(k(t)V)W)i)s*`*h*k*l*n*o*r+g+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,{,|,}-O-P-Q-^%PgOSYacmnw!U!V!W!X!Z!_!q#O#Q#S#T#V#^#_#`#a#b#c#i#j#k#n$f%c&g&l&s&x&y&|'P'R'T'U'W'X'Y']'a'b'o'r'w(k(t)V)W)i)s*`*h*k*l*n*o*r+g+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,{,|,}-O-P-Q-^!q#Weg!o!y$[$_$c$j$m$q$}%^%b%d%m'V'p(z({)S)Y)^)c)e)q)t*i*s+T+V+W+Y,f,g,i,j,w,z-aR#fh#^mOSacmnw!X!Z!_!q#O#S#T#^#_#`#a#b#c#i#j#k#n$f%c&g&l&s&y&|'P'T'U'X'Y']'a'b'o'r(k(t)i)s*`*h*l*n*o*r+g-^!W#_e!y$j$m$q$}%b%d%j%k%l%m'V'p({)Y)^)c)e)q)t*s+T+V+W+Y-aW,T!o,n,q,tj,U$[$_$c(z)S*i,g,j,o,r,u,w,z[,V%^,f,i,p,s,v`,{Y,Q,T,W,Z,^,{-Ox,|!U!V!W&x'R'W)V)W*k+},R,U,X,[,_,a,b,c,|-Pg,}#Q#V'w+|,S,V,Y,],`,}-Q#^mOSacmnw!X!Z!_!q#O#S#T#^#_#`#a#b#c#i#j#k#n$f%c&g&l&s&y&|'P'T'U'X'Y']'a'b'o'r(k(t)i)s*`*h*l*n*o*r+g-^`,{Y,Q,T,W,Z,^,{-Ox,|!U!V!W&x'R'W)V)W*k+},R,U,X,[,_,a,b,c,|-Pg,}#Q#V'w+|,S,V,Y,],`,}-Q!Y#^e!y$j$m$q$}%b%d%i%j%k%l%m'V'p({)Y)^)c)e)q)t*s+T+V+W+Y-aY,Q!o,k,n,q,tl,R$[$_$c(z)S*i,g,j,l,o,r,u,w,z_,S%^,f,i,m,p,s,v!W#_e!y$j$m$q$}%b%d%j%k%l%m'V'p({)Y)^)c)e)q)t*s+T+V+W+Y-aW,T!o,n,q,tj,U$[$_$c(z)S*i,g,j,o,r,u,w,z],V%^,f,i,p,s,v!S#ae!y$j$m$q$}%b%d%l%m'V'p({)Y)^)c)e)q)t*s+T+V+W+Y-aS,Z!o,tf,[$[$_$c(z)S*i,g,j,u,w,zX,]%^,f,i,v!Q#be!y$j$m$q$}%b%d%m'V'p({)Y)^)c)e)q)t*s+T+V+W+Y-aQ,^!od,_$[$_$c(z)S*i,g,j,w,zV,`%^,f,iprOScw!U!V!W#O#k#n&|'W'Y)W*k+gR)a']etOScw#O#k#n&|'Y+gQ$S!RT&i$R&jR$S!RQ$V!ST&o$U&pQ&U#xR&m$TS(T&S&lV*{*S*|+^R$V!SQ$Y!TT&t$X&uR$Y!TdsOScw#O#k#n&|'Y+gT$p![!]dtOScw#O#k#n&|'Y+gQ*b(yR+_+QQ$a!VQ&{$_Q)T'RR*g)ST&|$`&}Q+b+SQ+m+fR+v+uT+g+a+hR$i!WR$l!YT'Y$k'ZXuOSw#nQ$s!`R'_$sSSO#nR!dSQ%u#sR'y%uUwOS#nR#mwQ&d#}R(g&dQ(c&`R*Z(cS!mX$^R$z!mQ(O%{R)}(OQ&]#yR(_&]Q(]&YR*X(]'r^OSWYacmnw!O!U!V!W!X!Z!_!h!q!t!z#O#Q#S#T#V#^#_#`#a#b#c#e#h#i#j#k#n#u#v#y#|#}$P$Q$T$W$f$v$x%W%Y%a%c%x%y&O&S&W&]&`&b&d&g&l&m&s&x&y&|'P'R'T'U'W'X'Y']'a'b'e'o'r'w'|'}(S([(c(i(k(o(t(|)V)W)i)l)s)|*P*Q*S*`*h*k*l*n*o*p*r*w*|+R+^+g+j+l+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,h,{,|,}-O-P-Q-U-V-W-X-Y-Z-[-]-^-_-dR!v^S'f%T+PR)m'fQ'c%RR)j'cW#Oc&|'Y+gR%[#O^#Ue$[$_$c$m)^,zU%e#U,O,PQ,O,fR,P,gQ&j$RR(m&jS*Q(S(oR*y*QQ*T(TR*}*TQ&p$UR(r&pQ&u$XR(w&uQ&}$`R)O&}Q+h+aR+o+hQ'Z$kR)['ZQ!cRQ#luQ#nyQ%Z!|Q&x$]Q'R$bQ'x%tQ(^&[Q(f&cQ(l&iQ(q&oR(v&tVxOS#nWuOSw#nY!|c#O&|'Y+gR%r#kdtOScw#O#k#n&|'Y+gQ$]!UQ$b!VQ$g!WQ)X'WQ*j)WR+U*kdeOScw#O#k#n&|'Y+gQ!oYQ!ya`#gmn,{,|,}-O-P-QQ$[!UQ$_!VQ$c!WQ$j!Xd$m!Z#i#j&g&s'P'T'U(k(tQ$q!_Q$}!qQ%^#QQ%b#SQ%d#TW%h#^,Q,R,SQ%i#_Q%j#`Q%k#aQ%l#bQ%m#cQ'V$fQ'p%cQ(z&xQ({&yQ)S'RQ)Y'XQ)^']Q)c'aU)e'b)i*oQ)q'oQ)t'rQ*i)VQ*s)sQ+T*hQ+V*lQ+W*nQ+Y*rS,f#V'wS,g,b,cQ,i+|Q,j+}Q,k,TQ,l,UQ,m,VQ,n,WQ,o,XQ,p,YQ,q,ZQ,r,[Q,s,]Q,t,^Q,u,_Q,v,`Q,w,aU,z'W)W*kV-a&l*`-^#bZW!O!h!t!z#e#h#u#v#y#|$P$Q$T$W$v$x%W%Y%a%x%y&O&W&]&`&m'e'|'}(S([(c(i(o(|)l)|*Q*p*w+R+j+l,h-U-V-W-X-Y-Z-[-]-_-d%P[OSYacmnw!U!V!W!X!Z!_!q#O#Q#S#T#V#^#_#`#a#b#c#i#j#k#n$f%c&g&l&s&x&y&|'P'R'T'U'W'X'Y']'a'b'o'r'w(k(t)V)W)i)s*`*h*k*l*n*o*r+g+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,{,|,}-O-P-Q-^$zdOSacmnw!U!V!W!X!Z!_!q#O#Q#S#T#V#^#_#`#a#b#c#i#j#k#n$f%c&g&l&s&x&y&|'P'R'T'U'W'X'Y']'a'b'o'r'w(k(t)V)W)i)s*h*k*l*n*o*r+g+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,{,|,}-O-P-Q-^S!gW-]Q!nYS#{!O-_Q$u!hS%T!t+jS%X!z-UQ%n#e[%o#h#|$x-V-W-XW%w#u'})|*wU&P#v$v,h[&X#y&](S([(o*QQ&f$PQ&h$QQ&n$TQ&r$WS'h%W-YS'i%Y-ZW'l%a(|+R+lS'{%x%yQ(Q&OQ(Y&WQ(d&`Q(p&mU)k'e)l*pQ)z'|Q*[(cS*^(i-[Q+P*`R-c-dS#w|!pS$w!j-TQ&T#xQ(R&QQ(W&UR(X&VT%|#u&OhqOScw!U!V#O#k#n&|'Y+gU$Q!R$R&jU$W!T$X&uQ$e!WY%y#u&O'})|*wQ)`']V-S'W)W*kS&[#y&]S*R(S(oR*z*QY&Y#y&](S(o*QR*W(['``OSWYacmnw!O!U!V!W!X!Z!_!h!q!t!z#O#Q#S#T#V#^#_#`#a#b#c#e#h#i#j#k#n#u#v#y#|$P$Q$T$W$f$v$x%W%Y%a%c%x%y&O&W&]&`&g&m&s&x&y&|'P'R'T'U'W'X'Y']'a'b'e'o'r'w'|'}(S([(c(i(k(o(t(|)V)W)i)l)s)|*Q*`*h*k*l*n*o*p*r*w+R+g+j+l+|+},Q,R,S,T,U,V,W,X,Y,Z,[,],^,_,`,a,b,c,h,{,|,}-O-P-Q-U-V-W-X-Y-Z-[-]-^-_-dS&_#}&dW(S&S*S*|+^Q(e&bQ(o&lR*x*PS%U!t*`R+q+jR%S!qQ#PcQ(}&|Q)Z'YR+n+ghpOScw!U!V#O#k#n&|'Y+gQ$d!WQ$n!ZQ%g#VU%p#i'T,bU%q#j'U,cQ(j&gQ(u&sQ)Q'PQ)_']Q)y'wQ*_(kQ*a(tV-R'W)W*kT(U&S&l",
+        nodeNames: "\u26A0 LineComment BlockComment SourceFile PackageClause package DefName ; ImportDecl import ImportSpec . String ) ( SpecList ExprStatement Number Bool Nil Rune VariableName TypedLiteral StructType struct } { StructBody FieldDecl FieldName , PointerType * FunctionType func Parameters Parameter ... InterfaceType interface InterfaceBody MethodElem UnderlyingType ~ TypeElem LogicOp ChannelType chan <- ParenthesizedType QualifiedType TypeName ParameterizedType ] [ TypeArgs ArrayType SliceType MapType map LiteralValue Element Key : Element Key ParenthesizedExpr FunctionLiteral Block Conversion SelectorExpr IndexExpr SliceExpr TypeAssertion CallExpr ParameterizedExpr Arguments CallExpr make new Arguments UnaryExp ArithOp LogicOp BitOp DerefOp BinaryExp ArithOp BitOp BitOp CompareOp LogicOp LogicOp SendStatement IncDecStatement IncDecOp Assignment = UpdateOp VarDecl := ConstDecl const ConstSpec SpecList TypeDecl type TypeSpec TypeParams TypeParam SpecList VarDecl var VarSpec SpecList LabeledStatement LabelName IfStatement if else SwitchStatement switch SwitchBlock Case case default TypeSwitchStatement SwitchBlock Case ForStatement for ForClause RangeClause range GoStatement go SelectStatement select SelectBlock Case ReceiveStatement ReturnStatement return GotoStatement break continue goto FallthroughStatement fallthrough DeferStatement defer FunctionDecl MethodDecl",
+        maxTerm: 218,
+        context: trackTokens,
+        nodeProps: [
+          ["isolate", -3, 2, 12, 20, ""],
+          ["group", -18, 12, 17, 18, 19, 20, 21, 22, 66, 67, 69, 70, 71, 72, 73, 74, 77, 81, 86, "Expr", -20, 16, 68, 93, 94, 96, 99, 101, 105, 111, 115, 117, 120, 126, 129, 134, 136, 141, 143, 147, 149, "Statement", -12, 23, 31, 33, 38, 46, 49, 50, 51, 52, 56, 57, 58, "Type"],
+          ["openedBy", 13, "(", 25, "{", 53, "["],
+          ["closedBy", 14, ")", 26, "}", 54, "]"]
+        ],
+        propSources: [goHighlighting],
+        skippedNodes: [0, 1, 2, 153],
+        repeatNodeCount: 23,
+        tokenData: ":b~RvXY#iYZ#i]^#ipq#iqr#zrs$Xuv&Pvw&^wx&yxy(qyz(vz{({{|)T|})e}!O)j!O!P)u!P!Q+}!Q!R,y!R![-t![!]2^!]!^2k!^!_2p!_!`3]!`!a3e!c!}3x!}#O4j#P#Q4o#Q#R4t#R#S4|#S#T9X#T#o3x#o#p9q#p#q9v#q#r:W#r#s:]$g;'S3x;'S;=`4d<%lO3x~#nS$y~XY#iYZ#i]^#ipq#iU$PP%hQ!_!`$SS$XO!|S~$^W[~OY$XZr$Xrs$vs#O$X#O#P${#P;'S$X;'S;=`%y<%lO$X~${O[~~%ORO;'S$X;'S;=`%X;=`O$X~%^X[~OY$XZr$Xrs$vs#O$X#O#P${#P;'S$X;'S;=`%y;=`<%l$X<%lO$X~%|P;=`<%l$X~&UP%l~!_!`&X~&^O#U~~&cR%j~vw&l!_!`&X#Q#R&q~&qO%p~~&vP%o~!_!`&X~'OWd~OY&yZw&ywx'hx#O&y#O#P'm#P;'S&y;'S;=`(k<%lO&y~'mOd~~'pRO;'S&y;'S;=`'y;=`O&y~(OXd~OY&yZw&ywx'hx#O&y#O#P'm#P;'S&y;'S;=`(k;=`<%l&y<%lO&y~(nP;=`<%l&y~(vO^~~({O]~~)QP%Y~!_!`&X~)YQ%f~{|)`!_!`&X~)eO#R~~)jOn~~)oQ%g~}!O)`!_!`&X~)zRZS!O!P*T!Q![*`#R#S+w~*WP!O!P*Z~*`Ou~Q*eTaQ!Q![*`!g!h*t#R#S+w#X#Y*t#]#^+rQ*wS{|+T}!O+T!Q![+^#R#S+lQ+WQ!Q![+^#R#S+lQ+cRaQ!Q![+^#R#S+l#]#^+rQ+oP!Q![+^Q+wOaQQ+zP!Q![*`~,SR%k~z{,]!P!Q,b!_!`&X~,bO$z~~,gSP~OY,bZ;'S,b;'S;=`,s<%lO,b~,vP;=`<%l,bQ-O[aQ!O!P*`!Q![-t!d!e.c!g!h*t!q!r/Z!z!{/x#R#S.]#U#V.c#X#Y*t#]#^+r#c#d/Z#l#m/xQ-yUaQ!O!P*`!Q![-t!g!h*t#R#S.]#X#Y*t#]#^+rQ.`P!Q![-tQ.fR!Q!R.o!R!S.o#R#S/QQ.tSaQ!Q!R.o!R!S.o#R#S/Q#]#^+rQ/TQ!Q!R.o!R!S.oQ/^Q!Q!Y/d#R#S/rQ/iRaQ!Q!Y/d#R#S/r#]#^+rQ/uP!Q!Y/dQ/{T!O!P0[!Q![1c!c!i1c#R#S2Q#T#Z1cQ0_S!Q![0k!c!i0k#R#S1V#T#Z0kQ0pVaQ!Q![0k!c!i0k!r!s*t#R#S1V#T#Z0k#]#^+r#d#e*tQ1YR!Q![0k!c!i0k#T#Z0kQ1hWaQ!O!P0k!Q![1c!c!i1c!r!s*t#R#S2Q#T#Z1c#]#^+r#d#e*tQ2TR!Q![1c!c!i1c#T#Z1c~2cP!a~!_!`2f~2kO#W~~2pOV~~2uR!|S}!O3O!^!_3T!_!`$S~3TO!Q~~3YP%m~!_!`&X~3bP#T~!_!`$S~3jQ!|S!_!`$S!`!a3p~3uP%n~!_!`&X~3}V%O~!Q![3x!c!}3x#R#S3x#T#o3x$g;'S3x;'S;=`4d<%lO3x~4gP;=`<%l3x~4oO!W~~4tO!V~~4yP%i~!_!`&X~5RV%O~!Q![5h!c!}3x#R#S3x#T#o3x$g;'S3x;'S;=`4d<%lO3x~5o^aQ%O~!O!P*`!Q![5h!c!g3x!g!h6k!h!}3x#R#S4|#T#X3x#X#Y6k#Y#]3x#]#^8k#^#o3x$g;'S3x;'S;=`4d<%lO3x~6pX%O~{|+T}!O+T!Q![7]!c!}3x#R#S8P#T#o3x$g;'S3x;'S;=`4d<%lO3x~7dXaQ%O~!Q![7]!c!}3x#R#S8P#T#]3x#]#^8k#^#o3x$g;'S3x;'S;=`4d<%lO3x~8UV%O~!Q![7]!c!}3x#R#S3x#T#o3x$g;'S3x;'S;=`4d<%lO3x~8rVaQ%O~!Q![3x!c!}3x#R#S3x#T#o3x$g;'S3x;'S;=`4d<%lO3x~9[TO#S9X#S#T$v#T;'S9X;'S;=`9k<%lO9X~9nP;=`<%l9X~9vOj~~9{Q%`~!_!`&X#p#q:R~:WO%q~~:]Oi~~:bO{~",
+        tokenizers: [semicolon2, 1, 2, new LocalTokenGroup("j~RQYZXz{^~^O$|~~aP!P!Qd~iO$}~~", 25, 181)],
+        topRules: { "SourceFile": [0, 3] },
+        dynamicPrecedences: { "19": 1, "51": -1, "55": 2, "69": -1, "108": -1 },
+        specialized: [{ term: 184, get: (value) => spec_identifier4[value] || -1 }],
+        tokenPrec: 5451
+      });
+    }
+  });
+
+  // node_modules/@codemirror/lang-go/dist/index.js
+  function defIDs(type, spec) {
+    return (node, def) => {
+      outer: for (let cur = node.node.firstChild, depth = 0, parent = null; ; ) {
+        while (!cur) {
+          if (!depth)
+            break outer;
+          depth--;
+          cur = parent.nextSibling;
+          parent = parent.parent;
+        }
+        if (spec && cur.name == spec || cur.name == "SpecList") {
+          depth++;
+          parent = cur;
+          cur = cur.firstChild;
+        } else {
+          if (cur.name == "DefName")
+            def(cur, type);
+          cur = cur.nextSibling;
+        }
+      }
+      return true;
+    };
+  }
+  function getScope3(doc2, node) {
+    let cached = cache3.get(node);
+    if (cached)
+      return cached;
+    let completions = [], top2 = true;
+    function def(node2, type) {
+      let name2 = doc2.sliceString(node2.from, node2.to);
+      completions.push({ label: name2, type });
+    }
+    node.cursor(IterMode.IncludeAnonymous).iterate((node2) => {
+      if (top2) {
+        top2 = false;
+      } else if (node2.name) {
+        let gather = gatherCompletions3[node2.name];
+        if (gather && gather(node2, def) || ScopeNodes3.has(node2.name))
+          return false;
+      } else if (node2.to - node2.from > 8192) {
+        for (let c of getScope3(doc2, node2.node))
+          completions.push(c);
+        return false;
+      }
+    });
+    cache3.set(node, completions);
+    return completions;
+  }
+  function go() {
+    let completions = snippets3.concat(keywords2);
+    return new LanguageSupport(goLanguage, [
+      goLanguage.data.of({
+        autocomplete: ifNotIn(dontComplete3, completeFromList(completions))
+      }),
+      goLanguage.data.of({
+        autocomplete: localCompletionSource3
+      })
+    ]);
+  }
+  var snippets3, cache3, ScopeNodes3, gatherCompletions3, Identifier3, dontComplete3, localCompletionSource3, goLanguage, kwCompletion2, keywords2;
+  var init_dist22 = __esm({
+    "node_modules/@codemirror/lang-go/dist/index.js"() {
+      init_dist21();
+      init_dist5();
+      init_dist7();
+      init_dist3();
+      snippets3 = [
+        /* @__PURE__ */ snippetCompletion("func ${name}(${params}) ${type} {\n	${}\n}", {
+          label: "func",
+          detail: "declaration",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("func (${receiver}) ${name}(${params}) ${type} {\n	${}\n}", {
+          label: "func",
+          detail: "method declaration",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("var ${name} = ${value}", {
+          label: "var",
+          detail: "declaration",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("type ${name} ${type}", {
+          label: "type",
+          detail: "declaration",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("const ${name} = ${value}", {
+          label: "const",
+          detail: "declaration",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("type ${name} = ${type}", {
+          label: "type",
+          detail: "alias declaration",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("for ${init}; ${test}; ${update} {\n	${}\n}", {
+          label: "for",
+          detail: "loop",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("for ${i} := range ${value} {\n	${}\n}", {
+          label: "for",
+          detail: "range",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("select {\n	${}\n}", {
+          label: "select",
+          detail: "statement",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("case ${}:\n${}", {
+          label: "case",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("switch ${} {\n	${}\n}", {
+          label: "switch",
+          detail: "statement",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("switch ${}.(${type}) {\n	${}\n}", {
+          label: "switch",
+          detail: "type statement",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("if ${} {\n	${}\n}", {
+          label: "if",
+          detail: "block",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion("if ${} {\n	${}\n} else {\n	${}\n}", {
+          label: "if",
+          detail: "/ else block",
+          type: "keyword"
+        }),
+        /* @__PURE__ */ snippetCompletion('import ${name} "${module}"\n${}', {
+          label: "import",
+          detail: "declaration",
+          type: "keyword"
+        })
+      ];
+      cache3 = /* @__PURE__ */ new NodeWeakMap();
+      ScopeNodes3 = /* @__PURE__ */ new Set([
+        "SourceFile",
+        "Block",
+        "FunctionDecl",
+        "MethodDecl",
+        "FunctionLiteral",
+        "ForStatement",
+        "SwitchStatement",
+        "TypeSwitchStatement",
+        "IfStatement"
+      ]);
+      gatherCompletions3 = {
+        FunctionDecl: /* @__PURE__ */ defIDs("function"),
+        VarDecl: /* @__PURE__ */ defIDs("var", "VarSpec"),
+        ConstDecl: /* @__PURE__ */ defIDs("constant", "ConstSpec"),
+        TypeDecl: /* @__PURE__ */ defIDs("type", "TypeSpec"),
+        ImportDecl: /* @__PURE__ */ defIDs("constant", "ImportSpec"),
+        Parameter: /* @__PURE__ */ defIDs("var"),
+        __proto__: null
+      };
+      Identifier3 = /^[\w$\xa1-\uffff][\w$\d\xa1-\uffff]*$/;
+      dontComplete3 = [
+        "String",
+        "LineComment",
+        "BlockComment",
+        "DefName",
+        "LabelName",
+        "FieldName",
+        ".",
+        "?."
+      ];
+      localCompletionSource3 = (context) => {
+        let inner = syntaxTree(context.state).resolveInner(context.pos, -1);
+        if (dontComplete3.indexOf(inner.name) > -1)
+          return null;
+        let isWord = inner.name == "VariableName" || inner.to - inner.from < 20 && Identifier3.test(context.state.sliceDoc(inner.from, inner.to));
+        if (!isWord && !context.explicit)
+          return null;
+        let options = [];
+        for (let pos = inner; pos; pos = pos.parent) {
+          if (ScopeNodes3.has(pos.name))
+            options = options.concat(getScope3(context.state.doc, pos));
+        }
+        return {
+          options,
+          from: isWord ? inner.from : context.pos,
+          validFor: Identifier3
+        };
+      };
+      goLanguage = /* @__PURE__ */ LRLanguage.define({
+        name: "go",
+        parser: /* @__PURE__ */ parser7.configure({
+          props: [
+            /* @__PURE__ */ indentNodeProp.add({
+              IfStatement: /* @__PURE__ */ continuedIndent({ except: /^\s*({|else\b)/ }),
+              LabeledStatement: flatIndent,
+              "SwitchBlock SelectBlock": (context) => {
+                let after = context.textAfter, closed = /^\s*\}/.test(after), isCase = /^\s*(case|default)\b/.test(after);
+                return context.baseIndent + (closed || isCase ? 0 : context.unit);
+              },
+              Block: /* @__PURE__ */ delimitedIndent({ closing: "}" }),
+              BlockComment: () => null,
+              Statement: /* @__PURE__ */ continuedIndent({ except: /^{/ })
+            }),
+            /* @__PURE__ */ foldNodeProp.add({
+              "Block SwitchBlock SelectBlock LiteralValue InterfaceType StructType SpecList": foldInside,
+              BlockComment(tree) {
+                return { from: tree.from + 2, to: tree.to - 2 };
+              }
+            })
+          ]
+        }),
+        languageData: {
+          closeBrackets: { brackets: ["(", "[", "{", "'", '"', "`"] },
+          commentTokens: { line: "//", block: { open: "/*", close: "*/" } },
+          indentOnInput: /^\s*(?:case\b|default\b|\})$/
+        }
+      });
+      kwCompletion2 = (name2) => ({ label: name2, type: "keyword" });
+      keywords2 = /* @__PURE__ */ "interface struct chan map package go return break continue goto fallthrough else defer range true false nil".split(" ").map(kwCompletion2);
+    }
+  });
+
+  // node_modules/@lezer/yaml/dist/index.js
+  function findColumn2(input, pos) {
+    for (let col = 0, p = pos - input.pos - 1; ; p--, col++) {
+      let ch = input.peek(p);
+      if (isBreakSpace(ch) || ch == -1) return col;
+    }
+  }
+  function isNonBreakSpace(ch) {
+    return ch == 32 || ch == 9;
+  }
+  function isBreakSpace(ch) {
+    return ch == 10 || ch == 13;
+  }
+  function isSpace(ch) {
+    return isNonBreakSpace(ch) || isBreakSpace(ch);
+  }
+  function isSep(ch) {
+    return ch < 0 || isSpace(ch);
+  }
+  function three(input, ch, off = 0) {
+    return input.peek(off) == ch && input.peek(off + 1) == ch && input.peek(off + 2) == ch && isSep(input.peek(off + 3));
+  }
+  function uriChar(ch) {
+    return ch > 32 && ch < 127 && ch != 34 && ch != 37 && ch != 44 && ch != 60 && ch != 62 && ch != 92 && ch != 94 && ch != 96 && ch != 123 && ch != 124 && ch != 125;
+  }
+  function hexChar(ch) {
+    return ch >= 48 && ch <= 57 || ch >= 97 && ch <= 102 || ch >= 65 && ch <= 70;
+  }
+  function readUriChar(input, quoted) {
+    if (input.next == 37) {
+      input.advance();
+      if (hexChar(input.next)) input.advance();
+      if (hexChar(input.next)) input.advance();
+      return true;
+    } else if (uriChar(input.next) || quoted && input.next == 44) {
+      input.advance();
+      return true;
+    }
+    return false;
+  }
+  function readTag(input) {
+    input.advance();
+    if (input.next == 60) {
+      input.advance();
+      for (; ; ) {
+        if (!readUriChar(input, true)) {
+          if (input.next == 62) input.advance();
+          break;
+        }
+      }
+    } else {
+      while (readUriChar(input, false)) {
+      }
+    }
+  }
+  function readAnchor(input) {
+    input.advance();
+    while (!isSep(input.next) && charTag(input.next) != "f") input.advance();
+  }
+  function readQuoted(input, scan) {
+    let quote = input.next, lineBreak = false, start = input.pos;
+    input.advance();
+    for (; ; ) {
+      let ch = input.next;
+      if (ch < 0) break;
+      input.advance();
+      if (ch == quote) {
+        if (ch == 39) {
+          if (input.next == 39) input.advance();
+          else break;
+        } else {
+          break;
+        }
+      } else if (ch == 92 && quote == 34) {
+        if (input.next >= 0) input.advance();
+      } else if (isBreakSpace(ch)) {
+        if (scan) return false;
+        lineBreak = true;
+      } else if (scan && input.pos >= start + 1024) {
+        return false;
+      }
+    }
+    return !lineBreak;
+  }
+  function scanBrackets(input) {
+    for (let stack = [], end = input.pos + 1024; ; ) {
+      if (input.next == 91 || input.next == 123) {
+        stack.push(input.next);
+        input.advance();
+      } else if (input.next == 39 || input.next == 34) {
+        if (!readQuoted(input, true)) return false;
+      } else if (input.next == 93 || input.next == 125) {
+        if (stack[stack.length - 1] != input.next - 2) return false;
+        stack.pop();
+        input.advance();
+        if (!stack.length) return true;
+      } else if (input.next < 0 || input.pos > end || isBreakSpace(input.next)) {
+        return false;
+      } else {
+        input.advance();
+      }
+    }
+  }
+  function charTag(ch) {
+    if (ch < 33) return "u";
+    if (ch > 125) return "s";
+    return charTable[ch - 33];
+  }
+  function isSafe(ch, inFlow) {
+    let tag = charTag(ch);
+    return tag != "u" && !(inFlow && tag == "f");
+  }
+  function readPlain(input, scan, inFlow, indent2) {
+    if (charTag(input.next) == "s" || (input.next == 63 || input.next == 58 || input.next == 45) && isSafe(input.peek(1), inFlow)) {
+      input.advance();
+    } else {
+      return false;
+    }
+    let start = input.pos;
+    for (; ; ) {
+      let next = input.next, off = 0, lineIndent = indent2 + 1;
+      while (isSpace(next)) {
+        if (isBreakSpace(next)) {
+          if (scan) return false;
+          lineIndent = 0;
+        } else {
+          lineIndent++;
+        }
+        next = input.peek(++off);
+      }
+      let safe = next >= 0 && (next == 58 ? isSafe(input.peek(off + 1), inFlow) : next == 35 ? input.peek(off - 1) != 32 : isSafe(next, inFlow));
+      if (!safe || !inFlow && lineIndent <= indent2 || lineIndent == 0 && !inFlow && (three(input, 45, off) || three(input, 46, off)))
+        break;
+      if (scan && charTag(next) == "f") return false;
+      for (let i = off; i >= 0; i--) input.advance();
+      if (scan && input.pos > start + 1024) return false;
+    }
+    return true;
+  }
+  var blockEnd, eof2, DirectiveEnd, DocEnd, sequenceStartMark, sequenceContinueMark, explicitMapStartMark, explicitMapContinueMark, flowMapMark, mapStartMark, mapContinueMark, Literal, QuotedLiteral, Anchor, Alias, Tag2, BlockLiteralContent, BracketL2, FlowSequence, Colon, BraceL2, FlowMapping, BlockLiteralHeader, type_Top, type_Seq, type_Map, type_Flow, type_Lit, Context3, indentation2, newlines2, blockMark, charTable, literals, blockLiteral, yamlHighlighting, parser8;
+  var init_dist23 = __esm({
+    "node_modules/@lezer/yaml/dist/index.js"() {
+      init_dist9();
+      init_dist4();
+      blockEnd = 63;
+      eof2 = 64;
+      DirectiveEnd = 1;
+      DocEnd = 2;
+      sequenceStartMark = 3;
+      sequenceContinueMark = 4;
+      explicitMapStartMark = 5;
+      explicitMapContinueMark = 6;
+      flowMapMark = 7;
+      mapStartMark = 65;
+      mapContinueMark = 66;
+      Literal = 8;
+      QuotedLiteral = 9;
+      Anchor = 10;
+      Alias = 11;
+      Tag2 = 12;
+      BlockLiteralContent = 13;
+      BracketL2 = 19;
+      FlowSequence = 20;
+      Colon = 29;
+      BraceL2 = 33;
+      FlowMapping = 34;
+      BlockLiteralHeader = 47;
+      type_Top = 0;
+      type_Seq = 1;
+      type_Map = 2;
+      type_Flow = 3;
+      type_Lit = 4;
+      Context3 = class {
+        constructor(parent, depth, type) {
+          this.parent = parent;
+          this.depth = depth;
+          this.type = type;
+          this.hash = (parent ? parent.hash + parent.hash << 8 : 0) + depth + (depth << 4) + type;
+        }
+      };
+      Context3.top = new Context3(null, -1, type_Top);
+      indentation2 = new ContextTracker({
+        start: Context3.top,
+        reduce(context, term) {
+          return context.type == type_Flow && (term == FlowSequence || term == FlowMapping) ? context.parent : context;
+        },
+        shift(context, term, stack, input) {
+          if (term == sequenceStartMark)
+            return new Context3(context, findColumn2(input, input.pos), type_Seq);
+          if (term == mapStartMark || term == explicitMapStartMark)
+            return new Context3(context, findColumn2(input, input.pos), type_Map);
+          if (term == blockEnd)
+            return context.parent;
+          if (term == BracketL2 || term == BraceL2)
+            return new Context3(context, 0, type_Flow);
+          if (term == BlockLiteralContent && context.type == type_Lit)
+            return context.parent;
+          if (term == BlockLiteralHeader) {
+            let indent2 = /[1-9]/.exec(input.read(input.pos, stack.pos));
+            if (indent2) return new Context3(context, context.depth + +indent2[0], type_Lit);
+          }
+          return context;
+        },
+        hash(context) {
+          return context.hash;
+        }
+      });
+      newlines2 = new ExternalTokenizer((input, stack) => {
+        if (input.next == -1 && stack.canShift(eof2))
+          return input.acceptToken(eof2);
+        let prev = input.peek(-1);
+        if ((isBreakSpace(prev) || prev < 0) && stack.context.type != type_Flow) {
+          if (three(
+            input,
+            45
+            /* '-' */
+          )) {
+            if (stack.canShift(blockEnd)) input.acceptToken(blockEnd);
+            else return input.acceptToken(DirectiveEnd, 3);
+          }
+          if (three(
+            input,
+            46
+            /* '.' */
+          )) {
+            if (stack.canShift(blockEnd)) input.acceptToken(blockEnd);
+            else return input.acceptToken(DocEnd, 3);
+          }
+          let depth = 0;
+          while (input.next == 32) {
+            depth++;
+            input.advance();
+          }
+          if ((depth < stack.context.depth || depth == stack.context.depth && stack.context.type == type_Seq && (input.next != 45 || !isSep(input.peek(1)))) && // Not blank
+          input.next != -1 && !isBreakSpace(input.next) && input.next != 35)
+            input.acceptToken(blockEnd, -depth);
+        }
+      }, { contextual: true });
+      blockMark = new ExternalTokenizer((input, stack) => {
+        if (stack.context.type == type_Flow) {
+          if (input.next == 63) {
+            input.advance();
+            if (isSep(input.next)) input.acceptToken(flowMapMark);
+          }
+          return;
+        }
+        if (input.next == 45) {
+          input.advance();
+          if (isSep(input.next))
+            input.acceptToken(stack.context.type == type_Seq && stack.context.depth == findColumn2(input, input.pos - 1) ? sequenceContinueMark : sequenceStartMark);
+        } else if (input.next == 63) {
+          input.advance();
+          if (isSep(input.next))
+            input.acceptToken(stack.context.type == type_Map && stack.context.depth == findColumn2(input, input.pos - 1) ? explicitMapContinueMark : explicitMapStartMark);
+        } else {
+          let start = input.pos;
+          for (; ; ) {
+            if (isNonBreakSpace(input.next)) {
+              if (input.pos == start) return;
+              input.advance();
+            } else if (input.next == 33) {
+              readTag(input);
+            } else if (input.next == 38) {
+              readAnchor(input);
+            } else if (input.next == 42) {
+              readAnchor(input);
+              break;
+            } else if (input.next == 39 || input.next == 34) {
+              if (readQuoted(input, true)) break;
+              return;
+            } else if (input.next == 91 || input.next == 123) {
+              if (!scanBrackets(input)) return;
+              break;
+            } else {
+              readPlain(input, true, false, 0);
+              break;
+            }
+          }
+          while (isNonBreakSpace(input.next)) input.advance();
+          if (input.next == 58) {
+            if (input.pos == start && stack.canShift(Colon)) return;
+            let after = input.peek(1);
+            if (isSep(after))
+              input.acceptTokenTo(stack.context.type == type_Map && stack.context.depth == findColumn2(input, start) ? mapContinueMark : mapStartMark, start);
+          }
+        }
+      }, { contextual: true });
+      charTable = "iiisiiissisfissssssssssssisssiiissssssssssssssssssssssssssfsfssissssssssssssssssssssssssssfif";
+      literals = new ExternalTokenizer((input, stack) => {
+        if (input.next == 33) {
+          readTag(input);
+          input.acceptToken(Tag2);
+        } else if (input.next == 38 || input.next == 42) {
+          let token = input.next == 38 ? Anchor : Alias;
+          readAnchor(input);
+          input.acceptToken(token);
+        } else if (input.next == 39 || input.next == 34) {
+          readQuoted(input, false);
+          input.acceptToken(QuotedLiteral);
+        } else if (readPlain(input, false, stack.context.type == type_Flow, stack.context.depth)) {
+          input.acceptToken(Literal);
+        }
+      });
+      blockLiteral = new ExternalTokenizer((input, stack) => {
+        let indent2 = stack.context.type == type_Lit ? stack.context.depth : -1, upto = input.pos;
+        scan: for (; ; ) {
+          let depth = 0, next = input.next;
+          while (next == 32) next = input.peek(++depth);
+          if (!depth && (three(input, 45, depth) || three(input, 46, depth))) break;
+          if (!isBreakSpace(next)) {
+            if (indent2 < 0) indent2 = Math.max(stack.context.depth + 1, depth);
+            if (depth < indent2) break;
+          }
+          for (; ; ) {
+            if (input.next < 0) break scan;
+            let isBreak = isBreakSpace(input.next);
+            input.advance();
+            if (isBreak) continue scan;
+            upto = input.pos;
+          }
+        }
+        input.acceptTokenTo(BlockLiteralContent, upto);
+      });
+      yamlHighlighting = styleTags({
+        DirectiveName: tags.keyword,
+        DirectiveContent: tags.attributeValue,
+        "DirectiveEnd DocEnd": tags.meta,
+        QuotedLiteral: tags.string,
+        BlockLiteralHeader: tags.special(tags.string),
+        BlockLiteralContent: tags.content,
+        Literal: tags.content,
+        "Key/Literal Key/QuotedLiteral": tags.definition(tags.propertyName),
+        "Anchor Alias": tags.labelName,
+        Tag: tags.typeName,
+        Comment: tags.lineComment,
+        ": , -": tags.separator,
+        "?": tags.punctuation,
+        "[ ]": tags.squareBracket,
+        "{ }": tags.brace
+      });
+      parser8 = LRParser.deserialize({
+        version: 14,
+        states: "5lQ!ZQgOOO#PQfO'#CpO#uQfO'#DOOOQR'#Dv'#DvO$qQgO'#DRO%gQdO'#DUO%nQgO'#DUO&ROaO'#D[OOQR'#Du'#DuO&{QgO'#D^O'rQgO'#D`OOQR'#Dt'#DtO(iOqO'#DbOOQP'#Dj'#DjO(zQaO'#CmO)YQgO'#CmOOQP'#Cm'#CmQ)jQaOOQ)uQgOOQ]QgOOO*PQdO'#CrO*nQdO'#CtOOQO'#Dw'#DwO+]Q`O'#CxO+hQdO'#CwO+rQ`O'#CwOOQO'#Cv'#CvO+wQdO'#CvOOQO'#Cq'#CqO,UQ`O,59[O,^QfO,59[OOQR,59[,59[OOQO'#Cx'#CxO,eQ`O'#DPO,pQdO'#DPOOQO'#Dx'#DxO,zQdO'#DxO-XQ`O,59jO-aQfO,59jOOQR,59j,59jOOQR'#DS'#DSO-hQcO,59mO-sQgO'#DVO.TQ`O'#DVO.YQcO,59pOOQR'#DX'#DXO#|QfO'#DWO.hQcO'#DWOOQR,59v,59vO.yOWO,59vO/OOaO,59vO/WOaO,59vO/cQgO'#D_OOQR,59x,59xO0VQgO'#DaOOQR,59z,59zOOQP,59|,59|O0yOaO,59|O1ROaO,59|O1aOqO,59|OOQP-E7h-E7hO1oQgO,59XOOQP,59X,59XO2PQaO'#DeO2_QgO'#DeO2oQgO'#DkOOQP'#Dk'#DkQ)jQaOOO3PQdO'#CsOOQO,59^,59^O3kQdO'#CuOOQO,59`,59`OOQO,59c,59cO4VQdO,59cO4aQdO'#CzO4kQ`O'#CzOOQO,59b,59bOOQU,5:Q,5:QOOQR1G.v1G.vO4pQ`O1G.vOOQU-E7d-E7dO4xQdO,59kOOQO,59k,59kO5SQdO'#DQO5^Q`O'#DQOOQO,5:d,5:dOOQU,5:R,5:ROOQR1G/U1G/UO5cQ`O1G/UOOQU-E7e-E7eO5kQgO'#DhO5xQcO1G/XOOQR1G/X1G/XOOQR,59q,59qO6TQgO,59qO6eQdO'#DiO6lQgO'#DiO7PQcO1G/[OOQR1G/[1G/[OOQR,59r,59rO#|QfO,59rOOQR1G/b1G/bO7_OWO1G/bO7dOaO1G/bOOQR,59y,59yOOQR,59{,59{OOQP1G/h1G/hO7lOaO1G/hO7tOaO1G/hO8POaO1G/hOOQP1G.s1G.sO8_QgO,5:POOQP,5:P,5:POOQP,5:V,5:VOOQP-E7i-E7iOOQO,59_,59_OOQO,59a,59aOOQO1G.}1G.}OOQO,59f,59fO8oQdO,59fOOQR7+$b7+$bP,XQ`O'#DfOOQO1G/V1G/VOOQO,59l,59lO8yQdO,59lOOQR7+$p7+$pP9TQ`O'#DgOOQR'#DT'#DTOOQR,5:S,5:SOOQR-E7f-E7fOOQR7+$s7+$sOOQR1G/]1G/]O9YQgO'#DYO9jQ`O'#DYOOQR,5:T,5:TO#|QfO'#DZO9oQcO'#DZOOQR-E7g-E7gOOQR7+$v7+$vOOQR1G/^1G/^OOQR7+$|7+$|O:QOWO7+$|OOQP7+%S7+%SO:VOaO7+%SO:_OaO7+%SOOQP1G/k1G/kOOQO1G/Q1G/QOOQO1G/W1G/WOOQR,59t,59tO:jQgO,59tOOQR,59u,59uO#|QfO,59uOOQR<<Hh<<HhOOQP<<Hn<<HnO:zOaO<<HnOOQR1G/`1G/`OOQR1G/a1G/aOOQPAN>YAN>Y",
+        stateData: ";S~O!fOS!gOS^OS~OP_OQbORSOTUOWROXROYYOZZO[XOcPOqQO!PVO!V[O!cTO~O`cO~P]OVkOWROXROYeOZfO[dOcPOmhOqQO~OboO~P!bOVtOWROXROYeOZfO[dOcPOmrOqQO~OpwO~P#WORSOTUOWROXROYYOZZO[XOcPOqQO!PVO!cTO~OSvP!avP!bvP~P#|OWROXROYeOZfO[dOcPOqQO~OmzO~P%OOm!OOUzP!azP!bzP!dzP~P#|O^!SO!b!QO!f!TO!g!RO~ORSOTUOWROXROcPOqQO!PVO!cTO~OY!UOP!QXQ!QX!V!QX!`!QXS!QX!a!QX!b!QXU!QXm!QX!d!QX~P&aO[!WOP!SXQ!SX!V!SX!`!SXS!SX!a!SX!b!SXU!SXm!SX!d!SX~P&aO^!ZO!W![O!b!YO!f!]O!g!YO~OP!_O!V[OQaX!`aX~OPaXQaX!VaX!`aX~P#|OP!bOQ!cO!V[O~OP_O!V[O~P#|OWROXROY!fOcPOqQObfXmfXofXpfX~OWROXRO[!hOcPOqQObhXmhXohXphX~ObeXmlXoeX~ObkXokX~P%OOm!kO~Om!lObnPonP~P%OOb!pOo!oO~Ob!pO~P!bOm!sOosXpsX~OosXpsX~P%OOm!uOotPptP~P%OOo!xOp!yO~Op!yO~P#WOS!|O!a#OO!b#OO~OUyX!ayX!byX!dyX~P#|Om#QO~OU#SO!a#UO!b#UO!d#RO~Om#WOUzX!azX!bzX!dzX~O]#XO~O!b#XO!g#YO~O^#ZO!b#XO!g#YO~OP!RXQ!RX!V!RX!`!RXS!RX!a!RX!b!RXU!RXm!RX!d!RX~P&aOP!TXQ!TX!V!TX!`!TXS!TX!a!TX!b!TXU!TXm!TX!d!TX~P&aO!b#^O!g#^O~O^#_O!b#^O!f#`O!g#^O~O^#_O!W#aO!b#^O!g#^O~OPaaQaa!Vaa!`aa~P#|OP#cO!V[OQ!XX!`!XX~OP!XXQ!XX!V!XX!`!XX~P#|OP_O!V[OQ!_X!`!_X~P#|OWROXROcPOqQObgXmgXogXpgX~OWROXROcPOqQObiXmiXoiXpiX~Obkaoka~P%OObnXonX~P%OOm#kO~Ob#lOo!oO~Oosapsa~P%OOotXptX~P%OOm#pO~Oo!xOp#qO~OSwP!awP!bwP~P#|OS!|O!a#vO!b#vO~OUya!aya!bya!dya~P#|Om#xO~P%OOm#{OU}P!a}P!b}P!d}P~P#|OU#SO!a$OO!b$OO!d#RO~O]$QO~O!b$QO!g$RO~O!b$SO!g$SO~O^$TO!b$SO!g$SO~O^$TO!b$SO!f$UO!g$SO~OP!XaQ!Xa!V!Xa!`!Xa~P#|Obnaona~P%OOotapta~P%OOo!xO~OU|X!a|X!b|X!d|X~P#|Om$ZO~Om$]OU}X!a}X!b}X!d}X~O]$^O~O!b$_O!g$_O~O^$`O!b$_O!g$_O~OU|a!a|a!b|a!d|a~P#|O!b$cO!g$cO~O",
+        goto: ",]!mPPPPPPPPPPPPPPPPP!nPP!v#v#|$`#|$c$f$j$nP%VPPP!v%Y%^%a%{&O%a&R&U&X&_&b%aP&e&{&e'O'RPP']'a'g'm's'y(XPPPPPPPP(_)e*X+c,VUaObcR#e!c!{ROPQSTUXY_bcdehknrtvz!O!U!W!_!b!c!f!h!k!l!s!u!|#Q#R#S#W#c#k#p#x#{$Z$]QmPR!qnqfPQThknrtv!k!l!s!u#R#k#pR!gdR!ieTlPnTjPnSiPnSqQvQ{TQ!mkQ!trQ!vtR#y#RR!nkTsQvR!wt!RWOSUXY_bcz!O!U!W!_!b!c!|#Q#S#W#c#x#{$Z$]RySR#t!|R|TR|UQ!PUR#|#SR#z#RR#z#SyZOSU_bcz!O!_!b!c!|#Q#S#W#c#x#{$Z$]R!VXR!XYa]O^abc!a!c!eT!da!eQnPR!rnQvQR!{vQ!}yR#u!}Q#T|R#}#TW^Obc!cS!^^!aT!aa!eQ!eaR#f!eW`Obc!cQxSS}U#SQ!`_Q#PzQ#V!OQ#b!_Q#d!bQ#s!|Q#w#QQ$P#WQ$V#cQ$Y#xQ$[#{Q$a$ZR$b$]xZOSU_bcz!O!_!b!c!|#Q#S#W#c#x#{$Z$]Q!VXQ!XYQ#[!UR#]!W!QWOSUXY_bcz!O!U!W!_!b!c!|#Q#S#W#c#x#{$Z$]pfPQThknrtv!k!l!s!u#R#k#pQ!gdQ!ieQ#g!fR#h!hSgPn^pQTkrtv#RQ!jhQ#i!kQ#j!lQ#n!sQ#o!uQ$W#kR$X#pQuQR!zv",
+        nodeNames: "\u26A0 DirectiveEnd DocEnd - - ? ? ? Literal QuotedLiteral Anchor Alias Tag BlockLiteralContent Comment Stream BOM Document ] [ FlowSequence Item Tagged Anchored Anchored Tagged FlowMapping Pair Key : Pair , } { FlowMapping Pair Pair BlockSequence Item Item BlockMapping Pair Pair Key Pair Pair BlockLiteral BlockLiteralHeader Tagged Anchored Anchored Tagged Directive DirectiveName DirectiveContent Document",
+        maxTerm: 74,
+        context: indentation2,
+        nodeProps: [
+          ["isolate", -3, 8, 9, 14, ""],
+          ["openedBy", 18, "[", 32, "{"],
+          ["closedBy", 19, "]", 33, "}"]
+        ],
+        propSources: [yamlHighlighting],
+        skippedNodes: [0],
+        repeatNodeCount: 6,
+        tokenData: "-Y~RnOX#PXY$QYZ$]Z]#P]^$]^p#Ppq$Qqs#Pst$btu#Puv$yv|#P|}&e}![#P![!]'O!]!`#P!`!a'i!a!}#P!}#O*g#O#P#P#P#Q+Q#Q#o#P#o#p+k#p#q'i#q#r,U#r;'S#P;'S;=`#z<%l?HT#P?HT?HU,o?HUO#PQ#UU!WQOY#PZp#Ppq#hq;'S#P;'S;=`#z<%lO#PQ#kTOY#PZs#Pt;'S#P;'S;=`#z<%lO#PQ#}P;=`<%l#P~$VQ!f~XY$Qpq$Q~$bO!g~~$gS^~OY$bZ;'S$b;'S;=`$s<%lO$b~$vP;=`<%l$bR%OX!WQOX%kXY#PZ]%k]^#P^p%kpq#hq;'S%k;'S;=`&_<%lO%kR%rX!WQ!VPOX%kXY#PZ]%k]^#P^p%kpq#hq;'S%k;'S;=`&_<%lO%kR&bP;=`<%l%kR&lUoP!WQOY#PZp#Ppq#hq;'S#P;'S;=`#z<%lO#PR'VUmP!WQOY#PZp#Ppq#hq;'S#P;'S;=`#z<%lO#PR'p[!PP!WQOY#PZp#Ppq#hq{#P{|(f|}#P}!O(f!O!R#P!R![)p![;'S#P;'S;=`#z<%lO#PR(mW!PP!WQOY#PZp#Ppq#hq!R#P!R![)V![;'S#P;'S;=`#z<%lO#PR)^U!PP!WQOY#PZp#Ppq#hq;'S#P;'S;=`#z<%lO#PR)wY!PP!WQOY#PZp#Ppq#hq{#P{|)V|}#P}!O)V!O;'S#P;'S;=`#z<%lO#PR*nUcP!WQOY#PZp#Ppq#hq;'S#P;'S;=`#z<%lO#PR+XUbP!WQOY#PZp#Ppq#hq;'S#P;'S;=`#z<%lO#PR+rUqP!WQOY#PZp#Ppq#hq;'S#P;'S;=`#z<%lO#PR,]UpP!WQOY#PZp#Ppq#hq;'S#P;'S;=`#z<%lO#PR,vU`P!WQOY#PZp#Ppq#hq;'S#P;'S;=`#z<%lO#P",
+        tokenizers: [newlines2, blockMark, literals, blockLiteral, 0, 1],
+        topRules: { "Stream": [0, 15] },
+        tokenPrec: 0
+      });
+    }
+  });
+
+  // node_modules/@codemirror/lang-yaml/dist/index.js
+  function yaml() {
+    return new LanguageSupport(yamlLanguage);
+  }
+  var parser9, yamlLanguage, frontmatterLanguage;
+  var init_dist24 = __esm({
+    "node_modules/@codemirror/lang-yaml/dist/index.js"() {
+      init_dist23();
+      init_dist5();
+      init_dist3();
+      init_dist4();
+      init_dist9();
+      parser9 = /* @__PURE__ */ LRParser.deserialize({
+        version: 14,
+        states: "!vOQOPOOO]OPO'#C_OhOPO'#C^OOOO'#Cc'#CcOpOPO'#CaQOOOOOO{OPOOOOOO'#Cb'#CbO!WOPO'#C`O!`OPO,58xOOOO-E6a-E6aOOOO-E6`-E6`OOOO'#C_'#C_OOOO1G.d1G.d",
+        stateData: "!h~OXPOYROWTP~OWVXXRXYRX~OYVOXSP~OXROYROWTX~OXROYROWTP~OYVOXSX~OX[O~OXY~",
+        goto: "vWPPX[beioRUOQQOR]XRXQTTOUQWQRZWSSOURYS",
+        nodeNames: "\u26A0 Document Frontmatter DashLine FrontmatterContent Body",
+        maxTerm: 10,
+        skippedNodes: [0],
+        repeatNodeCount: 2,
+        tokenData: "$z~RXOYnYZ!^Z]n]^!^^}n}!O!i!O;'Sn;'S;=`!c<%lOn~qXOYnYZ!^Z]n]^!^^;'Sn;'S;=`!c<%l~n~On~~!^~!cOY~~!fP;=`<%ln~!lZOYnYZ!^Z]n]^!^^}n}!O#_!O;'Sn;'S;=`!c<%l~n~On~~!^~#bZOYnYZ!^Z]n]^!^^}n}!O$T!O;'Sn;'S;=`!c<%l~n~On~~!^~$WXOYnYZ$sZ]n]^$s^;'Sn;'S;=`!c<%l~n~On~~$s~$zOX~Y~",
+        tokenizers: [0],
+        topRules: { "Document": [0, 1] },
+        tokenPrec: 67
+      });
+      yamlLanguage = /* @__PURE__ */ LRLanguage.define({
+        name: "yaml",
+        parser: /* @__PURE__ */ parser8.configure({
+          props: [
+            /* @__PURE__ */ indentNodeProp.add({
+              Stream: (cx) => {
+                for (let before = cx.node.resolve(cx.pos, -1); before && before.to >= cx.pos; before = before.parent) {
+                  if (before.name == "BlockLiteralContent" && before.from < before.to)
+                    return cx.baseIndentFor(before);
+                  if (before.name == "BlockLiteral")
+                    return cx.baseIndentFor(before) + cx.unit;
+                  if (before.name == "BlockSequence" || before.name == "BlockMapping")
+                    return cx.column(before.firstChild.from, 1);
+                  if (before.name == "QuotedLiteral")
+                    return null;
+                  if (before.name == "Literal") {
+                    let col = cx.column(before.from, 1);
+                    if (col == cx.lineIndent(before.from, 1))
+                      return col;
+                    if (before.to > cx.pos)
+                      return null;
+                  }
+                }
+                return null;
+              },
+              FlowMapping: /* @__PURE__ */ delimitedIndent({ closing: "}" }),
+              FlowSequence: /* @__PURE__ */ delimitedIndent({ closing: "]" })
+            }),
+            /* @__PURE__ */ foldNodeProp.add({
+              "FlowMapping FlowSequence": foldInside,
+              "Item Pair BlockLiteral": (node, state) => ({ from: state.doc.lineAt(node.from).to, to: node.to })
+            })
+          ]
+        }),
+        languageData: {
+          commentTokens: { line: "#" },
+          indentOnInput: /^\s*[\]\}]$/
+        }
+      });
+      frontmatterLanguage = /* @__PURE__ */ LRLanguage.define({
+        name: "yaml-frontmatter",
+        parser: /* @__PURE__ */ parser9.configure({
+          props: [/* @__PURE__ */ styleTags({ DashLine: tags.meta })]
+        })
+      });
+    }
+  });
+
+  // node_modules/@codemirror/lang-sql/dist/index.js
+  function isAlpha2(ch) {
+    return ch >= 65 && ch <= 90 || ch >= 97 && ch <= 122 || ch >= 48 && ch <= 57;
+  }
+  function isHexDigit(ch) {
+    return ch >= 48 && ch <= 57 || ch >= 97 && ch <= 102 || ch >= 65 && ch <= 70;
+  }
+  function readLiteral(input, endQuote, backslashEscapes) {
+    for (let escaped = false; ; ) {
+      if (input.next < 0)
+        return;
+      if (input.next == endQuote && !escaped) {
+        input.advance();
+        return;
+      }
+      escaped = backslashEscapes && !escaped && input.next == 92;
+      input.advance();
+    }
+  }
+  function readDoubleDollarLiteral(input, tag) {
+    scan: for (; ; ) {
+      if (input.next < 0)
+        return;
+      if (input.next == 36) {
+        input.advance();
+        for (let i = 0; i < tag.length; i++) {
+          if (input.next != tag.charCodeAt(i))
+            continue scan;
+          input.advance();
+        }
+        if (input.next == 36) {
+          input.advance();
+          return;
+        }
+      } else {
+        input.advance();
+      }
+    }
+  }
+  function readPLSQLQuotedLiteral(input, openDelim) {
+    let matchingDelim = "[{<(".indexOf(String.fromCharCode(openDelim));
+    let closeDelim = matchingDelim < 0 ? openDelim : "]}>)".charCodeAt(matchingDelim);
+    for (; ; ) {
+      if (input.next < 0)
+        return;
+      if (input.next == closeDelim && input.peek(1) == 39) {
+        input.advance(2);
+        return;
+      }
+      input.advance();
+    }
+  }
+  function readWord(input, result) {
+    for (; ; ) {
+      if (input.next != 95 && !isAlpha2(input.next))
+        break;
+      if (result != null)
+        result += String.fromCharCode(input.next);
+      input.advance();
+    }
+    return result;
+  }
+  function readWordOrQuoted(input) {
+    if (input.next == 39 || input.next == 34 || input.next == 96) {
+      let quote = input.next;
+      input.advance();
+      readLiteral(input, quote, false);
+    } else {
+      readWord(input);
+    }
+  }
+  function readBits(input, endQuote) {
+    while (input.next == 48 || input.next == 49)
+      input.advance();
+    if (endQuote && input.next == endQuote)
+      input.advance();
+  }
+  function readNumber(input, sawDot) {
+    for (; ; ) {
+      if (input.next == 46) {
+        if (sawDot)
+          break;
+        sawDot = true;
+      } else if (input.next < 48 || input.next > 57) {
+        break;
+      }
+      input.advance();
+    }
+    if (input.next == 69 || input.next == 101) {
+      input.advance();
+      if (input.next == 43 || input.next == 45)
+        input.advance();
+      while (input.next >= 48 && input.next <= 57)
+        input.advance();
+    }
+  }
+  function eol(input) {
+    while (!(input.next < 0 || input.next == 10))
+      input.advance();
+  }
+  function inString(ch, str) {
+    for (let i = 0; i < str.length; i++)
+      if (str.charCodeAt(i) == ch)
+        return true;
+    return false;
+  }
+  function keywords3(keywords4, types2, builtin) {
+    let result = /* @__PURE__ */ Object.create(null);
+    result["true"] = result["false"] = Bool2;
+    result["null"] = result["unknown"] = Null;
+    for (let kw of keywords4.split(" "))
+      if (kw)
+        result[kw] = Keyword;
+    for (let tp of types2.split(" "))
+      if (tp)
+        result[tp] = Type2;
+    for (let kw of (builtin || "").split(" "))
+      if (kw)
+        result[kw] = Builtin;
+    return result;
+  }
+  function dialect(spec, kws, types2, builtin) {
+    let dialect2 = {};
+    for (let prop in defaults)
+      dialect2[prop] = (spec.hasOwnProperty(prop) ? spec : defaults)[prop];
+    if (kws)
+      dialect2.words = keywords3(kws, types2 || "", builtin);
+    return dialect2;
+  }
+  function tokensFor(d) {
+    return new ExternalTokenizer((input) => {
+      var _a2;
+      let { next } = input;
+      input.advance();
+      if (inString(next, Space)) {
+        while (inString(input.next, Space))
+          input.advance();
+        input.acceptToken(whitespace);
+      } else if (next == 36 && d.doubleDollarQuotedStrings) {
+        let tag = readWord(input, "");
+        if (input.next == 36) {
+          input.advance();
+          readDoubleDollarLiteral(input, tag);
+          input.acceptToken(String$12);
+        }
+      } else if (next == 39 || next == 34 && d.doubleQuotedStrings) {
+        readLiteral(input, next, d.backslashEscapes);
+        input.acceptToken(String$12);
+      } else if (next == 35 && d.hashComments || next == 47 && input.next == 47 && d.slashComments) {
+        eol(input);
+        input.acceptToken(LineComment2);
+      } else if (next == 45 && input.next == 45 && (!d.spaceAfterDashes || input.peek(1) == 32)) {
+        eol(input);
+        input.acceptToken(LineComment2);
+      } else if (next == 47 && input.next == 42) {
+        input.advance();
+        for (let depth = 1; ; ) {
+          let cur = input.next;
+          if (input.next < 0)
+            break;
+          input.advance();
+          if (cur == 42 && input.next == 47) {
+            depth--;
+            input.advance();
+            if (!depth)
+              break;
+          } else if (cur == 47 && input.next == 42) {
+            depth++;
+            input.advance();
+          }
+        }
+        input.acceptToken(BlockComment2);
+      } else if ((next == 101 || next == 69) && input.next == 39) {
+        input.advance();
+        readLiteral(input, 39, true);
+        input.acceptToken(String$12);
+      } else if ((next == 110 || next == 78) && input.next == 39 && d.charSetCasts) {
+        input.advance();
+        readLiteral(input, 39, d.backslashEscapes);
+        input.acceptToken(String$12);
+      } else if (next == 95 && d.charSetCasts) {
+        for (let i = 0; ; i++) {
+          if (input.next == 39 && i > 1) {
+            input.advance();
+            readLiteral(input, 39, d.backslashEscapes);
+            input.acceptToken(String$12);
+            break;
+          }
+          if (!isAlpha2(input.next))
+            break;
+          input.advance();
+        }
+      } else if (d.plsqlQuotingMechanism && (next == 113 || next == 81) && input.next == 39 && input.peek(1) > 0 && !inString(input.peek(1), Space)) {
+        let openDelim = input.peek(1);
+        input.advance(2);
+        readPLSQLQuotedLiteral(input, openDelim);
+        input.acceptToken(String$12);
+      } else if (inString(next, d.identifierQuotes)) {
+        const endQuote = next == 91 ? 93 : next;
+        readLiteral(input, endQuote, false);
+        input.acceptToken(QuotedIdentifier);
+      } else if (next == 40) {
+        input.acceptToken(ParenL2);
+      } else if (next == 41) {
+        input.acceptToken(ParenR);
+      } else if (next == 123) {
+        input.acceptToken(BraceL3);
+      } else if (next == 125) {
+        input.acceptToken(BraceR);
+      } else if (next == 91) {
+        input.acceptToken(BracketL3);
+      } else if (next == 93) {
+        input.acceptToken(BracketR);
+      } else if (next == 59) {
+        input.acceptToken(Semi);
+      } else if (d.unquotedBitLiterals && next == 48 && input.next == 98) {
+        input.advance();
+        readBits(input);
+        input.acceptToken(Bits);
+      } else if ((next == 98 || next == 66) && (input.next == 39 || input.next == 34)) {
+        const quoteStyle = input.next;
+        input.advance();
+        if (d.treatBitsAsBytes) {
+          readLiteral(input, quoteStyle, d.backslashEscapes);
+          input.acceptToken(Bytes);
+        } else {
+          readBits(input, quoteStyle);
+          input.acceptToken(Bits);
+        }
+      } else if (next == 48 && (input.next == 120 || input.next == 88) || (next == 120 || next == 88) && input.next == 39) {
+        let quoted = input.next == 39;
+        input.advance();
+        while (isHexDigit(input.next))
+          input.advance();
+        if (quoted && input.next == 39)
+          input.advance();
+        input.acceptToken(Number3);
+      } else if (next == 46 && input.next >= 48 && input.next <= 57) {
+        readNumber(input, true);
+        input.acceptToken(Number3);
+      } else if (next == 46) {
+        input.acceptToken(Dot);
+      } else if (next >= 48 && next <= 57) {
+        readNumber(input, false);
+        input.acceptToken(Number3);
+      } else if (inString(next, d.operatorChars)) {
+        while (inString(input.next, d.operatorChars))
+          input.advance();
+        input.acceptToken(Operator);
+      } else if (inString(next, d.specialVar)) {
+        if (input.next == next)
+          input.advance();
+        readWordOrQuoted(input);
+        input.acceptToken(SpecialVar);
+      } else if (next == 58 || next == 44) {
+        input.acceptToken(Punctuation2);
+      } else if (isAlpha2(next)) {
+        let word = readWord(input, String.fromCharCode(next));
+        input.acceptToken(input.next == 46 || input.peek(-word.length - 1) == 46 ? Identifier4 : (_a2 = d.words[word.toLowerCase()]) !== null && _a2 !== void 0 ? _a2 : Identifier4);
+      }
+    });
+  }
+  function tokenBefore(tree) {
+    let cursor = tree.cursor().moveTo(tree.from, -1);
+    while (/Comment/.test(cursor.name))
+      cursor.moveTo(cursor.from, -1);
+    return cursor.node;
+  }
+  function idName(doc2, node) {
+    let text = doc2.sliceString(node.from, node.to);
+    let quoted = /^([`'"\[])(.*)([`'"\]])$/.exec(text);
+    return quoted ? quoted[2] : text;
+  }
+  function plainID(node) {
+    return node && (node.name == "Identifier" || node.name == "QuotedIdentifier");
+  }
+  function pathFor(doc2, id2) {
+    if (id2.name == "CompositeIdentifier") {
+      let path = [];
+      for (let ch = id2.firstChild; ch; ch = ch.nextSibling)
+        if (plainID(ch))
+          path.push(idName(doc2, ch));
+      return path;
+    }
+    return [idName(doc2, id2)];
+  }
+  function parentsFor(doc2, node) {
+    for (let path = []; ; ) {
+      if (!node || node.name != ".")
+        return path;
+      let name2 = tokenBefore(node);
+      if (!plainID(name2))
+        return path;
+      path.unshift(idName(doc2, name2));
+      node = tokenBefore(name2);
+    }
+  }
+  function sourceContext(state, startPos) {
+    let pos = syntaxTree(state).resolveInner(startPos, -1);
+    let aliases = getAliases(state.doc, pos);
+    if (pos.name == "Identifier" || pos.name == "QuotedIdentifier" || pos.name == "Keyword") {
+      return {
+        from: pos.from,
+        quoted: pos.name == "QuotedIdentifier" ? state.doc.sliceString(pos.from, pos.from + 1) : null,
+        parents: parentsFor(state.doc, tokenBefore(pos)),
+        aliases
+      };
+    }
+    if (pos.name == ".") {
+      return { from: startPos, quoted: null, parents: parentsFor(state.doc, pos), aliases };
+    } else {
+      return { from: startPos, quoted: null, parents: [], empty: true, aliases };
+    }
+  }
+  function getAliases(doc2, at) {
+    let statement;
+    for (let parent = at; !statement; parent = parent.parent) {
+      if (!parent)
+        return null;
+      if (parent.name == "Statement")
+        statement = parent;
+    }
+    let aliases = null;
+    for (let scan = statement.firstChild, sawFrom = false, prevID = null; scan; scan = scan.nextSibling) {
+      let kw = scan.name == "Keyword" ? doc2.sliceString(scan.from, scan.to).toLowerCase() : null;
+      let alias = null;
+      if (!sawFrom) {
+        sawFrom = kw == "from";
+      } else if (kw == "as" && prevID && plainID(scan.nextSibling)) {
+        alias = idName(doc2, scan.nextSibling);
+      } else if (kw && EndFrom.has(kw)) {
+        break;
+      } else if (prevID && plainID(scan)) {
+        alias = idName(doc2, scan);
+      }
+      if (alias) {
+        if (!aliases)
+          aliases = /* @__PURE__ */ Object.create(null);
+        aliases[alias] = pathFor(doc2, prevID);
+      }
+      prevID = /Identifier$/.test(scan.name) ? scan : null;
+    }
+    return aliases;
+  }
+  function maybeQuoteCompletions(openingQuote, closingQuote, completions) {
+    return completions.map((c) => ({ ...c, label: c.label[0] == openingQuote ? c.label : openingQuote + c.label + closingQuote, apply: void 0 }));
+  }
+  function isSelfTag(namespace) {
+    return namespace.self && typeof namespace.self.label == "string";
+  }
+  function nameCompletion(label, type, idQuote, idCaseInsensitive) {
+    if (new RegExp("^[a-z_][a-z_\\d]*$", idCaseInsensitive ? "i" : "").test(label))
+      return { label, type };
+    return { label, type, apply: idQuote + label + getClosingQuote(idQuote) };
+  }
+  function getClosingQuote(openingQuote) {
+    return openingQuote === "[" ? "]" : openingQuote;
+  }
+  function completeFromSchema(schema, tables, schemas, defaultTableName, defaultSchemaName, dialect2) {
+    var _a2;
+    let idQuote = ((_a2 = dialect2 === null || dialect2 === void 0 ? void 0 : dialect2.spec.identifierQuotes) === null || _a2 === void 0 ? void 0 : _a2[0]) || '"';
+    let top2 = new CompletionLevel(idQuote, !!(dialect2 === null || dialect2 === void 0 ? void 0 : dialect2.spec.caseInsensitiveIdentifiers));
+    let defaultSchema = defaultSchemaName ? top2.child(defaultSchemaName) : null;
+    top2.addNamespace(schema);
+    if (tables)
+      (defaultSchema || top2).addCompletions(tables);
+    if (schemas)
+      top2.addCompletions(schemas);
+    if (defaultSchema)
+      top2.addCompletions(defaultSchema.list);
+    if (defaultTableName)
+      top2.addCompletions((defaultSchema || top2).child(defaultTableName).list);
+    return (context) => {
+      let { parents, from, quoted, empty, aliases } = sourceContext(context.state, context.pos);
+      if (empty && !context.explicit)
+        return null;
+      if (aliases && parents.length == 1)
+        parents = aliases[parents[0]] || parents;
+      let level = top2;
+      for (let name2 of parents) {
+        while (!level.children || !level.children[name2]) {
+          if (level == top2 && defaultSchema)
+            level = defaultSchema;
+          else if (level == defaultSchema && defaultTableName)
+            level = level.child(defaultTableName);
+          else
+            return null;
+        }
+        let next = level.maybeChild(name2);
+        if (!next)
+          return null;
+        level = next;
+      }
+      let options = level.list;
+      if (level == top2 && aliases)
+        options = options.concat(Object.keys(aliases).map((name2) => ({ label: name2, type: "constant" })));
+      if (quoted) {
+        let openingQuote = quoted[0];
+        let closingQuote = getClosingQuote(openingQuote);
+        let quoteAfter = context.state.sliceDoc(context.pos, context.pos + 1) == closingQuote;
+        return {
+          from,
+          to: quoteAfter ? context.pos + 1 : void 0,
+          options: maybeQuoteCompletions(openingQuote, closingQuote, options),
+          validFor: QuotedSpan
+        };
+      } else {
+        return {
+          from,
+          options,
+          validFor: Span
+        };
+      }
+    };
+  }
+  function completionType(tokenType) {
+    return tokenType == Type2 ? "type" : tokenType == Keyword ? "keyword" : "variable";
+  }
+  function completeKeywords(keywords4, upperCase, build) {
+    let completions = Object.keys(keywords4).map((keyword2) => build(upperCase ? keyword2.toUpperCase() : keyword2, completionType(keywords4[keyword2])));
+    return ifNotIn(["QuotedIdentifier", "String", "LineComment", "BlockComment", "."], completeFromList(completions));
+  }
+  function defaultKeyword(label, type) {
+    return { label, type, boost: -1 };
+  }
+  function keywordCompletionSource(dialect2, upperCase = false, build) {
+    return completeKeywords(dialect2.dialect.words, upperCase, build || defaultKeyword);
+  }
+  function schemaCompletionSource(config) {
+    return config.schema ? completeFromSchema(config.schema, config.tables, config.schemas, config.defaultTable, config.defaultSchema, config.dialect || StandardSQL) : () => null;
+  }
+  function schemaCompletion(config) {
+    return config.schema ? (config.dialect || StandardSQL).language.data.of({
+      autocomplete: schemaCompletionSource(config)
+    }) : [];
+  }
+  function sql(config = {}) {
+    let lang = config.dialect || StandardSQL;
+    return new LanguageSupport(lang.language, [
+      schemaCompletion(config),
+      lang.language.data.of({
+        autocomplete: keywordCompletionSource(lang, config.upperCaseKeywords, config.keywordCompletion)
+      })
+    ]);
+  }
+  var whitespace, LineComment2, BlockComment2, String$12, Number3, Bool2, Null, ParenL2, ParenR, BraceL3, BraceR, BracketL3, BracketR, Semi, Dot, Operator, Punctuation2, SpecialVar, Identifier4, QuotedIdentifier, Keyword, Type2, Bits, Bytes, Builtin, Space, SQLTypes, SQLKeywords, defaults, tokens, parser$1, EndFrom, Span, QuotedSpan, CompletionLevel, parser10, SQLDialect, StandardSQL, PostgreSQL, MySQLKeywords, MySQLTypes, MySQLBuiltin, MySQL, MariaSQL, MSSQLBuiltin, MSSQL, SQLite, Cassandra, PLSQL;
+  var init_dist25 = __esm({
+    "node_modules/@codemirror/lang-sql/dist/index.js"() {
+      init_dist5();
+      init_dist4();
+      init_dist9();
+      init_dist7();
+      whitespace = 36;
+      LineComment2 = 1;
+      BlockComment2 = 2;
+      String$12 = 3;
+      Number3 = 4;
+      Bool2 = 5;
+      Null = 6;
+      ParenL2 = 7;
+      ParenR = 8;
+      BraceL3 = 9;
+      BraceR = 10;
+      BracketL3 = 11;
+      BracketR = 12;
+      Semi = 13;
+      Dot = 14;
+      Operator = 15;
+      Punctuation2 = 16;
+      SpecialVar = 17;
+      Identifier4 = 18;
+      QuotedIdentifier = 19;
+      Keyword = 20;
+      Type2 = 21;
+      Bits = 22;
+      Bytes = 23;
+      Builtin = 24;
+      Space = " 	\r\n";
+      SQLTypes = "array binary bit boolean char character clob date decimal double float int integer interval large national nchar nclob numeric object precision real smallint time timestamp varchar varying ";
+      SQLKeywords = "absolute action add after all allocate alter and any are as asc assertion at authorization before begin between both breadth by call cascade cascaded case cast catalog check close collate collation column commit condition connect connection constraint constraints constructor continue corresponding count create cross cube current current_date current_default_transform_group current_transform_group_for_type current_path current_role current_time current_timestamp current_user cursor cycle data day deallocate declare default deferrable deferred delete depth deref desc describe descriptor deterministic diagnostics disconnect distinct do domain drop dynamic each else elseif end end-exec equals escape except exception exec execute exists exit external fetch first for foreign found from free full function general get global go goto grant group grouping handle having hold hour identity if immediate in indicator initially inner inout input insert intersect into is isolation join key language last lateral leading leave left level like limit local localtime localtimestamp locator loop map match method minute modifies module month names natural nesting new next no none not of old on only open option or order ordinality out outer output overlaps pad parameter partial path prepare preserve primary prior privileges procedure public read reads recursive redo ref references referencing relative release repeat resignal restrict result return returns revoke right role rollback rollup routine row rows savepoint schema scroll search second section select session session_user set sets signal similar size some space specific specifictype sql sqlexception sqlstate sqlwarning start state static system_user table temporary then timezone_hour timezone_minute to trailing transaction translation treat trigger under undo union unique unnest until update usage user using value values view when whenever where while with without work write year zone ";
+      defaults = {
+        backslashEscapes: false,
+        hashComments: false,
+        spaceAfterDashes: false,
+        slashComments: false,
+        doubleQuotedStrings: false,
+        doubleDollarQuotedStrings: false,
+        unquotedBitLiterals: false,
+        treatBitsAsBytes: false,
+        charSetCasts: false,
+        plsqlQuotingMechanism: false,
+        operatorChars: "*+-%<>!=&|~^/",
+        specialVar: "?",
+        identifierQuotes: '"',
+        caseInsensitiveIdentifiers: false,
+        words: /* @__PURE__ */ keywords3(SQLKeywords, SQLTypes)
+      };
+      tokens = /* @__PURE__ */ tokensFor(defaults);
+      parser$1 = /* @__PURE__ */ LRParser.deserialize({
+        version: 14,
+        states: "%vQ]QQOOO#wQRO'#DSO$OQQO'#CwO%eQQO'#CxO%lQQO'#CyO%sQQO'#CzOOQQ'#DS'#DSOOQQ'#C}'#C}O'UQRO'#C{OOQQ'#Cv'#CvOOQQ'#C|'#C|Q]QQOOQOQQOOO'`QQO'#DOO(xQRO,59cO)PQQO,59cO)UQQO'#DSOOQQ,59d,59dO)cQQO,59dOOQQ,59e,59eO)jQQO,59eOOQQ,59f,59fO)qQQO,59fOOQQ-E6{-E6{OOQQ,59b,59bOOQQ-E6z-E6zOOQQ,59j,59jOOQQ-E6|-E6|O+VQRO1G.}O+^QQO,59cOOQQ1G/O1G/OOOQQ1G/P1G/POOQQ1G/Q1G/QP+kQQO'#C}O+rQQO1G.}O)PQQO,59cO,PQQO'#Cw",
+        stateData: ",[~OtOSPOSQOS~ORUOSUOTUOUUOVROXSOZTO]XO^QO_UO`UOaPObPOcPOdUOeUOfUOgUOhUO~O^]ORvXSvXTvXUvXVvXXvXZvX]vX_vX`vXavXbvXcvXdvXevXfvXgvXhvX~OsvX~P!jOa_Ob_Oc_O~ORUOSUOTUOUUOVROXSOZTO^tO_UO`UOa`Ob`Oc`OdUOeUOfUOgUOhUO~OWaO~P$ZOYcO~P$ZO[eO~P$ZORUOSUOTUOUUOVROXSOZTO^QO_UO`UOaPObPOcPOdUOeUOfUOgUOhUO~O]hOsoX~P%zOajObjOcjO~O^]ORkaSkaTkaUkaVkaXkaZka]ka_ka`kaakabkackadkaekafkagkahka~Oska~P'kO^]O~OWvXYvX[vX~P!jOWnO~P$ZOYoO~P$ZO[pO~P$ZO^]ORkiSkiTkiUkiVkiXkiZki]ki_ki`kiakibkickidkiekifkigkihki~Oski~P)xOWkaYka[ka~P'kO]hO~P$ZOWkiYki[ki~P)xOasObsOcsO~O",
+        goto: "#hwPPPPPPPPPPPPPPPPPPPPPPPPPPx||||!Y!^!d!xPPP#[TYOZeUORSTWZbdfqT[OZQZORiZSWOZQbRQdSQfTZgWbdfqQ^PWk^lmrQl_Qm`RrseVORSTWZbdfq",
+        nodeNames: "\u26A0 LineComment BlockComment String Number Bool Null ( ) { } [ ] ; . Operator Punctuation SpecialVar Identifier QuotedIdentifier Keyword Type Bits Bytes Builtin Script Statement CompositeIdentifier Parens Braces Brackets Statement",
+        maxTerm: 38,
+        nodeProps: [
+          ["isolate", -4, 1, 2, 3, 19, ""]
+        ],
+        skippedNodes: [0, 1, 2],
+        repeatNodeCount: 3,
+        tokenData: "RORO",
+        tokenizers: [0, tokens],
+        topRules: { "Script": [0, 25] },
+        tokenPrec: 0
+      });
+      EndFrom = /* @__PURE__ */ new Set(/* @__PURE__ */ "where group having order union intersect except all distinct limit offset fetch for".split(" "));
+      Span = /^\w*$/;
+      QuotedSpan = /^[`'"\[]?\w*[`'"\]]?$/;
+      CompletionLevel = class _CompletionLevel {
+        constructor(idQuote, idCaseInsensitive) {
+          this.idQuote = idQuote;
+          this.idCaseInsensitive = idCaseInsensitive;
+          this.list = [];
+          this.children = void 0;
+        }
+        child(name2) {
+          let children = this.children || (this.children = /* @__PURE__ */ Object.create(null));
+          let found = children[name2];
+          if (found)
+            return found;
+          if (name2 && !this.list.some((c) => c.label == name2))
+            this.list.push(nameCompletion(name2, "type", this.idQuote, this.idCaseInsensitive));
+          return children[name2] = new _CompletionLevel(this.idQuote, this.idCaseInsensitive);
+        }
+        maybeChild(name2) {
+          return this.children ? this.children[name2] : null;
+        }
+        addCompletion(option) {
+          let found = this.list.findIndex((o) => o.label == option.label);
+          if (found > -1)
+            this.list[found] = option;
+          else
+            this.list.push(option);
+        }
+        addCompletions(completions) {
+          for (let option of completions)
+            this.addCompletion(typeof option == "string" ? nameCompletion(option, "property", this.idQuote, this.idCaseInsensitive) : option);
+        }
+        addNamespace(namespace) {
+          if (Array.isArray(namespace)) {
+            this.addCompletions(namespace);
+          } else if (isSelfTag(namespace)) {
+            this.addNamespace(namespace.children);
+          } else {
+            this.addNamespaceObject(namespace);
+          }
+        }
+        addNamespaceObject(namespace) {
+          for (let name2 of Object.keys(namespace)) {
+            let children = namespace[name2], self = null;
+            let parts = name2.replace(/\\?\./g, (p) => p == "." ? "\0" : p).split("\0");
+            let scope = this;
+            if (isSelfTag(children)) {
+              self = children.self;
+              children = children.children;
+            }
+            for (let i = 0; i < parts.length; i++) {
+              if (self && i == parts.length - 1)
+                scope.addCompletion(self);
+              scope = scope.child(parts[i].replace(/\\\./g, "."));
+            }
+            scope.addNamespace(children);
+          }
+        }
+      };
+      parser10 = /* @__PURE__ */ parser$1.configure({
+        props: [
+          /* @__PURE__ */ indentNodeProp.add({
+            Statement: /* @__PURE__ */ continuedIndent()
+          }),
+          /* @__PURE__ */ foldNodeProp.add({
+            Statement(tree, state) {
+              return { from: Math.min(tree.from + 100, state.doc.lineAt(tree.from).to), to: tree.to };
+            },
+            BlockComment(tree) {
+              return { from: tree.from + 2, to: tree.to - 2 };
+            }
+          }),
+          /* @__PURE__ */ styleTags({
+            Keyword: tags.keyword,
+            Type: tags.typeName,
+            Builtin: /* @__PURE__ */ tags.standard(tags.name),
+            Bits: tags.number,
+            Bytes: tags.string,
+            Bool: tags.bool,
+            Null: tags.null,
+            Number: tags.number,
+            String: tags.string,
+            Identifier: tags.name,
+            QuotedIdentifier: /* @__PURE__ */ tags.special(tags.string),
+            SpecialVar: /* @__PURE__ */ tags.special(tags.name),
+            LineComment: tags.lineComment,
+            BlockComment: tags.blockComment,
+            Operator: tags.operator,
+            "Semi Punctuation": tags.punctuation,
+            "( )": tags.paren,
+            "{ }": tags.brace,
+            "[ ]": tags.squareBracket
+          })
+        ]
+      });
+      SQLDialect = class _SQLDialect {
+        constructor(dialect2, language2, spec) {
+          this.dialect = dialect2;
+          this.language = language2;
+          this.spec = spec;
+        }
+        /**
+        Returns the language for this dialect as an extension.
+        */
+        get extension() {
+          return this.language.extension;
+        }
+        /**
+        Reconfigure the parser used by this dialect. Returns a new
+        dialect object.
+        */
+        configureLanguage(options, name2) {
+          return new _SQLDialect(this.dialect, this.language.configure(options, name2), this.spec);
+        }
+        /**
+        Define a new dialect.
+        */
+        static define(spec) {
+          let d = dialect(spec, spec.keywords, spec.types, spec.builtin);
+          let language2 = LRLanguage.define({
+            name: "sql",
+            parser: parser10.configure({
+              tokenizers: [{ from: tokens, to: tokensFor(d) }]
+            }),
+            languageData: {
+              commentTokens: { line: "--", block: { open: "/*", close: "*/" } },
+              closeBrackets: { brackets: ["(", "[", "{", "'", '"', "`"] }
+            }
+          });
+          return new _SQLDialect(d, language2, spec);
+        }
+      };
+      StandardSQL = /* @__PURE__ */ SQLDialect.define({});
+      PostgreSQL = /* @__PURE__ */ SQLDialect.define({
+        charSetCasts: true,
+        doubleDollarQuotedStrings: true,
+        operatorChars: "+-*/<>=~!@#%^&|`?",
+        specialVar: "",
+        keywords: SQLKeywords + "abort abs absent access according ada admin aggregate alias also always analyse analyze array_agg array_max_cardinality asensitive assert assignment asymmetric atomic attach attribute attributes avg backward base64 begin_frame begin_partition bernoulli bit_length blocked bom cache called cardinality catalog_name ceil ceiling chain char_length character_length character_set_catalog character_set_name character_set_schema characteristics characters checkpoint class class_origin cluster coalesce cobol collation_catalog collation_name collation_schema collect column_name columns command_function command_function_code comment comments committed concurrently condition_number configuration conflict connection_name constant constraint_catalog constraint_name constraint_schema contains content control conversion convert copy corr cost covar_pop covar_samp csv cume_dist current_catalog current_row current_schema cursor_name database datalink datatype datetime_interval_code datetime_interval_precision db debug defaults defined definer degree delimiter delimiters dense_rank depends derived detach detail dictionary disable discard dispatch dlnewcopy dlpreviouscopy dlurlcomplete dlurlcompleteonly dlurlcompletewrite dlurlpath dlurlpathonly dlurlpathwrite dlurlscheme dlurlserver dlvalue document dump dynamic_function dynamic_function_code element elsif empty enable encoding encrypted end_frame end_partition endexec enforced enum errcode error event every exclude excluding exclusive exp explain expression extension extract family file filter final first_value flag floor following force foreach fortran forward frame_row freeze fs functions fusion generated granted greatest groups handler header hex hierarchy hint id ignore ilike immediately immutable implementation implicit import include including increment indent index indexes info inherit inherits inline insensitive instance instantiable instead integrity intersection invoker isnull key_member key_type label lag last_value lead leakproof least length library like_regex link listen ln load location lock locked log logged lower mapping matched materialized max max_cardinality maxvalue member merge message message_length message_octet_length message_text min minvalue mod mode more move multiset mumps name namespace nfc nfd nfkc nfkd nil normalize normalized nothing notice notify notnull nowait nth_value ntile nullable nullif nulls number occurrences_regex octet_length octets off offset oids operator options ordering others over overlay overriding owned owner parallel parameter_mode parameter_name parameter_ordinal_position parameter_specific_catalog parameter_specific_name parameter_specific_schema parser partition pascal passing passthrough password percent percent_rank percentile_cont percentile_disc perform period permission pg_context pg_datatype_name pg_exception_context pg_exception_detail pg_exception_hint placing plans pli policy portion position position_regex power precedes preceding prepared print_strict_params procedural procedures program publication query quote raise range rank reassign recheck recovery refresh regr_avgx regr_avgy regr_count regr_intercept regr_r2 regr_slope regr_sxx regr_sxy regr_syy reindex rename repeatable replace replica requiring reset respect restart restore result_oid returned_cardinality returned_length returned_octet_length returned_sqlstate returning reverse routine_catalog routine_name routine_schema routines row_count row_number rowtype rule scale schema_name schemas scope scope_catalog scope_name scope_schema security selective self sensitive sequence sequences serializable server server_name setof share show simple skip slice snapshot source specific_name sqlcode sqlerror sqrt stable stacked standalone statement statistics stddev_pop stddev_samp stdin stdout storage strict strip structure style subclass_origin submultiset subscription substring substring_regex succeeds sum symmetric sysid system system_time table_name tables tablesample tablespace temp template ties token top_level_count transaction_active transactions_committed transactions_rolled_back transform transforms translate translate_regex trigger_catalog trigger_name trigger_schema trim trim_array truncate trusted type types uescape unbounded uncommitted unencrypted unlink unlisten unlogged unnamed untyped upper uri use_column use_variable user_defined_type_catalog user_defined_type_code user_defined_type_name user_defined_type_schema vacuum valid validate validator value_of var_pop var_samp varbinary variable_conflict variadic verbose version versioning views volatile warning whitespace width_bucket window within wrapper xmlagg xmlattributes xmlbinary xmlcast xmlcomment xmlconcat xmldeclaration xmldocument xmlelement xmlexists xmlforest xmliterate xmlnamespaces xmlparse xmlpi xmlquery xmlroot xmlschema xmlserialize xmltable xmltext xmlvalidate yes",
+        types: SQLTypes + "bigint int8 bigserial serial8 varbit bool box bytea cidr circle precision float8 inet int4 json jsonb line lseg macaddr macaddr8 money numeric pg_lsn point polygon float4 int2 smallserial serial2 serial serial4 text timetz timestamptz tsquery tsvector txid_snapshot uuid xml"
+      });
+      MySQLKeywords = "accessible algorithm analyze asensitive authors auto_increment autocommit avg avg_row_length binlog btree cache catalog_name chain change changed checkpoint checksum class_origin client_statistics coalesce code collations columns comment committed completion concurrent consistent contains contributors convert database databases day_hour day_microsecond day_minute day_second delay_key_write delayed delimiter des_key_file dev_pop dev_samp deviance directory disable discard distinctrow div dual dumpfile enable enclosed ends engine engines enum errors escaped even event events every explain extended fast field fields flush force found_rows fulltext grants handler hash high_priority hosts hour_microsecond hour_minute hour_second ignore ignore_server_ids import index index_statistics infile innodb insensitive insert_method install invoker iterate keys kill linear lines list load lock logs low_priority master master_heartbeat_period master_ssl_verify_server_cert masters max max_rows maxvalue message_text middleint migrate min min_rows minute_microsecond minute_second mod mode modify mutex mysql_errno no_write_to_binlog offline offset one online optimize optionally outfile pack_keys parser partition partitions password phase plugin plugins prev processlist profile profiles purge query quick range read_write rebuild recover regexp relaylog remove rename reorganize repair repeatable replace require resume rlike row_format rtree schedule schema_name schemas second_microsecond security sensitive separator serializable server share show slave slow snapshot soname spatial sql_big_result sql_buffer_result sql_cache sql_calc_found_rows sql_no_cache sql_small_result ssl starting starts std stddev stddev_pop stddev_samp storage straight_join subclass_origin sum suspend table_name table_statistics tables tablespace terminated triggers truncate uncommitted uninstall unlock upgrade use use_frm user_resources user_statistics utc_date utc_time utc_timestamp variables views warnings xa xor year_month zerofill";
+      MySQLTypes = SQLTypes + "bool blob long longblob longtext medium mediumblob mediumint mediumtext tinyblob tinyint tinytext text bigint int1 int2 int3 int4 int8 float4 float8 varbinary varcharacter precision datetime unsigned signed";
+      MySQLBuiltin = "charset clear edit ego help nopager notee nowarning pager print prompt quit rehash source status system tee";
+      MySQL = /* @__PURE__ */ SQLDialect.define({
+        operatorChars: "*+-%<>!=&|^",
+        charSetCasts: true,
+        doubleQuotedStrings: true,
+        unquotedBitLiterals: true,
+        hashComments: true,
+        spaceAfterDashes: true,
+        specialVar: "@?",
+        identifierQuotes: "`",
+        keywords: SQLKeywords + "group_concat " + MySQLKeywords,
+        types: MySQLTypes,
+        builtin: MySQLBuiltin
+      });
+      MariaSQL = /* @__PURE__ */ SQLDialect.define({
+        operatorChars: "*+-%<>!=&|^",
+        charSetCasts: true,
+        doubleQuotedStrings: true,
+        unquotedBitLiterals: true,
+        hashComments: true,
+        spaceAfterDashes: true,
+        specialVar: "@?",
+        identifierQuotes: "`",
+        keywords: SQLKeywords + "always generated groupby_concat hard persistent shutdown soft virtual " + MySQLKeywords,
+        types: MySQLTypes,
+        builtin: MySQLBuiltin
+      });
+      MSSQLBuiltin = // Aggregate https://msdn.microsoft.com/en-us/library/ms173454.aspx
+      "approx_count_distinct approx_percentile_cont approx_percentile_disc avg checksum_agg count count_big grouping grouping_id max min product stdev stdevp sum var varp ai_generate_embeddings ai_generate_chunks cume_dist first_value lag last_value lead percentile_cont percentile_disc percent_rank left_shift right_shift bit_count get_bit set_bit collationproperty tertiary_weights @@datefirst @@dbts @@langid @@language @@lock_timeout @@max_connections @@max_precision @@nestlevel @@options @@remserver @@servername @@servicename @@spid @@textsize @@version cast convert parse try_cast try_convert try_parse asymkey_id asymkeyproperty certproperty cert_id crypt_gen_random decryptbyasymkey decryptbycert decryptbykey decryptbykeyautoasymkey decryptbykeyautocert decryptbypassphrase encryptbyasymkey encryptbycert encryptbykey encryptbypassphrase hashbytes is_objectsigned key_guid key_id key_name signbyasymkey signbycert symkeyproperty verifysignedbycert verifysignedbyasymkey @@cursor_rows @@fetch_status cursor_status datalength ident_current ident_incr ident_seed identity sql_variant_property @@datefirst current_timestamp current_timezone current_timezone_id date_bucket dateadd datediff datediff_big datefromparts datename datepart datetime2fromparts datetimefromparts datetimeoffsetfromparts datetrunc day eomonth getdate getutcdate isdate month smalldatetimefromparts switchoffset sysdatetime sysdatetimeoffset sysutcdatetime timefromparts todatetimeoffset year edit_distance edit_distance_similarity jaro_winkler_distance jaro_winkler_similarity edge_id_from_parts graph_id_from_edge_id graph_id_from_node_id node_id_from_parts object_id_from_edge_id object_id_from_node_id json isjson json_array json_contains json_modify json_object json_path_exists json_query json_value regexp_like regexp_replace regexp_substr regexp_instr regexp_count regexp_matches regexp_split_to_table abs acos asin atan atn2 ceiling cos cot degrees exp floor log log10 pi power radians rand round sign sin sqrt square tan choose greatest iif least @@procid app_name applock_mode applock_test assemblyproperty col_length col_name columnproperty databasepropertyex db_id db_name file_id file_idex file_name filegroup_id filegroup_name filegroupproperty fileproperty filepropertyex fulltextcatalogproperty fulltextserviceproperty index_col indexkey_property indexproperty next value for object_definition object_id object_name object_schema_name objectproperty objectpropertyex original_db_name parsename schema_id schema_name scope_identity serverproperty stats_date type_id type_name typeproperty dense_rank ntile rank row_number publishingservername certenclosed certprivatekey current_user database_principal_id has_dbaccess has_perms_by_name is_member is_rolemember is_srvrolemember loginproperty original_login permissions pwdencrypt pwdcompare session_user sessionproperty suser_id suser_name suser_sid suser_sname system_user user user_id user_name ascii char charindex concat concat_ws difference format left len lower ltrim nchar patindex quotename replace replicate reverse right rtrim soundex space str string_agg string_escape stuff substring translate trim unicode upper $partition @@error @@identity @@pack_received @@rowcount @@trancount binary_checksum checksum compress connectionproperty context_info current_request_id current_transaction_id decompress error_line error_message error_number error_procedure error_severity error_state formatmessage get_filestream_transaction_context getansinull host_id host_name isnull isnumeric min_active_rowversion newid newsequentialid rowcount_big session_context xact_state @@connections @@cpu_busy @@idle @@io_busy @@pack_sent @@packet_errors @@timeticks @@total_errors @@total_read @@total_write textptr textvalid columns_updated eventdata trigger_nestlevel vector_distance vectorproperty vector_search generate_series opendatasource openjson openquery openrowset openxml predict string_split coalesce nullif apply catch filter force include keep keepfixed modify optimize parameterization parameters partition recompile sequence set";
+      MSSQL = /* @__PURE__ */ SQLDialect.define({
+        keywords: SQLKeywords + // Reserved Keywords https://learn.microsoft.com/en-us/sql/t-sql/language-elements/reserved-keywords-transact-sql?view=sql-server-ver17
+        "add external procedure all fetch public alter file raiserror and fillfactor read any for readtext as foreign reconfigure asc freetext references authorization freetexttable replication backup from restore begin full restrict between function return break goto revert browse grant revoke bulk group right by having rollback cascade holdlock rowcount case identity rowguidcol check identity_insert rule checkpoint identitycol save close if schema clustered in securityaudit coalesce index select collate inner semantickeyphrasetable column insert semanticsimilaritydetailstable commit intersect semanticsimilaritytable compute into session_user constraint is set contains join setuser containstable key shutdown continue kill some convert left statistics create like system_user cross lineno table current load tablesample current_date merge textsize current_time national then current_timestamp nocheck to current_user nonclustered top cursor not tran database null transaction dbcc nullif trigger deallocate of truncate declare off try_convert default offsets tsequal delete on union deny open unique desc opendatasource unpivot disk openquery update distinct openrowset updatetext distributed openxml use double option user drop or values dump order varying else outer view end over waitfor errlvl percent when escape pivot where except plan while exec precision with execute primary within group exists print writetext exit proc noexpand index forceseek forcescan holdlock nolock nowait paglock readcommitted readcommittedlock readpast readuncommitted repeatableread rowlock serializable snapshot spatial_window_max_cells tablock tablockx updlock xlock keepidentity keepdefaults ignore_constraints ignore_triggers",
+        types: SQLTypes + "smalldatetime datetimeoffset datetime2 datetime bigint smallint smallmoney tinyint money real text nvarchar ntext varbinary image hierarchyid uniqueidentifier sql_variant xml",
+        builtin: MSSQLBuiltin,
+        operatorChars: "*+-%<>!=^&|/",
+        specialVar: "@",
+        identifierQuotes: '"['
+      });
+      SQLite = /* @__PURE__ */ SQLDialect.define({
+        keywords: SQLKeywords + "abort analyze attach autoincrement conflict database detach exclusive fail glob ignore index indexed instead isnull notnull offset plan pragma query raise regexp reindex rename replace temp vacuum virtual",
+        types: SQLTypes + "bool blob long longblob longtext medium mediumblob mediumint mediumtext tinyblob tinyint tinytext text bigint int2 int8 unsigned signed real",
+        builtin: "auth backup bail changes clone databases dbinfo dump echo eqp explain fullschema headers help import imposter indexes iotrace lint load log mode nullvalue once print prompt quit restore save scanstats separator shell show stats system tables testcase timeout timer trace vfsinfo vfslist vfsname width",
+        operatorChars: "*+-%<>!=&|/~",
+        identifierQuotes: '`"',
+        specialVar: "@:?$"
+      });
+      Cassandra = /* @__PURE__ */ SQLDialect.define({
+        keywords: "add all allow alter and any apply as asc authorize batch begin by clustering columnfamily compact consistency count create custom delete desc distinct drop each_quorum exists filtering from grant if in index insert into key keyspace keyspaces level limit local_one local_quorum modify nan norecursive nosuperuser not of on one order password permission permissions primary quorum rename revoke schema select set storage superuser table three to token truncate ttl two type unlogged update use user users using values where with writetime infinity NaN",
+        types: SQLTypes + "ascii bigint blob counter frozen inet list map static text timeuuid tuple uuid varint",
+        slashComments: true
+      });
+      PLSQL = /* @__PURE__ */ SQLDialect.define({
+        keywords: SQLKeywords + "abort accept access add all alter and any arraylen as asc assert assign at attributes audit authorization avg base_table begin between binary_integer body by case cast char_base check close cluster clusters colauth column comment commit compress connected constant constraint crash create current currval cursor data_base database dba deallocate debugoff debugon declare default definition delay delete desc digits dispose distinct do drop else elseif elsif enable end entry exception exception_init exchange exclusive exists external fast fetch file for force form from function generic goto grant group having identified if immediate in increment index indexes indicator initial initrans insert interface intersect into is key level library like limited local lock log logging loop master maxextents maxtrans member minextents minus mislabel mode modify multiset new next no noaudit nocompress nologging noparallel not nowait number_base of off offline on online only option or order out package parallel partition pctfree pctincrease pctused pls_integer positive positiven pragma primary prior private privileges procedure public raise range raw rebuild record ref references refresh rename replace resource restrict return returning returns reverse revoke rollback row rowid rowlabel rownum rows run savepoint schema segment select separate set share snapshot some space split sql start statement storage subtype successful synonym tabauth table tables tablespace task terminate then to trigger truncate type union unique unlimited unrecoverable unusable update use using validate value values variable view views when whenever where while with work",
+        builtin: "appinfo arraysize autocommit autoprint autorecovery autotrace blockterminator break btitle cmdsep colsep compatibility compute concat copycommit copytypecheck define echo editfile embedded feedback flagger flush heading headsep instance linesize lno loboffset logsource longchunksize markup native newpage numformat numwidth pagesize pause pno recsep recsepchar repfooter repheader serveroutput shiftinout show showmode spool sqlblanklines sqlcase sqlcode sqlcontinue sqlnumber sqlpluscompatibility sqlprefix sqlprompt sqlterminator suffix tab term termout timing trimout trimspool ttitle underline verify version wrap",
+        types: SQLTypes + "ascii bfile bfilename bigserial bit blob dec long number nvarchar nvarchar2 serial smallint string text uid varchar2 xml",
+        operatorChars: "*/+-%<>!=~",
+        doubleQuotedStrings: true,
+        charSetCasts: true,
+        plsqlQuotingMechanism: true
+      });
+    }
+  });
+
   // frontend/editor.ts
   var require_editor = __commonJS({
     "frontend/editor.ts"() {
@@ -24812,8 +27318,30 @@
       init_dist2();
       init_dist6();
       init_dist16();
+      init_dist5();
+      init_dist14();
+      init_dist18();
+      init_dist12();
+      init_dist15();
+      init_dist20();
+      init_dist22();
+      init_dist24();
+      init_dist25();
+      init_dist4();
       var measureCanvas = document.createElement("canvas");
       var measureContext = measureCanvas.getContext("2d");
+      function bindTransientScrollClass(element, className) {
+        let clearTimer = 0;
+        element.addEventListener("scroll", function() {
+          element.classList.add(className);
+          if (clearTimer) {
+            window.clearTimeout(clearTimer);
+          }
+          clearTimer = window.setTimeout(function() {
+            element.classList.remove(className);
+          }, 650);
+        }, { passive: true });
+      }
       function measuredTextWidth(text, element) {
         const source = String(text || "").replace(/\t/g, "  ");
         if (!measureContext) {
@@ -24840,6 +27368,40 @@
       var setQueryBlocksEffect = StateEffect.define();
       var setTasksEffect = StateEffect.define();
       var setPagePathEffect = StateEffect.define();
+      var setHighlightedLineEffect = StateEffect.define();
+      var codeLanguages = [
+        LanguageDescription.of({ name: "JavaScript", alias: ["js", "javascript"], extensions: ["js", "mjs", "cjs"], support: javascript() }),
+        LanguageDescription.of({ name: "TypeScript", alias: ["ts", "typescript"], extensions: ["ts", "tsx"], support: javascript({ typescript: true }) }),
+        LanguageDescription.of({ name: "JSON", alias: ["json"], extensions: ["json"], support: json() }),
+        LanguageDescription.of({ name: "CSS", alias: ["css"], extensions: ["css"], support: css() }),
+        LanguageDescription.of({ name: "HTML", alias: ["html"], extensions: ["html", "htm"], support: html() }),
+        LanguageDescription.of({ name: "Python", alias: ["py", "python"], extensions: ["py"], support: python() }),
+        LanguageDescription.of({ name: "Go", alias: ["go", "golang"], extensions: ["go"], support: go() }),
+        LanguageDescription.of({ name: "YAML", alias: ["yaml", "yml"], extensions: ["yaml", "yml"], support: yaml() }),
+        LanguageDescription.of({ name: "SQL", alias: ["sql"], extensions: ["sql"], support: sql() })
+      ];
+      var solarizedDarkHighlight = HighlightStyle.define([
+        { tag: tags.keyword, color: "#859900" },
+        { tag: [tags.name, tags.deleted, tags.character, tags.propertyName, tags.macroName], color: "#b58900" },
+        { tag: [tags.variableName], color: "#268bd2" },
+        { tag: [tags.function(tags.variableName), tags.labelName], color: "#268bd2" },
+        { tag: [tags.color, tags.constant(tags.name), tags.standard(tags.name)], color: "#cb4b16" },
+        { tag: [tags.definition(tags.name), tags.separator], color: "#b58900" },
+        { tag: [tags.brace, tags.squareBracket, tags.angleBracket], color: "#93a1a1" },
+        { tag: [tags.number, tags.changed, tags.annotation, tags.modifier, tags.self, tags.namespace], color: "#d33682" },
+        { tag: [tags.typeName, tags.className], color: "#b58900" },
+        { tag: [tags.operator, tags.operatorKeyword], color: "#6c71c4" },
+        { tag: [tags.tagName, tags.attributeName], color: "#268bd2" },
+        { tag: [tags.special(tags.variableName), tags.special(tags.string)], color: "#2aa198" },
+        { tag: [tags.regexp, tags.escape, tags.link, tags.url], color: "#2aa198" },
+        { tag: [tags.meta, tags.comment], color: "#586e75", fontStyle: "italic" },
+        { tag: [tags.strong], fontWeight: "700", color: "#93a1a1" },
+        { tag: [tags.emphasis], fontStyle: "italic", color: "#93a1a1" },
+        { tag: [tags.strikethrough], textDecoration: "line-through" },
+        { tag: [tags.atom, tags.bool, tags.special(tags.brace)], color: "#cb4b16" },
+        { tag: [tags.processingInstruction, tags.string, tags.inserted], color: "#2aa198" },
+        { tag: [tags.invalid], color: "#dc322f" }
+      ]);
       function normalizeRelativePath(value) {
         return String(value || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/").trim();
       }
@@ -24907,6 +27469,26 @@
           link.setAttribute("data-document-download", this.href);
           link.textContent = this.label;
           return link;
+        }
+        ignoreEvent() {
+          return false;
+        }
+      };
+      var CodeCopyWidget = class extends WidgetType {
+        constructor(content2) {
+          super();
+          this.content = content2;
+        }
+        eq(other) {
+          return other.content === this.content;
+        }
+        toDOM() {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "cm-md-code-copy";
+          button.setAttribute("data-code-copy", encodeURIComponent(this.content));
+          button.textContent = "Copy";
+          return button;
         }
         ignoreEvent() {
           return false;
@@ -25017,6 +27599,56 @@
           return value;
         }
       });
+      var highlightedLineField = StateField.define({
+        create() {
+          return null;
+        },
+        update(value, transaction) {
+          for (const effect of transaction.effects) {
+            if (effect.is(setHighlightedLineEffect)) {
+              const next = Number(effect.value);
+              if (!Number.isFinite(next) || next <= 0) {
+                return null;
+              }
+              return Math.floor(next);
+            }
+          }
+          if (value !== null && transaction.selection) {
+            const currentLine = transaction.state.doc.lineAt(transaction.state.selection.main.head).number;
+            if (currentLine !== value) {
+              return null;
+            }
+          }
+          return value;
+        }
+      });
+      var highlightedLineDecorationsField = StateField.define({
+        create(state) {
+          const highlightedLine = state.field(highlightedLineField);
+          if (highlightedLine === null || highlightedLine < 1 || highlightedLine > state.doc.lines) {
+            return Decoration.none;
+          }
+          const line = state.doc.line(highlightedLine);
+          const builder = new RangeSetBuilder();
+          builder.add(line.from, line.from, Decoration.line({ class: "cm-search-hit-line" }));
+          return builder.finish();
+        },
+        update(value, transaction) {
+          const lineChanged = transaction.startState.field(highlightedLineField) !== transaction.state.field(highlightedLineField);
+          if (!lineChanged && !transaction.docChanged) {
+            return value;
+          }
+          const highlightedLine = transaction.state.field(highlightedLineField);
+          if (highlightedLine === null || highlightedLine < 1 || highlightedLine > transaction.state.doc.lines) {
+            return Decoration.none;
+          }
+          const line = transaction.state.doc.line(highlightedLine);
+          const builder = new RangeSetBuilder();
+          builder.add(line.from, line.from, Decoration.line({ class: "cm-search-hit-line" }));
+          return builder.finish();
+        },
+        provide: (field) => EditorView.decorations.from(field)
+      });
       function buildRenderedDecorations(state) {
         if (!state.field(renderModeField, false)) {
           return Decoration.none;
@@ -25072,6 +27704,41 @@
                 widget: new QueryBlockWidget(html2)
               })
             );
+            lineNumber = endLineNumber;
+            continue;
+          }
+          if (/^```/.test(text.trim())) {
+            let endLineNumber = lineNumber;
+            while (endLineNumber < state.doc.lines) {
+              const candidate = state.doc.line(endLineNumber + 1);
+              endLineNumber += 1;
+              if (/^```/.test(candidate.text.trim())) {
+                break;
+              }
+            }
+            const codeContent = endLineNumber - lineNumber > 1 ? state.doc.sliceString(state.doc.line(lineNumber + 1).from, state.doc.line(endLineNumber - 1).to) : "";
+            for (let codeLineNumber = lineNumber; codeLineNumber <= endLineNumber; codeLineNumber += 1) {
+              const codeLine = state.doc.line(codeLineNumber);
+              const classNames = ["cm-md-code-block"];
+              if (codeLineNumber === lineNumber) {
+                classNames.push("cm-md-code-block-start", "cm-md-code-fence");
+              } else if (codeLineNumber === endLineNumber) {
+                classNames.push("cm-md-code-block-end", "cm-md-code-fence");
+              } else {
+                classNames.push("cm-md-code-block-body");
+              }
+              builder.add(codeLine.from, codeLine.from, Decoration.line({ class: classNames.join(" ") }));
+              if (codeLineNumber === lineNumber) {
+                builder.add(
+                  codeLine.to,
+                  codeLine.to,
+                  Decoration.widget({
+                    side: 1,
+                    widget: new CodeCopyWidget(codeContent)
+                  })
+                );
+              }
+            }
             lineNumber = endLineNumber;
             continue;
           }
@@ -25240,6 +27907,7 @@
           host.className = "markdown-editor-host hidden";
           textarea.parentNode?.insertBefore(host, textarea);
           textarea.classList.add("markdown-editor-native");
+          bindTransientScrollClass(textarea, "is-scrolling");
           let suppressInput = false;
           const eventHandlers = EditorView.domEventHandlers({
             mousedown(event, view2) {
@@ -25263,6 +27931,17 @@
                 host.dispatchEvent(new CustomEvent("noterious:document-download", {
                   detail: {
                     href: documentLink.getAttribute("data-document-download") || ""
+                  },
+                  bubbles: true
+                }));
+                return true;
+              }
+              const codeCopy = target ? target.closest("[data-code-copy]") : null;
+              if (codeCopy) {
+                event.preventDefault();
+                host.dispatchEvent(new CustomEvent("noterious:code-copy", {
+                  detail: {
+                    code: decodeURIComponent(codeCopy.getAttribute("data-code-copy") || "")
                   },
                   bubbles: true
                 }));
@@ -25295,11 +27974,16 @@
                 highlightActiveLine(),
                 keymap.of([...defaultKeymap, ...historyKeymap]),
                 EditorView.lineWrapping,
-                markdown(),
+                markdown({
+                  codeLanguages
+                }),
+                syntaxHighlighting(solarizedDarkHighlight, { fallback: true }),
                 renderModeField,
                 pagePathField,
+                highlightedLineField,
                 queryBlocksField,
                 tasksField,
+                highlightedLineDecorationsField,
                 renderedDecorationsField,
                 eventHandlers,
                 EditorView.updateListener.of((update) => {
@@ -25313,6 +27997,7 @@
             }),
             parent: host
           });
+          bindTransientScrollClass(view.scrollDOM, "is-scrolling");
           const api = {
             host,
             view,
@@ -25383,6 +28068,11 @@
               }
               const rect = view.coordsAtPos(head, 1);
               return rect ? new DOMRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top) : null;
+            },
+            setHighlightedLine(lineNumber) {
+              view.dispatch({
+                effects: setHighlightedLineEffect.of(typeof lineNumber === "number" ? lineNumber : null)
+              });
             },
             setRenderMode(enabled) {
               host.classList.toggle("render-mode", Boolean(enabled));

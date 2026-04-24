@@ -66,9 +66,19 @@ describe("slash menu", function () {
 
     expect(commands.map(function (command) {
       return command.id;
-    })).toEqual(["notes/alpha"]);
+    })).toEqual(["notes/alpha", "create:alp"]);
     expect(commands[0].apply("See [[alp")).toBe("See [[notes/alpha]]");
     expect(commands[0].hint).toBe("[[");
+  });
+
+  it("offers creating a note when a wikilink target does not exist", function () {
+    const commands = wikilinkCommandsForContext("See [[new note", 15, [
+      page("notes/alpha", "Alpha"),
+    ]);
+
+    expect(commands[0].id).toBe("create:new note");
+    expect(commands[0].title).toBe("Create note");
+    expect(commands[0].apply("See [[new note")).toBe("See [[new note]]");
   });
 
   it("offers embed links when typing an embedded wikilink", function () {

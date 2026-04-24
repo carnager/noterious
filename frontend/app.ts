@@ -116,6 +116,10 @@ interface DocumentDownloadDetail {
   href?: string;
 }
 
+interface CodeCopyDetail {
+  code?: string;
+}
+
 interface QueryFormatResponse {
   valid: boolean;
   formatted?: string;
@@ -225,6 +229,10 @@ interface AppState {
           saveCurrentPage: "Mod+S",
           toggleRawMode: "Mod+E",
         },
+        ui: {
+          fontFamily: "mono",
+          fontSize: "16",
+        },
       },
       workspace: {
         vaultPath: "./vault",
@@ -253,6 +261,8 @@ interface AppState {
   const els = {
     metaStrip: optionalElement<HTMLDivElement>("meta-strip"),
     pageSearch: requiredElement<HTMLInputElement>("page-search"),
+    pageSearchShell: requiredElement<HTMLElement>("page-search-shell"),
+    togglePageSearch: requiredElement<HTMLButtonElement>("toggle-page-search"),
     pageList: requiredElement<HTMLDivElement>("page-list"),
     pageTaskList: requiredElement<HTMLDivElement>("page-task-list"),
     pageTags: requiredElement<HTMLDivElement>("page-tags"),
@@ -276,6 +286,7 @@ interface AppState {
     queryOutput: requiredElement<HTMLElement>("query-output"),
     eventStatus: requiredElement<HTMLElement>("event-status"),
     eventLog: requiredElement<HTMLDivElement>("event-log"),
+    workspace: optionalQuery<HTMLElement>(".workspace"),
     rail: requiredElement<HTMLElement>("rail"),
     railTabFiles: requiredElement<HTMLButtonElement>("rail-tab-files"),
     railTabContext: requiredElement<HTMLButtonElement>("rail-tab-context"),
@@ -293,6 +304,9 @@ interface AppState {
     openQuickSwitcher: requiredElement<HTMLButtonElement>("open-quick-switcher"),
     openDocuments: requiredElement<HTMLButtonElement>("open-documents"),
     openSearch: requiredElement<HTMLButtonElement>("open-search"),
+    sessionMenu: requiredElement<HTMLElement>("session-menu"),
+    sessionMenuPanel: requiredElement<HTMLElement>("session-menu-panel"),
+    openSessionMenu: requiredElement<HTMLButtonElement>("open-session-menu"),
     openHelp: requiredElement<HTMLButtonElement>("open-help"),
     openSettings: requiredElement<HTMLButtonElement>("open-settings"),
     reloadPages: optionalElement<HTMLButtonElement>("reload-pages"),
@@ -339,6 +353,8 @@ interface AppState {
     saveSettings: requiredElement<HTMLButtonElement>("save-settings"),
     settingsVaultPath: requiredElement<HTMLInputElement>("settings-vault-path"),
     settingsHomePage: requiredElement<HTMLInputElement>("settings-home-page"),
+    settingsFontFamily: requiredElement<HTMLSelectElement>("settings-ui-font-family"),
+    settingsFontSize: requiredElement<HTMLSelectElement>("settings-ui-font-size"),
     settingsQuickSwitcher: requiredElement<HTMLInputElement>("settings-hotkey-quick-switcher"),
     settingsGlobalSearch: requiredElement<HTMLInputElement>("settings-hotkey-global-search"),
     settingsCommandPalette: requiredElement<HTMLInputElement>("settings-hotkey-command-palette"),
@@ -410,6 +426,25 @@ interface AppState {
     return normalizePageDraftPath(state.homePage || state.settings.workspace.homePage || "");
   }
 
+  function setSessionMenuOpen(open: boolean): void {
+    els.sessionMenuPanel.classList.toggle("hidden", !open);
+    els.openSessionMenu.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function setPageSearchOpen(open: boolean): void {
+    const keepOpen = open || Boolean(els.pageSearch.value.trim());
+    els.pageSearchShell.classList.toggle("hidden", !keepOpen);
+    els.togglePageSearch.classList.toggle("active", keepOpen);
+    els.togglePageSearch.setAttribute("aria-expanded", keepOpen ? "true" : "false");
+    if (keepOpen) {
+      window.requestAnimationFrame(function () {
+        if (document.activeElement !== els.pageSearch) {
+          els.pageSearch.focus({preventScroll: true});
+        }
+      });
+    }
+  }
+
   function syncURLState(replace: boolean) {
     const url = buildSelectionURL(window.location.href, state.selectedPage, state.selectedSavedQuery);
     if (url.href === window.location.href) {
@@ -463,6 +498,30 @@ interface AppState {
       onLoadPageDetail: function (path) {
         loadPageDetail(path, true);
       },
+    });
+  }
+
+  function hasPage(pagePath: string): boolean {
+    const normalized = normalizePageDraftPath(pagePath).toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    return state.pages.some(function (page) {
+      return String(page.path || "").toLowerCase() === normalized;
+    });
+  }
+
+  function openOrCreatePage(pagePath: string, replace: boolean): void {
+    const normalized = normalizePageDraftPath(pagePath);
+    if (!normalized) {
+      return;
+    }
+    if (hasPage(normalized)) {
+      navigateToPage(normalized, replace);
+      return;
+    }
+    createPage(normalized).catch(function (error) {
+      setNoteStatus("Create page failed: " + errorMessage(error));
     });
   }
 
@@ -955,6 +1014,8 @@ interface AppState {
   function renderSettingsForm() {
     els.settingsVaultPath.value = state.settings.workspace.vaultPath || "";
     els.settingsHomePage.value = state.settings.workspace.homePage || "";
+    els.settingsFontFamily.value = state.settings.preferences.ui.fontFamily || "mono";
+    els.settingsFontSize.value = state.settings.preferences.ui.fontSize || "16";
     els.settingsQuickSwitcher.value = state.settings.preferences.hotkeys.quickSwitcher || "";
     els.settingsGlobalSearch.value = state.settings.preferences.hotkeys.globalSearch || "";
     els.settingsCommandPalette.value = state.settings.preferences.hotkeys.commandPalette || "";
@@ -975,7 +1036,22 @@ interface AppState {
     state.homePage = normalizePageDraftPath(snapshot.settings.workspace.homePage || "");
     renderHelpShortcuts();
     renderSettingsForm();
+    applyUIPreferences();
     renderSourceModeButton();
+  }
+
+  function applyUIPreferences(): void {
+    const root = document.documentElement;
+    const fontFamily = state.settings.preferences.ui.fontFamily || "mono";
+    const fontSize = state.settings.preferences.ui.fontSize || "16";
+    const fontMap: Record<string, string> = {
+      mono: '"IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace',
+      sans: '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif',
+      serif: '"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif',
+    };
+    root.style.setProperty("--app-font-family", fontMap[fontFamily] || fontMap.mono);
+    root.style.setProperty("--editor-font-family", fontMap[fontFamily] || fontMap.mono);
+    root.style.setProperty("--app-font-size", fontSize + "px");
   }
 
   async function loadSettings() {
@@ -1018,7 +1094,15 @@ interface AppState {
       renderPages();
     } catch (error) {
       renderEmpty(els.pageList, errorMessage(error));
+      els.pageList.classList.add("no-scroll");
     }
+  }
+
+  function updatePageListScrollState(): void {
+    window.requestAnimationFrame(function () {
+      const overflow = els.pageList.scrollHeight - els.pageList.clientHeight;
+      els.pageList.classList.toggle("no-scroll", overflow <= 8);
+    });
   }
 
   function renderPages() {
@@ -1038,8 +1122,52 @@ interface AppState {
       },
       function (pagePath) {
         navigateToPage(pagePath, false);
+      },
+      function (folderKey) {
+        const name = window.prompt('New note in "' + folderKey + '"', "");
+        const normalizedName = normalizePageDraftPath(name || "");
+        if (!normalizedName) {
+          return;
+        }
+        createPage(folderKey + "/" + normalizedName).catch(function (error) {
+          setNoteStatus("Create page failed: " + errorMessage(error));
+        });
+      },
+      function (folderKey) {
+        const subfolder = normalizePageDraftPath(window.prompt('New subfolder in "' + folderKey + '"', "") || "");
+        if (!subfolder) {
+          return;
+        }
+        const initialNote = normalizePageDraftPath(window.prompt('Initial note inside "' + subfolder + '"', "index") || "");
+        if (!initialNote) {
+          return;
+        }
+        createPage(folderKey + "/" + subfolder + "/" + initialNote).catch(function (error) {
+          setNoteStatus("Create folder failed: " + errorMessage(error));
+        });
+      },
+      function (folderKey) {
+        deleteFolder(folderKey).catch(function (error) {
+          setNoteStatus("Delete folder failed: " + errorMessage(error));
+        });
+      },
+      function (pagePath) {
+        deletePage(pagePath).catch(function (error) {
+          setNoteStatus("Delete page failed: " + errorMessage(error));
+        });
+      },
+      function (pagePath, folderKey) {
+        movePageToFolder(pagePath, folderKey).catch(function (error) {
+          setNoteStatus("Move page failed: " + errorMessage(error));
+        });
+      },
+      function (folderKey, targetFolder) {
+        moveFolder(folderKey, targetFolder).catch(function (error) {
+          setNoteStatus("Move folder failed: " + errorMessage(error));
+        });
       }
     );
+    updatePageListScrollState();
   }
 
   async function loadSavedQueryTree() {
@@ -1098,6 +1226,7 @@ interface AppState {
     }
 
     try {
+      const pendingLineFocus = state.pendingPageLineFocus;
       const loaded = await loadPageDetailData(
         pagePath,
         encodePath,
@@ -1139,6 +1268,9 @@ interface AppState {
       );
       renderNoteStudio();
       if (state.markdownEditorApi && !blockingOverlayOpen(els)) {
+        state.markdownEditorApi.setHighlightedLine(
+          typeof pendingLineFocus === "number" && pendingLineFocus > 0 ? pendingLineFocus : null
+        );
         if (loaded.focusOffset !== null) {
           state.pendingPageLineFocus = null;
           state.pendingPageTaskRef = "";
@@ -1151,6 +1283,7 @@ interface AppState {
             });
           });
         } else {
+          state.markdownEditorApi.setHighlightedLine(null);
           focusEditorAtBodyPosition(firstEditableLineIndex(state.currentMarkdown), 0);
         }
       } else if (state.sourceOpen && !blockingOverlayOpen(els)) {
@@ -1496,6 +1629,10 @@ interface AppState {
         homePage: normalizePageDraftPath(els.settingsHomePage.value || ""),
       },
       preferences: {
+        ui: {
+          fontFamily: String(els.settingsFontFamily.value || "mono").trim() as "mono" | "sans" | "serif",
+          fontSize: String(els.settingsFontSize.value || "16").trim(),
+        },
         hotkeys: {
           quickSwitcher: String(els.settingsQuickSwitcher.value || "").trim(),
           globalSearch: String(els.settingsGlobalSearch.value || "").trim(),
@@ -1620,6 +1757,33 @@ interface AppState {
       return;
     }
     window.open(document.downloadURL, "_blank", "noopener");
+  }
+
+  async function copyCodeBlock(code: string): Promise<void> {
+    const value = String(code || "");
+    if (!value) {
+      setNoteStatus("Code block is empty.");
+      return;
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(value);
+      setNoteStatus("Copied code block.");
+      return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    textarea.style.pointerEvents = "none";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand("copy");
+      setNoteStatus("Copied code block.");
+    } finally {
+      document.body.removeChild(textarea);
+    }
   }
 
   function renderDocumentResults() {
@@ -1764,6 +1928,56 @@ interface AppState {
     await loadPages();
   }
 
+  async function deleteFolder(folderKey: string): Promise<void> {
+    const normalized = normalizePageDraftPath(folderKey);
+    if (!normalized) {
+      return;
+    }
+    const pageCount = state.pages.filter(function (page) {
+      const path = String(page.path || "");
+      return path === normalized || path.startsWith(normalized + "/");
+    }).length;
+    if (!window.confirm('Delete folder "' + normalized + '" and everything inside it?\n\n' + String(pageCount) + " note(s) will be removed.")) {
+      return;
+    }
+    await fetchJSON<unknown>("/api/folders/" + encodePath(normalized), {
+      method: "DELETE",
+    });
+    if (state.selectedPage && (state.selectedPage === normalized || state.selectedPage.startsWith(normalized + "/"))) {
+      clearPageSelection();
+    }
+    if (currentHomePage().toLowerCase() === normalized.toLowerCase() || currentHomePage().startsWith(normalized.toLowerCase() + "/")) {
+      clearHomePage();
+    }
+    await loadPages();
+  }
+
+  function remapPathPrefix(value: string, fromPrefix: string, toPrefix: string): string {
+    const source = normalizePageDraftPath(value);
+    if (!source) {
+      return "";
+    }
+    if (source === fromPrefix) {
+      return toPrefix;
+    }
+    if (source.startsWith(fromPrefix + "/")) {
+      return toPrefix + source.slice(fromPrefix.length);
+    }
+    return source;
+  }
+
+  function remapExpandedFolderKeys(fromPrefix: string, toPrefix: string): void {
+    const next: Record<string, boolean> = {};
+    Object.keys(state.expandedPageFolders).forEach(function (key) {
+      if (!state.expandedPageFolders[key]) {
+        return;
+      }
+      const remapped = remapPathPrefix(key, fromPrefix, toPrefix);
+      next[remapped || key] = true;
+    });
+    state.expandedPageFolders = next;
+  }
+
   async function movePage(pagePath: string, targetPage: string): Promise<void> {
     const fromPath = normalizePageDraftPath(pagePath);
     const toPath = normalizePageDraftPath(targetPage);
@@ -1782,6 +1996,51 @@ interface AppState {
     }
     await loadPages();
     navigateToPage(payload.page || toPath, false);
+  }
+
+  async function movePageToFolder(pagePath: string, folderKey: string): Promise<void> {
+    const fromPath = normalizePageDraftPath(pagePath);
+    if (!fromPath) {
+      return;
+    }
+    const leaf = pageTitleFromPath(fromPath);
+    const targetFolder = normalizePageDraftPath(folderKey);
+    const toPath = targetFolder ? (targetFolder + "/" + leaf) : leaf;
+    await movePage(fromPath, toPath);
+  }
+
+  async function moveFolder(folderKey: string, targetFolder: string): Promise<void> {
+    const sourceFolder = normalizePageDraftPath(folderKey);
+    const destinationParent = normalizePageDraftPath(targetFolder);
+    if (!sourceFolder) {
+      return;
+    }
+    const folderName = pageTitleFromPath(sourceFolder);
+    const destinationFolder = destinationParent ? (destinationParent + "/" + folderName) : folderName;
+    if (destinationFolder === sourceFolder || destinationParent.startsWith(sourceFolder + "/")) {
+      return;
+    }
+
+    const payload = await fetchJSON<{ folder?: string }>("/api/folders/" + encodePath(sourceFolder) + "/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetFolder: destinationParent }),
+    });
+    const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
+    const movedSelectedPage = state.selectedPage ? remapPathPrefix(state.selectedPage, sourceFolder, movedFolder) : "";
+    const movedHomePage = currentHomePage() ? remapPathPrefix(currentHomePage(), sourceFolder, movedFolder) : "";
+
+    remapExpandedFolderKeys(sourceFolder, movedFolder);
+    if (movedHomePage) {
+      setHomePage(movedHomePage);
+    }
+
+    await loadPages();
+    if (movedSelectedPage && movedSelectedPage !== state.selectedPage) {
+      navigateToPage(movedSelectedPage, false);
+      return;
+    }
+    renderPages();
   }
 
   function renderCommandPaletteResults() {
@@ -1815,19 +2074,23 @@ interface AppState {
         renderQuickSwitcherResults();
       },
       onOpenSearch: function () {
+        closeCommandPalette();
         setSearchOpen(true);
         scheduleGlobalSearch();
       },
       onFocusRail: function (tab) {
+        closeCommandPalette();
         setRailTab(tab);
         if (window.matchMedia("(max-width: 1180px)").matches) {
           setRailOpen(true);
         }
       },
       onToggleRail: function () {
+        closeCommandPalette();
         setRailOpen(!state.railOpen);
       },
       onOpenHomePage: function (pagePath) {
+        closeCommandPalette();
         navigateToPage(pagePath, false);
       },
       onSetHomePage: function (pagePath) {
@@ -1907,8 +2170,12 @@ interface AppState {
 
   function setRailOpen(open: boolean): void {
     state.railOpen = Boolean(open);
+    const mobileLayout = window.matchMedia("(max-width: 1180px)").matches;
     if (els.rail) {
       els.rail.classList.toggle("open", state.railOpen);
+    }
+    if (els.workspace) {
+      els.workspace.classList.toggle("rail-collapsed", !mobileLayout && !state.railOpen);
     }
     if (els.toggleRail) {
       els.toggleRail.classList.toggle("active", state.railOpen);
@@ -2055,30 +2322,45 @@ interface AppState {
     }
 
     on(els.pageSearch, "input", loadPages);
+    on(els.pageSearch, "blur", function () {
+      if (!els.pageSearch.value.trim()) {
+        setPageSearchOpen(false);
+      }
+    });
     on(els.querySearch, "input", loadSavedQueryTree);
     on(els.reloadPages, "click", loadPages);
     on(els.reloadQueries, "click", loadSavedQueryTree);
     on(els.addProperty, "click", startAddProperty);
     on(els.toggleRail, "click", function () {
-      if (window.matchMedia("(max-width: 1180px)").matches) {
-        setRailOpen(!state.railOpen);
-      }
+      setRailOpen(!state.railOpen);
+    });
+    on(els.togglePageSearch, "click", function () {
+      setPageSearchOpen(els.pageSearchShell.classList.contains("hidden"));
+    });
+    on(els.openSessionMenu, "click", function () {
+      const nextOpen = els.sessionMenuPanel.classList.contains("hidden");
+      setSessionMenuOpen(nextOpen);
     });
     on(els.openHelp, "click", function () {
+      setSessionMenuOpen(false);
       setHelpOpen(true);
     });
     on(els.openSettings, "click", function () {
+      setSessionMenuOpen(false);
       setSettingsOpen(true);
     });
     on(els.openQuickSwitcher, "click", function () {
+      setSessionMenuOpen(false);
       setQuickSwitcherOpen(true);
       renderQuickSwitcherResults();
     });
     on(els.openDocuments, "click", function () {
+      setSessionMenuOpen(false);
       setDocumentsOpen(true);
       scheduleDocumentsRefresh();
     });
     on(els.openSearch, "click", function () {
+      setSessionMenuOpen(false);
       setSearchOpen(true);
       scheduleGlobalSearch();
     });
@@ -2180,7 +2462,7 @@ interface AppState {
         if (link && link.target) {
           event.preventDefault();
           closeSlashMenu(state, els);
-          navigateToPage(link.target, false);
+          openOrCreatePage(link.target, false);
           return;
         }
       }
@@ -2343,6 +2625,9 @@ interface AppState {
       if (!withinProperties) {
         dismissPropertyUI();
       }
+      if (!target || !target.closest("#session-menu")) {
+        setSessionMenuOpen(false);
+      }
       if (!target || !target.closest("#slash-menu")) {
         closeSlashMenu(state, els);
       }
@@ -2354,6 +2639,10 @@ interface AppState {
       }
     });
     window.addEventListener("keydown", function (event: KeyboardEvent) {
+      if (event.key === "Escape" && !els.sessionMenuPanel.classList.contains("hidden")) {
+        setSessionMenuOpen(false);
+        return;
+      }
       if (!event.ctrlKey && !event.metaKey && !event.shiftKey && event.altKey && event.key === "ArrowLeft") {
         event.preventDefault();
         window.history.back();
@@ -2485,7 +2774,7 @@ interface AppState {
             navigateToPageAtLine(page, line, false);
             return;
           }
-          navigateToPage(page, false);
+          openOrCreatePage(page, false);
         }
       });
       on(markdownEditorApi.host, "noterious:document-download", function (event) {
@@ -2495,6 +2784,12 @@ interface AppState {
           return;
         }
         window.location.href = href;
+      });
+      on(markdownEditorApi.host, "noterious:code-copy", function (event) {
+        const detail = (event as CustomEvent<CodeCopyDetail>).detail || {};
+        copyCodeBlock(detail.code ? String(detail.code) : "").catch(function (error) {
+          setNoteStatus("Copy failed: " + errorMessage(error));
+        });
       });
       on(markdownEditorApi.host, "noterious:task-toggle", function (event) {
         const detail = (event as CustomEvent<TaskToggleDetail>).detail || {};
@@ -2523,8 +2818,10 @@ interface AppState {
     }
     setDebugOpen(false);
     setRailTab("files");
-    setRailOpen(false);
+    setRailOpen(!window.matchMedia("(max-width: 1180px)").matches);
+    setPageSearchOpen(false);
     setSourceOpen(false);
+    applyUIPreferences();
     renderNoteStudio();
     renderPageTasks([]);
     renderPageContext();

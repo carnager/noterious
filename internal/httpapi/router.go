@@ -134,6 +134,93 @@ func NewRouter(deps Dependencies) http.Handler {
 			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
 		}
 	})
+	mux.HandleFunc("/api/folders/", func(w http.ResponseWriter, r *http.Request) {
+		folderPath := strings.TrimPrefix(r.URL.Path, "/api/folders/")
+		action := ""
+		if strings.HasSuffix(folderPath, "/move") {
+			action = "move"
+			folderPath = strings.TrimSuffix(folderPath, "/move")
+		}
+		folderPath = strings.Trim(strings.TrimSpace(folderPath), "/")
+		folderPath = path.Clean(folderPath)
+		if folderPath == "." || folderPath == "" || strings.HasPrefix(folderPath, "../") {
+			http.Error(w, "invalid folder path", http.StatusBadRequest)
+			return
+		}
+
+		switch action {
+		case "move":
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, http.MethodPost)
+				return
+			}
+			var request struct {
+				TargetFolder string `json:"targetFolder"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			targetFolder := strings.Trim(strings.TrimSpace(request.TargetFolder), "/")
+			if targetFolder != "" {
+				targetFolder = path.Clean(targetFolder)
+				if targetFolder == "." {
+					targetFolder = ""
+				}
+				if strings.HasPrefix(targetFolder, "../") {
+					http.Error(w, "invalid target folder", http.StatusBadRequest)
+					return
+				}
+			}
+			movedFolderPath, err := deps.Vault.MoveFolder(folderPath, targetFolder)
+			if err != nil {
+				http.Error(w, "failed to move folder", http.StatusInternalServerError)
+				return
+			}
+			if err := deps.Index.RebuildFromVault(r.Context(), deps.Vault); err != nil {
+				http.Error(w, "failed to rebuild index", http.StatusInternalServerError)
+				return
+			}
+			if deps.Query != nil {
+				if err := deps.Query.RefreshAll(r.Context(), deps.Index); err != nil {
+					http.Error(w, "failed to refresh query cache", http.StatusInternalServerError)
+					return
+				}
+			}
+			if deps.OnPageChanged != nil {
+				deps.OnPageChanged(folderPath)
+				deps.OnPageChanged(movedFolderPath)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"folder":       movedFolderPath,
+				"sourceFolder": folderPath,
+				"targetFolder": targetFolder,
+			})
+		default:
+			if r.Method != http.MethodDelete {
+				writeMethodNotAllowed(w, http.MethodDelete)
+				return
+			}
+			if err := deps.Vault.DeleteFolder(folderPath); err != nil {
+				http.Error(w, "failed to delete folder", http.StatusInternalServerError)
+				return
+			}
+			if err := deps.Index.RebuildFromVault(r.Context(), deps.Vault); err != nil {
+				http.Error(w, "failed to rebuild index", http.StatusInternalServerError)
+				return
+			}
+			if deps.Query != nil {
+				if err := deps.Query.RefreshAll(r.Context(), deps.Index); err != nil {
+					http.Error(w, "failed to refresh query cache", http.StatusInternalServerError)
+					return
+				}
+			}
+			if deps.OnPageChanged != nil {
+				deps.OnPageChanged(folderPath)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})
 	mux.HandleFunc("/api/documents/download", func(w http.ResponseWriter, r *http.Request) {
 		if deps.Documents == nil {
 			http.Error(w, "document service unavailable", http.StatusInternalServerError)

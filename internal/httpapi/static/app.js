@@ -1126,6 +1126,70 @@
   });
 
   // frontend/pageViews.ts
+  function setDragPayload(event, payload) {
+    if (!event.dataTransfer) {
+      return;
+    }
+    activeDragItem = payload;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.dropEffect = "move";
+    event.dataTransfer.setData("application/x-noterious-tree", JSON.stringify(payload));
+    event.dataTransfer.setData("text/plain", payload.path);
+  }
+  function getDragPayload(event) {
+    if (activeDragItem) {
+      return activeDragItem;
+    }
+    if (!event.dataTransfer) {
+      return null;
+    }
+    const raw = event.dataTransfer.getData("application/x-noterious-tree");
+    if (!raw) {
+      return null;
+    }
+    try {
+      const payload = JSON.parse(raw);
+      if (!payload || !payload.path || payload.kind !== "page" && payload.kind !== "folder") {
+        return null;
+      }
+      return payload;
+    } catch (_error) {
+      return null;
+    }
+  }
+  function canDropOnFolder(payload, folderKey) {
+    if (!payload || !folderKey) {
+      return false;
+    }
+    if (payload.kind === "page") {
+      const pageLeaf = String(payload.path || "").split("/").pop() || "";
+      return folderKey + "/" + pageLeaf !== payload.path;
+    }
+    return payload.path !== folderKey && !folderKey.startsWith(payload.path + "/");
+  }
+  function canDropOnRoot(payload) {
+    if (!payload) {
+      return false;
+    }
+    return String(payload.path || "").indexOf("/") >= 0;
+  }
+  function makeDragSource(element, payload) {
+    element.draggable = true;
+    element.setAttribute("data-drag-kind", payload.kind);
+    element.setAttribute("data-drag-path", payload.path);
+    element.addEventListener("dragstart", function(event) {
+      event.stopPropagation();
+      setDragPayload(event, payload);
+      document.body.classList.add("tree-dragging");
+      element.classList.add("drag-source");
+    });
+    element.addEventListener("dragend", function(event) {
+      event.stopPropagation();
+      activeDragItem = null;
+      document.body.classList.remove("tree-dragging");
+      element.classList.remove("drag-source");
+    });
+  }
   function ensureExpandedPageAncestors(path, expandedPageFolders) {
     const parts = String(path || "").split("/");
     let key = "";
@@ -1150,17 +1214,49 @@
     });
     return root;
   }
-  function renderPageTreeNode(node, depth, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage) {
+  function renderPageTreeNode(node, depth, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onDeleteFolder, onDeletePage, onMovePage, onMoveFolder) {
     const group = document.createElement("div");
     group.className = depth === 0 ? "page-tree-root" : "page-tree-children";
     Object.keys(node.folders).sort().forEach(function(name) {
       const folder = node.folders[name];
       const item = document.createElement("div");
       item.className = "page-tree-node page-tree-folder";
+      makeDragSource(item, { kind: "folder", path: folder.key });
+      item.addEventListener("dragover", function(event) {
+        const payload = getDragPayload(event);
+        if (!canDropOnFolder(payload, folder.key)) {
+          return;
+        }
+        event.preventDefault();
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = "move";
+        }
+        item.classList.add("drag-target");
+      });
+      item.addEventListener("dragleave", function() {
+        item.classList.remove("drag-target");
+      });
+      item.addEventListener("drop", function(event) {
+        const payload = getDragPayload(event);
+        item.classList.remove("drag-target");
+        if (!payload || !canDropOnFolder(payload, folder.key)) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        if (payload.kind === "page") {
+          onMovePage(payload.path, folder.key);
+          return;
+        }
+        onMoveFolder(payload.path, folder.key);
+      });
+      const row = document.createElement("div");
+      row.className = "page-tree-row";
       const button = document.createElement("button");
       button.type = "button";
       button.className = "page-tree-toggle";
       button.setAttribute("aria-expanded", expandedPageFolders[folder.key] ? "true" : "false");
+      makeDragSource(button, { kind: "folder", path: folder.key });
       button.addEventListener("click", function() {
         onToggleFolder(folder.key);
       });
@@ -1176,9 +1272,49 @@
       button.appendChild(chevron);
       button.appendChild(icon);
       button.appendChild(label);
-      item.appendChild(button);
+      row.appendChild(button);
+      const actions = document.createElement("div");
+      actions.className = "page-tree-actions";
+      const createNote = document.createElement("button");
+      createNote.type = "button";
+      createNote.className = "page-tree-action";
+      createNote.title = "New note";
+      createNote.setAttribute("aria-label", "New note in " + folder.name);
+      createNote.textContent = "+";
+      createNote.addEventListener("click", function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        onCreatePage(folder.key);
+      });
+      actions.appendChild(createNote);
+      const createFolder = document.createElement("button");
+      createFolder.type = "button";
+      createFolder.className = "page-tree-action";
+      createFolder.title = "New subfolder";
+      createFolder.setAttribute("aria-label", "New subfolder in " + folder.name);
+      createFolder.textContent = "\u229E";
+      createFolder.addEventListener("click", function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        onCreateSubfolder(folder.key);
+      });
+      actions.appendChild(createFolder);
+      const deleteFolder = document.createElement("button");
+      deleteFolder.type = "button";
+      deleteFolder.className = "page-tree-action page-tree-action-danger";
+      deleteFolder.title = "Delete folder";
+      deleteFolder.setAttribute("aria-label", "Delete folder " + folder.name);
+      deleteFolder.textContent = "\xD7";
+      deleteFolder.addEventListener("click", function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        onDeleteFolder(folder.key);
+      });
+      actions.appendChild(deleteFolder);
+      row.appendChild(actions);
+      item.appendChild(row);
       if (expandedPageFolders[folder.key]) {
-        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage));
+        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onDeleteFolder, onDeletePage, onMovePage, onMoveFolder));
       }
       group.appendChild(item);
     });
@@ -1188,9 +1324,13 @@
       const leafName = String(page.path || "").split("/").slice(-1)[0] || page.path;
       const item = document.createElement("div");
       item.className = "page-tree-node page-tree-leaf";
+      makeDragSource(item, { kind: "page", path: page.path });
+      const row = document.createElement("div");
+      row.className = "page-tree-row";
       const button = document.createElement("button");
       button.type = "button";
       button.className = "page-tree-page";
+      makeDragSource(button, { kind: "page", path: page.path });
       if (selectedPage === page.path) {
         button.classList.add("active");
       }
@@ -1205,12 +1345,28 @@
       label.textContent = leafName;
       button.appendChild(icon);
       button.appendChild(label);
-      item.appendChild(button);
+      row.appendChild(button);
+      const actions = document.createElement("div");
+      actions.className = "page-tree-actions";
+      const deletePage = document.createElement("button");
+      deletePage.type = "button";
+      deletePage.className = "page-tree-action page-tree-action-danger";
+      deletePage.title = "Delete note";
+      deletePage.setAttribute("aria-label", "Delete note " + leafName);
+      deletePage.textContent = "\xD7";
+      deletePage.addEventListener("click", function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        onDeletePage(page.path);
+      });
+      actions.appendChild(deletePage);
+      row.appendChild(actions);
+      item.appendChild(row);
       group.appendChild(item);
     });
     return group;
   }
-  function renderPagesTree(container, pages, selectedPage, expandedPageFolders, pageSearchQuery, onToggleFolder, onSelectPage) {
+  function renderPagesTree(container, pages, selectedPage, expandedPageFolders, pageSearchQuery, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onDeleteFolder, onDeletePage, onMovePage, onMoveFolder) {
     clearNode(container);
     if (!pages.length) {
       renderEmpty(container, "No indexed pages match the current search.");
@@ -1230,7 +1386,133 @@
         expandedPageFolders[key] = true;
       });
     }
-    container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage));
+    const rootRow = document.createElement("div");
+    rootRow.className = "page-tree-root-drop";
+    const rootLabel = document.createElement("div");
+    rootLabel.className = "page-tree-root-label";
+    rootLabel.textContent = "Vault root";
+    rootRow.appendChild(rootLabel);
+    const rootActions = document.createElement("div");
+    rootActions.className = "page-tree-actions page-tree-actions-visible";
+    const createRootNote = document.createElement("button");
+    createRootNote.type = "button";
+    createRootNote.className = "page-tree-action";
+    createRootNote.title = "New root note";
+    createRootNote.setAttribute("aria-label", "New root note");
+    createRootNote.textContent = "+";
+    createRootNote.addEventListener("click", function(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      onCreatePage("");
+    });
+    rootActions.appendChild(createRootNote);
+    const createRootFolder = document.createElement("button");
+    createRootFolder.type = "button";
+    createRootFolder.className = "page-tree-action";
+    createRootFolder.title = "New root folder";
+    createRootFolder.setAttribute("aria-label", "New root folder");
+    createRootFolder.textContent = "\u229E";
+    createRootFolder.addEventListener("click", function(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      onCreateSubfolder("");
+    });
+    rootActions.appendChild(createRootFolder);
+    rootRow.appendChild(rootActions);
+    function isPointerOverRoot(event) {
+      const hovered = document.elementFromPoint(event.clientX, event.clientY);
+      return !!hovered && hovered.closest(".page-tree-root-drop") === rootRow;
+    }
+    function syncRootTarget(event, payload) {
+      const canDrop = canDropOnRoot(payload) && isPointerOverRoot(event);
+      rootRow.classList.toggle("drag-target", canDrop);
+      return canDrop;
+    }
+    function handleRootDragOver(event) {
+      const payload = getDragPayload(event);
+      const isRootTarget = syncRootTarget(event, payload);
+      if (!canDropOnRoot(payload)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+    }
+    function handleRootDragEnter(event) {
+      const payload = getDragPayload(event);
+      const isRootTarget = syncRootTarget(event, payload);
+      if (!canDropOnRoot(payload)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+    }
+    function handleRootDragLeave() {
+      rootRow.classList.remove("drag-target");
+    }
+    function handleRootDrop(event) {
+      const payload = getDragPayload(event);
+      const isRootTarget = syncRootTarget(event, payload);
+      rootRow.classList.remove("drag-target");
+      if (!payload || !canDropOnRoot(payload) || !isRootTarget) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (payload.kind === "page") {
+        onMovePage(payload.path, "");
+        return;
+      }
+      onMoveFolder(payload.path, "");
+    }
+    [rootRow, rootLabel, rootActions].forEach(function(element) {
+      element.addEventListener("dragover", handleRootDragOver);
+      element.addEventListener("dragenter", handleRootDragEnter);
+      element.addEventListener("dragleave", handleRootDragLeave);
+      element.addEventListener("drop", handleRootDrop);
+    });
+    container.appendChild(rootRow);
+    container.ondragover = function(event) {
+      const payload = getDragPayload(event);
+      if (!canDropOnRoot(payload)) {
+        rootRow.classList.remove("drag-target");
+        return;
+      }
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+      container.classList.add("drag-target");
+      syncRootTarget(event, payload);
+    };
+    container.ondragleave = function() {
+      container.classList.remove("drag-target");
+      rootRow.classList.remove("drag-target");
+    };
+    container.ondrop = function(event) {
+      const payload = getDragPayload(event);
+      container.classList.remove("drag-target");
+      const isRootTarget = syncRootTarget(event, payload);
+      rootRow.classList.remove("drag-target");
+      if (!payload || !canDropOnRoot(payload)) {
+        return;
+      }
+      event.preventDefault();
+      if (!isRootTarget) {
+        return;
+      }
+      if (payload.kind === "page") {
+        onMovePage(payload.path, "");
+        return;
+      }
+      onMoveFolder(payload.path, "");
+    };
+    container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onDeleteFolder, onDeletePage, onMovePage, onMoveFolder));
   }
   function renderPageTasks(container, tasks, onOpenTask) {
     clearNode(container);
@@ -1324,10 +1606,12 @@
       container.appendChild(chip);
     });
   }
+  var activeDragItem;
   var init_pageViews = __esm({
     "frontend/pageViews.ts"() {
       "use strict";
       init_dom();
+      activeDragItem = null;
     }
   });
 
@@ -2280,6 +2564,25 @@
     }).sort(function(left, right) {
       return scorePage2(right, trigger.query) - scorePage2(left, trigger.query);
     }).slice(0, 12);
+    const normalizedDraftPath = normalizePageDraftPath(trigger.query);
+    const hasExactMatch = normalizedDraftPath ? pages.some(function(page) {
+      return String(page.path || "").toLowerCase() === normalizedDraftPath.toLowerCase();
+    }) : false;
+    const createCommands = normalizedDraftPath && !hasExactMatch ? [{
+      id: "create:" + normalizedDraftPath,
+      title: "Create note",
+      description: normalizedDraftPath,
+      keywords: "create new note page",
+      hint: "Enter",
+      apply: function(sourceLine) {
+        const replacement = (trigger.embed ? "![[" : "[[") + normalizedDraftPath + "]]";
+        return String(sourceLine || "").slice(0, trigger.start) + replacement + String(sourceLine || "").slice(trigger.end);
+      },
+      caret: function() {
+        const replacement = (trigger.embed ? "![[" : "[[") + normalizedDraftPath + "]]";
+        return trigger.start + replacement.length;
+      }
+    }] : [];
     return matches.map(function(page) {
       const replacement = (trigger.embed ? "![[" : "[[") + page.path + "]]";
       const titleLeaf = pageLeafName(page.path);
@@ -2295,7 +2598,7 @@
           return trigger.start + replacement.length;
         }
       };
-    });
+    }).concat(createCommands);
   }
   function documentCommandsForText(text, documents, currentPagePath) {
     const trigger = findDocumentTrigger(text);
@@ -2430,6 +2733,7 @@
       "use strict";
       init_dom();
       init_documents();
+      init_commands();
       init_palette();
       init_palette();
     }
@@ -2499,6 +2803,10 @@
                 help: "?",
                 saveCurrentPage: "Mod+S",
                 toggleRawMode: "Mod+E"
+              },
+              ui: {
+                fontFamily: "mono",
+                fontSize: "16"
               }
             },
             workspace: {
@@ -2527,6 +2835,8 @@
         const els = {
           metaStrip: optionalElement("meta-strip"),
           pageSearch: requiredElement("page-search"),
+          pageSearchShell: requiredElement("page-search-shell"),
+          togglePageSearch: requiredElement("toggle-page-search"),
           pageList: requiredElement("page-list"),
           pageTaskList: requiredElement("page-task-list"),
           pageTags: requiredElement("page-tags"),
@@ -2550,6 +2860,7 @@
           queryOutput: requiredElement("query-output"),
           eventStatus: requiredElement("event-status"),
           eventLog: requiredElement("event-log"),
+          workspace: optionalQuery(".workspace"),
           rail: requiredElement("rail"),
           railTabFiles: requiredElement("rail-tab-files"),
           railTabContext: requiredElement("rail-tab-context"),
@@ -2567,6 +2878,9 @@
           openQuickSwitcher: requiredElement("open-quick-switcher"),
           openDocuments: requiredElement("open-documents"),
           openSearch: requiredElement("open-search"),
+          sessionMenu: requiredElement("session-menu"),
+          sessionMenuPanel: requiredElement("session-menu-panel"),
+          openSessionMenu: requiredElement("open-session-menu"),
           openHelp: requiredElement("open-help"),
           openSettings: requiredElement("open-settings"),
           reloadPages: optionalElement("reload-pages"),
@@ -2613,6 +2927,8 @@
           saveSettings: requiredElement("save-settings"),
           settingsVaultPath: requiredElement("settings-vault-path"),
           settingsHomePage: requiredElement("settings-home-page"),
+          settingsFontFamily: requiredElement("settings-ui-font-family"),
+          settingsFontSize: requiredElement("settings-ui-font-size"),
           settingsQuickSwitcher: requiredElement("settings-hotkey-quick-switcher"),
           settingsGlobalSearch: requiredElement("settings-hotkey-global-search"),
           settingsCommandPalette: requiredElement("settings-hotkey-command-palette"),
@@ -2674,6 +2990,23 @@
         function currentHomePage() {
           return normalizePageDraftPath(state.homePage || state.settings.workspace.homePage || "");
         }
+        function setSessionMenuOpen(open) {
+          els.sessionMenuPanel.classList.toggle("hidden", !open);
+          els.openSessionMenu.setAttribute("aria-expanded", open ? "true" : "false");
+        }
+        function setPageSearchOpen(open) {
+          const keepOpen = open || Boolean(els.pageSearch.value.trim());
+          els.pageSearchShell.classList.toggle("hidden", !keepOpen);
+          els.togglePageSearch.classList.toggle("active", keepOpen);
+          els.togglePageSearch.setAttribute("aria-expanded", keepOpen ? "true" : "false");
+          if (keepOpen) {
+            window.requestAnimationFrame(function() {
+              if (document.activeElement !== els.pageSearch) {
+                els.pageSearch.focus({ preventScroll: true });
+              }
+            });
+          }
+        }
         function syncURLState(replace) {
           const url = buildSelectionURL(window.location.href, state.selectedPage, state.selectedSavedQuery);
           if (url.href === window.location.href) {
@@ -2725,6 +3058,28 @@
             onLoadPageDetail: function(path) {
               loadPageDetail(path, true);
             }
+          });
+        }
+        function hasPage(pagePath) {
+          const normalized = normalizePageDraftPath(pagePath).toLowerCase();
+          if (!normalized) {
+            return false;
+          }
+          return state.pages.some(function(page) {
+            return String(page.path || "").toLowerCase() === normalized;
+          });
+        }
+        function openOrCreatePage(pagePath, replace) {
+          const normalized = normalizePageDraftPath(pagePath);
+          if (!normalized) {
+            return;
+          }
+          if (hasPage(normalized)) {
+            navigateToPage(normalized, replace);
+            return;
+          }
+          createPage(normalized).catch(function(error) {
+            setNoteStatus("Create page failed: " + errorMessage(error));
           });
         }
         function navigateToPageAtLine(pagePath, lineNumber, replace) {
@@ -2843,8 +3198,8 @@
           renderPageProperties2();
         }
         function renderSourceModeButton() {
-          const hasPage = Boolean(state.selectedPage && state.currentPage);
-          els.toggleSourceMode.disabled = !hasPage;
+          const hasPage2 = Boolean(state.selectedPage && state.currentPage);
+          els.toggleSourceMode.disabled = !hasPage2;
           els.toggleSourceMode.classList.toggle("active", state.sourceOpen);
           els.toggleSourceMode.setAttribute("aria-pressed", state.sourceOpen ? "true" : "false");
           els.toggleSourceMode.textContent = state.sourceOpen ? "Preview" : "Raw";
@@ -3159,6 +3514,8 @@
         function renderSettingsForm() {
           els.settingsVaultPath.value = state.settings.workspace.vaultPath || "";
           els.settingsHomePage.value = state.settings.workspace.homePage || "";
+          els.settingsFontFamily.value = state.settings.preferences.ui.fontFamily || "mono";
+          els.settingsFontSize.value = state.settings.preferences.ui.fontSize || "16";
           els.settingsQuickSwitcher.value = state.settings.preferences.hotkeys.quickSwitcher || "";
           els.settingsGlobalSearch.value = state.settings.preferences.hotkeys.globalSearch || "";
           els.settingsCommandPalette.value = state.settings.preferences.hotkeys.commandPalette || "";
@@ -3178,7 +3535,21 @@
           state.homePage = normalizePageDraftPath(snapshot.settings.workspace.homePage || "");
           renderHelpShortcuts();
           renderSettingsForm();
+          applyUIPreferences();
           renderSourceModeButton();
+        }
+        function applyUIPreferences() {
+          const root = document.documentElement;
+          const fontFamily = state.settings.preferences.ui.fontFamily || "mono";
+          const fontSize = state.settings.preferences.ui.fontSize || "16";
+          const fontMap = {
+            mono: '"IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace',
+            sans: '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif',
+            serif: '"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif'
+          };
+          root.style.setProperty("--app-font-family", fontMap[fontFamily] || fontMap.mono);
+          root.style.setProperty("--editor-font-family", fontMap[fontFamily] || fontMap.mono);
+          root.style.setProperty("--app-font-size", fontSize + "px");
         }
         async function loadSettings() {
           try {
@@ -3217,7 +3588,14 @@
             renderPages();
           } catch (error) {
             renderEmpty(els.pageList, errorMessage(error));
+            els.pageList.classList.add("no-scroll");
           }
+        }
+        function updatePageListScrollState() {
+          window.requestAnimationFrame(function() {
+            const overflow = els.pageList.scrollHeight - els.pageList.clientHeight;
+            els.pageList.classList.toggle("no-scroll", overflow <= 8);
+          });
         }
         function renderPages() {
           if (state.selectedPage) {
@@ -3235,8 +3613,52 @@
             },
             function(pagePath) {
               navigateToPage(pagePath, false);
+            },
+            function(folderKey) {
+              const name = window.prompt('New note in "' + folderKey + '"', "");
+              const normalizedName = normalizePageDraftPath(name || "");
+              if (!normalizedName) {
+                return;
+              }
+              createPage(folderKey + "/" + normalizedName).catch(function(error) {
+                setNoteStatus("Create page failed: " + errorMessage(error));
+              });
+            },
+            function(folderKey) {
+              const subfolder = normalizePageDraftPath(window.prompt('New subfolder in "' + folderKey + '"', "") || "");
+              if (!subfolder) {
+                return;
+              }
+              const initialNote = normalizePageDraftPath(window.prompt('Initial note inside "' + subfolder + '"', "index") || "");
+              if (!initialNote) {
+                return;
+              }
+              createPage(folderKey + "/" + subfolder + "/" + initialNote).catch(function(error) {
+                setNoteStatus("Create folder failed: " + errorMessage(error));
+              });
+            },
+            function(folderKey) {
+              deleteFolder(folderKey).catch(function(error) {
+                setNoteStatus("Delete folder failed: " + errorMessage(error));
+              });
+            },
+            function(pagePath) {
+              deletePage(pagePath).catch(function(error) {
+                setNoteStatus("Delete page failed: " + errorMessage(error));
+              });
+            },
+            function(pagePath, folderKey) {
+              movePageToFolder(pagePath, folderKey).catch(function(error) {
+                setNoteStatus("Move page failed: " + errorMessage(error));
+              });
+            },
+            function(folderKey, targetFolder) {
+              moveFolder(folderKey, targetFolder).catch(function(error) {
+                setNoteStatus("Move folder failed: " + errorMessage(error));
+              });
             }
           );
+          updatePageListScrollState();
         }
         async function loadSavedQueryTree() {
           const params = new URLSearchParams();
@@ -3287,6 +3709,7 @@
             return;
           }
           try {
+            const pendingLineFocus = state.pendingPageLineFocus;
             const loaded = await loadPageDetailData(
               pagePath,
               encodePath,
@@ -3326,6 +3749,9 @@
             );
             renderNoteStudio();
             if (state.markdownEditorApi && !blockingOverlayOpen(els)) {
+              state.markdownEditorApi.setHighlightedLine(
+                typeof pendingLineFocus === "number" && pendingLineFocus > 0 ? pendingLineFocus : null
+              );
               if (loaded.focusOffset !== null) {
                 state.pendingPageLineFocus = null;
                 state.pendingPageTaskRef = "";
@@ -3338,6 +3764,7 @@
                   });
                 });
               } else {
+                state.markdownEditorApi.setHighlightedLine(null);
                 focusEditorAtBodyPosition(firstEditableLineIndex(state.currentMarkdown), 0);
               }
             } else if (state.sourceOpen && !blockingOverlayOpen(els)) {
@@ -3641,6 +4068,10 @@
               homePage: normalizePageDraftPath(els.settingsHomePage.value || "")
             },
             preferences: {
+              ui: {
+                fontFamily: String(els.settingsFontFamily.value || "mono").trim(),
+                fontSize: String(els.settingsFontSize.value || "16").trim()
+              },
               hotkeys: {
                 quickSwitcher: String(els.settingsQuickSwitcher.value || "").trim(),
                 globalSearch: String(els.settingsGlobalSearch.value || "").trim(),
@@ -3756,6 +4187,32 @@
             return;
           }
           window.open(document2.downloadURL, "_blank", "noopener");
+        }
+        async function copyCodeBlock(code) {
+          const value = String(code || "");
+          if (!value) {
+            setNoteStatus("Code block is empty.");
+            return;
+          }
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(value);
+            setNoteStatus("Copied code block.");
+            return;
+          }
+          const textarea = document.createElement("textarea");
+          textarea.value = value;
+          textarea.setAttribute("readonly", "true");
+          textarea.style.position = "fixed";
+          textarea.style.opacity = "0";
+          textarea.style.pointerEvents = "none";
+          document.body.appendChild(textarea);
+          textarea.select();
+          try {
+            document.execCommand("copy");
+            setNoteStatus("Copied code block.");
+          } finally {
+            document.body.removeChild(textarea);
+          }
         }
         function renderDocumentResults() {
           state.documentSelectionIndex = renderDocumentsResults({
@@ -3881,6 +4338,53 @@
           }
           await loadPages();
         }
+        async function deleteFolder(folderKey) {
+          const normalized = normalizePageDraftPath(folderKey);
+          if (!normalized) {
+            return;
+          }
+          const pageCount = state.pages.filter(function(page) {
+            const path = String(page.path || "");
+            return path === normalized || path.startsWith(normalized + "/");
+          }).length;
+          if (!window.confirm('Delete folder "' + normalized + '" and everything inside it?\n\n' + String(pageCount) + " note(s) will be removed.")) {
+            return;
+          }
+          await fetchJSON("/api/folders/" + encodePath(normalized), {
+            method: "DELETE"
+          });
+          if (state.selectedPage && (state.selectedPage === normalized || state.selectedPage.startsWith(normalized + "/"))) {
+            clearPageSelection();
+          }
+          if (currentHomePage().toLowerCase() === normalized.toLowerCase() || currentHomePage().startsWith(normalized.toLowerCase() + "/")) {
+            clearHomePage();
+          }
+          await loadPages();
+        }
+        function remapPathPrefix(value, fromPrefix, toPrefix) {
+          const source = normalizePageDraftPath(value);
+          if (!source) {
+            return "";
+          }
+          if (source === fromPrefix) {
+            return toPrefix;
+          }
+          if (source.startsWith(fromPrefix + "/")) {
+            return toPrefix + source.slice(fromPrefix.length);
+          }
+          return source;
+        }
+        function remapExpandedFolderKeys(fromPrefix, toPrefix) {
+          const next = {};
+          Object.keys(state.expandedPageFolders).forEach(function(key) {
+            if (!state.expandedPageFolders[key]) {
+              return;
+            }
+            const remapped = remapPathPrefix(key, fromPrefix, toPrefix);
+            next[remapped || key] = true;
+          });
+          state.expandedPageFolders = next;
+        }
         async function movePage(pagePath, targetPage) {
           const fromPath = normalizePageDraftPath(pagePath);
           const toPath = normalizePageDraftPath(targetPage);
@@ -3897,6 +4401,46 @@
           }
           await loadPages();
           navigateToPage(payload.page || toPath, false);
+        }
+        async function movePageToFolder(pagePath, folderKey) {
+          const fromPath = normalizePageDraftPath(pagePath);
+          if (!fromPath) {
+            return;
+          }
+          const leaf = pageTitleFromPath(fromPath);
+          const targetFolder = normalizePageDraftPath(folderKey);
+          const toPath = targetFolder ? targetFolder + "/" + leaf : leaf;
+          await movePage(fromPath, toPath);
+        }
+        async function moveFolder(folderKey, targetFolder) {
+          const sourceFolder = normalizePageDraftPath(folderKey);
+          const destinationParent = normalizePageDraftPath(targetFolder);
+          if (!sourceFolder) {
+            return;
+          }
+          const folderName = pageTitleFromPath(sourceFolder);
+          const destinationFolder = destinationParent ? destinationParent + "/" + folderName : folderName;
+          if (destinationFolder === sourceFolder || destinationParent.startsWith(sourceFolder + "/")) {
+            return;
+          }
+          const payload = await fetchJSON("/api/folders/" + encodePath(sourceFolder) + "/move", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ targetFolder: destinationParent })
+          });
+          const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
+          const movedSelectedPage = state.selectedPage ? remapPathPrefix(state.selectedPage, sourceFolder, movedFolder) : "";
+          const movedHomePage = currentHomePage() ? remapPathPrefix(currentHomePage(), sourceFolder, movedFolder) : "";
+          remapExpandedFolderKeys(sourceFolder, movedFolder);
+          if (movedHomePage) {
+            setHomePage(movedHomePage);
+          }
+          await loadPages();
+          if (movedSelectedPage && movedSelectedPage !== state.selectedPage) {
+            navigateToPage(movedSelectedPage, false);
+            return;
+          }
+          renderPages();
         }
         function renderCommandPaletteResults2() {
           state.commandSelectionIndex = renderCommandPaletteResults({
@@ -3929,19 +4473,23 @@
               renderQuickSwitcherResults2();
             },
             onOpenSearch: function() {
+              closeCommandPalette();
               setSearchOpen(true);
               scheduleGlobalSearch();
             },
             onFocusRail: function(tab) {
+              closeCommandPalette();
               setRailTab(tab);
               if (window.matchMedia("(max-width: 1180px)").matches) {
                 setRailOpen(true);
               }
             },
             onToggleRail: function() {
+              closeCommandPalette();
               setRailOpen(!state.railOpen);
             },
             onOpenHomePage: function(pagePath) {
+              closeCommandPalette();
               navigateToPage(pagePath, false);
             },
             onSetHomePage: function(pagePath) {
@@ -4016,8 +4564,12 @@
         }
         function setRailOpen(open) {
           state.railOpen = Boolean(open);
+          const mobileLayout = window.matchMedia("(max-width: 1180px)").matches;
           if (els.rail) {
             els.rail.classList.toggle("open", state.railOpen);
+          }
+          if (els.workspace) {
+            els.workspace.classList.toggle("rail-collapsed", !mobileLayout && !state.railOpen);
           }
           if (els.toggleRail) {
             els.toggleRail.classList.toggle("active", state.railOpen);
@@ -4149,30 +4701,45 @@
             return Boolean(element.closest("input, textarea, select, [contenteditable='true'], .cm-editor, .cm-content"));
           }
           on(els.pageSearch, "input", loadPages);
+          on(els.pageSearch, "blur", function() {
+            if (!els.pageSearch.value.trim()) {
+              setPageSearchOpen(false);
+            }
+          });
           on(els.querySearch, "input", loadSavedQueryTree);
           on(els.reloadPages, "click", loadPages);
           on(els.reloadQueries, "click", loadSavedQueryTree);
           on(els.addProperty, "click", startAddProperty);
           on(els.toggleRail, "click", function() {
-            if (window.matchMedia("(max-width: 1180px)").matches) {
-              setRailOpen(!state.railOpen);
-            }
+            setRailOpen(!state.railOpen);
+          });
+          on(els.togglePageSearch, "click", function() {
+            setPageSearchOpen(els.pageSearchShell.classList.contains("hidden"));
+          });
+          on(els.openSessionMenu, "click", function() {
+            const nextOpen = els.sessionMenuPanel.classList.contains("hidden");
+            setSessionMenuOpen(nextOpen);
           });
           on(els.openHelp, "click", function() {
+            setSessionMenuOpen(false);
             setHelpOpen(true);
           });
           on(els.openSettings, "click", function() {
+            setSessionMenuOpen(false);
             setSettingsOpen(true);
           });
           on(els.openQuickSwitcher, "click", function() {
+            setSessionMenuOpen(false);
             setQuickSwitcherOpen(true);
             renderQuickSwitcherResults2();
           });
           on(els.openDocuments, "click", function() {
+            setSessionMenuOpen(false);
             setDocumentsOpen(true);
             scheduleDocumentsRefresh();
           });
           on(els.openSearch, "click", function() {
+            setSessionMenuOpen(false);
             setSearchOpen(true);
             scheduleGlobalSearch();
           });
@@ -4274,7 +4841,7 @@
               if (link && link.target) {
                 event.preventDefault();
                 closeSlashMenu(state, els);
-                navigateToPage(link.target, false);
+                openOrCreatePage(link.target, false);
                 return;
               }
             }
@@ -4437,6 +5004,9 @@
             if (!withinProperties) {
               dismissPropertyUI();
             }
+            if (!target || !target.closest("#session-menu")) {
+              setSessionMenuOpen(false);
+            }
             if (!target || !target.closest("#slash-menu")) {
               closeSlashMenu(state, els);
             }
@@ -4448,6 +5018,10 @@
             }
           });
           window.addEventListener("keydown", function(event) {
+            if (event.key === "Escape" && !els.sessionMenuPanel.classList.contains("hidden")) {
+              setSessionMenuOpen(false);
+              return;
+            }
             if (!event.ctrlKey && !event.metaKey && !event.shiftKey && event.altKey && event.key === "ArrowLeft") {
               event.preventDefault();
               window.history.back();
@@ -4578,7 +5152,7 @@
                   navigateToPageAtLine(page, line, false);
                   return;
                 }
-                navigateToPage(page, false);
+                openOrCreatePage(page, false);
               }
             });
             on(markdownEditorApi.host, "noterious:document-download", function(event) {
@@ -4588,6 +5162,12 @@
                 return;
               }
               window.location.href = href;
+            });
+            on(markdownEditorApi.host, "noterious:code-copy", function(event) {
+              const detail = event.detail || {};
+              copyCodeBlock(detail.code ? String(detail.code) : "").catch(function(error) {
+                setNoteStatus("Copy failed: " + errorMessage(error));
+              });
             });
             on(markdownEditorApi.host, "noterious:task-toggle", function(event) {
               const detail = event.detail || {};
@@ -4616,8 +5196,10 @@
           }
           setDebugOpen(false);
           setRailTab("files");
-          setRailOpen(false);
+          setRailOpen(!window.matchMedia("(max-width: 1180px)").matches);
+          setPageSearchOpen(false);
           setSourceOpen(false);
+          applyUIPreferences();
           renderNoteStudio();
           renderPageTasks2([]);
           renderPageContext2();
