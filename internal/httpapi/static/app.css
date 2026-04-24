@@ -888,13 +888,34 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   gap: 0.8rem;
 }
 
-.note-heading {
+.note-heading-input {
+  min-width: 0;
+  width: 100%;
   margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
   font-size: 1.62rem;
   line-height: 1.18;
   letter-spacing: -0.03em;
   font-weight: 700;
-  min-width: 0;
+  box-shadow: none;
+}
+
+.note-heading-input::placeholder {
+  color: var(--muted);
+}
+
+.note-heading-input:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.note-heading-input:focus {
+  color: var(--text-strong);
 }
 
 .note-mode-button {
@@ -1717,9 +1738,24 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 .markdown-editor-host.render-mode .cm-md-task-meta {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-left: 0.55rem;
+  gap: 0.24rem;
+  margin-left: 0.42rem;
   vertical-align: middle;
+}
+
+.markdown-editor-host.render-mode .cm-md-task-inline-date {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: color-mix(in srgb, currentColor 48%, transparent);
+  text-underline-offset: 0.14em;
+  cursor: pointer;
+}
+
+.markdown-editor-host.render-mode .cm-md-task-inline-date:hover,
+.markdown-editor-host.render-mode .cm-md-task-inline-date:focus-visible {
+  color: inherit;
+  text-decoration-color: currentColor;
 }
 
 .markdown-editor-host.render-mode .cm-md-task-done {
@@ -2179,6 +2215,123 @@ kbd {
   display: flex;
   justify-content: flex-end;
   gap: 0.45rem;
+}
+
+.task-inline-picker {
+  position: fixed;
+  z-index: 30;
+  width: min(22rem, calc(100vw - 1.5rem));
+  padding: 0.7rem;
+  border: 1px solid rgba(122, 162, 247, 0.18);
+  border-radius: 12px;
+  background: rgba(18, 20, 29, 0.98);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
+}
+
+.task-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.task-picker-head strong {
+  font-size: 0.78rem;
+}
+
+.task-picker-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.task-picker-nav button,
+.task-picker-footer button,
+.task-picker-apply {
+  padding: 0.32rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(28, 31, 44, 0.96);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.task-picker-nav button:hover,
+.task-picker-nav button:focus-visible,
+.task-picker-footer button:hover,
+.task-picker-footer button:focus-visible,
+.task-picker-apply:hover,
+.task-picker-apply:focus-visible {
+  border-color: var(--accent);
+}
+
+.task-picker-weekdays,
+.task-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.2rem;
+}
+
+.task-picker-weekdays {
+  margin-bottom: 0.28rem;
+}
+
+.task-picker-weekdays span {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+}
+
+.task-picker-day {
+  min-height: 2rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: rgba(24, 27, 39, 0.94);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.task-picker-day:hover,
+.task-picker-day:focus-visible {
+  border-color: rgba(122, 162, 247, 0.4);
+}
+
+.task-picker-day.is-faded {
+  color: rgba(192, 202, 245, 0.45);
+}
+
+.task-picker-day.is-selected {
+  background: rgba(122, 162, 247, 0.18);
+  border-color: rgba(122, 162, 247, 0.5);
+}
+
+.task-picker-time {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+}
+
+.task-picker-time select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.task-picker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+
+.task-picker-footer-actions {
+  display: flex;
+  gap: 0.35rem;
 }
 
 .modal-card .search span {

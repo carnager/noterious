@@ -12,6 +12,8 @@ import {go} from "@codemirror/lang-go";
 import {yaml} from "@codemirror/lang-yaml";
 import {sql} from "@codemirror/lang-sql";
 import {tags} from "@lezer/highlight";
+import { formatDateTimeValue, formatDateValue, normalizeDateTimeDisplayFormat, setDateTimeDisplayFormat } from "./datetime";
+import { pageTitleFromPath } from "./commands";
 import type { NoteriousEditorApi, QueryBlockRender, TaskRender } from "./types";
 
 interface EditorTaskState {
@@ -22,6 +24,7 @@ interface EditorTaskState {
   remind: string;
   who: string[];
 }
+
 
 const measureCanvas = document.createElement("canvas");
 const measureContext = measureCanvas.getContext("2d");
@@ -69,6 +72,7 @@ const setQueryBlocksEffect = StateEffect.define<Map<string, string>>();
 const setTasksEffect = StateEffect.define<Map<number, EditorTaskState>>();
 const setPagePathEffect = StateEffect.define<string>();
 const setHighlightedLineEffect = StateEffect.define<number | null>();
+const taskInlineDatePattern = /\[(due|remind):\s*[^\]]+?\]|\b(due|remind)::\s*[^\s]+(?:\s+\d{2}:\d{2})?/g;
 
 const codeLanguages = [
   LanguageDescription.of({name: "JavaScript", alias: ["js", "javascript"], extensions: ["js", "mjs", "cjs"], support: javascript()}),
@@ -271,25 +275,11 @@ class TaskMetaWidget extends WidgetType {
     const meta = document.createElement("span");
     meta.className = "cm-md-task-meta";
 
-    if (this.task.due || this.task.remind || (this.task.who && this.task.who.length)) {
-      if (this.task.due) {
-        const pill = document.createElement("span");
-        pill.className = "token";
-        pill.textContent = "due " + this.task.due;
-        meta.appendChild(pill);
-      }
-      if (this.task.remind) {
-        const pill = document.createElement("span");
-        pill.className = "token";
-        pill.textContent = "remind " + this.task.remind;
-        meta.appendChild(pill);
-      }
-      if (this.task.who && this.task.who.length) {
-        const pill = document.createElement("span");
-        pill.className = "token";
-        pill.textContent = this.task.who.join(", ");
-        meta.appendChild(pill);
-      }
+    if (this.task.who && this.task.who.length) {
+      const pill = document.createElement("span");
+      pill.className = "token";
+      pill.textContent = this.task.who.join(", ");
+      meta.appendChild(pill);
     }
     return meta;
   }
@@ -546,20 +536,33 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
           widget: new TaskCheckboxWidget(task.done, task.ref),
         })
       );
-      if (task.text && bodyText.startsWith(task.text)) {
-        let suffixStart = from + prefixLength + task.text.length;
-        while (suffixStart < line.to && /\s/.test(state.doc.sliceString(suffixStart, suffixStart + 1))) {
-          suffixStart += 1;
-        }
-        if (suffixStart < line.to && (task.due || task.remind || (task.who && task.who.length))) {
-          builder.add(
-            suffixStart,
-            line.to,
-            Decoration.replace({
-              widget: new TaskMetaWidget(task),
-            })
-          );
-        }
+      let dateMatch: RegExpExecArray | null = null;
+      while ((dateMatch = taskInlineDatePattern.exec(bodyText)) !== null) {
+        const field = String(dateMatch[1] || "");
+        const start = from + prefixLength + dateMatch.index;
+        const end = start + dateMatch[0].length;
+        builder.add(
+          start,
+          end,
+          Decoration.mark({
+            class: "cm-md-task-inline-date",
+            attributes: {
+              "data-task-date-edit": field,
+              "data-task-ref": task.ref || "",
+            },
+          })
+        );
+      }
+      taskInlineDatePattern.lastIndex = 0;
+      if (task.text && bodyText.startsWith(task.text) && task.who && task.who.length) {
+        builder.add(
+          line.to,
+          line.to,
+          Decoration.widget({
+            widget: new TaskMetaWidget(task),
+            side: 1,
+          })
+        );
       }
       continue;
     }
@@ -568,7 +571,8 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
     let wikiMatch: RegExpExecArray | null = null;
     while ((wikiMatch = wikiPattern.exec(text)) !== null) {
       const target = String(wikiMatch[1] || "").trim();
-      const label = String(wikiMatch[2] || wikiMatch[1] || "").trim();
+      const explicitLabel = String(wikiMatch[2] || "").trim();
+      const label = explicitLabel || pageTitleFromPath(target);
       const start = from + wikiMatch.index;
       const end = start + wikiMatch[0].length;
       const editingLink = selection.from <= end && selection.to >= start;
@@ -661,7 +665,8 @@ const renderedDecorationsField = StateField.define<DecorationSet>({
   },
   update(value, transaction) {
     const modeChanged = transaction.effects.some((effect) => effect.is(setRenderModeEffect));
-    if (!modeChanged && !transaction.docChanged && !transaction.selection) {
+    const tasksChanged = transaction.effects.some((effect) => effect.is(setTasksEffect));
+    if (!modeChanged && !tasksChanged && !transaction.docChanged && !transaction.selection) {
       return value;
     }
     return buildRenderedDecorations(transaction.state);
@@ -728,12 +733,42 @@ window.NoteriousCodeEditor = {
         if (taskToggle) {
           event.preventDefault();
           const taskCarrier = target ? target.closest("[data-task-ref]") : null;
+          const taskRef = taskCarrier ? taskCarrier.getAttribute("data-task-ref") || "" : "";
           const position = view.posAtDOM(taskToggle);
           const lineNumber = view.state.doc.lineAt(position).number;
           host.dispatchEvent(new CustomEvent("noterious:task-toggle", {
             detail: {
               lineNumber: lineNumber,
-              ref: taskCarrier ? taskCarrier.getAttribute("data-task-ref") || "" : "",
+              ref: taskRef,
+            },
+            bubbles: true,
+          }));
+          return true;
+        }
+
+        const taskDateEdit = target ? target.closest("[data-task-date-edit]") : null;
+        if (taskDateEdit) {
+          event.preventDefault();
+          const trigger = taskDateEdit instanceof HTMLElement ? taskDateEdit : null;
+          const rect = trigger ? trigger.getBoundingClientRect() : null;
+          host.dispatchEvent(new CustomEvent("noterious:task-date-edit", {
+            detail: {
+              ref: taskDateEdit.getAttribute("data-task-ref") || "",
+              field: taskDateEdit.getAttribute("data-task-date-edit") || "",
+              left: rect ? rect.left : 0,
+              top: rect ? rect.bottom + 6 : 0,
+            },
+            bubbles: true,
+          }));
+          return true;
+        }
+
+        const taskDelete = target ? target.closest("[data-task-delete]") : null;
+        if (taskDelete) {
+          event.preventDefault();
+          host.dispatchEvent(new CustomEvent("noterious:task-delete", {
+            detail: {
+              ref: taskDelete.getAttribute("data-task-ref") || "",
             },
             bubbles: true,
           }));
@@ -865,6 +900,12 @@ window.NoteriousCodeEditor = {
       setPagePath(path: string) {
         view.dispatch({
           effects: setPagePathEffect.of(String(path || "")),
+        });
+      },
+      setDateTimeFormat(format: "browser" | "iso" | "de") {
+        setDateTimeDisplayFormat(normalizeDateTimeDisplayFormat(format));
+        view.dispatch({
+          effects: setTasksEffect.of(new Map(view.state.field(tasksField))),
         });
       },
       setQueryBlocks(blocks: QueryBlockRender[]) {

@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.3] - 2026-04-24
+
+### Added
+- Ntfy-based due and reminder notifications with persisted delivery state and settings UI controls.
+- App-controlled date/time display preferences with `Browser Default`, `ISO`, and `DE` modes.
+- Daily note command and configurable hotkey, creating or opening `Inbox/YYYY-MM-DD`.
+- Inline due and reminder picker for task metadata, plus slash commands for inserting due/remind markup quickly.
+- CLI flags for custom listen address and port.
+- Root `TODO.md` for follow-up work such as vault health, multi-vault support, and companion app ideas.
+
+### Changed
+- Note titles now come from filenames instead of headings, and the title field renames the file in place.
+- Rendered page links now show only the filename/leaf while keeping the underlying page path.
+- Frontmatter date/datetime editors now respect the app's date/time display preference.
+- Task dates moved to bracket syntax like `[due: 2026-04-24]` and `[remind: 2026-04-24 09:00]`, while legacy `due::` syntax remains readable.
+- Daily note, reminder, and task-date interactions are now more direct and editor-focused instead of modal-driven.
+
+### Fixed
+- Frontmatter YAML list values for fields like `phone_work` and `email` being dropped from indexed JSON.
+- Ctrl/Cmd-click task editing regressions and task-line rendering issues around visible text and inline metadata.
+- Task date rendering and task modal date fields ignoring the app's custom locale preference.
+- Rendered query task links and aliased task columns losing click-through behavior.
+- Browser-safe hotkey handling and help surface discoverability.
+
 ## [v0.1.1] - 2026-04-24
 
 ### Added

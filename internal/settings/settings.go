@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/carnager/noterious/internal/config"
 )
@@ -15,6 +16,7 @@ type Hotkeys struct {
 	QuickSwitcher  string `json:"quickSwitcher"`
 	GlobalSearch   string `json:"globalSearch"`
 	CommandPalette string `json:"commandPalette"`
+	QuickNote      string `json:"quickNote"`
 	Help           string `json:"help"`
 	SaveCurrent    string `json:"saveCurrentPage"`
 	ToggleRawMode  string `json:"toggleRawMode"`
@@ -26,8 +28,15 @@ type Preferences struct {
 }
 
 type UI struct {
-	FontFamily string `json:"fontFamily"`
-	FontSize   string `json:"fontSize"`
+	FontFamily     string `json:"fontFamily"`
+	FontSize       string `json:"fontSize"`
+	DateTimeFormat string `json:"dateTimeFormat"`
+}
+
+type Notifications struct {
+	NtfyTopicURL string `json:"ntfyTopicUrl"`
+	NtfyToken    string `json:"ntfyToken"`
+	NtfyInterval string `json:"ntfyInterval"`
 }
 
 type Workspace struct {
@@ -36,8 +45,9 @@ type Workspace struct {
 }
 
 type AppSettings struct {
-	Preferences Preferences `json:"preferences"`
-	Workspace   Workspace   `json:"workspace"`
+	Preferences   Preferences   `json:"preferences"`
+	Workspace     Workspace     `json:"workspace"`
+	Notifications Notifications `json:"notifications"`
 }
 
 type Snapshot struct {
@@ -47,11 +57,12 @@ type Snapshot struct {
 }
 
 type Store struct {
-	mu               sync.RWMutex
-	path             string
-	settings         AppSettings
-	defaultSettings  AppSettings
-	appliedWorkspace Workspace
+	mu                   sync.RWMutex
+	path                 string
+	settings             AppSettings
+	defaultSettings      AppSettings
+	appliedWorkspace     Workspace
+	appliedNotifications Notifications
 }
 
 func DefaultSettingsFromConfig(cfg config.Config) AppSettings {
@@ -61,18 +72,25 @@ func DefaultSettingsFromConfig(cfg config.Config) AppSettings {
 				QuickSwitcher:  "Mod+K",
 				GlobalSearch:   "Mod+Shift+K",
 				CommandPalette: "Mod+Shift+P",
+				QuickNote:      "",
 				Help:           "?",
 				SaveCurrent:    "Mod+S",
 				ToggleRawMode:  "Mod+E",
 			},
 			UI: UI{
-				FontFamily: "mono",
-				FontSize:   "16",
+				FontFamily:     "mono",
+				FontSize:       "16",
+				DateTimeFormat: "browser",
 			},
 		},
 		Workspace: Workspace{
 			VaultPath: strings.TrimSpace(cfg.VaultPath),
 			HomePage:  strings.TrimSpace(cfg.HomePage),
+		},
+		Notifications: Notifications{
+			NtfyTopicURL: strings.TrimSpace(cfg.NtfyTopicURL),
+			NtfyToken:    strings.TrimSpace(cfg.NtfyToken),
+			NtfyInterval: strings.TrimSpace(cfg.NtfyInterval.String()),
 		},
 	}
 }
@@ -99,6 +117,11 @@ func NewStore(dataDir string, defaults AppSettings) (*Store, error) {
 		VaultPath: loaded.Workspace.VaultPath,
 		HomePage:  loaded.Workspace.HomePage,
 	}
+	store.appliedNotifications = Notifications{
+		NtfyTopicURL: loaded.Notifications.NtfyTopicURL,
+		NtfyToken:    loaded.Notifications.NtfyToken,
+		NtfyInterval: loaded.Notifications.NtfyInterval,
+	}
 	return store, nil
 }
 
@@ -109,7 +132,7 @@ func (s *Store) Path() string {
 func (s *Store) Snapshot() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return snapshotFor(s.settings, s.appliedWorkspace)
+	return snapshotForApplied(s.settings, s.appliedWorkspace, s.appliedNotifications)
 }
 
 func (s *Store) Settings() AppSettings {
@@ -130,14 +153,17 @@ func (s *Store) Update(next AppSettings) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	s.settings = normalized
-	return snapshotFor(s.settings, s.appliedWorkspace), nil
+	return snapshotForApplied(s.settings, s.appliedWorkspace, s.appliedNotifications), nil
 }
 
-func (s *Store) SetAppliedWorkspace(workspace Workspace) {
+func (s *Store) SetAppliedRuntime(settings AppSettings) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.appliedWorkspace.VaultPath = strings.TrimSpace(workspace.VaultPath)
+	s.appliedWorkspace.VaultPath = strings.TrimSpace(settings.Workspace.VaultPath)
 	s.appliedWorkspace.HomePage = strings.TrimSpace(s.settings.Workspace.HomePage)
+	s.appliedNotifications.NtfyTopicURL = strings.TrimSpace(settings.Notifications.NtfyTopicURL)
+	s.appliedNotifications.NtfyToken = strings.TrimSpace(settings.Notifications.NtfyToken)
+	s.appliedNotifications.NtfyInterval = strings.TrimSpace(settings.Notifications.NtfyInterval)
 }
 
 func (s *Store) load() (AppSettings, error) {
@@ -172,6 +198,12 @@ func normalizeSettings(input AppSettings, defaults AppSettings) AppSettings {
 	}
 	normalized.Workspace.VaultPath = strings.TrimSpace(normalized.Workspace.VaultPath)
 	normalized.Workspace.HomePage = strings.TrimSpace(normalized.Workspace.HomePage)
+	normalized.Notifications.NtfyTopicURL = strings.TrimSpace(normalized.Notifications.NtfyTopicURL)
+	normalized.Notifications.NtfyToken = strings.TrimSpace(normalized.Notifications.NtfyToken)
+	if strings.TrimSpace(normalized.Notifications.NtfyInterval) == "" {
+		normalized.Notifications.NtfyInterval = defaults.Notifications.NtfyInterval
+	}
+	normalized.Notifications.NtfyInterval = strings.TrimSpace(normalized.Notifications.NtfyInterval)
 
 	if strings.TrimSpace(normalized.Preferences.Hotkeys.QuickSwitcher) == "" {
 		normalized.Preferences.Hotkeys.QuickSwitcher = defaults.Preferences.Hotkeys.QuickSwitcher
@@ -181,6 +213,9 @@ func normalizeSettings(input AppSettings, defaults AppSettings) AppSettings {
 	}
 	if strings.TrimSpace(normalized.Preferences.Hotkeys.CommandPalette) == "" {
 		normalized.Preferences.Hotkeys.CommandPalette = defaults.Preferences.Hotkeys.CommandPalette
+	}
+	if strings.TrimSpace(normalized.Preferences.Hotkeys.QuickNote) == "" {
+		normalized.Preferences.Hotkeys.QuickNote = defaults.Preferences.Hotkeys.QuickNote
 	}
 	if strings.TrimSpace(normalized.Preferences.Hotkeys.Help) == "" {
 		normalized.Preferences.Hotkeys.Help = defaults.Preferences.Hotkeys.Help
@@ -196,6 +231,9 @@ func normalizeSettings(input AppSettings, defaults AppSettings) AppSettings {
 	}
 	if strings.TrimSpace(normalized.Preferences.UI.FontSize) == "" {
 		normalized.Preferences.UI.FontSize = defaults.Preferences.UI.FontSize
+	}
+	if strings.TrimSpace(normalized.Preferences.UI.DateTimeFormat) == "" {
+		normalized.Preferences.UI.DateTimeFormat = defaults.Preferences.UI.DateTimeFormat
 	}
 
 	return normalized
@@ -215,18 +253,36 @@ func validateSettings(settings AppSettings) error {
 	default:
 		return fmt.Errorf("font size must be between 14 and 20")
 	}
+	switch strings.TrimSpace(settings.Preferences.UI.DateTimeFormat) {
+	case "browser", "iso", "de":
+	default:
+		return fmt.Errorf("date/time format must be browser, iso, or de")
+	}
+	if _, err := time.ParseDuration(strings.TrimSpace(settings.Notifications.NtfyInterval)); err != nil {
+		return fmt.Errorf("ntfy interval must be a valid duration")
+	}
 	return nil
 }
 
 func snapshotFor(settings AppSettings, applied Workspace) Snapshot {
+	return snapshotForApplied(settings, applied, Notifications{})
+}
+
+func snapshotForApplied(settings AppSettings, applied Workspace, appliedNotifications Notifications) Snapshot {
 	effectiveApplied := Workspace{
 		VaultPath: strings.TrimSpace(applied.VaultPath),
 		HomePage:  strings.TrimSpace(settings.Workspace.HomePage),
 	}
+	restartRequired := !strings.EqualFold(strings.TrimSpace(settings.Workspace.VaultPath), strings.TrimSpace(applied.VaultPath))
+	if !restartRequired {
+		restartRequired = strings.TrimSpace(settings.Notifications.NtfyTopicURL) != strings.TrimSpace(appliedNotifications.NtfyTopicURL) ||
+			strings.TrimSpace(settings.Notifications.NtfyToken) != strings.TrimSpace(appliedNotifications.NtfyToken) ||
+			strings.TrimSpace(settings.Notifications.NtfyInterval) != strings.TrimSpace(appliedNotifications.NtfyInterval)
+	}
 	return Snapshot{
 		Settings:         settings,
 		AppliedWorkspace: effectiveApplied,
-		RestartRequired:  !strings.EqualFold(strings.TrimSpace(settings.Workspace.VaultPath), strings.TrimSpace(applied.VaultPath)),
+		RestartRequired:  restartRequired,
 	}
 }
 

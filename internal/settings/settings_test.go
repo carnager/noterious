@@ -7,7 +7,7 @@ import (
 	"github.com/carnager/noterious/internal/config"
 )
 
-func TestStorePersistsAndMarksRestartRequiredForVaultPath(t *testing.T) {
+func TestStorePersistsAndMarksRestartRequiredForRuntimeSettings(t *testing.T) {
 	t.Parallel()
 
 	rootDir := t.TempDir()
@@ -31,13 +31,19 @@ func TestStorePersistsAndMarksRestartRequiredForVaultPath(t *testing.T) {
 		Preferences: Preferences{
 			Hotkeys: initial.Settings.Preferences.Hotkeys,
 			UI: UI{
-				FontFamily: "sans",
-				FontSize:   "18",
+				FontFamily:     "sans",
+				FontSize:       "18",
+				DateTimeFormat: "de",
 			},
 		},
 		Workspace: Workspace{
 			VaultPath: filepath.Join(rootDir, "vault-b"),
 			HomePage:  "notes/start",
+		},
+		Notifications: Notifications{
+			NtfyTopicURL: "https://ntfy.sh/noterious-test",
+			NtfyToken:    "secret-token",
+			NtfyInterval: "2m",
 		},
 	})
 	if err != nil {
@@ -61,7 +67,12 @@ func TestStorePersistsAndMarksRestartRequiredForVaultPath(t *testing.T) {
 	if snapshot.Settings.Workspace.HomePage != "notes/start" {
 		t.Fatalf("home page not persisted: got %q", snapshot.Settings.Workspace.HomePage)
 	}
-	if snapshot.Settings.Preferences.UI.FontFamily != "sans" || snapshot.Settings.Preferences.UI.FontSize != "18" {
+	if snapshot.Settings.Preferences.UI.FontFamily != "sans" || snapshot.Settings.Preferences.UI.FontSize != "18" || snapshot.Settings.Preferences.UI.DateTimeFormat != "de" {
 		t.Fatalf("ui settings not persisted: %#v", snapshot.Settings.Preferences.UI)
+	}
+	if snapshot.Settings.Notifications.NtfyTopicURL != "https://ntfy.sh/noterious-test" ||
+		snapshot.Settings.Notifications.NtfyToken != "secret-token" ||
+		snapshot.Settings.Notifications.NtfyInterval != "2m" {
+		t.Fatalf("notification settings not persisted: %#v", snapshot.Settings.Notifications)
 	}
 }

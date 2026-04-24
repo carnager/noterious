@@ -930,8 +930,8 @@ func NewRouter(deps Dependencies) http.Handler {
 	})
 
 	mux.HandleFunc("/api/tasks/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPatch {
-			writeMethodNotAllowed(w, http.MethodPatch)
+		if r.Method != http.MethodPatch && r.Method != http.MethodDelete {
+			writeMethodNotAllowed(w, http.MethodPatch, http.MethodDelete)
 			return
 		}
 
@@ -954,40 +954,49 @@ func NewRouter(deps Dependencies) http.Handler {
 			}
 		}
 
-		var request struct {
-			Text   *string  `json:"text"`
-			State  *string  `json:"state"`
-			Due    *string  `json:"due"`
-			Remind *string  `json:"remind"`
-			Who    []string `json:"who"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		var who *[]string
-		if request.Who != nil {
-			copied := append([]string(nil), request.Who...)
-			who = &copied
-		}
-
 		rawMarkdown, err := deps.Vault.ReadPage(task.Page)
 		if err != nil {
 			http.Error(w, "failed to read task page", http.StatusInternalServerError)
 			return
 		}
 
-		updatedMarkdown, _, err := markdown.ApplyTaskPatch(string(rawMarkdown), task.Line, markdown.TaskPatch{
-			Text:   request.Text,
-			State:  request.State,
-			Due:    request.Due,
-			Remind: request.Remind,
-			Who:    who,
-		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+		var updatedMarkdown string
+		if r.Method == http.MethodDelete {
+			updatedMarkdown, err = markdown.RemoveTaskLine(string(rawMarkdown), task.Line)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		} else {
+			var request struct {
+				Text   *string  `json:"text"`
+				State  *string  `json:"state"`
+				Due    *string  `json:"due"`
+				Remind *string  `json:"remind"`
+				Who    []string `json:"who"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+
+			var who *[]string
+			if request.Who != nil {
+				copied := append([]string(nil), request.Who...)
+				who = &copied
+			}
+
+			updatedMarkdown, _, err = markdown.ApplyTaskPatch(string(rawMarkdown), task.Line, markdown.TaskPatch{
+				Text:   request.Text,
+				State:  request.State,
+				Due:    request.Due,
+				Remind: request.Remind,
+				Who:    who,
+			})
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 
 		if err := deps.Vault.WritePage(task.Page, []byte(updatedMarkdown)); err != nil {
@@ -1006,18 +1015,12 @@ func NewRouter(deps Dependencies) http.Handler {
 		}
 		if deps.Events != nil {
 			deps.Events.Publish(Event{
-				Type: "task.changed",
+				Type: map[bool]string{true: "task.deleted", false: "task.changed"}[r.Method == http.MethodDelete],
 				Data: map[string]any{
 					"ref":  ref,
 					"page": task.Page,
 				},
 			})
-		}
-
-		updatedTask, err := deps.Index.GetTask(r.Context(), ref)
-		if err != nil {
-			writeTaskError(w, r, err)
-			return
 		}
 		var updatedPageSummary *index.PageSummary
 		if updatedPage, err := deps.Index.GetPage(r.Context(), task.Page); err == nil {
@@ -1028,19 +1031,40 @@ func NewRouter(deps Dependencies) http.Handler {
 		}
 		if deps.Events != nil {
 			oldTask := task
-			newTask := updatedTask
+			var newTask *index.Task
+			if r.Method != http.MethodDelete {
+				updatedTask, err := deps.Index.GetTask(r.Context(), ref)
+				if err != nil {
+					writeTaskError(w, r, err)
+					return
+				}
+				newTask = &updatedTask
+			}
 			PublishInvalidationEvents(r.Context(), deps.Events, deps.Index, deps.Query, task.Page, []query.PageChange{{
 				Before: previousPageSummary,
 				After:  updatedPageSummary,
 			}}, []query.TaskChange{{
 				Before: &oldTask,
-				After:  &newTask,
+				After:  newTask,
 			}})
 		}
 		if deps.OnPageChanged != nil {
 			deps.OnPageChanged(task.Page)
 		}
 
+		if r.Method == http.MethodDelete {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"deleted": true,
+				"ref":     ref,
+				"page":    task.Page,
+			})
+			return
+		}
+		updatedTask, err := deps.Index.GetTask(r.Context(), ref)
+		if err != nil {
+			writeTaskError(w, r, err)
+			return
+		}
 		writeJSON(w, http.StatusOK, updatedTask)
 	})
 

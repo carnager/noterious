@@ -220,6 +220,13 @@
         run: options.onOpenQuickSwitcher
       },
       {
+        title: "Open Daily Note",
+        meta: "Capture",
+        keywords: "daily note inbox capture today journal",
+        hint: options.hotkeys.quickNote,
+        run: options.onQuickNote
+      },
+      {
         title: "Focus Files",
         meta: "Rail",
         keywords: "files pages rail sidebar",
@@ -422,21 +429,6 @@
   function editableBody(markdown) {
     return splitFrontmatter(markdown).body;
   }
-  function inferMarkdownTitle(markdown, fallbackPage) {
-    const frontmatter = parseFrontmatter(markdown);
-    if (frontmatter.title && String(frontmatter.title).trim()) {
-      return String(frontmatter.title).trim();
-    }
-    const body = editableBody(markdown);
-    const match = body.match(/^#{1,6}\s+(.+)$/m);
-    if (match && match[1]) {
-      return String(match[1]).trim();
-    }
-    if (fallbackPage) {
-      return fallbackPage.title || fallbackPage.page || fallbackPage.path || "";
-    }
-    return "";
-  }
   function rawOffsetForBodyPosition(markdown, lineIndex, caret) {
     const split = splitFrontmatter(markdown);
     const body = split.body;
@@ -564,22 +556,16 @@
       workbench: workbench.workbench
     };
   }
-  function buildTaskSavePayload(taskText, taskState, taskDue, taskRemind, taskWho, serializeDateTimeValue2) {
-    return {
-      text: taskText.trim(),
-      state: taskState,
-      due: taskDue.trim(),
-      remind: serializeDateTimeValue2(taskRemind),
-      who: taskWho.split(",").map(function(part) {
-        return part.trim();
-      }).filter(Boolean)
-    };
-  }
   async function saveTask(ref, payload) {
     await fetchJSON("/api/tasks/" + encodeURIComponent(ref), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
+    });
+  }
+  async function deleteTask(ref) {
+    await fetchJSON("/api/tasks/" + encodeURIComponent(ref), {
+      method: "DELETE"
     });
   }
   async function savePageMarkdown(pagePath, markdownToSave, encodePath) {
@@ -677,6 +663,292 @@
     }
   });
 
+  // frontend/datetime.ts
+  function normalizeDateTimeDisplayFormat(value) {
+    switch (String(value || "").trim().toLowerCase()) {
+      case "iso":
+        return "iso";
+      case "de":
+        return "de";
+      default:
+        return "browser";
+    }
+  }
+  function setDateTimeDisplayFormat(value) {
+    currentDisplayFormat = normalizeDateTimeDisplayFormat(value);
+  }
+  function pad(value) {
+    return String(value).padStart(2, "0");
+  }
+  function parseStructuredDateValue(raw) {
+    const text = String(raw || "").trim();
+    const dateOnlyMatch = text.match(dateOnlyPattern);
+    if (dateOnlyMatch) {
+      return {
+        year: Number(dateOnlyMatch[1]),
+        month: Number(dateOnlyMatch[2]),
+        day: Number(dateOnlyMatch[3]),
+        hour: 0,
+        minute: 0,
+        second: 0,
+        hasTime: false
+      };
+    }
+    const dateTimeMatch = text.match(dateTimePattern);
+    if (!dateTimeMatch) {
+      return null;
+    }
+    return {
+      year: Number(dateTimeMatch[1]),
+      month: Number(dateTimeMatch[2]),
+      day: Number(dateTimeMatch[3]),
+      hour: Number(dateTimeMatch[4]),
+      minute: Number(dateTimeMatch[5]),
+      second: Number(dateTimeMatch[6] || "0"),
+      hasTime: true
+    };
+  }
+  function structuredDateFromDate(value) {
+    return {
+      year: value.getFullYear(),
+      month: value.getMonth() + 1,
+      day: value.getDate(),
+      hour: value.getHours(),
+      minute: value.getMinutes(),
+      second: value.getSeconds(),
+      hasTime: true
+    };
+  }
+  function toLocalDate(structured) {
+    return new Date(
+      structured.year,
+      structured.month - 1,
+      structured.day,
+      structured.hour,
+      structured.minute,
+      structured.second,
+      0
+    );
+  }
+  function formatStructuredDate(structured) {
+    if (currentDisplayFormat === "iso") {
+      return [structured.year, pad(structured.month), pad(structured.day)].join("-");
+    }
+    const locale = currentDisplayFormat === "de" ? "de-DE" : void 0;
+    return new Intl.DateTimeFormat(locale, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(toLocalDate(structured));
+  }
+  function formatStructuredEditableDate(structured) {
+    if (currentDisplayFormat === "de") {
+      return [pad(structured.day), pad(structured.month), structured.year].join(".");
+    }
+    return [structured.year, pad(structured.month), pad(structured.day)].join("-");
+  }
+  function formatStructuredTime(structured) {
+    if (currentDisplayFormat === "iso") {
+      return [pad(structured.hour), pad(structured.minute), pad(structured.second)].join(":");
+    }
+    const locale = currentDisplayFormat === "de" ? "de-DE" : void 0;
+    return new Intl.DateTimeFormat(locale, {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    }).format(toLocalDate(structured));
+  }
+  function formatStructuredDateTime(structured) {
+    if (!structured.hasTime) {
+      return formatStructuredDate(structured);
+    }
+    if (currentDisplayFormat === "iso") {
+      return formatStructuredDate(structured) + " " + [pad(structured.hour), pad(structured.minute)].join(":");
+    }
+    const locale = currentDisplayFormat === "de" ? "de-DE" : void 0;
+    return new Intl.DateTimeFormat(locale, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(toLocalDate(structured));
+  }
+  function formatStructuredEditableDateTime(structured) {
+    const datePart = formatStructuredEditableDate(structured);
+    return datePart + " " + [pad(structured.hour), pad(structured.minute)].join(":");
+  }
+  function parseStructuredEditableDateValue(raw) {
+    const text = String(raw || "").trim();
+    if (!text) {
+      return null;
+    }
+    const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      return {
+        year: Number(isoMatch[1]),
+        month: Number(isoMatch[2]),
+        day: Number(isoMatch[3]),
+        hour: 0,
+        minute: 0,
+        second: 0,
+        hasTime: false
+      };
+    }
+    const deMatch = text.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    if (deMatch) {
+      return {
+        year: Number(deMatch[3]),
+        month: Number(deMatch[2]),
+        day: Number(deMatch[1]),
+        hour: 0,
+        minute: 0,
+        second: 0,
+        hasTime: false
+      };
+    }
+    return null;
+  }
+  function parseStructuredEditableDateTimeValue(raw) {
+    const text = String(raw || "").trim();
+    if (!text) {
+      return null;
+    }
+    const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})$/);
+    if (isoMatch) {
+      return {
+        year: Number(isoMatch[1]),
+        month: Number(isoMatch[2]),
+        day: Number(isoMatch[3]),
+        hour: Number(isoMatch[4]),
+        minute: Number(isoMatch[5]),
+        second: 0,
+        hasTime: true
+      };
+    }
+    const deMatch = text.match(/^(\d{2})\.(\d{2})\.(\d{4})[ T](\d{2}):(\d{2})$/);
+    if (deMatch) {
+      return {
+        year: Number(deMatch[3]),
+        month: Number(deMatch[2]),
+        day: Number(deMatch[1]),
+        hour: Number(deMatch[4]),
+        minute: Number(deMatch[5]),
+        second: 0,
+        hasTime: true
+      };
+    }
+    return null;
+  }
+  function formatDateValue(value) {
+    if (value instanceof Date) {
+      return formatStructuredDate(structuredDateFromDate(value));
+    }
+    const structured = parseStructuredDateValue(value);
+    if (!structured) {
+      const parsed = new Date(String(value || ""));
+      return Number.isNaN(parsed.getTime()) ? String(value || "") : formatStructuredDate(structuredDateFromDate(parsed));
+    }
+    return formatStructuredDate(structured);
+  }
+  function formatEditableDateValue(value) {
+    const structured = parseStructuredDateValue(value);
+    if (!structured) {
+      return String(value || "");
+    }
+    return formatStructuredEditableDate(structured);
+  }
+  function formatDateTimeValue(value) {
+    if (value instanceof Date) {
+      return formatStructuredDateTime(structuredDateFromDate(value));
+    }
+    const structured = parseStructuredDateValue(value);
+    if (!structured) {
+      const parsed = new Date(String(value || ""));
+      return Number.isNaN(parsed.getTime()) ? String(value || "") : formatStructuredDateTime(structuredDateFromDate(parsed));
+    }
+    return formatStructuredDateTime(structured);
+  }
+  function formatEditableDateTimeValue(value) {
+    const structured = parseStructuredDateValue(value);
+    if (!structured) {
+      return String(value || "");
+    }
+    return formatStructuredEditableDateTime(structured);
+  }
+  function formatTimeValue(value) {
+    if (value instanceof Date) {
+      return formatStructuredTime(structuredDateFromDate(value));
+    }
+    const structured = parseStructuredDateValue(value);
+    if (!structured) {
+      const parsed = new Date(String(value || ""));
+      return Number.isNaN(parsed.getTime()) ? String(value || "") : formatStructuredTime(structuredDateFromDate(parsed));
+    }
+    return formatStructuredTime(structured);
+  }
+  function parseEditableDateValue(value) {
+    const text = String(value || "").trim();
+    if (!text) {
+      return "";
+    }
+    const structured = parseStructuredEditableDateValue(text);
+    if (!structured) {
+      throw new Error('Invalid date. Use "YYYY-MM-DD" or "DD.MM.YYYY".');
+    }
+    return [structured.year, pad(structured.month), pad(structured.day)].join("-");
+  }
+  function parseEditableDateTimeValue(value) {
+    const text = String(value || "").trim();
+    if (!text) {
+      return "";
+    }
+    const structured = parseStructuredEditableDateTimeValue(text);
+    if (!structured) {
+      throw new Error('Invalid date/time. Use "YYYY-MM-DD HH:MM" or "DD.MM.YYYY HH:MM".');
+    }
+    return [
+      [structured.year, pad(structured.month), pad(structured.day)].join("-"),
+      [pad(structured.hour), pad(structured.minute)].join(":")
+    ].join(" ");
+  }
+  function editableDatePlaceholder() {
+    return currentDisplayFormat === "de" ? "30.04.2026" : "2026-04-30";
+  }
+  function editableDateTimePlaceholder() {
+    return currentDisplayFormat === "de" ? "30.04.2026 09:00" : "2026-04-30 09:00";
+  }
+  function isDateLikeColumn(column) {
+    const normalized = String(column || "").trim().toLowerCase();
+    return normalized === "due" || normalized === "remind" || normalized === "createdat" || normalized === "updatedat" || normalized === "birthday" || normalized === "birthday_reminder" || normalized === "date" || normalized === "datetime" || normalized === "datum" || /(^|_)(date|datum|due|remind|created|updated|birthday|time|timestamp)(_|$)/i.test(normalized);
+  }
+  function formatMaybeDateValue(column, value) {
+    const text = String(value || "");
+    if (!text.trim() || !isDateLikeColumn(column)) {
+      return text;
+    }
+    const structured = parseStructuredDateValue(text);
+    if (structured) {
+      return structured.hasTime ? formatStructuredDateTime(structured) : formatStructuredDate(structured);
+    }
+    const parsed = new Date(text);
+    if (Number.isNaN(parsed.getTime())) {
+      return text;
+    }
+    return formatStructuredDateTime(structuredDateFromDate(parsed));
+  }
+  var currentDisplayFormat, dateOnlyPattern, dateTimePattern;
+  var init_datetime = __esm({
+    "frontend/datetime.ts"() {
+      "use strict";
+      currentDisplayFormat = "browser";
+      dateOnlyPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
+      dateTimePattern = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/;
+    }
+  });
+
   // frontend/editorState.ts
   function markdownEditorAPI(state) {
     return state.markdownEditorApi || null;
@@ -749,6 +1021,12 @@
       api.setPagePath(String(path || ""));
     }
   }
+  function markdownEditorSetDateTimeFormat(state, format) {
+    const api = markdownEditorAPI(state);
+    if (api && typeof api.setDateTimeFormat === "function") {
+      api.setDateTimeFormat(format);
+    }
+  }
   function markdownEditorSetQueryBlocks(state, blocks) {
     const api = markdownEditorAPI(state);
     if (api && typeof api.setQueryBlocks === "function") {
@@ -788,7 +1066,7 @@
   }
   function blockingOverlayOpen(elements) {
     return Boolean(
-      !elements.taskModalShell.classList.contains("hidden") || !elements.searchModalShell.classList.contains("hidden") || !elements.commandModalShell.classList.contains("hidden")
+      elements.taskModalShell && !elements.taskModalShell.classList.contains("hidden") || !elements.searchModalShell.classList.contains("hidden") || !elements.commandModalShell.classList.contains("hidden")
     );
   }
   function restoreEditorFocus(state, elements, selectedPage) {
@@ -936,10 +1214,11 @@
       return null;
     }
     const liveFrontmatter = parseFrontmatter(currentMarkdown);
-    const title = inferMarkdownTitle(currentMarkdown, currentPage);
+    const fallbackPath = currentPage.page || currentPage.path || "";
+    const title = currentPage.title || pageTitleFromPath(fallbackPath);
     return Object.assign({}, currentPage, {
       frontmatter: liveFrontmatter,
-      title: title || currentPage.title || currentPage.page || currentPage.path || ""
+      title: title || fallbackPath
     });
   }
   function queryResultLinkSpec(columns, row) {
@@ -982,7 +1261,7 @@
   function renderQueryResultCell(column, value) {
     if (column === "path" && value) {
       const pagePath = String(value);
-      return '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(pagePath) + '">' + escapeHTML(pagePath) + "</button>";
+      return '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(pagePath) + '">' + escapeHTML(pageTitleFromPath(pagePath)) + "</button>";
     }
     const isPhoneLikeColumn = /(^|_)(phone|telefon|tel)(_|$)/i.test(column);
     const splitPhoneLines = function(input) {
@@ -993,7 +1272,9 @@
     if (Array.isArray(value)) {
       const items = (isPhoneLikeColumn ? value.flatMap(function(item) {
         return splitPhoneLines(String(item));
-      }) : value.map(String)).filter(Boolean);
+      }) : value.map(function(item) {
+        return formatMaybeDateValue(column, String(item));
+      })).filter(Boolean);
       if (!items.length) {
         return '<span class="query-result-empty">\u2014</span>';
       }
@@ -1015,7 +1296,7 @@
     if (typeof value === "boolean") {
       return value ? "true" : "false";
     }
-    return escapeHTML(String(value));
+    return escapeHTML(formatMaybeDateValue(column, String(value)));
   }
   function queryResultDisplayColumns(columns, rows) {
     if (!Array.isArray(columns)) {
@@ -1055,7 +1336,7 @@
         return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + escapeHTML(String(row?.[column])) + "</button>";
       }
     }
-    if (column === "text" && pagePathValue) {
+    if ((column === "text" || column === "task" && row && row.__taskRef) && pagePathValue) {
       const pagePath = String(pagePathValue);
       const lineAttr = pageLineValue !== null && typeof pageLineValue !== "undefined" ? ' data-page-line="' + escapeHTML(String(pageLineValue)) + '"' : "";
       const refValue = row && row.__taskRef ? String(row.__taskRef) : "";
@@ -1122,6 +1403,8 @@
     "frontend/noteView.ts"() {
       "use strict";
       init_markdown();
+      init_datetime();
+      init_commands();
     }
   });
 
@@ -1514,7 +1797,7 @@
     };
     container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onDeleteFolder, onDeletePage, onMovePage, onMoveFolder));
   }
-  function renderPageTasks(container, tasks, onOpenTask) {
+  function renderPageTasks(container, tasks, onSelectTask) {
     clearNode(container);
     if (!tasks || !tasks.length) {
       renderEmpty(container, "No indexed tasks on this page.");
@@ -1526,7 +1809,7 @@
       const button = document.createElement("button");
       button.type = "button";
       button.addEventListener("click", function() {
-        onOpenTask(task);
+        onSelectTask(task);
       });
       const title = document.createElement("strong");
       title.textContent = task.text || task.ref;
@@ -1535,8 +1818,8 @@
       meta.className = "page-task-meta";
       [
         task.done ? "done" : "open",
-        task.due ? "due " + task.due : "no due",
-        task.remind ? "remind " + task.remind : "",
+        task.due ? "due " + formatDateValue(task.due) : "no due",
+        task.remind ? "remind " + formatDateTimeValue(task.remind) : "",
         task.who && task.who.length ? task.who.join(", ") : ""
       ].filter(Boolean).forEach(function(part) {
         const token = document.createElement("span");
@@ -1611,6 +1894,7 @@
     "frontend/pageViews.ts"() {
       "use strict";
       init_dom();
+      init_datetime();
       activeDragItem = null;
     }
   });
@@ -1634,9 +1918,6 @@
   function normalizeDateTimeValue(value) {
     return String(value || "").replace(" ", "T").slice(0, 16);
   }
-  function serializeDateTimeValue(value) {
-    return String(value || "").replace("T", " ").trim();
-  }
   function displayFrontmatterValue(value) {
     if (Array.isArray(value)) {
       return value.join(", ");
@@ -1648,11 +1929,12 @@
   }
   function makePropertyDraft(key, value, originalKey) {
     const kind = inferFrontmatterKind(value);
+    const text = kind === "date" ? formatEditableDateValue(String(value || "")) : kind === "datetime" ? formatEditableDateTimeValue(String(value || "")) : displayFrontmatterValue(value);
     return {
       originalKey: originalKey || key || "",
       key: key || "",
       kind,
-      text: kind === "list" ? "" : displayFrontmatterValue(value),
+      text: kind === "list" ? "" : text,
       list: Array.isArray(value) ? value.map(String) : []
     };
   }
@@ -1687,6 +1969,12 @@
     }
     if (draft.kind === "bool") {
       return draft.text === "true";
+    }
+    if (draft.kind === "date") {
+      return parseEditableDateValue(String(draft.text || ""));
+    }
+    if (draft.kind === "datetime") {
+      return parseEditableDateTimeValue(String(draft.text || ""));
     }
     return String(draft.text || "").trim();
   }
@@ -1853,18 +2141,23 @@
     }
     const input = document.createElement("input");
     input.className = "property-inline-input";
-    input.type = kind === "date" ? "date" : kind === "datetime" ? "datetime-local" : "text";
-    input.value = kind === "datetime" ? normalizeDateTimeValue(row.rawValue) : String(row.rawValue || "");
-    input.placeholder = kind === "datetime" ? "2026-04-07T14:45" : "";
+    input.type = "text";
+    input.value = kind === "date" ? formatEditableDateValue(String(row.rawValue || "")) : kind === "datetime" ? formatEditableDateTimeValue(String(row.rawValue || "")) : String(row.rawValue || "");
+    input.placeholder = kind === "date" ? editableDatePlaceholder() : kind === "datetime" ? editableDateTimePlaceholder() : "";
     const commit = function() {
-      const nextValue = input.value;
-      const normalizedCurrent = kind === "datetime" ? normalizeDateTimeValue(row.rawValue) : String(row.rawValue || "");
-      if (nextValue === normalizedCurrent) {
-        return;
+      try {
+        const rawValue = input.value;
+        const nextValue = kind === "date" ? parseEditableDateValue(rawValue) : kind === "datetime" ? parseEditableDateTimeValue(rawValue) : rawValue;
+        const normalizedCurrent = String(row.rawValue || "");
+        if (nextValue === normalizedCurrent) {
+          return;
+        }
+        options.onSaveExistingProperty(row.key, nextValue).catch(function(error) {
+          options.onSetNoteStatus("Property save failed: " + error.message);
+        });
+      } catch (error) {
+        options.onSetNoteStatus("Property save failed: " + (error instanceof Error ? error.message : String(error)));
       }
-      options.onSaveExistingProperty(row.key, nextValue).catch(function(error) {
-        options.onSetNoteStatus("Property save failed: " + error.message);
-      });
     };
     input.addEventListener("blur", commit);
     input.addEventListener("keydown", function(event) {
@@ -1965,9 +2258,9 @@
     } else {
       const input = document.createElement("input");
       input.className = "property-inline-input";
-      input.type = draft.kind === "date" ? "date" : draft.kind === "datetime" ? "datetime-local" : "text";
-      input.value = draft.kind === "datetime" ? normalizeDateTimeValue(draft.text) : String(draft.text || "");
-      input.placeholder = draft.kind === "datetime" ? "2026-04-07T14:45" : "";
+      input.type = "text";
+      input.value = String(draft.text || "");
+      input.placeholder = draft.kind === "date" ? editableDatePlaceholder() : draft.kind === "datetime" ? editableDateTimePlaceholder() : "";
       input.addEventListener("input", function() {
         options.onSetDraft({ ...draft, text: input.value });
       });
@@ -2093,6 +2386,7 @@
     "frontend/properties.ts"() {
       "use strict";
       init_dom();
+      init_datetime();
     }
   });
 
@@ -2386,9 +2680,9 @@
       return token.trim();
     }).filter(Boolean);
   }
-  function replaceSlashToken(lineText, commandName, replacement) {
+  function replaceSlashToken(lineText, _commandName, replacement) {
     const source = String(lineText || "");
-    const pattern = new RegExp("(?:^|\\s)\\/" + commandName + "\\s*$", "i");
+    const pattern = /(?:^|\s)\/[a-z0-9-]*\s*$/i;
     const updated = source.replace(pattern, "");
     if (!updated.trim()) {
       return replacement;
@@ -2398,6 +2692,25 @@
   function prefixLine(lineText, commandName, prefix) {
     const source = replaceSlashToken(lineText, commandName, "").trim();
     return source ? prefix + source : prefix;
+  }
+  function todayDate() {
+    const now = /* @__PURE__ */ new Date();
+    return [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0")
+    ].join("-");
+  }
+  function currentDateTime() {
+    const now = /* @__PURE__ */ new Date();
+    return todayDate() + " " + [
+      String(now.getHours()).padStart(2, "0"),
+      String(now.getMinutes()).padStart(2, "0")
+    ].join(":");
+  }
+  function appendField(lineText, commandName, fieldText) {
+    const source = replaceSlashToken(lineText, commandName, "").trimEnd();
+    return source ? source + " " + fieldText : fieldText;
   }
   function slashCommandCatalog() {
     return [
@@ -2489,6 +2802,26 @@
         hint: "/callout",
         apply: function() {
           return "> [!note]\n> ";
+        }
+      },
+      {
+        id: "due",
+        title: "Insert due date",
+        description: "Append a due field with today's date.",
+        keywords: "task due date schedule deadline",
+        hint: "/due",
+        apply: function(lineText) {
+          return appendField(lineText, "due", "[due: " + todayDate() + "]");
+        }
+      },
+      {
+        id: "remind",
+        title: "Insert reminder",
+        description: "Append a remind field with the current date and time.",
+        keywords: "task remind reminder notify notification",
+        hint: "/remind",
+        apply: function(lineText) {
+          return appendField(lineText, "remind", "[remind: " + currentDateTime() + "]");
         }
       }
     ];
@@ -2745,6 +3078,7 @@
       init_commands();
       init_details();
       init_documents();
+      init_datetime();
       init_dom();
       init_editorState();
       init_http();
@@ -2783,7 +3117,6 @@
           currentDerived: null,
           currentMarkdown: "",
           originalMarkdown: "",
-          currentTask: null,
           editingPropertyKey: "",
           propertyTypeMenuKey: "",
           propertyDraft: null,
@@ -2800,18 +3133,25 @@
                 quickSwitcher: "Mod+K",
                 globalSearch: "Mod+Shift+K",
                 commandPalette: "Mod+Shift+P",
+                quickNote: "",
                 help: "?",
                 saveCurrentPage: "Mod+S",
                 toggleRawMode: "Mod+E"
               },
               ui: {
                 fontFamily: "mono",
-                fontSize: "16"
+                fontSize: "16",
+                dateTimeFormat: "browser"
               }
             },
             workspace: {
               vaultPath: "./vault",
               homePage: ""
+            },
+            notifications: {
+              ntfyTopicUrl: "",
+              ntfyToken: "",
+              ntfyInterval: "1m"
             }
           },
           appliedWorkspace: {
@@ -2830,7 +3170,8 @@
           slashSelectionIndex: -1,
           slashContext: null,
           pendingPageLineFocus: null,
-          pendingPageTaskRef: ""
+          pendingPageTaskRef: "",
+          renamingPageTitle: false
         };
         const els = {
           metaStrip: optionalElement("meta-strip"),
@@ -2890,17 +3231,7 @@
           loadSelectedQuery: requiredElement("load-selected-query"),
           formatQuery: requiredElement("format-query"),
           runQuery: requiredElement("run-query"),
-          taskModalShell: requiredElement("task-modal-shell"),
-          taskModalTitle: requiredElement("task-modal-title"),
-          taskText: requiredElement("task-text"),
-          taskState: requiredElement("task-state"),
-          taskDue: requiredElement("task-due"),
-          taskRemind: requiredElement("task-remind"),
-          taskWho: requiredElement("task-who"),
-          taskModalMeta: requiredElement("task-modal-meta"),
-          closeTaskModal: requiredElement("close-task-modal"),
-          cancelTask: requiredElement("cancel-task"),
-          saveTask: requiredElement("save-task"),
+          inlineTaskPicker: requiredElement("inline-task-picker"),
           searchModalShell: requiredElement("search-modal-shell"),
           closeSearchModal: requiredElement("close-search-modal"),
           globalSearchInput: requiredElement("global-search-input"),
@@ -2927,11 +3258,16 @@
           saveSettings: requiredElement("save-settings"),
           settingsVaultPath: requiredElement("settings-vault-path"),
           settingsHomePage: requiredElement("settings-home-page"),
+          settingsNtfyTopicUrl: requiredElement("settings-ntfy-topic-url"),
+          settingsNtfyToken: requiredElement("settings-ntfy-token"),
+          settingsNtfyInterval: requiredElement("settings-ntfy-interval"),
           settingsFontFamily: requiredElement("settings-ui-font-family"),
           settingsFontSize: requiredElement("settings-ui-font-size"),
+          settingsDateTimeFormat: requiredElement("settings-ui-date-time-format"),
           settingsQuickSwitcher: requiredElement("settings-hotkey-quick-switcher"),
           settingsGlobalSearch: requiredElement("settings-hotkey-global-search"),
           settingsCommandPalette: requiredElement("settings-hotkey-command-palette"),
+          settingsQuickNote: requiredElement("settings-hotkey-quick-note"),
           settingsHelp: requiredElement("settings-hotkey-help"),
           settingsSaveCurrentPage: requiredElement("settings-hotkey-save-current-page"),
           settingsToggleRawMode: requiredElement("settings-hotkey-toggle-raw-mode"),
@@ -2939,6 +3275,294 @@
           slashMenu: requiredElement("slash-menu"),
           slashMenuResults: requiredElement("slash-menu-results")
         };
+        const taskPickerState = {
+          mode: "",
+          ref: "",
+          left: 0,
+          top: 0,
+          year: 0,
+          month: 0,
+          day: 0,
+          hour: 9,
+          minute: 0
+        };
+        function canonicalDate(year, month, day) {
+          return [
+            String(year).padStart(4, "0"),
+            String(month).padStart(2, "0"),
+            String(day).padStart(2, "0")
+          ].join("-");
+        }
+        function canonicalDateTime(year, month, day, hour, minute) {
+          return canonicalDate(year, month, day) + " " + [hour, minute].map(function(value) {
+            return String(value).padStart(2, "0");
+          }).join(":");
+        }
+        function taskPickerPartsFromValue(mode, rawValue) {
+          const fallback = /* @__PURE__ */ new Date();
+          try {
+            const canonical = mode === "due" ? parseEditableDateValue(rawValue) : parseEditableDateTimeValue(rawValue);
+            if (!canonical) {
+              throw new Error("empty");
+            }
+            const datePart = canonical.slice(0, 10);
+            const timePart = canonical.slice(11, 16);
+            const [year, month, day] = datePart.split("-").map(Number);
+            const [hour, minute] = timePart ? timePart.split(":").map(Number) : [9, 0];
+            if (![year, month, day, hour, minute].every(Number.isFinite)) {
+              throw new Error("invalid");
+            }
+            return { year, month, day, hour, minute };
+          } catch (_error) {
+            return {
+              year: fallback.getFullYear(),
+              month: fallback.getMonth() + 1,
+              day: fallback.getDate(),
+              hour: 9,
+              minute: 0
+            };
+          }
+        }
+        function currentPickerTask() {
+          return taskPickerState.ref ? findCurrentTask(taskPickerState.ref) : null;
+        }
+        async function saveTaskDateField(task, field, value) {
+          await saveTask(task.ref, {
+            text: task.text || "",
+            state: task.done ? "done" : "todo",
+            due: field === "due" ? value : task.due || "",
+            remind: field === "remind" ? value : task.remind || "",
+            who: Array.isArray(task.who) ? task.who.slice() : []
+          });
+          closeTaskPickers();
+          await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
+        }
+        async function deleteTaskInline(ref) {
+          const task = ref ? findCurrentTask(ref) : null;
+          if (!task) {
+            return;
+          }
+          if (!window.confirm('Delete task "' + (task.text || task.ref) + '"?')) {
+            return;
+          }
+          await deleteTask(ref);
+          closeTaskPickers();
+          await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
+        }
+        function positionInlineTaskPicker() {
+          const picker = els.inlineTaskPicker;
+          const width = picker.offsetWidth || 320;
+          const maxLeft = Math.max(12, window.innerWidth - width - 12);
+          picker.style.left = Math.max(12, Math.min(taskPickerState.left, maxLeft)) + "px";
+          picker.style.top = Math.max(12, taskPickerState.top) + "px";
+        }
+        function closeTaskPickers() {
+          taskPickerState.mode = "";
+          taskPickerState.ref = "";
+          els.inlineTaskPicker.classList.add("hidden");
+          clearNode(els.inlineTaskPicker);
+        }
+        function renderTaskPickerCalendar(target, mode) {
+          clearNode(target);
+          const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
+          const firstWeekday = (monthStart.getDay() + 6) % 7;
+          const gridStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1 - firstWeekday);
+          const monthLabel = new Intl.DateTimeFormat(void 0, { month: "long", year: "numeric" }).format(monthStart);
+          const head = document.createElement("div");
+          head.className = "task-picker-head";
+          const title = document.createElement("strong");
+          title.textContent = monthLabel;
+          head.appendChild(title);
+          const nav = document.createElement("div");
+          nav.className = "task-picker-nav";
+          const prev = document.createElement("button");
+          prev.type = "button";
+          prev.textContent = "<";
+          prev.addEventListener("click", function() {
+            taskPickerState.month -= 1;
+            if (taskPickerState.month < 1) {
+              taskPickerState.month = 12;
+              taskPickerState.year -= 1;
+            }
+            renderTaskPicker();
+          });
+          nav.appendChild(prev);
+          const next = document.createElement("button");
+          next.type = "button";
+          next.textContent = ">";
+          next.addEventListener("click", function() {
+            taskPickerState.month += 1;
+            if (taskPickerState.month > 12) {
+              taskPickerState.month = 1;
+              taskPickerState.year += 1;
+            }
+            renderTaskPicker();
+          });
+          nav.appendChild(next);
+          head.appendChild(nav);
+          target.appendChild(head);
+          if (mode === "remind") {
+            const timeRow = document.createElement("div");
+            timeRow.className = "task-picker-time";
+            const hourSelect = document.createElement("select");
+            for (let hour = 0; hour < 24; hour += 1) {
+              const option = document.createElement("option");
+              option.value = String(hour);
+              option.textContent = String(hour).padStart(2, "0");
+              option.selected = hour === taskPickerState.hour;
+              hourSelect.appendChild(option);
+            }
+            hourSelect.addEventListener("change", function() {
+              taskPickerState.hour = Number(hourSelect.value) || 0;
+            });
+            timeRow.appendChild(hourSelect);
+            const minuteSelect = document.createElement("select");
+            for (let minute = 0; minute < 60; minute += 5) {
+              const option = document.createElement("option");
+              option.value = String(minute);
+              option.textContent = String(minute).padStart(2, "0");
+              option.selected = minute === taskPickerState.minute;
+              minuteSelect.appendChild(option);
+            }
+            minuteSelect.addEventListener("change", function() {
+              taskPickerState.minute = Number(minuteSelect.value) || 0;
+            });
+            timeRow.appendChild(minuteSelect);
+            const apply = document.createElement("button");
+            apply.type = "button";
+            apply.className = "task-picker-apply";
+            apply.textContent = "Apply";
+            apply.addEventListener("click", function() {
+              const task = currentPickerTask();
+              if (!task) {
+                closeTaskPickers();
+                return;
+              }
+              saveTaskDateField(
+                task,
+                "remind",
+                canonicalDateTime(
+                  taskPickerState.year,
+                  taskPickerState.month,
+                  taskPickerState.day,
+                  taskPickerState.hour,
+                  taskPickerState.minute
+                )
+              ).catch(function(error) {
+                setNoteStatus("Reminder update failed: " + errorMessage(error));
+              });
+            });
+            timeRow.appendChild(apply);
+            target.appendChild(timeRow);
+          }
+          const weekdays = document.createElement("div");
+          weekdays.className = "task-picker-weekdays";
+          ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].forEach(function(label) {
+            const cell = document.createElement("span");
+            cell.textContent = label;
+            weekdays.appendChild(cell);
+          });
+          target.appendChild(weekdays);
+          const grid = document.createElement("div");
+          grid.className = "task-picker-grid";
+          for (let index = 0; index < 42; index += 1) {
+            const current = new Date(gridStart);
+            current.setDate(gridStart.getDate() + index);
+            const dayButton = document.createElement("button");
+            dayButton.type = "button";
+            dayButton.className = "task-picker-day";
+            if (current.getMonth() !== taskPickerState.month - 1) {
+              dayButton.classList.add("is-faded");
+            }
+            if (current.getFullYear() === taskPickerState.year && current.getMonth() === taskPickerState.month - 1 && current.getDate() === taskPickerState.day) {
+              dayButton.classList.add("is-selected");
+            }
+            dayButton.textContent = String(current.getDate());
+            dayButton.addEventListener("click", function() {
+              taskPickerState.year = current.getFullYear();
+              taskPickerState.month = current.getMonth() + 1;
+              taskPickerState.day = current.getDate();
+              if (mode === "due") {
+                const task = currentPickerTask();
+                if (!task) {
+                  closeTaskPickers();
+                  return;
+                }
+                saveTaskDateField(task, "due", canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day)).catch(function(error) {
+                  setNoteStatus("Due date update failed: " + errorMessage(error));
+                });
+                return;
+              }
+              renderTaskPicker();
+            });
+            grid.appendChild(dayButton);
+          }
+          target.appendChild(grid);
+          const footer = document.createElement("div");
+          footer.className = "task-picker-footer";
+          const status = document.createElement("span");
+          status.textContent = mode === "due" ? formatEditableDateValue(canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day)) : formatEditableDateTimeValue(canonicalDateTime(
+            taskPickerState.year,
+            taskPickerState.month,
+            taskPickerState.day,
+            taskPickerState.hour,
+            taskPickerState.minute
+          ));
+          footer.appendChild(status);
+          const actions = document.createElement("div");
+          actions.className = "task-picker-footer-actions";
+          const clear = document.createElement("button");
+          clear.type = "button";
+          clear.textContent = "Clear";
+          clear.addEventListener("click", function() {
+            const task = currentPickerTask();
+            if (!task) {
+              closeTaskPickers();
+              return;
+            }
+            saveTaskDateField(task, mode, "").catch(function(error) {
+              setNoteStatus("Date update failed: " + errorMessage(error));
+            });
+          });
+          actions.appendChild(clear);
+          const close = document.createElement("button");
+          close.type = "button";
+          close.textContent = "Close";
+          close.addEventListener("click", closeTaskPickers);
+          actions.appendChild(close);
+          footer.appendChild(actions);
+          target.appendChild(footer);
+        }
+        function renderTaskPicker() {
+          if (taskPickerState.mode === "due" || taskPickerState.mode === "remind") {
+            renderTaskPickerCalendar(els.inlineTaskPicker, taskPickerState.mode);
+            els.inlineTaskPicker.classList.remove("hidden");
+            window.requestAnimationFrame(positionInlineTaskPicker);
+            return;
+          }
+          closeTaskPickers();
+        }
+        function openInlineTaskPicker(ref, mode, left, top) {
+          if (taskPickerState.mode === mode && taskPickerState.ref === ref) {
+            closeTaskPickers();
+            return;
+          }
+          const task = ref ? findCurrentTask(ref) : null;
+          if (!task) {
+            return;
+          }
+          const parts = taskPickerPartsFromValue(mode, mode === "due" ? task.due || "" : task.remind || "");
+          taskPickerState.mode = mode;
+          taskPickerState.ref = ref;
+          taskPickerState.left = left;
+          taskPickerState.top = top;
+          taskPickerState.year = parts.year;
+          taskPickerState.month = parts.month;
+          taskPickerState.day = parts.day;
+          taskPickerState.hour = parts.hour;
+          taskPickerState.minute = parts.minute - parts.minute % 5;
+          renderTaskPicker();
+        }
         function setMetaPills(values) {
           const metaStrip = els.metaStrip;
           if (!metaStrip) {
@@ -2950,6 +3574,26 @@
             pill.className = "pill";
             pill.textContent = value;
             metaStrip.appendChild(pill);
+          });
+        }
+        function nextDailyNotePath() {
+          const now = /* @__PURE__ */ new Date();
+          return normalizePageDraftPath(
+            "Inbox/" + [
+              now.getFullYear(),
+              String(now.getMonth() + 1).padStart(2, "0"),
+              String(now.getDate()).padStart(2, "0")
+            ].join("-")
+          );
+        }
+        function createDailyNote() {
+          const pagePath = nextDailyNotePath();
+          if (hasPage(pagePath)) {
+            navigateToPage(pagePath, false);
+            return;
+          }
+          createPage(pagePath).catch(function(error) {
+            setNoteStatus("Daily note failed: " + errorMessage(error));
           });
         }
         function debounceRefresh() {
@@ -3185,6 +3829,54 @@
         function currentPageView2() {
           return currentPageView(state.currentPage, state.currentMarkdown);
         }
+        function currentPageTitleValue() {
+          const page = currentPageView2();
+          if (!page) {
+            return "";
+          }
+          return page.title || pageTitleFromPath(page.page || page.path || state.selectedPage || "");
+        }
+        function setNoteHeadingValue(value, editable) {
+          els.noteHeading.value = value;
+          els.noteHeading.disabled = !editable;
+          els.noteHeading.readOnly = !editable;
+          els.noteHeading.title = editable ? "Rename note file" : "";
+        }
+        function normalizePageTitleDraft(value) {
+          return String(value || "").trim().replace(/\\/g, " ").replace(/\//g, " ").replace(/\.md$/i, "").replace(/\s+/g, " ");
+        }
+        async function renameCurrentPageFromTitle(nextTitle) {
+          if (!state.selectedPage || !state.currentPage || state.renamingPageTitle) {
+            return;
+          }
+          const normalizedTitle = normalizePageTitleDraft(nextTitle);
+          const currentPath = state.selectedPage;
+          const currentLeaf = pageTitleFromPath(currentPath);
+          if (!normalizedTitle) {
+            setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
+            return;
+          }
+          if (normalizedTitle === currentLeaf) {
+            setNoteHeadingValue(normalizedTitle, true);
+            return;
+          }
+          const slash = currentPath.lastIndexOf("/");
+          const parentFolder = slash >= 0 ? currentPath.slice(0, slash) : "";
+          const targetPath = parentFolder ? parentFolder + "/" + normalizedTitle : normalizedTitle;
+          state.renamingPageTitle = true;
+          try {
+            if (hasUnsavedPageChanges()) {
+              await saveCurrentPage();
+            }
+            await movePage(currentPath, targetPath);
+            setNoteStatus("Renamed " + currentLeaf + " to " + normalizedTitle + ".");
+          } catch (error) {
+            setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
+            setNoteStatus("Rename failed: " + errorMessage(error));
+          } finally {
+            state.renamingPageTitle = false;
+          }
+        }
         function refreshLivePageChrome() {
           const page = currentPageView2();
           if (!page) {
@@ -3193,7 +3885,7 @@
           const fallbackPath = page.page || page.path || state.selectedPage || "";
           els.detailPath.textContent = fallbackPath;
           els.detailTitle.textContent = page.title || fallbackPath;
-          els.noteHeading.textContent = page.title || fallbackPath;
+          setNoteHeadingValue(page.title || fallbackPath, true);
           renderPageTags2();
           renderPageProperties2();
         }
@@ -3290,7 +3982,12 @@
           }, 700);
         }
         function renderPageTasks2(tasks) {
-          renderPageTasks(els.pageTaskList, Array.isArray(tasks) ? tasks : [], openTaskModal);
+          renderPageTasks(els.pageTaskList, Array.isArray(tasks) ? tasks : [], function(task) {
+            if (!task || !task.page) {
+              return;
+            }
+            navigateToPageAtTask(task.page, task.ref || "", task.line || 0, false);
+          });
         }
         function renderPageContext2() {
           renderPageContext(els.pageContext, state.currentPage, state.currentDerived);
@@ -3452,12 +4149,10 @@
           state.currentDerived = null;
           state.currentMarkdown = "";
           state.originalMarkdown = "";
-          state.currentTask = null;
           clearPropertyDraft();
           syncURLState(true);
           els.detailPath.textContent = "Select a page";
-          els.noteHeading.textContent = "Waiting for selection";
-          closeTaskModal();
+          setNoteHeadingValue("Waiting for selection", false);
           renderNoteStudio();
           renderSourceModeButton();
           renderPageTasks2([]);
@@ -3495,6 +4190,7 @@
             ["Quick Switcher", state.settings.preferences.hotkeys.quickSwitcher],
             ["Full Search", state.settings.preferences.hotkeys.globalSearch],
             ["Command Palette", state.settings.preferences.hotkeys.commandPalette],
+            ["Open Daily Note", state.settings.preferences.hotkeys.quickNote],
             ["Back", "Alt+Left"],
             ["Forward", "Alt+Right"],
             ["Save Current Note", state.settings.preferences.hotkeys.saveCurrentPage],
@@ -3514,16 +4210,21 @@
         function renderSettingsForm() {
           els.settingsVaultPath.value = state.settings.workspace.vaultPath || "";
           els.settingsHomePage.value = state.settings.workspace.homePage || "";
+          els.settingsNtfyTopicUrl.value = state.settings.notifications.ntfyTopicUrl || "";
+          els.settingsNtfyToken.value = state.settings.notifications.ntfyToken || "";
+          els.settingsNtfyInterval.value = state.settings.notifications.ntfyInterval || "1m";
           els.settingsFontFamily.value = state.settings.preferences.ui.fontFamily || "mono";
           els.settingsFontSize.value = state.settings.preferences.ui.fontSize || "16";
+          els.settingsDateTimeFormat.value = state.settings.preferences.ui.dateTimeFormat || "browser";
           els.settingsQuickSwitcher.value = state.settings.preferences.hotkeys.quickSwitcher || "";
           els.settingsGlobalSearch.value = state.settings.preferences.hotkeys.globalSearch || "";
           els.settingsCommandPalette.value = state.settings.preferences.hotkeys.commandPalette || "";
+          els.settingsQuickNote.value = state.settings.preferences.hotkeys.quickNote || "";
           els.settingsHelp.value = state.settings.preferences.hotkeys.help || "";
           els.settingsSaveCurrentPage.value = state.settings.preferences.hotkeys.saveCurrentPage || "";
           els.settingsToggleRawMode.value = state.settings.preferences.hotkeys.toggleRawMode || "";
           if (state.settingsRestartRequired) {
-            els.settingsStatus.textContent = "Vault path changed. Restart the server to apply the new workspace root.";
+            els.settingsStatus.textContent = "Server runtime settings changed. Restart the server to apply them.";
             return;
           }
           els.settingsStatus.textContent = "Settings are stored in the server data directory.";
@@ -3537,11 +4238,21 @@
           renderSettingsForm();
           applyUIPreferences();
           renderSourceModeButton();
+          loadMeta();
+          if (state.currentPage) {
+            renderNoteStudio();
+            renderPageTasks2(state.currentPage.tasks || []);
+            renderPageContext2();
+            renderPageProperties2();
+          } else if (state.selectedSavedQuery) {
+            loadSavedQueryDetail(state.selectedSavedQuery);
+          }
         }
         function applyUIPreferences() {
           const root = document.documentElement;
           const fontFamily = state.settings.preferences.ui.fontFamily || "mono";
           const fontSize = state.settings.preferences.ui.fontSize || "16";
+          const dateTimeFormat = state.settings.preferences.ui.dateTimeFormat || "browser";
           const fontMap = {
             mono: '"IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace',
             sans: '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif',
@@ -3550,6 +4261,8 @@
           root.style.setProperty("--app-font-family", fontMap[fontFamily] || fontMap.mono);
           root.style.setProperty("--editor-font-family", fontMap[fontFamily] || fontMap.mono);
           root.style.setProperty("--app-font-size", fontSize + "px");
+          setDateTimeDisplayFormat(dateTimeFormat);
+          markdownEditorSetDateTimeFormat(state, dateTimeFormat);
         }
         async function loadSettings() {
           try {
@@ -3566,7 +4279,7 @@
               "Listening " + meta.listenAddr,
               "Vault " + meta.vaultPath,
               "DB " + meta.database,
-              "Time " + meta.serverTime
+              "Time " + formatDateTimeValue(meta.serverTime)
             ];
             if (meta.restartRequired) {
               pills.splice(2, 0, "Restart required");
@@ -3723,11 +4436,10 @@
             state.currentMarkdown = page.rawMarkdown || "";
             state.originalMarkdown = page.rawMarkdown || "";
             clearAutosaveTimer();
-            state.currentTask = null;
             clearPropertyDraft();
             state.selectedSavedQueryPayload = null;
             els.detailPath.textContent = page.page || page.path || pagePath;
-            els.noteHeading.textContent = page.title || page.page || pagePath;
+            setNoteHeadingValue(page.title || page.page || pagePath, true);
             setStructuredViews(
               "Page",
               page.title || page.page,
@@ -3796,7 +4508,7 @@
             const savedQuery = detail.savedQuery;
             state.selectedSavedQueryPayload = savedQuery;
             els.detailPath.textContent = savedQuery.name || name;
-            els.noteHeading.textContent = savedQuery.title || savedQuery.name || name;
+            setNoteHeadingValue(savedQuery.title || savedQuery.name || name, false);
             setStructuredViews("Saved Query", savedQuery.title || savedQuery.name, savedQuery, detail.workbench, savedQuery.query || "");
             setNoteStatus("Viewing saved query details. Select a page to edit notes.");
             renderPageContext2();
@@ -3833,7 +4545,7 @@
           const strong = document.createElement("strong");
           strong.textContent = type;
           const small = document.createElement("small");
-          small.textContent = (/* @__PURE__ */ new Date()).toLocaleTimeString();
+          small.textContent = formatTimeValue(/* @__PURE__ */ new Date());
           const pre = document.createElement("pre");
           pre.className = "code-block";
           pre.textContent = typeof data === "string" ? data : pretty(data);
@@ -3903,27 +4615,6 @@
             return;
           }
           els.queryOutput.textContent = "Select a saved query first, or type directly into the editor.";
-        }
-        function openTaskModal(task) {
-          state.currentTask = task;
-          els.taskModalTitle.textContent = task.text || task.ref;
-          els.taskText.value = task.text || "";
-          els.taskState.value = task.done ? "done" : "todo";
-          els.taskDue.value = task.due || "";
-          els.taskRemind.value = normalizeDateTimeValue(task.remind || "");
-          els.taskWho.value = task.who && task.who.length ? task.who.join(", ") : "";
-          const meta = [
-            task.page || "",
-            task.ref || "",
-            task.line ? "line " + task.line : "",
-            task.done ? "done" : "open"
-          ].filter(Boolean);
-          els.taskModalMeta.textContent = meta.join(" \xB7 ");
-          els.taskModalShell.classList.remove("hidden");
-        }
-        function closeTaskModal() {
-          state.currentTask = null;
-          els.taskModalShell.classList.add("hidden");
         }
         function setSearchOpen(open) {
           if (open) {
@@ -4067,15 +4758,22 @@
               vaultPath: String(els.settingsVaultPath.value || "").trim(),
               homePage: normalizePageDraftPath(els.settingsHomePage.value || "")
             },
+            notifications: {
+              ntfyTopicUrl: String(els.settingsNtfyTopicUrl.value || "").trim(),
+              ntfyToken: String(els.settingsNtfyToken.value || "").trim(),
+              ntfyInterval: String(els.settingsNtfyInterval.value || "1m").trim()
+            },
             preferences: {
               ui: {
                 fontFamily: String(els.settingsFontFamily.value || "mono").trim(),
-                fontSize: String(els.settingsFontSize.value || "16").trim()
+                fontSize: String(els.settingsFontSize.value || "16").trim(),
+                dateTimeFormat: String(els.settingsDateTimeFormat.value || "browser").trim()
               },
               hotkeys: {
                 quickSwitcher: String(els.settingsQuickSwitcher.value || "").trim(),
                 globalSearch: String(els.settingsGlobalSearch.value || "").trim(),
                 commandPalette: String(els.settingsCommandPalette.value || "").trim(),
+                quickNote: String(els.settingsQuickNote.value || "").trim(),
                 help: String(els.settingsHelp.value || "").trim(),
                 saveCurrentPage: String(els.settingsSaveCurrentPage.value || "").trim(),
                 toggleRawMode: String(els.settingsToggleRawMode.value || "").trim()
@@ -4096,7 +4794,7 @@
             if (state.selectedPage || state.selectedSavedQuery) {
               syncURLState(true);
             }
-            els.settingsStatus.textContent = snapshot.restartRequired ? "Saved. Restart the server to apply the new vault path." : "Settings saved.";
+            els.settingsStatus.textContent = snapshot.restartRequired ? "Saved. Restart the server to apply the new server runtime settings." : "Settings saved.";
           } catch (error) {
             els.settingsStatus.textContent = errorMessage(error);
           }
@@ -4472,6 +5170,10 @@
               setQuickSwitcherOpen(true);
               renderQuickSwitcherResults2();
             },
+            onQuickNote: function() {
+              closeCommandPalette();
+              createDailyNote();
+            },
             onOpenSearch: function() {
               closeCommandPalette();
               setSearchOpen(true);
@@ -4600,27 +5302,6 @@
           }
           if (els.railPanelTags) {
             els.railPanelTags.classList.toggle("hidden", state.railTab !== "tags");
-          }
-        }
-        async function saveCurrentTask() {
-          if (!state.currentTask) {
-            return;
-          }
-          const payload = buildTaskSavePayload(
-            els.taskText.value,
-            els.taskState.value,
-            els.taskDue.value,
-            els.taskRemind.value,
-            els.taskWho.value,
-            serializeDateTimeValue
-          );
-          els.taskModalMeta.textContent = "Saving task\u2026";
-          try {
-            await saveTask(state.currentTask.ref, payload);
-            closeTaskModal();
-            await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
-          } catch (error) {
-            els.taskModalMeta.textContent = "Save failed: " + errorMessage(error);
           }
         }
         async function saveCurrentPage() {
@@ -4870,9 +5551,6 @@
           if (state.markdownEditorApi) {
             state.markdownEditorApi.onKeydown(handleMarkdownEditorKeydown);
           }
-          on(els.closeTaskModal, "click", closeTaskModal);
-          on(els.cancelTask, "click", closeTaskModal);
-          on(els.saveTask, "click", saveCurrentTask);
           on(els.closeSearchModal, "click", closeSearchModal);
           on(els.globalSearchInput, "input", scheduleGlobalSearch);
           on(els.globalSearchInput, "keydown", function(rawEvent) {
@@ -4955,11 +5633,6 @@
               }
             }
           });
-          on(els.taskModalShell, "click", function(event) {
-            if (event.target === els.taskModalShell) {
-              closeTaskModal();
-            }
-          });
           on(els.searchModalShell, "click", function(event) {
             if (event.target === els.searchModalShell) {
               closeSearchModal();
@@ -4979,6 +5652,35 @@
             if (event.target === els.documentsModalShell) {
               closeDocumentsModal();
             }
+          });
+          on(els.noteHeading, "focus", function() {
+            if (!state.selectedPage || !state.currentPage || els.noteHeading.disabled) {
+              return;
+            }
+            window.setTimeout(function() {
+              els.noteHeading.select();
+            }, 0);
+          });
+          on(els.noteHeading, "keydown", function(rawEvent) {
+            const event = rawEvent;
+            if (event.key === "Enter") {
+              event.preventDefault();
+              els.noteHeading.blur();
+              return;
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setNoteHeadingValue(currentPageTitleValue() || state.selectedPage || "", Boolean(state.selectedPage && state.currentPage));
+              els.noteHeading.blur();
+            }
+          });
+          on(els.noteHeading, "blur", function() {
+            if (!state.selectedPage || !state.currentPage || els.noteHeading.disabled) {
+              return;
+            }
+            renameCurrentPageFromTitle(els.noteHeading.value).catch(function(error) {
+              setNoteStatus("Rename failed: " + errorMessage(error));
+            });
           });
           on(els.closeHelpModal, "click", closeHelpModal);
           on(els.helpModalShell, "click", function(event) {
@@ -5007,6 +5709,9 @@
             if (!target || !target.closest("#session-menu")) {
               setSessionMenuOpen(false);
             }
+            if (!target || !target.closest("#inline-task-picker") && !target.closest("[data-task-date-edit]")) {
+              closeTaskPickers();
+            }
             if (!target || !target.closest("#slash-menu")) {
               closeSlashMenu(state, els);
             }
@@ -5032,8 +5737,8 @@
               window.history.forward();
               return;
             }
-            if (event.key === "Escape" && !els.taskModalShell.classList.contains("hidden")) {
-              closeTaskModal();
+            if (event.key === "Escape" && taskPickerState.mode) {
+              closeTaskPickers();
               return;
             }
             if (event.key === "Escape" && els.searchModalShell && !els.searchModalShell.classList.contains("hidden")) {
@@ -5095,6 +5800,11 @@
               event.preventDefault();
               setCommandPaletteOpen(true);
               renderCommandPaletteResults2();
+              return;
+            }
+            if (matchesHotkey(state.settings.preferences.hotkeys.quickNote, event)) {
+              event.preventDefault();
+              createDailyNote();
               return;
             }
             if (matchesHotkey(state.settings.preferences.hotkeys.help, event) && !isTypingTarget(event.target)) {
@@ -5185,13 +5895,20 @@
                 toggleTaskDone2(task);
               }
             });
-            on(markdownEditorApi.host, "noterious:task-open", function(event) {
+            on(markdownEditorApi.host, "noterious:task-date-edit", function(event) {
               const detail = event.detail || {};
               const ref = detail.ref ? String(detail.ref) : "";
-              const task = ref ? findCurrentTask(ref) : null;
-              if (task) {
-                openTaskModal(task);
-              }
+              const field = detail.field === "remind" ? "remind" : "due";
+              const left = Number(detail.left) || 0;
+              const top = Number(detail.top) || 0;
+              openInlineTaskPicker(ref, field, left, top);
+            });
+            on(markdownEditorApi.host, "noterious:task-delete", function(event) {
+              const detail = event.detail || {};
+              const ref = detail.ref ? String(detail.ref) : "";
+              deleteTaskInline(ref).catch(function(error) {
+                setNoteStatus("Delete task failed: " + errorMessage(error));
+              });
             });
           }
           setDebugOpen(false);

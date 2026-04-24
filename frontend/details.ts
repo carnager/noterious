@@ -94,13 +94,14 @@ export function buildTaskSavePayload(
   taskDue: string,
   taskRemind: string,
   taskWho: string,
-  serializeDateTimeValue: (value: string) => string
+  parseDateValue: (value: string) => string,
+  parseDateTimeValue: (value: string) => string
 ): TaskSavePayload {
   return {
     text: taskText.trim(),
     state: taskState,
-    due: taskDue.trim(),
-    remind: serializeDateTimeValue(taskRemind),
+    due: parseDateValue(taskDue),
+    remind: parseDateTimeValue(taskRemind),
     who: taskWho
       .split(",")
       .map(function (part) {
@@ -115,6 +116,12 @@ export async function saveTask(ref: string, payload: TaskSavePayload): Promise<v
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteTask(ref: string): Promise<void> {
+  await fetchJSON<unknown>("/api/tasks/" + encodeURIComponent(ref), {
+    method: "DELETE",
   });
 }
 

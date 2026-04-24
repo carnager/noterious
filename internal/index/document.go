@@ -75,10 +75,7 @@ func ParseDocument(page vault.PageFile, raw []byte) (Document, error) {
 		return Document{}, fmt.Errorf("parse frontmatter for %q: %w", page.Path, err)
 	}
 
-	title := titleFromFrontmatter(frontmatter)
-	if title == "" {
-		title = inferTitle(bodyLines, page.Path)
-	}
+	title := inferTitle(bodyLines, page.Path)
 
 	document := Document{
 		Path:        page.Path,
@@ -194,7 +191,7 @@ func parseFrontmatterFields(lines []string) ([]FrontmatterField, error) {
 					idx++
 					continue
 				}
-				if !hasIndent(next) {
+				if !hasIndent(next) && !strings.HasPrefix(strings.TrimSpace(next), "- ") {
 					break
 				}
 				blockLines = append(blockLines, strings.TrimLeft(next, " \t"))
@@ -293,28 +290,7 @@ func parseScalarValue(raw string) any {
 	return value
 }
 
-func titleFromFrontmatter(fields []FrontmatterField) string {
-	for _, field := range fields {
-		if field.Key != "title" {
-			continue
-		}
-
-		var title string
-		if err := json.Unmarshal([]byte(field.ValueJSON), &title); err == nil {
-			return strings.TrimSpace(title)
-		}
-	}
-	return ""
-}
-
 func inferTitle(lines []string, pagePath string) string {
-	for _, line := range lines {
-		matches := markdownHeadingPattern.FindStringSubmatch(line)
-		if len(matches) == 2 {
-			return strings.TrimSpace(matches[1])
-		}
-	}
-
 	base := path.Base(pagePath)
 	if base == "." || base == "/" || base == "" {
 		return pagePath
@@ -487,27 +463,6 @@ func splitTaskBody(body string) (string, map[string]string) {
 	fields := make(map[string]string)
 	baseText := strings.TrimSpace(body)
 
-	matches := inlineTaskFieldPattern.FindAllStringSubmatchIndex(body, -1)
-	if len(matches) > 0 {
-		baseText = strings.TrimSpace(body[:matches[0][0]])
-		for idx, match := range matches {
-			if len(match) < 4 {
-				continue
-			}
-			key := strings.ToLower(body[match[2]:match[3]])
-			valueStart := match[1]
-			valueEnd := len(body)
-			if idx+1 < len(matches) {
-				valueEnd = matches[idx+1][0]
-			}
-			value := strings.TrimSpace(body[valueStart:valueEnd])
-			if value != "" {
-				fields[key] = value
-			}
-		}
-		return strings.TrimSpace(baseText), fields
-	}
-
 	baseText = bracketFieldPattern.ReplaceAllStringFunc(baseText, func(match string) string {
 		parts := bracketFieldPattern.FindStringSubmatch(match)
 		if len(parts) != 3 {
@@ -523,6 +478,27 @@ func splitTaskBody(body string) (string, map[string]string) {
 		}
 		return ""
 	})
+
+	matches := inlineTaskFieldPattern.FindAllStringSubmatchIndex(baseText, -1)
+	if len(matches) > 0 {
+		inlineBody := baseText
+		baseText = strings.TrimSpace(inlineBody[:matches[0][0]])
+		for idx, match := range matches {
+			if len(match) < 4 {
+				continue
+			}
+			key := strings.ToLower(inlineBody[match[2]:match[3]])
+			valueStart := match[1]
+			valueEnd := len(inlineBody)
+			if idx+1 < len(matches) {
+				valueEnd = matches[idx+1][0]
+			}
+			value := strings.TrimSpace(inlineBody[valueStart:valueEnd])
+			if value != "" {
+				fields[key] = value
+			}
+		}
+	}
 
 	baseText = remindTagPattern.ReplaceAllString(baseText, "$1")
 	baseText = strings.Join(strings.Fields(baseText), " ")

@@ -1,6 +1,7 @@
 package index
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -36,8 +37,8 @@ See [[Project Alpha|Alpha]] and [Roadmap](plans/roadmap.md).
 		t.Fatalf("ParseDocument() error = %v", err)
 	}
 
-	if document.Title != "Daily Notes" {
-		t.Fatalf("Title = %q, want %q", document.Title, "Daily Notes")
+	if document.Title != "today" {
+		t.Fatalf("Title = %q, want %q", document.Title, "today")
 	}
 	if document.CreatedAt != modTime.Format(time.RFC3339) {
 		t.Fatalf("CreatedAt = %q", document.CreatedAt)
@@ -105,5 +106,48 @@ func TestParseDocumentStripsLegacyTaskMetadataFromDisplayText(t *testing.T) {
 	}
 	if document.Tasks[0].Remind == nil || *document.Tasks[0].Remind != "2026-04-19 12:10" {
 		t.Fatalf("legacy task remind = %v", document.Tasks[0].Remind)
+	}
+}
+
+func TestParseDocumentParsesUnindentedFrontmatterLists(t *testing.T) {
+	t.Parallel()
+
+	page := vault.PageFile{
+		Path:    "contacts/claudia-braun",
+		ModTime: time.Date(2026, time.April, 24, 8, 0, 0, 0, time.UTC),
+	}
+	raw := []byte(`---
+tags: contact
+phone_work:
+- "+49 202 26923094"
+- "+49 202 97443-154"
+email:
+- "kita-hahnerberg@diakonie-wuppertal.de"
+- "kita-karlgreisstr@diakonie-wuppertal.de"
+---
+# Claudia Braun
+`)
+
+	document, err := ParseDocument(page, raw)
+	if err != nil {
+		t.Fatalf("ParseDocument() error = %v", err)
+	}
+
+	frontmatter := make(map[string]any, len(document.Frontmatter))
+	for _, field := range document.Frontmatter {
+		var value any
+		if err := json.Unmarshal([]byte(field.ValueJSON), &value); err != nil {
+			t.Fatalf("json.Unmarshal(%q) error = %v", field.Key, err)
+		}
+		frontmatter[field.Key] = value
+	}
+
+	phoneWork, ok := frontmatter["phone_work"].([]any)
+	if !ok || len(phoneWork) != 2 {
+		t.Fatalf("phone_work = %#v", frontmatter["phone_work"])
+	}
+	email, ok := frontmatter["email"].([]any)
+	if !ok || len(email) != 2 {
+		t.Fatalf("email = %#v", frontmatter["email"])
 	}
 }

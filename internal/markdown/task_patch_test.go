@@ -22,11 +22,11 @@ func TestApplyTaskPatchUpdatesKnownFields(t *testing.T) {
 		t.Fatalf("ApplyTaskPatch() error = %v", err)
 	}
 
-	expected := "# Title\n\n- [x] Follow up due:: 2026-05-02 who:: [\"Ralf\", \"Mina\"]\n"
+	expected := "# Title\n\n- [x] Follow up [due: 2026-05-02] who:: [\"Ralf\", \"Mina\"]\n"
 	if updated != expected {
 		t.Fatalf("updated markdown = %q, want %q", updated, expected)
 	}
-	if !task.Done || task.Text != "Follow up due:: 2026-05-02 who:: [\"Ralf\", \"Mina\"]" {
+	if !task.Done || task.Text != "Follow up [due: 2026-05-02] who:: [\"Ralf\", \"Mina\"]" {
 		t.Fatalf("updated task = %#v", task)
 	}
 }

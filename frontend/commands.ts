@@ -19,6 +19,7 @@ export interface RenderCommandPaletteOptions {
     globalSearch: string;
     commandPalette: string;
     quickSwitcher: string;
+    quickNote: string;
     help: string;
     saveCurrentPage: string;
     toggleRawMode: string;
@@ -28,6 +29,7 @@ export interface RenderCommandPaletteOptions {
   onOpenSettings(): void;
   onOpenDocuments(): void;
   onOpenQuickSwitcher(): void;
+  onQuickNote(): void;
   onOpenSearch(): void;
   onFocusRail(tab: string): void;
   onToggleRail(): void;
@@ -92,6 +94,13 @@ function buildCommandEntries(options: RenderCommandPaletteOptions): CommandEntry
       keywords: "quick switcher open file note",
       hint: options.hotkeys.quickSwitcher,
       run: options.onOpenQuickSwitcher,
+    },
+    {
+      title: "Open Daily Note",
+      meta: "Capture",
+      keywords: "daily note inbox capture today journal",
+      hint: options.hotkeys.quickNote,
+      run: options.onQuickNote,
     },
     {
       title: "Focus Files",

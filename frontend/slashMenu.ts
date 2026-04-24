@@ -43,9 +43,9 @@ function slashSearchTokens(command: SlashCommand): string[] {
     .filter(Boolean);
 }
 
-function replaceSlashToken(lineText: string, commandName: string, replacement: string): string {
+function replaceSlashToken(lineText: string, _commandName: string, replacement: string): string {
   const source = String(lineText || "");
-  const pattern = new RegExp("(?:^|\\s)\\/" + commandName + "\\s*$", "i");
+  const pattern = /(?:^|\s)\/[a-z0-9-]*\s*$/i;
   const updated = source.replace(pattern, "");
   if (!updated.trim()) {
     return replacement;
@@ -56,6 +56,28 @@ function replaceSlashToken(lineText: string, commandName: string, replacement: s
 function prefixLine(lineText: string, commandName: string, prefix: string): string {
   const source = replaceSlashToken(lineText, commandName, "").trim();
   return source ? prefix + source : prefix;
+}
+
+function todayDate(): string {
+  const now = new Date();
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function currentDateTime(): string {
+  const now = new Date();
+  return todayDate() + " " + [
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+  ].join(":");
+}
+
+function appendField(lineText: string, commandName: string, fieldText: string): string {
+  const source = replaceSlashToken(lineText, commandName, "").trimEnd();
+  return source ? (source + " " + fieldText) : fieldText;
 }
 
 function slashCommandCatalog(): SlashCommand[] {
@@ -148,6 +170,26 @@ function slashCommandCatalog(): SlashCommand[] {
       hint: "/callout",
       apply: function () {
         return "> [!note]\n> ";
+      },
+    },
+    {
+      id: "due",
+      title: "Insert due date",
+      description: "Append a due field with today's date.",
+      keywords: "task due date schedule deadline",
+      hint: "/due",
+      apply: function (lineText: string) {
+        return appendField(lineText, "due", "[due: " + todayDate() + "]");
+      },
+    },
+    {
+      id: "remind",
+      title: "Insert reminder",
+      description: "Append a remind field with the current date and time.",
+      keywords: "task remind reminder notify notification",
+      hint: "/remind",
+      apply: function (lineText: string) {
+        return appendField(lineText, "remind", "[remind: " + currentDateTime() + "]");
       },
     },
   ];

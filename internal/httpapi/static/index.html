@@ -113,7 +113,7 @@
               <section class="card note-card">
                 <div class="note-frame">
                   <div class="note-heading-row">
-                    <h1 class="note-heading" id="note-heading">Waiting for selection</h1>
+                    <input type="text" class="note-heading-input" id="note-heading" value="Waiting for selection" aria-label="Note title" autocomplete="off" spellcheck="false">
                     <button type="button" id="toggle-source-mode" class="mode-button note-mode-button" aria-pressed="false">Raw</button>
                   </div>
                 </div>
@@ -128,6 +128,7 @@
                   <div id="slash-menu" class="slash-menu hidden">
                     <div id="slash-menu-results" class="slash-menu-results"></div>
                   </div>
+                  <div id="inline-task-picker" class="task-inline-picker hidden"></div>
                 </div>
               </section>
             </section>
@@ -192,48 +193,6 @@
     </div>
 
     <p id="note-status" class="visually-hidden" aria-live="polite">Select a page to edit and preview markdown.</p>
-
-    <div class="modal-shell hidden" id="task-modal-shell">
-      <div class="modal-card">
-        <div class="section-head task-modal-head">
-          <div>
-            <p class="eyebrow">Task</p>
-            <h2 id="task-modal-title">Task</h2>
-            <p class="task-modal-subtitle" id="task-modal-meta">Task details appear here.</p>
-          </div>
-          <button type="button" id="close-task-modal">Close</button>
-        </div>
-        <div class="modal-fields">
-          <label class="search modal-field-wide">
-            <span>Text</span>
-            <textarea id="task-text" rows="3" placeholder="Task text and any extra markdown"></textarea>
-          </label>
-          <label class="search">
-            <span>State</span>
-            <select id="task-state">
-              <option value="todo">todo</option>
-              <option value="done">done</option>
-            </select>
-          </label>
-          <label class="search">
-            <span>Due</span>
-            <input id="task-due" type="date" placeholder="2026-05-01">
-          </label>
-          <label class="search">
-            <span>Remind</span>
-            <input id="task-remind" type="datetime-local" placeholder="2026-04-30T09:00">
-          </label>
-          <label class="search">
-            <span>Who</span>
-            <input id="task-who" type="text" placeholder="Ralf, Mina">
-          </label>
-        </div>
-        <div class="task-modal-footer">
-          <button type="button" id="cancel-task">Cancel</button>
-          <button type="button" id="save-task">Save Task</button>
-        </div>
-      </div>
-    </div>
 
     <div class="modal-shell hidden" id="search-modal-shell">
       <div class="modal-card search-modal-card">
@@ -346,11 +305,11 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">Settings</p>
-            <h2>Workspace & Hotkeys</h2>
+            <h2>Workspace, Notifications, UI & Hotkeys</h2>
           </div>
           <button type="button" id="close-settings-modal" aria-label="Close settings">×</button>
         </div>
-        <p class="help-lead">Workspace settings are stored on the server. Changing the vault path updates the saved workspace and may require a restart.</p>
+        <p class="help-lead">Workspace and notification settings are stored on the server. Changing runtime settings updates the saved config and may require a restart.</p>
         <div class="modal-fields">
           <label class="search modal-field-wide">
             <span>Vault Path</span>
@@ -359,6 +318,18 @@
           <label class="search modal-field-wide">
             <span>Home Page</span>
             <input id="settings-home-page" type="text" placeholder="notes/home" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+          <label class="search modal-field-wide">
+            <span>ntfy Topic URL</span>
+            <input id="settings-ntfy-topic-url" type="text" placeholder="https://ntfy.sh/your-topic" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+          <label class="search">
+            <span>ntfy Token</span>
+            <input id="settings-ntfy-token" type="password" placeholder="Optional bearer token" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+          <label class="search">
+            <span>ntfy Interval</span>
+            <input id="settings-ntfy-interval" type="text" placeholder="1m" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
           </label>
           <label class="search">
             <span>Font</span>
@@ -381,6 +352,14 @@
             </select>
           </label>
           <label class="search">
+            <span>Date &amp; Time</span>
+            <select id="settings-ui-date-time-format">
+              <option value="browser">Browser Default</option>
+              <option value="iso">ISO</option>
+              <option value="de">DE</option>
+            </select>
+          </label>
+          <label class="search">
             <span>Quick Switcher</span>
             <input id="settings-hotkey-quick-switcher" type="text" placeholder="Mod+K" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
           </label>
@@ -391,6 +370,10 @@
           <label class="search">
             <span>Command Palette</span>
             <input id="settings-hotkey-command-palette" type="text" placeholder="Mod+Shift+P" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+          <label class="search">
+            <span>Open Daily Note</span>
+            <input id="settings-hotkey-quick-note" type="text" placeholder="Optional" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
           </label>
           <label class="search">
             <span>Open Help</span>

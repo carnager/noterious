@@ -3,6 +3,7 @@ import type {
   FocusRestoreSpec,
   NoteriousEditorApi,
   QueryBlockRender,
+  UISettings,
   SlashMenuContext,
   TaskRender,
 } from "./types";
@@ -14,7 +15,7 @@ export interface EditorControllerState {
 
 export interface EditorControllerElements {
   markdownEditor: HTMLTextAreaElement;
-  taskModalShell: HTMLElement;
+  taskModalShell?: HTMLElement;
   searchModalShell: HTMLElement;
   commandModalShell: HTMLElement;
 }
@@ -123,6 +124,13 @@ export function markdownEditorSetPagePath(state: EditorControllerState, path: st
   }
 }
 
+export function markdownEditorSetDateTimeFormat(state: EditorControllerState, format: UISettings["dateTimeFormat"]): void {
+  const api = markdownEditorAPI(state);
+  if (api && typeof api.setDateTimeFormat === "function") {
+    api.setDateTimeFormat(format);
+  }
+}
+
 export function markdownEditorSetQueryBlocks(state: EditorControllerState, blocks: QueryBlockRender[]): void {
   const api = markdownEditorAPI(state);
   if (api && typeof api.setQueryBlocks === "function") {
@@ -166,7 +174,7 @@ export function captureEditorFocusSpec(state: EditorControllerState, elements: E
 
 export function blockingOverlayOpen(elements: EditorControllerElements): boolean {
   return Boolean(
-    !elements.taskModalShell.classList.contains("hidden") ||
+    (elements.taskModalShell && !elements.taskModalShell.classList.contains("hidden")) ||
     !elements.searchModalShell.classList.contains("hidden") ||
     !elements.commandModalShell.classList.contains("hidden")
   );

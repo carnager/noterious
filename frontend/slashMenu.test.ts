@@ -49,13 +49,27 @@ describe("slash menu", function () {
 
     expect(commands.map(function (command) {
       return command.id;
-    })).toEqual(["h1", "h2", "h3"]);
+    })).toEqual(["h1", "h2", "h3", "due"]);
   });
 
   it("keeps slash commands editor-scoped rather than page-scoped", function () {
     const commands = slashCommandsForText("/notes");
 
     expect(commands).toEqual([]);
+  });
+
+  it("inserts due and remind fields with current canonical values", function () {
+    const due = slashCommandsForText("/due").find(function (command) {
+      return command.id === "due";
+    });
+    const remind = slashCommandsForText("/remind").find(function (command) {
+      return command.id === "remind";
+    });
+
+    expect(due).toBeTruthy();
+    expect(remind).toBeTruthy();
+    expect(due?.apply("- [ ] follow up /due")).toMatch(/^- \[ \] follow up \[due: \d{4}-\d{2}-\d{2}\]$/);
+    expect(remind?.apply("- [ ] follow up /remind")).toMatch(/^- \[ \] follow up \[remind: \d{4}-\d{2}-\d{2} \d{2}:\d{2}\]$/);
   });
 
   it("offers page links when typing a wikilink", function () {

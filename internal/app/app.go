@@ -10,17 +10,19 @@ import (
 	"github.com/carnager/noterious/internal/documents"
 	"github.com/carnager/noterious/internal/httpapi"
 	"github.com/carnager/noterious/internal/index"
+	"github.com/carnager/noterious/internal/notify"
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/settings"
 	"github.com/carnager/noterious/internal/vault"
 )
 
 type App struct {
-	cfg     config.Config
-	index   *index.Service
-	store   *settings.Store
-	server  *http.Server
-	watcher *VaultWatcher
+	cfg      config.Config
+	index    *index.Service
+	store    *settings.Store
+	server   *http.Server
+	watcher  *VaultWatcher
+	notifier *notify.Service
 }
 
 func New(cfg config.Config) (*App, error) {
@@ -31,7 +33,12 @@ func New(cfg config.Config) (*App, error) {
 	appliedSettings := settingsStore.Settings()
 	cfg.VaultPath = appliedSettings.Workspace.VaultPath
 	cfg.HomePage = appliedSettings.Workspace.HomePage
-	settingsStore.SetAppliedWorkspace(appliedSettings.Workspace)
+	cfg.NtfyTopicURL = appliedSettings.Notifications.NtfyTopicURL
+	cfg.NtfyToken = appliedSettings.Notifications.NtfyToken
+	if parsed, err := time.ParseDuration(appliedSettings.Notifications.NtfyInterval); err == nil {
+		cfg.NtfyInterval = parsed
+	}
+	settingsStore.SetAppliedRuntime(appliedSettings)
 
 	vaultService := vault.NewService(cfg.VaultPath)
 	indexService := index.NewService(cfg.DataDir)
@@ -41,6 +48,10 @@ func New(cfg config.Config) (*App, error) {
 		return nil, fmt.Errorf("init document store: %w", err)
 	}
 	eventBroker := httpapi.NewEventBroker()
+	notifier, err := notify.NewService(cfg.DataDir, indexService, cfg.NtfyTopicURL, cfg.NtfyToken)
+	if err != nil {
+		return nil, fmt.Errorf("init notifier: %w", err)
+	}
 
 	if err := indexService.Open(context.Background()); err != nil {
 		return nil, fmt.Errorf("open index: %w", err)
@@ -71,10 +82,11 @@ func New(cfg config.Config) (*App, error) {
 	})
 
 	return &App{
-		cfg:     cfg,
-		index:   indexService,
-		store:   settingsStore,
-		watcher: watcher,
+		cfg:      cfg,
+		index:    indexService,
+		store:    settingsStore,
+		watcher:  watcher,
+		notifier: notifier,
 		server: &http.Server{
 			Addr:              cfg.ListenAddr,
 			Handler:           router,
@@ -98,6 +110,9 @@ func (a *App) Run(ctx context.Context) error {
 
 	if a.watcher != nil && a.cfg.WatchInterval > 0 {
 		go a.watcher.Run(ctx, a.cfg.WatchInterval)
+	}
+	if a.notifier != nil && a.cfg.NtfyInterval > 0 {
+		go a.notifier.Run(ctx, a.cfg.NtfyInterval)
 	}
 
 	select {

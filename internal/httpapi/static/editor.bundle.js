@@ -27311,6 +27311,55 @@
     }
   });
 
+  // frontend/datetime.ts
+  function normalizeDateTimeDisplayFormat(value) {
+    switch (String(value || "").trim().toLowerCase()) {
+      case "iso":
+        return "iso";
+      case "de":
+        return "de";
+      default:
+        return "browser";
+    }
+  }
+  function setDateTimeDisplayFormat(value) {
+    currentDisplayFormat = normalizeDateTimeDisplayFormat(value);
+  }
+  var currentDisplayFormat;
+  var init_datetime = __esm({
+    "frontend/datetime.ts"() {
+      "use strict";
+      currentDisplayFormat = "browser";
+    }
+  });
+
+  // frontend/dom.ts
+  var init_dom = __esm({
+    "frontend/dom.ts"() {
+      "use strict";
+    }
+  });
+
+  // frontend/palette.ts
+  var init_palette = __esm({
+    "frontend/palette.ts"() {
+      "use strict";
+      init_dom();
+    }
+  });
+
+  // frontend/commands.ts
+  function pageTitleFromPath(pagePath) {
+    const parts = String(pagePath || "").split("/");
+    return parts[parts.length - 1] || pagePath;
+  }
+  var init_commands = __esm({
+    "frontend/commands.ts"() {
+      "use strict";
+      init_palette();
+    }
+  });
+
   // frontend/editor.ts
   var require_editor = __commonJS({
     "frontend/editor.ts"() {
@@ -27328,6 +27377,8 @@
       init_dist24();
       init_dist25();
       init_dist4();
+      init_datetime();
+      init_commands();
       var measureCanvas = document.createElement("canvas");
       var measureContext = measureCanvas.getContext("2d");
       function bindTransientScrollClass(element, className) {
@@ -27369,6 +27420,7 @@
       var setTasksEffect = StateEffect.define();
       var setPagePathEffect = StateEffect.define();
       var setHighlightedLineEffect = StateEffect.define();
+      var taskInlineDatePattern = /\[(due|remind):\s*[^\]]+?\]|\b(due|remind)::\s*[^\s]+(?:\s+\d{2}:\d{2})?/g;
       var codeLanguages = [
         LanguageDescription.of({ name: "JavaScript", alias: ["js", "javascript"], extensions: ["js", "mjs", "cjs"], support: javascript() }),
         LanguageDescription.of({ name: "TypeScript", alias: ["ts", "typescript"], extensions: ["ts", "tsx"], support: javascript({ typescript: true }) }),
@@ -27529,25 +27581,11 @@
         toDOM() {
           const meta2 = document.createElement("span");
           meta2.className = "cm-md-task-meta";
-          if (this.task.due || this.task.remind || this.task.who && this.task.who.length) {
-            if (this.task.due) {
-              const pill = document.createElement("span");
-              pill.className = "token";
-              pill.textContent = "due " + this.task.due;
-              meta2.appendChild(pill);
-            }
-            if (this.task.remind) {
-              const pill = document.createElement("span");
-              pill.className = "token";
-              pill.textContent = "remind " + this.task.remind;
-              meta2.appendChild(pill);
-            }
-            if (this.task.who && this.task.who.length) {
-              const pill = document.createElement("span");
-              pill.className = "token";
-              pill.textContent = this.task.who.join(", ");
-              meta2.appendChild(pill);
-            }
+          if (this.task.who && this.task.who.length) {
+            const pill = document.createElement("span");
+            pill.className = "token";
+            pill.textContent = this.task.who.join(", ");
+            meta2.appendChild(pill);
           }
           return meta2;
         }
@@ -27782,20 +27820,33 @@
                 widget: new TaskCheckboxWidget(task.done, task.ref)
               })
             );
-            if (task.text && bodyText.startsWith(task.text)) {
-              let suffixStart = from + prefixLength + task.text.length;
-              while (suffixStart < line.to && /\s/.test(state.doc.sliceString(suffixStart, suffixStart + 1))) {
-                suffixStart += 1;
-              }
-              if (suffixStart < line.to && (task.due || task.remind || task.who && task.who.length)) {
-                builder.add(
-                  suffixStart,
-                  line.to,
-                  Decoration.replace({
-                    widget: new TaskMetaWidget(task)
-                  })
-                );
-              }
+            let dateMatch = null;
+            while ((dateMatch = taskInlineDatePattern.exec(bodyText)) !== null) {
+              const field = String(dateMatch[1] || "");
+              const start = from + prefixLength + dateMatch.index;
+              const end = start + dateMatch[0].length;
+              builder.add(
+                start,
+                end,
+                Decoration.mark({
+                  class: "cm-md-task-inline-date",
+                  attributes: {
+                    "data-task-date-edit": field,
+                    "data-task-ref": task.ref || ""
+                  }
+                })
+              );
+            }
+            taskInlineDatePattern.lastIndex = 0;
+            if (task.text && bodyText.startsWith(task.text) && task.who && task.who.length) {
+              builder.add(
+                line.to,
+                line.to,
+                Decoration.widget({
+                  widget: new TaskMetaWidget(task),
+                  side: 1
+                })
+              );
             }
             continue;
           }
@@ -27803,7 +27854,8 @@
           let wikiMatch = null;
           while ((wikiMatch = wikiPattern.exec(text)) !== null) {
             const target = String(wikiMatch[1] || "").trim();
-            const label = String(wikiMatch[2] || wikiMatch[1] || "").trim();
+            const explicitLabel = String(wikiMatch[2] || "").trim();
+            const label = explicitLabel || pageTitleFromPath(target);
             const start = from + wikiMatch.index;
             const end = start + wikiMatch[0].length;
             const editingLink = selection.from <= end && selection.to >= start;
@@ -27891,7 +27943,8 @@
         },
         update(value, transaction) {
           const modeChanged = transaction.effects.some((effect) => effect.is(setRenderModeEffect));
-          if (!modeChanged && !transaction.docChanged && !transaction.selection) {
+          const tasksChanged = transaction.effects.some((effect) => effect.is(setTasksEffect));
+          if (!modeChanged && !tasksChanged && !transaction.docChanged && !transaction.selection) {
             return value;
           }
           return buildRenderedDecorations(transaction.state);
@@ -27951,12 +28004,40 @@
               if (taskToggle) {
                 event.preventDefault();
                 const taskCarrier = target ? target.closest("[data-task-ref]") : null;
+                const taskRef = taskCarrier ? taskCarrier.getAttribute("data-task-ref") || "" : "";
                 const position = view2.posAtDOM(taskToggle);
                 const lineNumber = view2.state.doc.lineAt(position).number;
                 host.dispatchEvent(new CustomEvent("noterious:task-toggle", {
                   detail: {
                     lineNumber,
-                    ref: taskCarrier ? taskCarrier.getAttribute("data-task-ref") || "" : ""
+                    ref: taskRef
+                  },
+                  bubbles: true
+                }));
+                return true;
+              }
+              const taskDateEdit = target ? target.closest("[data-task-date-edit]") : null;
+              if (taskDateEdit) {
+                event.preventDefault();
+                const trigger = taskDateEdit instanceof HTMLElement ? taskDateEdit : null;
+                const rect = trigger ? trigger.getBoundingClientRect() : null;
+                host.dispatchEvent(new CustomEvent("noterious:task-date-edit", {
+                  detail: {
+                    ref: taskDateEdit.getAttribute("data-task-ref") || "",
+                    field: taskDateEdit.getAttribute("data-task-date-edit") || "",
+                    left: rect ? rect.left : 0,
+                    top: rect ? rect.bottom + 6 : 0
+                  },
+                  bubbles: true
+                }));
+                return true;
+              }
+              const taskDelete = target ? target.closest("[data-task-delete]") : null;
+              if (taskDelete) {
+                event.preventDefault();
+                host.dispatchEvent(new CustomEvent("noterious:task-delete", {
+                  detail: {
+                    ref: taskDelete.getAttribute("data-task-ref") || ""
                   },
                   bubbles: true
                 }));
@@ -28084,6 +28165,12 @@
             setPagePath(path) {
               view.dispatch({
                 effects: setPagePathEffect.of(String(path || ""))
+              });
+            },
+            setDateTimeFormat(format) {
+              setDateTimeDisplayFormat(normalizeDateTimeDisplayFormat(format));
+              view.dispatch({
+                effects: setTasksEffect.of(new Map(view.state.field(tasksField)))
               });
             },
             setQueryBlocks(blocks) {

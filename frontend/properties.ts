@@ -1,4 +1,14 @@
 import { clearNode, renderEmpty } from "./dom";
+import {
+  editableDatePlaceholder,
+  editableDateTimePlaceholder,
+  formatDateTimeValue,
+  formatDateValue,
+  formatEditableDateTimeValue,
+  formatEditableDateValue,
+  parseEditableDateTimeValue,
+  parseEditableDateValue,
+} from "./datetime";
 import type {
   FrontmatterKind,
   FrontmatterMap,
@@ -66,11 +76,14 @@ export function displayFrontmatterValue(value: FrontmatterValue | null | undefin
 
 export function makePropertyDraft(key: string, value: FrontmatterValue, originalKey: string): PropertyDraft {
   const kind = inferFrontmatterKind(value);
+  const text = kind === "date"
+    ? formatEditableDateValue(String(value || ""))
+    : (kind === "datetime" ? formatEditableDateTimeValue(String(value || "")) : displayFrontmatterValue(value));
   return {
     originalKey: originalKey || key || "",
     key: key || "",
     kind,
-    text: kind === "list" ? "" : displayFrontmatterValue(value),
+    text: kind === "list" ? "" : text,
     list: Array.isArray(value) ? value.map(String) : [],
   };
 }
@@ -107,6 +120,12 @@ export function propertyDraftValue(draft: PropertyDraft | null): FrontmatterValu
   }
   if (draft.kind === "bool") {
     return draft.text === "true";
+  }
+  if (draft.kind === "date") {
+    return parseEditableDateValue(String(draft.text || ""));
+  }
+  if (draft.kind === "datetime") {
+    return parseEditableDateTimeValue(String(draft.text || ""));
   }
   return String(draft.text || "").trim();
 }
@@ -175,7 +194,14 @@ function renderPropertyValueNode(value: FrontmatterValue): HTMLElement {
   }
 
   const text = document.createElement("span");
-  text.textContent = displayFrontmatterValue(value);
+  const kind = inferFrontmatterKind(value);
+  if (kind === "date") {
+    text.textContent = formatDateValue(String(value || ""));
+  } else if (kind === "datetime") {
+    text.textContent = formatDateTimeValue(String(value || ""));
+  } else {
+    text.textContent = displayFrontmatterValue(value);
+  }
   return text;
 }
 
@@ -317,19 +343,30 @@ function renderExistingPropertyValueEditor(row: PropertyRow, options: RenderPage
 
   const input = document.createElement("input");
   input.className = "property-inline-input";
-  input.type = kind === "date" ? "date" : (kind === "datetime" ? "datetime-local" : "text");
-  input.value = kind === "datetime" ? normalizeDateTimeValue(row.rawValue) : String(row.rawValue || "");
-  input.placeholder = kind === "datetime" ? "2026-04-07T14:45" : "";
+  input.type = "text";
+  input.value = kind === "date"
+    ? formatEditableDateValue(String(row.rawValue || ""))
+    : (kind === "datetime" ? formatEditableDateTimeValue(String(row.rawValue || "")) : String(row.rawValue || ""));
+  input.placeholder = kind === "date"
+    ? editableDatePlaceholder()
+    : (kind === "datetime" ? editableDateTimePlaceholder() : "");
 
   const commit = function () {
-    const nextValue = input.value;
-    const normalizedCurrent = kind === "datetime" ? normalizeDateTimeValue(row.rawValue) : String(row.rawValue || "");
-    if (nextValue === normalizedCurrent) {
-      return;
+    try {
+      const rawValue = input.value;
+      const nextValue = kind === "date"
+        ? parseEditableDateValue(rawValue)
+        : (kind === "datetime" ? parseEditableDateTimeValue(rawValue) : rawValue);
+      const normalizedCurrent = String(row.rawValue || "");
+      if (nextValue === normalizedCurrent) {
+        return;
+      }
+      options.onSaveExistingProperty(row.key, nextValue).catch(function (error: Error) {
+        options.onSetNoteStatus("Property save failed: " + error.message);
+      });
+    } catch (error) {
+      options.onSetNoteStatus("Property save failed: " + (error instanceof Error ? error.message : String(error)));
     }
-    options.onSaveExistingProperty(row.key, nextValue).catch(function (error: Error) {
-      options.onSetNoteStatus("Property save failed: " + error.message);
-    });
   };
 
   input.addEventListener("blur", commit);
@@ -443,9 +480,11 @@ function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | n
   } else {
     const input = document.createElement("input");
     input.className = "property-inline-input";
-    input.type = draft.kind === "date" ? "date" : (draft.kind === "datetime" ? "datetime-local" : "text");
-    input.value = draft.kind === "datetime" ? normalizeDateTimeValue(draft.text) : String(draft.text || "");
-    input.placeholder = draft.kind === "datetime" ? "2026-04-07T14:45" : "";
+    input.type = "text";
+    input.value = String(draft.text || "");
+    input.placeholder = draft.kind === "date"
+      ? editableDatePlaceholder()
+      : (draft.kind === "datetime" ? editableDateTimePlaceholder() : "");
     input.addEventListener("input", function () {
       options.onSetDraft({ ...draft, text: input.value });
     });

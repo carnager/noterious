@@ -16,6 +16,7 @@ function paletteOptions(overrides: Partial<Parameters<typeof buildCommandPalette
         quickSwitcher: "Mod+K",
         globalSearch: "Mod+Shift+K",
         commandPalette: "Mod+Shift+P",
+        quickNote: "Mod+Alt+N",
         help: "?",
         saveCurrentPage: "Mod+S",
         toggleRawMode: "Mod+E",
@@ -34,6 +35,9 @@ function paletteOptions(overrides: Partial<Parameters<typeof buildCommandPalette
       },
       onOpenQuickSwitcher: function () {
         calls.push("open-quick-switcher");
+      },
+      onQuickNote: function () {
+        calls.push("quick-note");
       },
       onOpenSearch: function () {
         calls.push("open-search");
@@ -99,6 +103,9 @@ describe("command helpers", function () {
     const quickSwitcher = commands.find(function (item) {
       return item.title === "Open Quick Switcher";
     });
+    const quickNote = commands.find(function (item) {
+      return item.title === "Open Daily Note";
+    });
 
     expect(setHome).toBeTruthy();
     expect(openHome).toBeTruthy();
@@ -106,6 +113,7 @@ describe("command helpers", function () {
     expect(settings).toBeTruthy();
     expect(documents).toBeTruthy();
     expect(quickSwitcher).toBeTruthy();
+    expect(quickNote).toBeTruthy();
 
     setHome?.onSelect();
     openHome?.onSelect();
@@ -113,6 +121,7 @@ describe("command helpers", function () {
     settings?.onSelect();
     documents?.onSelect();
     quickSwitcher?.onSelect();
+    quickNote?.onSelect();
 
     expect(calls).toContain("set-home:notes/alpha");
     expect(calls).toContain("open-home:notes/home");
@@ -120,6 +129,7 @@ describe("command helpers", function () {
     expect(calls).toContain("open-settings");
     expect(calls).toContain("open-documents");
     expect(calls).toContain("open-quick-switcher");
+    expect(calls).toContain("quick-note");
   });
 
   it("suppresses set-home action when the selected page is already home", function () {

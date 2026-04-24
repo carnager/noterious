@@ -49,6 +49,23 @@ func ApplyTaskPatch(rawMarkdown string, line int, patch TaskPatch) (string, Upda
 	}, nil
 }
 
+func RemoveTaskLine(rawMarkdown string, line int) (string, error) {
+	if line <= 0 {
+		return "", fmt.Errorf("invalid task line %d", line)
+	}
+
+	lines := strings.Split(strings.ReplaceAll(rawMarkdown, "\r\n", "\n"), "\n")
+	if line > len(lines) {
+		return "", fmt.Errorf("task line %d out of range", line)
+	}
+	if !taskLinePattern.MatchString(lines[line-1]) {
+		return "", fmt.Errorf("line is not a task")
+	}
+
+	lines = append(lines[:line-1], lines[line:]...)
+	return strings.Join(lines, "\n"), nil
+}
+
 func patchTaskLine(line string, patch TaskPatch) (string, string, bool, error) {
 	matches := taskLinePattern.FindStringSubmatch(line)
 	if len(matches) != 5 {
@@ -108,6 +125,10 @@ func patchTaskLine(line string, patch TaskPatch) (string, string, bool, error) {
 			if rewrittenBody != "" {
 				rewrittenBody += " "
 			}
+			if key == "due" || key == "remind" {
+				rewrittenBody += "[" + key + ": " + value + "]"
+				continue
+			}
 			rewrittenBody += key + ":: " + value
 		}
 	}
@@ -118,22 +139,6 @@ func patchTaskLine(line string, patch TaskPatch) (string, string, bool, error) {
 func splitTaskBody(body string) (string, map[string]string) {
 	fields := make(map[string]string)
 	baseText := strings.TrimSpace(body)
-
-	matches := inlineFieldPattern.FindAllStringSubmatchIndex(baseText, -1)
-	if len(matches) > 0 {
-		baseText = strings.TrimSpace(baseText[:matches[0][0]])
-		for idx, match := range matches {
-			key := strings.ToLower(baseTextValue(body, match[2], match[3]))
-			valueStart := match[1]
-			valueEnd := len(body)
-			if idx+1 < len(matches) {
-				valueEnd = matches[idx+1][0]
-			}
-			value := strings.TrimSpace(body[valueStart:valueEnd])
-			fields[key] = value
-		}
-		return baseText, fields
-	}
 
 	baseText = bracketFieldPattern.ReplaceAllStringFunc(baseText, func(match string) string {
 		parts := bracketFieldPattern.FindStringSubmatch(match)
@@ -150,6 +155,24 @@ func splitTaskBody(body string) (string, map[string]string) {
 		}
 		return ""
 	})
+
+	matches := inlineFieldPattern.FindAllStringSubmatchIndex(baseText, -1)
+	if len(matches) > 0 {
+		inlineBody := baseText
+		baseText = strings.TrimSpace(inlineBody[:matches[0][0]])
+		for idx, match := range matches {
+			key := strings.ToLower(baseTextValue(inlineBody, match[2], match[3]))
+			valueStart := match[1]
+			valueEnd := len(inlineBody)
+			if idx+1 < len(matches) {
+				valueEnd = matches[idx+1][0]
+			}
+			value := strings.TrimSpace(inlineBody[valueStart:valueEnd])
+			if value != "" {
+				fields[key] = value
+			}
+		}
+	}
 
 	baseText = remindTagPattern.ReplaceAllString(baseText, "$1")
 	baseText = strings.Join(strings.Fields(baseText), " ")

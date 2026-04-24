@@ -1,5 +1,7 @@
-import { escapeHTML, inferMarkdownTitle, parseFrontmatter, parseQueryFenceOptions, renderInline } from "./markdown";
+import { escapeHTML, parseFrontmatter, parseQueryFenceOptions, renderInline } from "./markdown";
+import { formatMaybeDateValue } from "./datetime";
 import type { DerivedPage, PageRecord, QueryBlockRecord, QueryBlockRender, QueryRow, TaskRender } from "./types";
+import { pageTitleFromPath } from "./commands";
 
 export function currentPageView(currentPage: PageRecord | null, currentMarkdown: string): PageRecord | null {
   if (!currentPage) {
@@ -7,11 +9,12 @@ export function currentPageView(currentPage: PageRecord | null, currentMarkdown:
   }
 
   const liveFrontmatter = parseFrontmatter(currentMarkdown);
-  const title = inferMarkdownTitle(currentMarkdown, currentPage);
+  const fallbackPath = currentPage.page || currentPage.path || "";
+  const title = currentPage.title || pageTitleFromPath(fallbackPath);
 
   return Object.assign({}, currentPage, {
     frontmatter: liveFrontmatter,
-    title: title || currentPage.title || currentPage.page || currentPage.path || "",
+    title: title || fallbackPath,
   });
 }
 
@@ -59,7 +62,7 @@ function queryResultLinkSpec(columns: string[], row: QueryRow | null) {
 function renderQueryResultCell(column: string, value: unknown): string {
   if (column === "path" && value) {
     const pagePath = String(value);
-    return '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(pagePath) + '">' + escapeHTML(pagePath) + "</button>";
+    return '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(pagePath) + '">' + escapeHTML(pageTitleFromPath(pagePath)) + "</button>";
   }
   const isPhoneLikeColumn = /(^|_)(phone|telefon|tel)(_|$)/i.test(column);
   const splitPhoneLines = function (input: string): string[] {
@@ -73,7 +76,9 @@ function renderQueryResultCell(column: string, value: unknown): string {
   if (Array.isArray(value)) {
     const items = (isPhoneLikeColumn ? value.flatMap(function (item) {
       return splitPhoneLines(String(item));
-    }) : value.map(String)).filter(Boolean);
+    }) : value.map(function (item) {
+      return formatMaybeDateValue(column, String(item));
+    })).filter(Boolean);
     if (!items.length) {
       return '<span class="query-result-empty">—</span>';
     }
@@ -95,7 +100,7 @@ function renderQueryResultCell(column: string, value: unknown): string {
   if (typeof value === "boolean") {
     return value ? "true" : "false";
   }
-  return escapeHTML(String(value));
+  return escapeHTML(formatMaybeDateValue(column, String(value)));
 }
 
 function queryResultDisplayColumns(columns: string[], rows: QueryRow[]): string[] {
@@ -141,7 +146,7 @@ function renderQueryResultDisplayCell(column: string, row: QueryRow | null, colu
       return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + escapeHTML(String(row?.[column])) + "</button>";
     }
   }
-  if (column === "text" && pagePathValue) {
+  if ((column === "text" || (column === "task" && row && row.__taskRef)) && pagePathValue) {
     const pagePath = String(pagePathValue);
     const lineAttr = pageLineValue !== null && typeof pageLineValue !== "undefined"
       ? ' data-page-line="' + escapeHTML(String(pageLineValue)) + '"'

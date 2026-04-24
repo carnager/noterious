@@ -84,6 +84,12 @@ Run the server:
 ./noterious
 ```
 
+Or override the listen port directly:
+
+```bash
+./noterious -port 9090
+```
+
 For local iteration you can also run the app directly without creating a binary first:
 
 ```bash
@@ -108,6 +114,11 @@ These can be overridden with:
 - `NOTERIOUS_LISTEN_ADDR`
 - `NOTERIOUS_HOME_PAGE`
 - `NOTERIOUS_WATCH_INTERVAL`
+- `NOTERIOUS_NTFY_TOPIC_URL`
+- `NOTERIOUS_NTFY_TOKEN`
+- `NOTERIOUS_NTFY_INTERVAL`
+
+If `NOTERIOUS_NTFY_TOPIC_URL` is set, the server will periodically scan open tasks and push ntfy notifications when a task reminder is due, or when the due date is reached if no explicit reminder is set. Due-only dates are delivered at 09:00 server-local time.
 
 ## Planned Principles
 

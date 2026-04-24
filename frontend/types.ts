@@ -150,6 +150,7 @@ export interface Hotkeys {
   quickSwitcher: string;
   globalSearch: string;
   commandPalette: string;
+  quickNote: string;
   help: string;
   saveCurrentPage: string;
   toggleRawMode: string;
@@ -163,6 +164,7 @@ export interface Preferences {
 export interface UISettings {
   fontFamily: "mono" | "sans" | "serif";
   fontSize: string;
+  dateTimeFormat: "browser" | "iso" | "de";
 }
 
 export interface WorkspaceSettings {
@@ -170,9 +172,16 @@ export interface WorkspaceSettings {
   homePage: string;
 }
 
+export interface NotificationSettings {
+  ntfyTopicUrl: string;
+  ntfyToken: string;
+  ntfyInterval: string;
+}
+
 export interface AppSettings {
   preferences: Preferences;
   workspace: WorkspaceSettings;
+  notifications: NotificationSettings;
 }
 
 export interface SettingsResponse {
@@ -296,6 +305,7 @@ export interface NoteriousEditorApi {
   getCaretRect(): DOMRect | null;
   setHighlightedLine(lineNumber: number | null): void;
   setPagePath(path: string): void;
+  setDateTimeFormat(format: "browser" | "iso" | "de"): void;
   setRenderMode(enabled: boolean): void;
   setQueryBlocks(blocks: QueryBlockRender[]): void;
   setTasks(tasks: TaskRender[]): void;

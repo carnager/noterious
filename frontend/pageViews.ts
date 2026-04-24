@@ -1,4 +1,5 @@
 import { clearNode, renderEmpty } from "./dom";
+import { formatDateTimeValue, formatDateValue } from "./datetime";
 import type { BacklinkRecord, DerivedPage, FrontmatterMap, PageRecord, PageSummary, TaskRecord } from "./types";
 
 interface PageTreeFolder {
@@ -478,7 +479,7 @@ export function renderPagesTree(
   container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onDeleteFolder, onDeletePage, onMovePage, onMoveFolder));
 }
 
-export function renderPageTasks(container: HTMLDivElement, tasks: TaskRecord[], onOpenTask: (task: TaskRecord) => void): void {
+export function renderPageTasks(container: HTMLDivElement, tasks: TaskRecord[], onSelectTask: (task: TaskRecord) => void): void {
   clearNode(container);
 
   if (!tasks || !tasks.length) {
@@ -493,7 +494,7 @@ export function renderPageTasks(container: HTMLDivElement, tasks: TaskRecord[], 
     const button = document.createElement("button");
     button.type = "button";
     button.addEventListener("click", function () {
-      onOpenTask(task);
+      onSelectTask(task);
     });
 
     const title = document.createElement("strong");
@@ -504,8 +505,8 @@ export function renderPageTasks(container: HTMLDivElement, tasks: TaskRecord[], 
     meta.className = "page-task-meta";
     [
       task.done ? "done" : "open",
-      task.due ? "due " + task.due : "no due",
-      task.remind ? "remind " + task.remind : "",
+      task.due ? "due " + formatDateValue(task.due) : "no due",
+      task.remind ? "remind " + formatDateTimeValue(task.remind) : "",
       task.who && task.who.length ? task.who.join(", ") : "",
     ]
       .filter(Boolean)

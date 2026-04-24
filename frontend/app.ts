@@ -1,6 +1,6 @@
 import { normalizePageDraftPath, pageTitleFromPath, renderCommandPaletteResults as renderCommandPaletteResultsUI } from "./commands";
 import {
-  buildTaskSavePayload,
+  deleteTask as deleteTaskRequest,
   loadPageDetailData,
   loadSavedQueryDetailData,
   savePageMarkdown,
@@ -8,6 +8,15 @@ import {
   toggleTaskDone as toggleTaskDoneRequest,
 } from "./details";
 import { markdownLinkForDocument, renderDocumentsResults as renderDocumentsResultsUI } from "./documents";
+import {
+  formatDateTimeValue,
+  formatEditableDateTimeValue,
+  formatEditableDateValue,
+  formatTimeValue,
+  parseEditableDateTimeValue,
+  parseEditableDateValue,
+  setDateTimeDisplayFormat,
+} from "./datetime";
 import { clearNode, focusWithoutScroll, optionalElement, optionalQuery, renderEmpty, requiredElement } from "./dom";
 import {
   blockingOverlayOpen,
@@ -17,6 +26,7 @@ import {
   markdownEditorCaretRect,
   markdownEditorHasFocus,
   markdownEditorSetPagePath,
+  markdownEditorSetDateTimeFormat,
   markdownEditorScrollTop,
   markdownEditorSelectionEnd,
   markdownEditorSelectionStart,
@@ -60,10 +70,8 @@ import {
 import {
   coercePropertyValue,
   makePropertyDraft,
-  normalizeDateTimeValue,
   propertyDraftValue,
   renderPageProperties as renderPagePropertiesUI,
-  serializeDateTimeValue,
 } from "./properties";
 import { renderSavedQueryTree as renderSavedQueryTreeUI } from "./queryTree";
 import { renderQuickSwitcherResults as renderQuickSwitcherResultsUI } from "./quickSwitcher";
@@ -108,7 +116,14 @@ interface TaskToggleDetail {
   lineNumber?: number | string;
 }
 
-interface TaskOpenDetail {
+interface TaskDateEditDetail {
+  ref?: string;
+  field?: string;
+  left?: number;
+  top?: number;
+}
+
+interface TaskDeleteDetail {
   ref?: string;
 }
 
@@ -156,7 +171,6 @@ interface AppState {
   currentDerived: DerivedPage | null;
   currentMarkdown: string;
   originalMarkdown: string;
-  currentTask: TaskRecord | null;
   editingPropertyKey: string;
   propertyTypeMenuKey: string;
   propertyDraft: PropertyDraft | null;
@@ -182,6 +196,19 @@ interface AppState {
   slashContext: SlashMenuContext | null;
   pendingPageLineFocus: number | null;
   pendingPageTaskRef: string;
+  renamingPageTitle: boolean;
+}
+
+interface TaskPickerState {
+  mode: "" | "due" | "remind";
+  ref: string;
+  left: number;
+  top: number;
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
 }
 
 (function () {
@@ -208,7 +235,6 @@ interface AppState {
     currentDerived: null,
     currentMarkdown: "",
     originalMarkdown: "",
-    currentTask: null,
     editingPropertyKey: "",
     propertyTypeMenuKey: "",
     propertyDraft: null,
@@ -225,6 +251,7 @@ interface AppState {
           quickSwitcher: "Mod+K",
           globalSearch: "Mod+Shift+K",
           commandPalette: "Mod+Shift+P",
+          quickNote: "",
           help: "?",
           saveCurrentPage: "Mod+S",
           toggleRawMode: "Mod+E",
@@ -232,11 +259,17 @@ interface AppState {
         ui: {
           fontFamily: "mono",
           fontSize: "16",
+          dateTimeFormat: "browser",
         },
       },
       workspace: {
         vaultPath: "./vault",
         homePage: "",
+      },
+      notifications: {
+        ntfyTopicUrl: "",
+        ntfyToken: "",
+        ntfyInterval: "1m",
       },
     },
     appliedWorkspace: {
@@ -256,6 +289,7 @@ interface AppState {
     slashContext: null,
     pendingPageLineFocus: null,
     pendingPageTaskRef: "",
+    renamingPageTitle: false,
   };
 
   const els = {
@@ -275,7 +309,7 @@ interface AppState {
     detailKind: requiredElement<HTMLElement>("detail-kind"),
     detailTitle: requiredElement<HTMLElement>("detail-title"),
     detailPath: requiredElement<HTMLElement>("detail-path"),
-    noteHeading: requiredElement<HTMLElement>("note-heading"),
+    noteHeading: requiredElement<HTMLInputElement>("note-heading"),
     toggleSourceMode: requiredElement<HTMLButtonElement>("toggle-source-mode"),
     noteStatus: requiredElement<HTMLElement>("note-status"),
     markdownEditor: requiredElement<HTMLTextAreaElement>("markdown-editor"),
@@ -316,17 +350,7 @@ interface AppState {
     loadSelectedQuery: requiredElement<HTMLButtonElement>("load-selected-query"),
     formatQuery: requiredElement<HTMLButtonElement>("format-query"),
     runQuery: requiredElement<HTMLButtonElement>("run-query"),
-    taskModalShell: requiredElement<HTMLElement>("task-modal-shell"),
-    taskModalTitle: requiredElement<HTMLElement>("task-modal-title"),
-    taskText: requiredElement<HTMLTextAreaElement>("task-text"),
-    taskState: requiredElement<HTMLSelectElement>("task-state"),
-    taskDue: requiredElement<HTMLInputElement>("task-due"),
-    taskRemind: requiredElement<HTMLInputElement>("task-remind"),
-    taskWho: requiredElement<HTMLInputElement>("task-who"),
-    taskModalMeta: requiredElement<HTMLElement>("task-modal-meta"),
-    closeTaskModal: requiredElement<HTMLButtonElement>("close-task-modal"),
-    cancelTask: requiredElement<HTMLButtonElement>("cancel-task"),
-    saveTask: requiredElement<HTMLButtonElement>("save-task"),
+    inlineTaskPicker: requiredElement<HTMLDivElement>("inline-task-picker"),
     searchModalShell: requiredElement<HTMLElement>("search-modal-shell"),
     closeSearchModal: requiredElement<HTMLButtonElement>("close-search-modal"),
     globalSearchInput: requiredElement<HTMLInputElement>("global-search-input"),
@@ -353,11 +377,16 @@ interface AppState {
     saveSettings: requiredElement<HTMLButtonElement>("save-settings"),
     settingsVaultPath: requiredElement<HTMLInputElement>("settings-vault-path"),
     settingsHomePage: requiredElement<HTMLInputElement>("settings-home-page"),
+    settingsNtfyTopicUrl: requiredElement<HTMLInputElement>("settings-ntfy-topic-url"),
+    settingsNtfyToken: requiredElement<HTMLInputElement>("settings-ntfy-token"),
+    settingsNtfyInterval: requiredElement<HTMLInputElement>("settings-ntfy-interval"),
     settingsFontFamily: requiredElement<HTMLSelectElement>("settings-ui-font-family"),
     settingsFontSize: requiredElement<HTMLSelectElement>("settings-ui-font-size"),
+    settingsDateTimeFormat: requiredElement<HTMLSelectElement>("settings-ui-date-time-format"),
     settingsQuickSwitcher: requiredElement<HTMLInputElement>("settings-hotkey-quick-switcher"),
     settingsGlobalSearch: requiredElement<HTMLInputElement>("settings-hotkey-global-search"),
     settingsCommandPalette: requiredElement<HTMLInputElement>("settings-hotkey-command-palette"),
+    settingsQuickNote: requiredElement<HTMLInputElement>("settings-hotkey-quick-note"),
     settingsHelp: requiredElement<HTMLInputElement>("settings-hotkey-help"),
     settingsSaveCurrentPage: requiredElement<HTMLInputElement>("settings-hotkey-save-current-page"),
     settingsToggleRawMode: requiredElement<HTMLInputElement>("settings-hotkey-toggle-raw-mode"),
@@ -365,6 +394,333 @@ interface AppState {
     slashMenu: requiredElement<HTMLElement>("slash-menu"),
     slashMenuResults: requiredElement<HTMLDivElement>("slash-menu-results"),
   };
+
+  const taskPickerState: TaskPickerState = {
+    mode: "",
+    ref: "",
+    left: 0,
+    top: 0,
+    year: 0,
+    month: 0,
+    day: 0,
+    hour: 9,
+    minute: 0,
+  };
+
+  function canonicalDate(year: number, month: number, day: number): string {
+    return [
+      String(year).padStart(4, "0"),
+      String(month).padStart(2, "0"),
+      String(day).padStart(2, "0"),
+    ].join("-");
+  }
+
+  function canonicalDateTime(year: number, month: number, day: number, hour: number, minute: number): string {
+    return canonicalDate(year, month, day) + " " + [hour, minute].map(function (value) {
+      return String(value).padStart(2, "0");
+    }).join(":");
+  }
+
+  function taskPickerPartsFromValue(mode: "due" | "remind", rawValue: string): { year: number; month: number; day: number; hour: number; minute: number } {
+    const fallback = new Date();
+    try {
+      const canonical = mode === "due" ? parseEditableDateValue(rawValue) : parseEditableDateTimeValue(rawValue);
+      if (!canonical) {
+        throw new Error("empty");
+      }
+      const datePart = canonical.slice(0, 10);
+      const timePart = canonical.slice(11, 16);
+      const [year, month, day] = datePart.split("-").map(Number);
+      const [hour, minute] = timePart ? timePart.split(":").map(Number) : [9, 0];
+      if (![year, month, day, hour, minute].every(Number.isFinite)) {
+        throw new Error("invalid");
+      }
+      return { year, month, day, hour, minute };
+    } catch (_error) {
+      return {
+        year: fallback.getFullYear(),
+        month: fallback.getMonth() + 1,
+        day: fallback.getDate(),
+        hour: 9,
+        minute: 0,
+      };
+    }
+  }
+
+  function currentPickerTask(): TaskRecord | null {
+    return taskPickerState.ref ? findCurrentTask(taskPickerState.ref) : null;
+  }
+
+  async function saveTaskDateField(task: TaskRecord, field: "due" | "remind", value: string): Promise<void> {
+    await saveTask(task.ref, {
+      text: task.text || "",
+      state: task.done ? "done" : "todo",
+      due: field === "due" ? value : (task.due || ""),
+      remind: field === "remind" ? value : (task.remind || ""),
+      who: Array.isArray(task.who) ? task.who.slice() : [],
+    });
+    closeTaskPickers();
+    await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
+  }
+
+  async function deleteTaskInline(ref: string): Promise<void> {
+    const task = ref ? findCurrentTask(ref) : null;
+    if (!task) {
+      return;
+    }
+    if (!window.confirm('Delete task "' + (task.text || task.ref) + '"?')) {
+      return;
+    }
+    await deleteTaskRequest(ref);
+    closeTaskPickers();
+    await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
+  }
+
+  function positionInlineTaskPicker(): void {
+    const picker = els.inlineTaskPicker;
+    const width = picker.offsetWidth || 320;
+    const maxLeft = Math.max(12, window.innerWidth - width - 12);
+    picker.style.left = Math.max(12, Math.min(taskPickerState.left, maxLeft)) + "px";
+    picker.style.top = Math.max(12, taskPickerState.top) + "px";
+  }
+
+  function closeTaskPickers(): void {
+    taskPickerState.mode = "";
+    taskPickerState.ref = "";
+    els.inlineTaskPicker.classList.add("hidden");
+    clearNode(els.inlineTaskPicker);
+  }
+
+  function renderTaskPickerCalendar(target: HTMLDivElement, mode: "due" | "remind"): void {
+    clearNode(target);
+
+    const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
+    const firstWeekday = (monthStart.getDay() + 6) % 7;
+    const gridStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1 - firstWeekday);
+    const monthLabel = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(monthStart);
+
+    const head = document.createElement("div");
+    head.className = "task-picker-head";
+
+    const title = document.createElement("strong");
+    title.textContent = monthLabel;
+    head.appendChild(title);
+
+    const nav = document.createElement("div");
+    nav.className = "task-picker-nav";
+
+    const prev = document.createElement("button");
+    prev.type = "button";
+    prev.textContent = "<";
+    prev.addEventListener("click", function () {
+      taskPickerState.month -= 1;
+      if (taskPickerState.month < 1) {
+        taskPickerState.month = 12;
+        taskPickerState.year -= 1;
+      }
+      renderTaskPicker();
+    });
+    nav.appendChild(prev);
+
+    const next = document.createElement("button");
+    next.type = "button";
+    next.textContent = ">";
+    next.addEventListener("click", function () {
+      taskPickerState.month += 1;
+      if (taskPickerState.month > 12) {
+        taskPickerState.month = 1;
+        taskPickerState.year += 1;
+      }
+      renderTaskPicker();
+    });
+    nav.appendChild(next);
+
+    head.appendChild(nav);
+    target.appendChild(head);
+
+    if (mode === "remind") {
+      const timeRow = document.createElement("div");
+      timeRow.className = "task-picker-time";
+
+      const hourSelect = document.createElement("select");
+      for (let hour = 0; hour < 24; hour += 1) {
+        const option = document.createElement("option");
+        option.value = String(hour);
+        option.textContent = String(hour).padStart(2, "0");
+        option.selected = hour === taskPickerState.hour;
+        hourSelect.appendChild(option);
+      }
+      hourSelect.addEventListener("change", function () {
+        taskPickerState.hour = Number(hourSelect.value) || 0;
+      });
+      timeRow.appendChild(hourSelect);
+
+      const minuteSelect = document.createElement("select");
+      for (let minute = 0; minute < 60; minute += 5) {
+        const option = document.createElement("option");
+        option.value = String(minute);
+        option.textContent = String(minute).padStart(2, "0");
+        option.selected = minute === taskPickerState.minute;
+        minuteSelect.appendChild(option);
+      }
+      minuteSelect.addEventListener("change", function () {
+        taskPickerState.minute = Number(minuteSelect.value) || 0;
+      });
+      timeRow.appendChild(minuteSelect);
+
+      const apply = document.createElement("button");
+      apply.type = "button";
+      apply.className = "task-picker-apply";
+      apply.textContent = "Apply";
+      apply.addEventListener("click", function () {
+        const task = currentPickerTask();
+        if (!task) {
+          closeTaskPickers();
+          return;
+        }
+        saveTaskDateField(
+          task,
+          "remind",
+          canonicalDateTime(
+            taskPickerState.year,
+            taskPickerState.month,
+            taskPickerState.day,
+            taskPickerState.hour,
+            taskPickerState.minute
+          )
+        ).catch(function (error) {
+          setNoteStatus("Reminder update failed: " + errorMessage(error));
+        });
+      });
+      timeRow.appendChild(apply);
+
+      target.appendChild(timeRow);
+    }
+
+    const weekdays = document.createElement("div");
+    weekdays.className = "task-picker-weekdays";
+    ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].forEach(function (label) {
+      const cell = document.createElement("span");
+      cell.textContent = label;
+      weekdays.appendChild(cell);
+    });
+    target.appendChild(weekdays);
+
+    const grid = document.createElement("div");
+    grid.className = "task-picker-grid";
+    for (let index = 0; index < 42; index += 1) {
+      const current = new Date(gridStart);
+      current.setDate(gridStart.getDate() + index);
+
+      const dayButton = document.createElement("button");
+      dayButton.type = "button";
+      dayButton.className = "task-picker-day";
+      if (current.getMonth() !== taskPickerState.month - 1) {
+        dayButton.classList.add("is-faded");
+      }
+      if (
+        current.getFullYear() === taskPickerState.year &&
+        current.getMonth() === taskPickerState.month - 1 &&
+        current.getDate() === taskPickerState.day
+      ) {
+        dayButton.classList.add("is-selected");
+      }
+      dayButton.textContent = String(current.getDate());
+      dayButton.addEventListener("click", function () {
+        taskPickerState.year = current.getFullYear();
+        taskPickerState.month = current.getMonth() + 1;
+        taskPickerState.day = current.getDate();
+        if (mode === "due") {
+          const task = currentPickerTask();
+          if (!task) {
+            closeTaskPickers();
+            return;
+          }
+          saveTaskDateField(task, "due", canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day)).catch(function (error) {
+            setNoteStatus("Due date update failed: " + errorMessage(error));
+          });
+          return;
+        }
+        renderTaskPicker();
+      });
+      grid.appendChild(dayButton);
+    }
+    target.appendChild(grid);
+
+    const footer = document.createElement("div");
+    footer.className = "task-picker-footer";
+
+    const status = document.createElement("span");
+    status.textContent = mode === "due"
+      ? formatEditableDateValue(canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day))
+      : formatEditableDateTimeValue(canonicalDateTime(
+        taskPickerState.year,
+        taskPickerState.month,
+        taskPickerState.day,
+        taskPickerState.hour,
+        taskPickerState.minute
+      ));
+    footer.appendChild(status);
+
+    const actions = document.createElement("div");
+    actions.className = "task-picker-footer-actions";
+
+    const clear = document.createElement("button");
+    clear.type = "button";
+      clear.textContent = "Clear";
+      clear.addEventListener("click", function () {
+        const task = currentPickerTask();
+        if (!task) {
+          closeTaskPickers();
+          return;
+        }
+        saveTaskDateField(task, mode, "").catch(function (error) {
+          setNoteStatus("Date update failed: " + errorMessage(error));
+        });
+      });
+    actions.appendChild(clear);
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "Close";
+    close.addEventListener("click", closeTaskPickers);
+    actions.appendChild(close);
+
+    footer.appendChild(actions);
+    target.appendChild(footer);
+  }
+
+  function renderTaskPicker(): void {
+    if (taskPickerState.mode === "due" || taskPickerState.mode === "remind") {
+      renderTaskPickerCalendar(els.inlineTaskPicker, taskPickerState.mode);
+      els.inlineTaskPicker.classList.remove("hidden");
+      window.requestAnimationFrame(positionInlineTaskPicker);
+      return;
+    }
+    closeTaskPickers();
+  }
+
+  function openInlineTaskPicker(ref: string, mode: "due" | "remind", left: number, top: number): void {
+    if (taskPickerState.mode === mode && taskPickerState.ref === ref) {
+      closeTaskPickers();
+      return;
+    }
+    const task = ref ? findCurrentTask(ref) : null;
+    if (!task) {
+      return;
+    }
+    const parts = taskPickerPartsFromValue(mode, mode === "due" ? (task.due || "") : (task.remind || ""));
+    taskPickerState.mode = mode;
+    taskPickerState.ref = ref;
+    taskPickerState.left = left;
+    taskPickerState.top = top;
+    taskPickerState.year = parts.year;
+    taskPickerState.month = parts.month;
+    taskPickerState.day = parts.day;
+    taskPickerState.hour = parts.hour;
+    taskPickerState.minute = parts.minute - (parts.minute % 5);
+    renderTaskPicker();
+  }
 
   function setMetaPills(values: string[]): void {
     const metaStrip = els.metaStrip;
@@ -377,6 +733,29 @@ interface AppState {
       pill.className = "pill";
       pill.textContent = value;
       metaStrip.appendChild(pill);
+    });
+  }
+
+  function nextDailyNotePath(): string {
+    const now = new Date();
+    return normalizePageDraftPath(
+      "Inbox/" +
+        [
+          now.getFullYear(),
+          String(now.getMonth() + 1).padStart(2, "0"),
+          String(now.getDate()).padStart(2, "0"),
+        ].join("-")
+    );
+  }
+
+  function createDailyNote(): void {
+    const pagePath = nextDailyNotePath();
+    if (hasPage(pagePath)) {
+      navigateToPage(pagePath, false);
+      return;
+    }
+    createPage(pagePath).catch(function (error) {
+      setNoteStatus("Daily note failed: " + errorMessage(error));
     });
   }
 
@@ -637,6 +1016,66 @@ interface AppState {
     return buildCurrentPageView(state.currentPage, state.currentMarkdown);
   }
 
+  function currentPageTitleValue(): string {
+    const page = currentPageView();
+    if (!page) {
+      return "";
+    }
+    return page.title || pageTitleFromPath(page.page || page.path || state.selectedPage || "");
+  }
+
+  function setNoteHeadingValue(value: string, editable: boolean): void {
+    els.noteHeading.value = value;
+    els.noteHeading.disabled = !editable;
+    els.noteHeading.readOnly = !editable;
+    els.noteHeading.title = editable ? "Rename note file" : "";
+  }
+
+  function normalizePageTitleDraft(value: string): string {
+    return String(value || "")
+      .trim()
+      .replace(/\\/g, " ")
+      .replace(/\//g, " ")
+      .replace(/\.md$/i, "")
+      .replace(/\s+/g, " ");
+  }
+
+  async function renameCurrentPageFromTitle(nextTitle: string): Promise<void> {
+    if (!state.selectedPage || !state.currentPage || state.renamingPageTitle) {
+      return;
+    }
+
+    const normalizedTitle = normalizePageTitleDraft(nextTitle);
+    const currentPath = state.selectedPage;
+    const currentLeaf = pageTitleFromPath(currentPath);
+    if (!normalizedTitle) {
+      setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
+      return;
+    }
+    if (normalizedTitle === currentLeaf) {
+      setNoteHeadingValue(normalizedTitle, true);
+      return;
+    }
+
+    const slash = currentPath.lastIndexOf("/");
+    const parentFolder = slash >= 0 ? currentPath.slice(0, slash) : "";
+    const targetPath = parentFolder ? (parentFolder + "/" + normalizedTitle) : normalizedTitle;
+
+    state.renamingPageTitle = true;
+    try {
+      if (hasUnsavedPageChanges()) {
+        await saveCurrentPage();
+      }
+      await movePage(currentPath, targetPath);
+      setNoteStatus("Renamed " + currentLeaf + " to " + normalizedTitle + ".");
+    } catch (error) {
+      setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
+      setNoteStatus("Rename failed: " + errorMessage(error));
+    } finally {
+      state.renamingPageTitle = false;
+    }
+  }
+
   function refreshLivePageChrome() {
     const page = currentPageView();
     if (!page) {
@@ -646,7 +1085,7 @@ interface AppState {
     const fallbackPath = page.page || page.path || state.selectedPage || "";
     els.detailPath.textContent = fallbackPath;
     els.detailTitle.textContent = page.title || fallbackPath;
-    els.noteHeading.textContent = page.title || fallbackPath;
+    setNoteHeadingValue(page.title || fallbackPath, true);
     renderPageTags();
     renderPageProperties();
   }
@@ -758,7 +1197,12 @@ interface AppState {
   }
 
   function renderPageTasks(tasks: TaskRecord[]): void {
-    renderPageTasksUI(els.pageTaskList, Array.isArray(tasks) ? tasks : [], openTaskModal);
+    renderPageTasksUI(els.pageTaskList, Array.isArray(tasks) ? tasks : [], function (task) {
+      if (!task || !task.page) {
+        return;
+      }
+      navigateToPageAtTask(task.page, task.ref || "", task.line || 0, false);
+    });
   }
 
   function renderPageContext() {
@@ -944,12 +1388,10 @@ interface AppState {
     state.currentDerived = null;
     state.currentMarkdown = "";
     state.originalMarkdown = "";
-    state.currentTask = null;
     clearPropertyDraft();
     syncURLState(true);
     els.detailPath.textContent = "Select a page";
-    els.noteHeading.textContent = "Waiting for selection";
-    closeTaskModal();
+    setNoteHeadingValue("Waiting for selection", false);
     renderNoteStudio();
     renderSourceModeButton();
     renderPageTasks([]);
@@ -993,6 +1435,7 @@ interface AppState {
       ["Quick Switcher", state.settings.preferences.hotkeys.quickSwitcher],
       ["Full Search", state.settings.preferences.hotkeys.globalSearch],
       ["Command Palette", state.settings.preferences.hotkeys.commandPalette],
+      ["Open Daily Note", state.settings.preferences.hotkeys.quickNote],
       ["Back", "Alt+Left"],
       ["Forward", "Alt+Right"],
       ["Save Current Note", state.settings.preferences.hotkeys.saveCurrentPage],
@@ -1014,16 +1457,21 @@ interface AppState {
   function renderSettingsForm() {
     els.settingsVaultPath.value = state.settings.workspace.vaultPath || "";
     els.settingsHomePage.value = state.settings.workspace.homePage || "";
+    els.settingsNtfyTopicUrl.value = state.settings.notifications.ntfyTopicUrl || "";
+    els.settingsNtfyToken.value = state.settings.notifications.ntfyToken || "";
+    els.settingsNtfyInterval.value = state.settings.notifications.ntfyInterval || "1m";
     els.settingsFontFamily.value = state.settings.preferences.ui.fontFamily || "mono";
     els.settingsFontSize.value = state.settings.preferences.ui.fontSize || "16";
+    els.settingsDateTimeFormat.value = state.settings.preferences.ui.dateTimeFormat || "browser";
     els.settingsQuickSwitcher.value = state.settings.preferences.hotkeys.quickSwitcher || "";
     els.settingsGlobalSearch.value = state.settings.preferences.hotkeys.globalSearch || "";
     els.settingsCommandPalette.value = state.settings.preferences.hotkeys.commandPalette || "";
+    els.settingsQuickNote.value = state.settings.preferences.hotkeys.quickNote || "";
     els.settingsHelp.value = state.settings.preferences.hotkeys.help || "";
     els.settingsSaveCurrentPage.value = state.settings.preferences.hotkeys.saveCurrentPage || "";
     els.settingsToggleRawMode.value = state.settings.preferences.hotkeys.toggleRawMode || "";
     if (state.settingsRestartRequired) {
-      els.settingsStatus.textContent = "Vault path changed. Restart the server to apply the new workspace root.";
+      els.settingsStatus.textContent = "Server runtime settings changed. Restart the server to apply them.";
       return;
     }
     els.settingsStatus.textContent = "Settings are stored in the server data directory.";
@@ -1038,12 +1486,22 @@ interface AppState {
     renderSettingsForm();
     applyUIPreferences();
     renderSourceModeButton();
+    loadMeta();
+    if (state.currentPage) {
+      renderNoteStudio();
+      renderPageTasks(state.currentPage.tasks || []);
+      renderPageContext();
+      renderPageProperties();
+    } else if (state.selectedSavedQuery) {
+      loadSavedQueryDetail(state.selectedSavedQuery);
+    }
   }
 
   function applyUIPreferences(): void {
     const root = document.documentElement;
     const fontFamily = state.settings.preferences.ui.fontFamily || "mono";
     const fontSize = state.settings.preferences.ui.fontSize || "16";
+    const dateTimeFormat = state.settings.preferences.ui.dateTimeFormat || "browser";
     const fontMap: Record<string, string> = {
       mono: '"IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace',
       sans: '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif',
@@ -1052,6 +1510,8 @@ interface AppState {
     root.style.setProperty("--app-font-family", fontMap[fontFamily] || fontMap.mono);
     root.style.setProperty("--editor-font-family", fontMap[fontFamily] || fontMap.mono);
     root.style.setProperty("--app-font-size", fontSize + "px");
+    setDateTimeDisplayFormat(dateTimeFormat);
+    markdownEditorSetDateTimeFormat(state, dateTimeFormat);
   }
 
   async function loadSettings() {
@@ -1070,7 +1530,7 @@ interface AppState {
         "Listening " + meta.listenAddr,
         "Vault " + meta.vaultPath,
         "DB " + meta.database,
-        "Time " + meta.serverTime,
+        "Time " + formatDateTimeValue(meta.serverTime),
       ];
       if (meta.restartRequired) {
         pills.splice(2, 0, "Restart required");
@@ -1241,11 +1701,10 @@ interface AppState {
       state.currentMarkdown = page.rawMarkdown || "";
       state.originalMarkdown = page.rawMarkdown || "";
       clearAutosaveTimer();
-      state.currentTask = null;
       clearPropertyDraft();
       state.selectedSavedQueryPayload = null;
       els.detailPath.textContent = page.page || page.path || pagePath;
-      els.noteHeading.textContent = page.title || page.page || pagePath;
+      setNoteHeadingValue(page.title || page.page || pagePath, true);
 
       setStructuredViews(
         "Page",
@@ -1316,7 +1775,7 @@ interface AppState {
       const savedQuery = detail.savedQuery;
       state.selectedSavedQueryPayload = savedQuery;
       els.detailPath.textContent = savedQuery.name || name;
-      els.noteHeading.textContent = savedQuery.title || savedQuery.name || name;
+      setNoteHeadingValue(savedQuery.title || savedQuery.name || name, false);
       setStructuredViews("Saved Query", savedQuery.title || savedQuery.name, savedQuery, detail.workbench, savedQuery.query || "");
       setNoteStatus("Viewing saved query details. Select a page to edit notes.");
       renderPageContext();
@@ -1356,7 +1815,7 @@ interface AppState {
     const strong = document.createElement("strong");
     strong.textContent = type;
     const small = document.createElement("small");
-    small.textContent = new Date().toLocaleTimeString();
+    small.textContent = formatTimeValue(new Date());
     const pre = document.createElement("pre");
     pre.className = "code-block";
     pre.textContent = typeof data === "string" ? data : pretty(data);
@@ -1433,29 +1892,6 @@ interface AppState {
       return;
     }
     els.queryOutput.textContent = "Select a saved query first, or type directly into the editor.";
-  }
-
-  function openTaskModal(task: TaskRecord): void {
-    state.currentTask = task;
-    els.taskModalTitle.textContent = task.text || task.ref;
-    els.taskText.value = task.text || "";
-    els.taskState.value = task.done ? "done" : "todo";
-    els.taskDue.value = task.due || "";
-    els.taskRemind.value = normalizeDateTimeValue(task.remind || "");
-    els.taskWho.value = task.who && task.who.length ? task.who.join(", ") : "";
-    const meta = [
-      task.page || "",
-      task.ref || "",
-      task.line ? ("line " + task.line) : "",
-      task.done ? "done" : "open",
-    ].filter(Boolean);
-    els.taskModalMeta.textContent = meta.join(" · ");
-    els.taskModalShell.classList.remove("hidden");
-  }
-
-  function closeTaskModal() {
-    state.currentTask = null;
-    els.taskModalShell.classList.add("hidden");
   }
 
   function setSearchOpen(open: boolean): void {
@@ -1628,15 +2064,22 @@ interface AppState {
         vaultPath: String(els.settingsVaultPath.value || "").trim(),
         homePage: normalizePageDraftPath(els.settingsHomePage.value || ""),
       },
+      notifications: {
+        ntfyTopicUrl: String(els.settingsNtfyTopicUrl.value || "").trim(),
+        ntfyToken: String(els.settingsNtfyToken.value || "").trim(),
+        ntfyInterval: String(els.settingsNtfyInterval.value || "1m").trim(),
+      },
       preferences: {
         ui: {
           fontFamily: String(els.settingsFontFamily.value || "mono").trim() as "mono" | "sans" | "serif",
           fontSize: String(els.settingsFontSize.value || "16").trim(),
+          dateTimeFormat: String(els.settingsDateTimeFormat.value || "browser").trim() as "browser" | "iso" | "de",
         },
         hotkeys: {
           quickSwitcher: String(els.settingsQuickSwitcher.value || "").trim(),
           globalSearch: String(els.settingsGlobalSearch.value || "").trim(),
           commandPalette: String(els.settingsCommandPalette.value || "").trim(),
+          quickNote: String(els.settingsQuickNote.value || "").trim(),
           help: String(els.settingsHelp.value || "").trim(),
           saveCurrentPage: String(els.settingsSaveCurrentPage.value || "").trim(),
           toggleRawMode: String(els.settingsToggleRawMode.value || "").trim(),
@@ -1659,7 +2102,7 @@ interface AppState {
         syncURLState(true);
       }
       els.settingsStatus.textContent = snapshot.restartRequired
-        ? "Saved. Restart the server to apply the new vault path."
+        ? "Saved. Restart the server to apply the new server runtime settings."
         : "Settings saved.";
     } catch (error) {
       els.settingsStatus.textContent = errorMessage(error);
@@ -2073,6 +2516,10 @@ interface AppState {
         setQuickSwitcherOpen(true);
         renderQuickSwitcherResults();
       },
+      onQuickNote: function () {
+        closeCommandPalette();
+        createDailyNote();
+      },
       onOpenSearch: function () {
         closeCommandPalette();
         setSearchOpen(true);
@@ -2207,30 +2654,6 @@ interface AppState {
     }
     if (els.railPanelTags) {
       els.railPanelTags.classList.toggle("hidden", state.railTab !== "tags");
-    }
-  }
-
-  async function saveCurrentTask() {
-    if (!state.currentTask) {
-      return;
-    }
-
-    const payload = buildTaskSavePayload(
-      els.taskText.value,
-      els.taskState.value,
-      els.taskDue.value,
-      els.taskRemind.value,
-      els.taskWho.value,
-      serializeDateTimeValue
-    );
-
-    els.taskModalMeta.textContent = "Saving task…";
-    try {
-      await saveTask(state.currentTask.ref, payload);
-      closeTaskModal();
-      await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
-    } catch (error) {
-      els.taskModalMeta.textContent = "Save failed: " + errorMessage(error);
     }
   }
 
@@ -2491,9 +2914,6 @@ interface AppState {
     if (state.markdownEditorApi) {
       state.markdownEditorApi.onKeydown(handleMarkdownEditorKeydown);
     }
-    on(els.closeTaskModal, "click", closeTaskModal);
-    on(els.cancelTask, "click", closeTaskModal);
-    on(els.saveTask, "click", saveCurrentTask);
     on(els.closeSearchModal, "click", closeSearchModal);
     on(els.globalSearchInput, "input", scheduleGlobalSearch);
     on(els.globalSearchInput, "keydown", function (rawEvent) {
@@ -2576,11 +2996,6 @@ interface AppState {
         }
       }
     });
-    on(els.taskModalShell, "click", function (event) {
-      if (event.target === els.taskModalShell) {
-        closeTaskModal();
-      }
-    });
     on(els.searchModalShell, "click", function (event) {
       if (event.target === els.searchModalShell) {
         closeSearchModal();
@@ -2600,6 +3015,35 @@ interface AppState {
       if (event.target === els.documentsModalShell) {
         closeDocumentsModal();
       }
+    });
+    on(els.noteHeading, "focus", function () {
+      if (!state.selectedPage || !state.currentPage || els.noteHeading.disabled) {
+        return;
+      }
+      window.setTimeout(function () {
+        els.noteHeading.select();
+      }, 0);
+    });
+    on(els.noteHeading, "keydown", function (rawEvent) {
+      const event = rawEvent as KeyboardEvent;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        els.noteHeading.blur();
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setNoteHeadingValue(currentPageTitleValue() || state.selectedPage || "", Boolean(state.selectedPage && state.currentPage));
+        els.noteHeading.blur();
+      }
+    });
+    on(els.noteHeading, "blur", function () {
+      if (!state.selectedPage || !state.currentPage || els.noteHeading.disabled) {
+        return;
+      }
+      renameCurrentPageFromTitle(els.noteHeading.value).catch(function (error) {
+        setNoteStatus("Rename failed: " + errorMessage(error));
+      });
     });
     on(els.closeHelpModal, "click", closeHelpModal);
     on(els.helpModalShell, "click", function (event) {
@@ -2628,6 +3072,9 @@ interface AppState {
       if (!target || !target.closest("#session-menu")) {
         setSessionMenuOpen(false);
       }
+      if (!target || (!target.closest("#inline-task-picker") && !target.closest("[data-task-date-edit]"))) {
+        closeTaskPickers();
+      }
       if (!target || !target.closest("#slash-menu")) {
         closeSlashMenu(state, els);
       }
@@ -2653,8 +3100,8 @@ interface AppState {
         window.history.forward();
         return;
       }
-      if (event.key === "Escape" && !els.taskModalShell.classList.contains("hidden")) {
-        closeTaskModal();
+      if (event.key === "Escape" && taskPickerState.mode) {
+        closeTaskPickers();
         return;
       }
       if (event.key === "Escape" && els.searchModalShell && !els.searchModalShell.classList.contains("hidden")) {
@@ -2716,6 +3163,11 @@ interface AppState {
         event.preventDefault();
         setCommandPaletteOpen(true);
         renderCommandPaletteResults();
+        return;
+      }
+      if (matchesHotkey(state.settings.preferences.hotkeys.quickNote, event)) {
+        event.preventDefault();
+        createDailyNote();
         return;
       }
       if (matchesHotkey(state.settings.preferences.hotkeys.help, event) && !isTypingTarget(event.target)) {
@@ -2807,13 +3259,20 @@ interface AppState {
           toggleTaskDone(task);
         }
       });
-      on(markdownEditorApi.host, "noterious:task-open", function (event) {
-        const detail = (event as CustomEvent<TaskOpenDetail>).detail || {};
+      on(markdownEditorApi.host, "noterious:task-date-edit", function (event) {
+        const detail = (event as CustomEvent<TaskDateEditDetail>).detail || {};
         const ref = detail.ref ? String(detail.ref) : "";
-        const task = ref ? findCurrentTask(ref) : null;
-        if (task) {
-          openTaskModal(task);
-        }
+        const field = detail.field === "remind" ? "remind" : "due";
+        const left = Number(detail.left) || 0;
+        const top = Number(detail.top) || 0;
+        openInlineTaskPicker(ref, field, left, top);
+      });
+      on(markdownEditorApi.host, "noterious:task-delete", function (event) {
+        const detail = (event as CustomEvent<TaskDeleteDetail>).detail || {};
+        const ref = detail.ref ? String(detail.ref) : "";
+        deleteTaskInline(ref).catch(function (error) {
+          setNoteStatus("Delete task failed: " + errorMessage(error));
+        });
       });
     }
     setDebugOpen(false);

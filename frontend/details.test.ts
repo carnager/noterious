@@ -8,6 +8,7 @@ vi.mock("./http", function () {
 
 import {
   buildTaskSavePayload,
+  deleteTask,
   loadPageDetailData,
   loadSavedQueryDetailData,
   savePageMarkdown,
@@ -30,10 +31,13 @@ describe("detail helpers", function () {
       "  Follow up  ",
       "done",
       " 2026-04-23 ",
-      "2026-04-23T10:30",
+      "2026-04-23 10:30",
       " alice, bob ,, ",
       function (value: string) {
-        return value.replace("T", " ");
+        return value.trim();
+      },
+      function (value: string) {
+        return value.trim();
       }
     )).toEqual({
       text: "Follow up",
@@ -136,6 +140,7 @@ describe("detail helpers", function () {
     await savePageMarkdown("notes/alpha", "# Alpha", function (pagePath: string) {
       return "encoded/" + pagePath;
     });
+    await deleteTask("task-1");
 
     expect(mockedFetchJSON).toHaveBeenNthCalledWith(1, "/api/tasks/task-1", {
       method: "PATCH",
@@ -162,6 +167,9 @@ describe("detail helpers", function () {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rawMarkdown: "# Alpha" }),
+    });
+    expect(mockedFetchJSON).toHaveBeenNthCalledWith(4, "/api/tasks/task-1", {
+      method: "DELETE",
     });
   });
 });

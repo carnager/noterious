@@ -105,7 +105,7 @@ Link to [[projects/alpha]].
 	if payload.Page != "daily/today" {
 		t.Fatalf("page = %q", payload.Page)
 	}
-	if payload.Title != "Daily Note" {
+	if payload.Title != "today" {
 		t.Fatalf("title = %q", payload.Title)
 	}
 	if payload.Frontmatter["title"] != "Daily Note" {
@@ -477,10 +477,10 @@ func TestGetPagesReturnsIndexedSummaries(t *testing.T) {
 	if payload.Count != 2 || len(payload.Pages) != 2 {
 		t.Fatalf("payload = %#v", payload)
 	}
-	if payload.Pages[0].Path != "daily/today" || payload.Pages[0].Title != "Today" || payload.Pages[0].CreatedAt == "" || payload.Pages[0].UpdatedAt == "" || len(payload.Pages[0].Tags) != 1 || payload.Pages[0].Tags[0] != "journal" || payload.Pages[0].Counts.OutgoingLinks != 0 || payload.Pages[0].Counts.Backlinks != 1 || payload.Pages[0].Counts.Tasks != 1 || payload.Pages[0].Counts.OpenTasks != 1 || payload.Pages[0].Counts.DoneTasks != 0 || payload.Pages[0].Counts.QueryBlocks != 0 {
+	if payload.Pages[0].Path != "daily/today" || payload.Pages[0].Title != "today" || payload.Pages[0].CreatedAt == "" || payload.Pages[0].UpdatedAt == "" || len(payload.Pages[0].Tags) != 1 || payload.Pages[0].Tags[0] != "journal" || payload.Pages[0].Counts.OutgoingLinks != 0 || payload.Pages[0].Counts.Backlinks != 1 || payload.Pages[0].Counts.Tasks != 1 || payload.Pages[0].Counts.OpenTasks != 1 || payload.Pages[0].Counts.DoneTasks != 0 || payload.Pages[0].Counts.QueryBlocks != 0 {
 		t.Fatalf("first page = %#v", payload.Pages[0])
 	}
-	if payload.Pages[1].Path != "notes/alpha" || payload.Pages[1].Title != "Alpha" || payload.Pages[1].CreatedAt == "" || payload.Pages[1].UpdatedAt == "" || len(payload.Pages[1].Tags) != 2 || payload.Pages[1].Tags[0] != "work" || payload.Pages[1].Tags[1] != "reference" || payload.Pages[1].Counts.OutgoingLinks != 1 || payload.Pages[1].Counts.Backlinks != 0 || payload.Pages[1].Counts.Tasks != 0 || payload.Pages[1].Counts.OpenTasks != 0 || payload.Pages[1].Counts.DoneTasks != 0 || payload.Pages[1].Counts.QueryBlocks != 1 {
+	if payload.Pages[1].Path != "notes/alpha" || payload.Pages[1].Title != "alpha" || payload.Pages[1].CreatedAt == "" || payload.Pages[1].UpdatedAt == "" || len(payload.Pages[1].Tags) != 2 || payload.Pages[1].Tags[0] != "work" || payload.Pages[1].Tags[1] != "reference" || payload.Pages[1].Counts.OutgoingLinks != 1 || payload.Pages[1].Counts.Backlinks != 0 || payload.Pages[1].Counts.Tasks != 0 || payload.Pages[1].Counts.OpenTasks != 0 || payload.Pages[1].Counts.DoneTasks != 0 || payload.Pages[1].Counts.QueryBlocks != 1 {
 		t.Fatalf("second page = %#v", payload.Pages[1])
 	}
 }
@@ -782,7 +782,7 @@ func TestPutPageWritesMarkdownAndReindexes(t *testing.T) {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
 
-	if payload.Page != "notes/alpha" || payload.Title != "Updated Alpha" {
+	if payload.Page != "notes/alpha" || payload.Title != "alpha" {
 		t.Fatalf("payload page/title = %#v / %#v", payload.Page, payload.Title)
 	}
 	if payload.Frontmatter["title"] != "Updated Alpha" {
@@ -1001,7 +1001,7 @@ func TestMovePageRenamesMarkdownAndReindexes(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if payload.Page != "projects/alpha-renamed" || payload.Title != "Alpha" {
+	if payload.Page != "projects/alpha-renamed" || payload.Title != "alpha-renamed" {
 		t.Fatalf("payload = %#v", payload)
 	}
 
@@ -1077,7 +1077,7 @@ func TestPatchPageFrontmatterUpdatesMarkdownAndReindexes(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if payload.Title != "Updated Alpha" {
+	if payload.Title != "alpha" {
 		t.Fatalf("title = %#v", payload.Title)
 	}
 	if payload.Frontmatter["title"] != "Updated Alpha" || payload.Frontmatter["count"] != float64(3) {
@@ -1159,7 +1159,7 @@ func TestPatchPageAppliesFrontmatterPatch(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if payload.Title != "Alpha" || payload.Frontmatter["title"] != "Alpha" {
+	if payload.Title != "alpha" || payload.Frontmatter["title"] != "Alpha" {
 		t.Fatalf("payload = %#v", payload)
 	}
 
@@ -1211,7 +1211,7 @@ func TestPatchPageAppliesTitlePatch(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if payload.Title != "Renamed Alpha" || payload.Frontmatter["title"] != "Renamed Alpha" {
+	if payload.Title != "alpha" || payload.Frontmatter["title"] != "Renamed Alpha" {
 		t.Fatalf("payload = %#v", payload)
 	}
 
@@ -1228,7 +1228,7 @@ func TestPatchPageAppliesTitlePatch(t *testing.T) {
 	}
 }
 
-func TestPatchPageRemovesSemanticTitleAndFallsBackToHeading(t *testing.T) {
+func TestPatchPageRemovesSemanticTitleAndKeepsFilenameTitle(t *testing.T) {
 	t.Parallel()
 
 	rootDir := t.TempDir()
@@ -1268,7 +1268,7 @@ func TestPatchPageRemovesSemanticTitleAndFallsBackToHeading(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if payload.Title != "Alpha" {
+	if payload.Title != "alpha" {
 		t.Fatalf("title = %#v", payload.Title)
 	}
 	if _, ok := payload.Frontmatter["title"]; ok {
@@ -1456,10 +1456,10 @@ Reference [Alpha](projects/alpha.md).
 	if len(payload.Backlinks) != 2 {
 		t.Fatalf("backlinks = %#v", payload.Backlinks)
 	}
-	if payload.Backlinks[0].SourcePage != "daily/today" || payload.Backlinks[0].SourceTitle != "Daily Note" || payload.Backlinks[0].LinkText != "Alpha" || payload.Backlinks[0].Kind != "wikilink" {
+	if payload.Backlinks[0].SourcePage != "daily/today" || payload.Backlinks[0].SourceTitle != "today" || payload.Backlinks[0].LinkText != "Alpha" || payload.Backlinks[0].Kind != "wikilink" {
 		t.Fatalf("first backlink = %#v", payload.Backlinks[0])
 	}
-	if payload.Backlinks[1].SourcePage != "projects/overview" || payload.Backlinks[1].SourceTitle != "Overview" || payload.Backlinks[1].LinkText != "Alpha" || payload.Backlinks[1].Kind != "markdown" {
+	if payload.Backlinks[1].SourcePage != "projects/overview" || payload.Backlinks[1].SourceTitle != "overview" || payload.Backlinks[1].LinkText != "Alpha" || payload.Backlinks[1].Kind != "markdown" {
 		t.Fatalf("second backlink = %#v", payload.Backlinks[1])
 	}
 }
@@ -1572,7 +1572,7 @@ Reference [[notes/alpha|Alpha]].
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
 
-	if payload.Page != "notes/alpha" || payload.Title != "Alpha" {
+	if payload.Page != "notes/alpha" || payload.Title != "alpha" {
 		t.Fatalf("page/title = %#v / %#v", payload.Page, payload.Title)
 	}
 	if len(payload.TOC) != 3 {
@@ -5872,7 +5872,7 @@ func TestExecuteQuerySupportsSelectDistinctStar(t *testing.T) {
 	if len(payload.Query.SelectFields) != len(wantColumns) || payload.Query.SelectFields[0].Field != "path" || payload.Query.SelectFields[len(payload.Query.SelectFields)-1].Field != "updatedAt" {
 		t.Fatalf("selectFields = %#v", payload.Query.SelectFields)
 	}
-	if len(payload.Rows) != 1 || payload.Rows[0].Path != "daily/today" || payload.Rows[0].Title != "Today" {
+	if len(payload.Rows) != 1 || payload.Rows[0].Path != "daily/today" || payload.Rows[0].Title != "today" {
 		t.Fatalf("rows = %#v", payload.Rows)
 	}
 }
@@ -7869,10 +7869,10 @@ func TestExecuteQueryAcceptsFencedQueryBlock(t *testing.T) {
 	if len(payload.Rows) != 2 {
 		t.Fatalf("rows = %#v", payload.Rows)
 	}
-	if payload.Rows[0].Path != "notes/beta" || payload.Rows[0].Title != "Beta" {
+	if payload.Rows[0].Path != "notes/beta" || payload.Rows[0].Title != "beta" {
 		t.Fatalf("first row = %#v", payload.Rows[0])
 	}
-	if payload.Rows[1].Path != "notes/alpha" || payload.Rows[1].Title != "Alpha" {
+	if payload.Rows[1].Path != "notes/alpha" || payload.Rows[1].Title != "alpha" {
 		t.Fatalf("second row = %#v", payload.Rows[1])
 	}
 }
@@ -7933,7 +7933,7 @@ func TestPatchTaskUpdatesMarkdownAndReindexes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
-	expected := "# Today\n\n- [x] First task due:: 2026-05-02 who:: [\"Mina\", \"Kai\"]\n"
+	expected := "# Today\n\n- [x] First task [due: 2026-05-02] who:: [\"Mina\", \"Kai\"]\n"
 	if string(updated) != expected {
 		t.Fatalf("updated markdown = %q, want %q", string(updated), expected)
 	}
@@ -8003,6 +8003,62 @@ func TestPatchTaskCanReplaceArbitraryTaskSuffix(t *testing.T) {
 	expected := "# Today\n\n- [ ] Legacy task\n"
 	if string(updated) != expected {
 		t.Fatalf("updated markdown = %q, want %q", string(updated), expected)
+	}
+}
+
+func TestDeleteTaskRemovesMarkdownAndReindexes(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "daily"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	source := "# Today\n\n- [ ] First task\n- [ ] Second task\n"
+	pagePath := filepath.Join(vaultDir, "daily", "today.md")
+	if err := os.WriteFile(pagePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	request := httptest.NewRequest(http.MethodDelete, "/api/tasks/daily/today:3", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	updated, err := os.ReadFile(pagePath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	expected := "# Today\n\n- [ ] Second task\n"
+	if string(updated) != expected {
+		t.Fatalf("updated markdown = %q, want %q", string(updated), expected)
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/tasks", nil)
+	getRecorder := httptest.NewRecorder()
+	router.ServeHTTP(getRecorder, getRequest)
+	if getRecorder.Code != http.StatusOK {
+		t.Fatalf("GET /api/tasks status = %d, body = %s", getRecorder.Code, getRecorder.Body.String())
+	}
+
+	var tasksPayload struct {
+		Tasks []struct {
+			Ref string `json:"ref"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal(getRecorder.Body.Bytes(), &tasksPayload); err != nil {
+		t.Fatalf("Unmarshal tasks payload error = %v", err)
+	}
+	if len(tasksPayload.Tasks) != 1 || tasksPayload.Tasks[0].Ref != "daily/today:3" {
+		t.Fatalf("tasks = %#v", tasksPayload.Tasks)
 	}
 }
 
@@ -8634,8 +8690,8 @@ func TestPublishInvalidationEventsSkipsPageQueriesUnaffectedByChangedFields(t *t
 	if stableAfter[0].UpdatedAt != stableBefore[0].UpdatedAt {
 		t.Fatalf("stable page dashboard unexpectedly refreshed: before=%q after=%q", stableBefore[0].UpdatedAt, stableAfter[0].UpdatedAt)
 	}
-	if freshAfter[0].UpdatedAt == freshBefore[0].UpdatedAt {
-		t.Fatalf("fresh page dashboard did not refresh: before=%q after=%q", freshBefore[0].UpdatedAt, freshAfter[0].UpdatedAt)
+	if freshAfter[0].UpdatedAt != freshBefore[0].UpdatedAt {
+		t.Fatalf("fresh page dashboard unexpectedly refreshed: before=%q after=%q", freshBefore[0].UpdatedAt, freshAfter[0].UpdatedAt)
 	}
 }
 
