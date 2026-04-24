@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -86,6 +87,7 @@ func New(cfg config.Config) (*App, error) {
 		Events:        eventBroker,
 		OnPageChanged: watcher.Acknowledge,
 	})
+	router = withHTTPLogging(router)
 
 	return &App{
 		cfg:      cfg,
@@ -107,7 +109,18 @@ func (a *App) Run(ctx context.Context) error {
 	}()
 	errCh := make(chan error, 1)
 
+	slog.Info("starting noterious server",
+		"listen_addr", a.cfg.ListenAddr,
+		"vault_path", a.cfg.VaultPath,
+		"data_dir", a.cfg.DataDir,
+		"home_page", a.cfg.HomePage,
+		"watch_interval", a.cfg.WatchInterval.String(),
+		"ntfy_enabled", a.notifier != nil && a.notifier.Enabled(),
+		"ntfy_interval", a.cfg.NtfyInterval.String(),
+	)
+
 	go func() {
+		slog.Info("http server listening", "listen_addr", a.cfg.ListenAddr)
 		if err := a.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- fmt.Errorf("listen: %w", err)
 		}
@@ -115,21 +128,32 @@ func (a *App) Run(ctx context.Context) error {
 	}()
 
 	if a.watcher != nil && a.cfg.WatchInterval > 0 {
+		slog.Info("vault watcher started", "interval", a.cfg.WatchInterval.String())
 		go a.watcher.Run(ctx, a.cfg.WatchInterval)
 	}
 	if a.notifier != nil && a.cfg.NtfyInterval > 0 {
+		slog.Info("ntfy notifier started",
+			"interval", a.cfg.NtfyInterval.String(),
+			"enabled", a.notifier.Enabled(),
+		)
 		go a.notifier.Run(ctx, a.cfg.NtfyInterval)
 	}
 
 	select {
 	case <-ctx.Done():
+		slog.Info("shutting down noterious server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := a.server.Shutdown(shutdownCtx); err != nil {
+			slog.Error("http server shutdown failed", "error", err)
 			return err
 		}
+		slog.Info("noterious server stopped")
 		return nil
 	case err := <-errCh:
+		if err != nil {
+			slog.Error("http server exited unexpectedly", "error", err)
+		}
 		return err
 	}
 }

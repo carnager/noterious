@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.5] - 2026-04-24
+
+### Added
+- Structured server logging for startup, shutdown, watcher/notifier lifecycle, ntfy deliveries, and noteworthy HTTP requests.
+
+### Changed
+- `/due` and `/remind` now open the inline picker immediately after insertion instead of only inserting text.
+- Quote rendering now uses clearer indentation, spacing, italics, and a proper left rule.
+
+### Fixed
+- Due/remind picker apply no longer visibly snaps the editor to line 1 before focus is restored.
+- Task-date picker interactions now participate in the same note-focus restore flow as the rest of the UI.
+- Firefox quote styling now respects the intended spacing instead of collapsing against the text.
+
 ## [v0.1.4] - 2026-04-24
 
 ### Added

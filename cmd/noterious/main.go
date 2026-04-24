@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +14,10 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
 	listenAddr := flag.String("listen-addr", "", "listen address override, e.g. :9090 or 127.0.0.1:9090")
 	port := flag.Int("port", 0, "port override, e.g. 9090")
 	flag.Parse()

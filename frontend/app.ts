@@ -511,7 +511,15 @@ interface TaskPickerState {
     return taskPickerState.ref ? findCurrentTask(taskPickerState.ref) : null;
   }
 
+  function setTaskDateApplySuppressed(active: boolean): void {
+    if (!state.markdownEditorApi || !state.markdownEditorApi.host) {
+      return;
+    }
+    state.markdownEditorApi.host.classList.toggle("task-date-apply-active", active);
+  }
+
   async function saveTaskDateField(task: TaskRecord, field: "due" | "remind", value: string): Promise<void> {
+    setTaskDateApplySuppressed(true);
     await saveTask(task.ref, {
       text: task.text || "",
       state: task.done ? "done" : "todo",
@@ -520,7 +528,13 @@ interface TaskPickerState {
       who: Array.isArray(task.who) ? task.who.slice() : [],
     });
     closeTaskPickers();
-    await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
+    await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
+    restoreNoteFocus();
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(function () {
+        setTaskDateApplySuppressed(false);
+      });
+    });
   }
 
   async function deleteTaskInline(ref: string): Promise<void> {
@@ -1166,6 +1180,7 @@ interface TaskPickerState {
     if (!task) {
       return;
     }
+    rememberNoteFocus();
     const parts = taskPickerPartsFromValue(mode, mode === "due" ? (task.due || "") : (task.remind || ""));
     taskPickerState.mode = mode;
     taskPickerState.ref = ref;
@@ -1594,6 +1609,7 @@ interface TaskPickerState {
     const nextValue = rawContext.value.slice(0, rawContext.lineStart) + updated + rawContext.value.slice(rawContext.lineEnd);
     const scrollTop = markdownEditorScrollTop(state, els);
     const insertedRawLineNumber = rawContext.value.slice(0, rawContext.lineStart).split("\n").length;
+    const insertedTaskLineNumber = insertedRawLineNumber;
     setMarkdownEditorValue(state, els, nextValue);
     state.currentMarkdown = nextValue;
     els.rawView.textContent = state.currentMarkdown;
@@ -1616,6 +1632,8 @@ interface TaskPickerState {
 
     if (command.id === "table") {
       openInlineTableEditor(insertedRawLineNumber, 1, 0);
+    } else if (command.id === "due" || command.id === "remind") {
+      openInsertedTaskPicker(insertedTaskLineNumber, command.id);
     }
     return true;
   }
@@ -2334,6 +2352,28 @@ interface TaskPickerState {
     return state.currentPage.tasks.find(function (task) {
       return task.ref === ref;
     }) || null;
+  }
+
+  function findCurrentTaskByLine(lineNumber: number): TaskRecord | null {
+    if (!state.currentPage || !state.currentPage.tasks || !lineNumber) {
+      return null;
+    }
+    return state.currentPage.tasks.find(function (task) {
+      return Number(task.line) === lineNumber;
+    }) || null;
+  }
+
+  function openInsertedTaskPicker(lineNumber: number, mode: "due" | "remind"): void {
+    const task = findCurrentTaskByLine(lineNumber);
+    if (!task || !task.ref) {
+      return;
+    }
+    window.requestAnimationFrame(function () {
+      const caretRect = state.markdownEditorApi ? state.markdownEditorApi.getCaretRect() : null;
+      const left = caretRect ? caretRect.left : 0;
+      const top = caretRect ? (caretRect.bottom + 10) : 0;
+      openInlineTaskPicker(task.ref, mode, left, top);
+    });
   }
 
   async function toggleTaskDone(task: TaskRecord | null): Promise<void> {

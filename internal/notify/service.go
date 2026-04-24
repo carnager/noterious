@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -66,10 +67,11 @@ func (s *Service) Run(ctx context.Context, interval time.Duration) {
 	for {
 		select {
 		case <-ctx.Done():
+			slog.Info("ntfy notifier stopped")
 			return
 		case <-ticker.C:
 			if err := s.Poll(ctx); err != nil {
-				fmt.Fprintf(os.Stderr, "ntfy notifier poll failed: %v\n", err)
+				slog.Error("ntfy notifier poll failed", "error", err)
 			}
 		}
 	}
@@ -237,6 +239,12 @@ func (s *Service) send(ctx context.Context, candidate candidateNotification) err
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("send ntfy notification: unexpected status %s", response.Status)
 	}
+	slog.Info("ntfy notification sent",
+		"task_ref", candidate.Task.Ref,
+		"page", candidate.Task.Page,
+		"kind", candidate.Kind,
+		"at", candidate.At.Format(time.RFC3339),
+	)
 	return nil
 }
 

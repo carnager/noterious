@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -57,10 +57,11 @@ func (w *VaultWatcher) Run(ctx context.Context, interval time.Duration) {
 	for {
 		select {
 		case <-ctx.Done():
+			slog.Info("vault watcher stopped")
 			return
 		case <-ticker.C:
 			if err := w.Poll(ctx); err != nil {
-				fmt.Fprintf(os.Stderr, "vault watcher poll failed: %v\n", err)
+				slog.Error("vault watcher poll failed", "error", err)
 			}
 		}
 	}
@@ -111,6 +112,13 @@ func (w *VaultWatcher) Poll(ctx context.Context) error {
 
 	sort.Strings(changed)
 	sort.Strings(deleted)
+
+	if len(changed) > 0 || len(deleted) > 0 {
+		slog.Info("vault changes detected",
+			"changed", len(changed),
+			"deleted", len(deleted),
+		)
+	}
 
 	for _, pagePath := range deleted {
 		var previousTasks []index.Task

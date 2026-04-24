@@ -1625,6 +1625,22 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   background: #2aa198;
 }
 
+.markdown-editor-host.task-date-apply-active .cm-cursor,
+.markdown-editor-host.task-date-apply-active .cm-dropCursor,
+.markdown-editor-host.task-date-apply-active .cm-cursorLayer,
+.markdown-editor-host.task-date-apply-active .cm-activeLine,
+.markdown-editor-host.task-date-apply-active .cm-activeLineGutter,
+.markdown-editor-host.task-date-apply-active .cm-search-hit-line,
+.markdown-editor-host.task-date-apply-active .cm-activeLine::before {
+  opacity: 0 !important;
+}
+
+.markdown-editor-host.task-date-apply-active,
+.markdown-editor-host.task-date-apply-active .cm-content,
+.markdown-editor-host.task-date-apply-active .cm-line {
+  caret-color: transparent !important;
+}
+
 .markdown-editor-host.render-mode .cm-md-heading {
   font-weight: 700;
   color: #d9e0ff;
@@ -1649,9 +1665,12 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 }
 
 .markdown-editor-host.render-mode .cm-md-quote {
-  padding-left: 0.75rem;
+  margin-left: 0.55rem;
+  padding-left: 1.55rem !important;
   color: var(--muted);
-  box-shadow: inset 2px 0 0 rgba(122, 162, 247, 0.35);
+  font-style: italic;
+  border-left: 2px solid rgba(122, 162, 247, 0.35);
+  box-shadow: none;
 }
 
 .markdown-editor-host.render-mode .cm-md-code-block {
