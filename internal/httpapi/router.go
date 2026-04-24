@@ -15,6 +15,7 @@ import (
 
 	"github.com/carnager/noterious/internal/config"
 	"github.com/carnager/noterious/internal/documents"
+	"github.com/carnager/noterious/internal/history"
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/markdown"
 	"github.com/carnager/noterious/internal/query"
@@ -26,6 +27,7 @@ type Dependencies struct {
 	Config        config.Config
 	Settings      *settings.Store
 	Documents     *documents.Service
+	History       *history.Service
 	Vault         *vault.Service
 	Index         *index.Service
 	Query         *query.Service
@@ -156,6 +158,7 @@ func NewRouter(deps Dependencies) http.Handler {
 			}
 			var request struct {
 				TargetFolder string `json:"targetFolder"`
+				Name         string `json:"name"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 				http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -172,10 +175,24 @@ func NewRouter(deps Dependencies) http.Handler {
 					return
 				}
 			}
-			movedFolderPath, err := deps.Vault.MoveFolder(folderPath, targetFolder)
+			targetName := strings.Trim(strings.TrimSpace(request.Name), "/")
+			if targetName != "" {
+				targetName = path.Clean(targetName)
+				if targetName == "." || strings.Contains(targetName, "/") || strings.HasPrefix(targetName, "../") {
+					http.Error(w, "invalid target folder name", http.StatusBadRequest)
+					return
+				}
+			}
+			movedFolderPath, err := deps.Vault.MoveFolder(folderPath, targetFolder, targetName)
 			if err != nil {
 				http.Error(w, "failed to move folder", http.StatusInternalServerError)
 				return
+			}
+			if deps.History != nil {
+				if err := deps.History.MovePrefix(folderPath, movedFolderPath); err != nil {
+					http.Error(w, "failed to move folder history", http.StatusInternalServerError)
+					return
+				}
 			}
 			if err := deps.Index.RebuildFromVault(r.Context(), deps.Vault); err != nil {
 				http.Error(w, "failed to rebuild index", http.StatusInternalServerError)
@@ -195,11 +212,37 @@ func NewRouter(deps Dependencies) http.Handler {
 				"folder":       movedFolderPath,
 				"sourceFolder": folderPath,
 				"targetFolder": targetFolder,
+				"name":         targetName,
 			})
 		default:
 			if r.Method != http.MethodDelete {
 				writeMethodNotAllowed(w, http.MethodDelete)
 				return
+			}
+			if deps.History != nil {
+				pageFiles, err := deps.Vault.ScanMarkdownPages(r.Context())
+				if err != nil {
+					http.Error(w, "failed to scan folder pages", http.StatusInternalServerError)
+					return
+				}
+				for _, pageFile := range pageFiles {
+					if pageFile.Path != folderPath && !strings.HasPrefix(pageFile.Path, folderPath+"/") {
+						continue
+					}
+					rawMarkdown, err := deps.Vault.ReadPage(pageFile.Path)
+					if err != nil {
+						http.Error(w, "failed to read folder page", http.StatusInternalServerError)
+						return
+					}
+					if _, err := deps.History.SaveRevision(pageFile.Path, rawMarkdown); err != nil {
+						http.Error(w, "failed to save folder page history", http.StatusInternalServerError)
+						return
+					}
+					if err := deps.History.MoveToTrash(pageFile.Path, rawMarkdown); err != nil {
+						http.Error(w, "failed to move folder page to trash", http.StatusInternalServerError)
+						return
+					}
+				}
 			}
 			if err := deps.Vault.DeleteFolder(folderPath); err != nil {
 				http.Error(w, "failed to delete folder", http.StatusInternalServerError)
@@ -218,7 +261,10 @@ func NewRouter(deps Dependencies) http.Handler {
 			if deps.OnPageChanged != nil {
 				deps.OnPageChanged(folderPath)
 			}
-			w.WriteHeader(http.StatusNoContent)
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok":     true,
+				"folder": folderPath,
+			})
 		}
 	})
 	mux.HandleFunc("/api/documents/download", func(w http.ResponseWriter, r *http.Request) {
@@ -1003,6 +1049,12 @@ func NewRouter(deps Dependencies) http.Handler {
 			http.Error(w, "failed to write task page", http.StatusInternalServerError)
 			return
 		}
+		if deps.History != nil {
+			if _, err := deps.History.SaveRevision(task.Page, []byte(updatedMarkdown)); err != nil {
+				http.Error(w, "failed to save page history", http.StatusInternalServerError)
+				return
+			}
+		}
 		if err := deps.Index.ReindexPage(r.Context(), deps.Vault, task.Page); err != nil {
 			http.Error(w, "failed to reindex page", http.StatusInternalServerError)
 			return
@@ -1326,6 +1378,237 @@ func NewRouter(deps Dependencies) http.Handler {
 		writeJSON(w, http.StatusOK, result)
 	})
 
+	mux.HandleFunc("/api/page-history/", func(w http.ResponseWriter, r *http.Request) {
+		if deps.History == nil {
+			http.Error(w, "history service unavailable", http.StatusInternalServerError)
+			return
+		}
+		raw := strings.TrimPrefix(r.URL.Path, "/api/page-history/")
+		restore := false
+		if strings.HasSuffix(raw, "/restore") {
+			restore = true
+			raw = strings.TrimSuffix(raw, "/restore")
+		}
+		pagePath, ok := normalizeAPIPagePath(raw)
+		if !ok {
+			http.Error(w, "invalid page path", http.StatusBadRequest)
+			return
+		}
+		if restore {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, http.MethodPost)
+				return
+			}
+			var request struct {
+				RevisionID string `json:"revisionId"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			revision, err := deps.History.GetRevision(pagePath, request.RevisionID)
+			if err != nil {
+				http.Error(w, "failed to load revision", http.StatusNotFound)
+				return
+			}
+			if deps.History != nil {
+				if currentMarkdown, err := deps.Vault.ReadPage(pagePath); err == nil {
+					if _, err := deps.History.SaveRevision(pagePath, currentMarkdown); err != nil {
+						http.Error(w, "failed to snapshot current page", http.StatusInternalServerError)
+						return
+					}
+				}
+			}
+			if err := deps.Vault.WritePage(pagePath, []byte(revision.RawMarkdown)); err != nil {
+				http.Error(w, "failed to restore page", http.StatusInternalServerError)
+				return
+			}
+			if _, err := deps.History.SaveRevision(pagePath, []byte(revision.RawMarkdown)); err != nil {
+				http.Error(w, "failed to save restored revision", http.StatusInternalServerError)
+				return
+			}
+			if err := deps.Index.ReindexPage(r.Context(), deps.Vault, pagePath); err != nil {
+				http.Error(w, "failed to reindex page", http.StatusInternalServerError)
+				return
+			}
+			if deps.Query != nil {
+				if err := deps.Query.RefreshPageCache(r.Context(), deps.Index, pagePath); err != nil {
+					http.Error(w, "failed to refresh query cache", http.StatusInternalServerError)
+					return
+				}
+			}
+			if deps.OnPageChanged != nil {
+				deps.OnPageChanged(pagePath)
+			}
+			pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
+			if err != nil {
+				writePageError(w, r, err, "failed to load restored page")
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"page":        pageRecord.Path,
+				"title":       pageRecord.Title,
+				"rawMarkdown": pageRecord.RawMarkdown,
+				"createdAt":   pageRecord.CreatedAt,
+				"updatedAt":   pageRecord.UpdatedAt,
+				"frontmatter": pageRecord.Frontmatter,
+				"links":       pageRecord.Links,
+				"tasks":       pageRecord.Tasks,
+			})
+			return
+		}
+		if r.Method == http.MethodDelete {
+			if err := deps.History.DeletePageHistory(pagePath); err != nil {
+				http.Error(w, "failed to purge page history", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok":   true,
+				"page": pagePath,
+			})
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodDelete)
+			return
+		}
+		revisions, err := deps.History.ListRevisions(pagePath)
+		if err != nil {
+			http.Error(w, "failed to load page history", http.StatusInternalServerError)
+			return
+		}
+		items := make([]map[string]any, 0, len(revisions))
+		for _, revision := range revisions {
+			items = append(items, map[string]any{
+				"id":          revision.ID,
+				"page":        revision.Page,
+				"savedAt":     revision.SavedAt.UTC().Format(time.RFC3339Nano),
+				"rawMarkdown": revision.RawMarkdown,
+			})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"page":      pagePath,
+			"revisions": items,
+			"count":     len(items),
+		})
+	})
+
+	mux.HandleFunc("/api/trash/pages", func(w http.ResponseWriter, r *http.Request) {
+		if deps.History == nil {
+			http.Error(w, "history service unavailable", http.StatusInternalServerError)
+			return
+		}
+		if r.Method == http.MethodDelete {
+			if err := deps.History.EmptyTrash(); err != nil {
+				http.Error(w, "failed to empty trash", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok": true,
+			})
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodDelete)
+			return
+		}
+		trashEntries, err := deps.History.ListTrash()
+		if err != nil {
+			http.Error(w, "failed to load trash", http.StatusInternalServerError)
+			return
+		}
+		items := make([]map[string]any, 0, len(trashEntries))
+		for _, entry := range trashEntries {
+			items = append(items, map[string]any{
+				"page":        entry.Page,
+				"deletedAt":   entry.DeletedAt.UTC().Format(time.RFC3339Nano),
+				"rawMarkdown": entry.RawMarkdown,
+			})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"pages": items,
+			"count": len(items),
+		})
+	})
+
+	mux.HandleFunc("/api/trash/pages/", func(w http.ResponseWriter, r *http.Request) {
+		if deps.History == nil {
+			http.Error(w, "history service unavailable", http.StatusInternalServerError)
+			return
+		}
+		raw := strings.TrimPrefix(r.URL.Path, "/api/trash/pages/")
+		restore := false
+		if strings.HasSuffix(raw, "/restore") {
+			restore = true
+			raw = strings.TrimSuffix(raw, "/restore")
+		}
+		pagePath, ok := normalizeAPIPagePath(raw)
+		if !ok {
+			http.Error(w, "invalid page path", http.StatusBadRequest)
+			return
+		}
+		if restore {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, http.MethodPost)
+				return
+			}
+			entry, err := deps.History.RestoreFromTrash(pagePath)
+			if err != nil {
+				http.Error(w, "failed to restore trashed page", http.StatusNotFound)
+				return
+			}
+			if err := deps.Vault.WritePage(pagePath, []byte(entry.RawMarkdown)); err != nil {
+				http.Error(w, "failed to restore page", http.StatusInternalServerError)
+				return
+			}
+			if _, err := deps.History.SaveRevision(pagePath, []byte(entry.RawMarkdown)); err != nil {
+				http.Error(w, "failed to save restored page history", http.StatusInternalServerError)
+				return
+			}
+			if err := deps.Index.ReindexPage(r.Context(), deps.Vault, pagePath); err != nil {
+				http.Error(w, "failed to reindex restored page", http.StatusInternalServerError)
+				return
+			}
+			if deps.Query != nil {
+				if err := deps.Query.RefreshPageCache(r.Context(), deps.Index, pagePath); err != nil {
+					http.Error(w, "failed to refresh query cache", http.StatusInternalServerError)
+					return
+				}
+			}
+			if deps.OnPageChanged != nil {
+				deps.OnPageChanged(pagePath)
+			}
+			pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
+			if err != nil {
+				writePageError(w, r, err, "failed to load restored page")
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"page":        pageRecord.Path,
+				"title":       pageRecord.Title,
+				"rawMarkdown": pageRecord.RawMarkdown,
+				"createdAt":   pageRecord.CreatedAt,
+				"updatedAt":   pageRecord.UpdatedAt,
+				"frontmatter": pageRecord.Frontmatter,
+				"links":       pageRecord.Links,
+				"tasks":       pageRecord.Tasks,
+			})
+			return
+		}
+		if r.Method != http.MethodDelete {
+			writeMethodNotAllowed(w, http.MethodDelete)
+			return
+		}
+		if err := deps.History.PermanentlyDelete(pagePath); err != nil {
+			http.Error(w, "failed to permanently delete trashed page", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":   true,
+			"page": pagePath,
+		})
+	})
+
 	return mux
 }
 
@@ -1398,6 +1681,12 @@ func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 				http.Error(w, "failed to write page", http.StatusInternalServerError)
 				return
 			}
+			if deps.History != nil {
+				if _, err := deps.History.SaveRevision(pagePath, []byte(request.RawMarkdown)); err != nil {
+					http.Error(w, "failed to save page history", http.StatusInternalServerError)
+					return
+				}
+			}
 			if err := deps.Index.ReindexPage(r.Context(), deps.Vault, pagePath); err != nil {
 				http.Error(w, "failed to reindex page", http.StatusInternalServerError)
 				return
@@ -1455,6 +1744,16 @@ func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 				return
 			}
 			dependentPages := collectBacklinkSourcePages(backlinks)
+			if deps.History != nil {
+				if _, err := deps.History.SaveRevision(pagePath, []byte(pageRecord.RawMarkdown)); err != nil {
+					http.Error(w, "failed to save page history", http.StatusInternalServerError)
+					return
+				}
+				if err := deps.History.MoveToTrash(pagePath, []byte(pageRecord.RawMarkdown)); err != nil {
+					http.Error(w, "failed to move page to trash", http.StatusInternalServerError)
+					return
+				}
+			}
 			if err := deps.Vault.DeletePage(pagePath); err != nil {
 				http.Error(w, "failed to delete page", http.StatusInternalServerError)
 				return
@@ -1470,7 +1769,10 @@ func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 			if deps.OnPageChanged != nil {
 				deps.OnPageChanged(pagePath)
 			}
-			w.WriteHeader(http.StatusNoContent)
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok":   true,
+				"page": pagePath,
+			})
 		case http.MethodPatch:
 			var request struct {
 				Title       *string  `json:"title"`
@@ -1630,6 +1932,12 @@ func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 		if err := deps.Vault.MovePage(pagePath, targetPage); err != nil {
 			http.Error(w, "failed to move page", http.StatusInternalServerError)
 			return
+		}
+		if deps.History != nil {
+			if err := deps.History.MovePage(pagePath, targetPage); err != nil {
+				http.Error(w, "failed to move page history", http.StatusInternalServerError)
+				return
+			}
 		}
 		if err := deps.Index.RemovePage(r.Context(), pagePath); err != nil {
 			http.Error(w, "failed to remove old page from index", http.StatusInternalServerError)
@@ -1881,6 +2189,11 @@ func patchPageFrontmatter(ctx context.Context, deps Dependencies, pagePath strin
 
 	if err := deps.Vault.WritePage(pagePath, []byte(updatedMarkdown)); err != nil {
 		return index.PageRecord{}, err
+	}
+	if deps.History != nil {
+		if _, err := deps.History.SaveRevision(pagePath, []byte(updatedMarkdown)); err != nil {
+			return index.PageRecord{}, err
+		}
 	}
 	if err := deps.Index.ReindexPage(ctx, deps.Vault, pagePath); err != nil {
 		return index.PageRecord{}, err

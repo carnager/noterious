@@ -254,13 +254,37 @@ export interface DocumentListResponse {
   query?: string;
 }
 
+export interface PageRevisionRecord {
+  id: string;
+  page: string;
+  savedAt: string;
+  rawMarkdown: string;
+}
+
+export interface PageHistoryResponse {
+  page: string;
+  revisions: PageRevisionRecord[];
+  count: number;
+}
+
+export interface TrashPageRecord {
+  page: string;
+  deletedAt: string;
+  rawMarkdown: string;
+}
+
+export interface TrashListResponse {
+  pages: TrashPageRecord[];
+  count: number;
+}
+
 export interface QueryFenceOptions {
   [key: string]: string;
 }
 
 export interface FocusRestoreSpec {
   mode: "editor";
-  offset: number;
+  offset?: number;
 }
 
 export interface SlashCommand {
@@ -295,7 +319,9 @@ export interface NoteriousEditorApi {
   view: unknown;
   getValue(): string;
   setValue(value: string): void;
+  replaceRange(from: number, to: number, insert: string): void;
   focus(options?: FocusOptions): void;
+  blur(): void;
   hasFocus(): boolean;
   getSelectionStart(): number;
   getSelectionEnd(): number;

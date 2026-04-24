@@ -173,6 +173,19 @@ function slashCommandCatalog(): SlashCommand[] {
       },
     },
     {
+      id: "table",
+      title: "Insert table",
+      description: "Replace the current line with a simple markdown table.",
+      keywords: "table grid columns rows",
+      hint: "/table",
+      apply: function () {
+        return "| Column | Value |\n| --- | --- |\n|  |  |\n";
+      },
+      caret: function (updatedLine: string) {
+        return updatedLine.length;
+      },
+    },
+    {
       id: "due",
       title: "Insert due date",
       description: "Append a due field with today's date.",

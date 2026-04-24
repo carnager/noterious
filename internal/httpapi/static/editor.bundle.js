@@ -27360,6 +27360,89 @@
     }
   });
 
+  // frontend/markdown.ts
+  function escapeHTML(value) {
+    return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function splitMarkdownTableRow(line) {
+    const source = String(line || "").trim();
+    const trimmed = source.replace(/^\|/, "").replace(/\|$/, "");
+    return trimmed.split("|").map(function(cell) {
+      return cell.trim();
+    });
+  }
+  function isMarkdownTableSeparator(line) {
+    const cells = splitMarkdownTableRow(line);
+    if (!cells.length) {
+      return false;
+    }
+    return cells.every(function(cell) {
+      return /^:?-{3,}:?$/.test(cell);
+    });
+  }
+  function looksLikeMarkdownTableRow(line) {
+    const source = String(line || "").trim();
+    return source.indexOf("|") >= 0 && splitMarkdownTableRow(source).length >= 2;
+  }
+  function markdownTableBlockAt(lines, startLineIndex) {
+    if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex + 1 >= lines.length) {
+      return null;
+    }
+    const headerLine = String(lines[startLineIndex] || "");
+    const separatorLine = String(lines[startLineIndex + 1] || "");
+    if (!looksLikeMarkdownTableRow(headerLine) || !isMarkdownTableSeparator(separatorLine)) {
+      return null;
+    }
+    const headerCells = splitMarkdownTableRow(headerLine);
+    if (headerCells.length < 2) {
+      return null;
+    }
+    const alignments = splitMarkdownTableRow(separatorLine).map(function(cell) {
+      const text = String(cell || "");
+      const left = text.startsWith(":");
+      const right = text.endsWith(":");
+      if (left && right) {
+        return "center";
+      }
+      if (right) {
+        return "right";
+      }
+      return "left";
+    });
+    const rows = [];
+    let endLineIndex = startLineIndex + 1;
+    for (let index = startLineIndex + 2; index < lines.length; index += 1) {
+      const rowLine = String(lines[index] || "");
+      if (!looksLikeMarkdownTableRow(rowLine)) {
+        break;
+      }
+      rows.push(splitMarkdownTableRow(rowLine));
+      endLineIndex = index;
+    }
+    const renderCell = function(cell, rowIndex, index, tag) {
+      const alignment = alignments[index] || "left";
+      return "<" + tag + ' class="markdown-table-cell" style="text-align:' + alignment + ';" data-table-cell="true" data-table-start-line="' + String(startLineIndex + 1) + '" data-table-row="' + String(rowIndex) + '" data-table-col="' + String(index) + '">' + escapeHTML(cell) + "</" + tag + ">";
+    };
+    const html2 = '<div class="markdown-table-block" data-table-start-line="' + String(startLineIndex + 1) + '"><table><thead><tr>' + headerCells.map(function(cell, index) {
+      return renderCell(cell, 0, index, "th");
+    }).join("") + "</tr></thead><tbody>" + rows.map(function(row, rowIndex) {
+      return "<tr>" + headerCells.map(function(_header, index) {
+        return renderCell(String(row[index] || ""), rowIndex + 1, index, "td");
+      }).join("") + "</tr>";
+    }).join("") + "</tbody></table></div>";
+    return {
+      startLineIndex,
+      endLineIndex,
+      columnCount: headerCells.length,
+      html: html2
+    };
+  }
+  var init_markdown = __esm({
+    "frontend/markdown.ts"() {
+      "use strict";
+    }
+  });
+
   // frontend/editor.ts
   var require_editor = __commonJS({
     "frontend/editor.ts"() {
@@ -27379,6 +27462,7 @@
       init_dist4();
       init_datetime();
       init_commands();
+      init_markdown();
       var measureCanvas = document.createElement("canvas");
       var measureContext = measureCanvas.getContext("2d");
       function bindTransientScrollClass(element, className) {
@@ -27547,23 +27631,26 @@
         }
       };
       var TaskCheckboxWidget = class extends WidgetType {
-        constructor(done, ref) {
+        constructor(done, ref, indent2) {
           super();
           this.done = done;
           this.ref = ref || "";
+          this.indent = Math.max(0, Number(indent2) || 0);
         }
         eq(other) {
-          return other.done === this.done && other.ref === this.ref;
+          return other.done === this.done && other.ref === this.ref && other.indent === this.indent;
         }
         toDOM() {
           const button = document.createElement("button");
           button.type = "button";
           button.className = "cm-md-task-toggle";
           button.setAttribute("data-task-toggle", "true");
+          button.setAttribute("data-done", this.done ? "true" : "false");
+          button.style.marginLeft = String(this.indent * 0.62) + "rem";
           if (this.ref) {
             button.setAttribute("data-task-ref", this.ref);
           }
-          button.textContent = this.done ? "\u2611" : "\u2610";
+          button.setAttribute("aria-label", this.done ? "Mark task incomplete" : "Mark task complete");
           return button;
         }
         ignoreEvent() {
@@ -27609,6 +27696,45 @@
         }
         ignoreEvent() {
           return false;
+        }
+      };
+      var MarkdownTableWidget = class extends WidgetType {
+        constructor(html2) {
+          super();
+          this.html = html2;
+        }
+        eq(other) {
+          return other.html === this.html;
+        }
+        toDOM() {
+          const wrapper = document.createElement("div");
+          wrapper.className = "cm-md-table-block";
+          wrapper.innerHTML = this.html;
+          wrapper.addEventListener("click", function(event) {
+            const target = event.target instanceof HTMLElement ? event.target : null;
+            const cell = target ? target.closest("[data-table-cell]") : null;
+            if (cell) {
+              event.preventDefault();
+              const tableBlock = cell.closest(".markdown-table-block");
+              const rect = (tableBlock instanceof HTMLElement ? tableBlock : cell).getBoundingClientRect();
+              cell.dispatchEvent(new CustomEvent("noterious:table-open", {
+                bubbles: true,
+                detail: {
+                  startLine: cell.getAttribute("data-table-start-line") || "",
+                  row: cell.getAttribute("data-table-row") || "",
+                  col: cell.getAttribute("data-table-col") || "",
+                  left: String(Math.round(rect.left)),
+                  top: String(Math.round(rect.top)),
+                  width: String(Math.round(rect.width))
+                }
+              }));
+              return;
+            }
+          });
+          return wrapper;
+        }
+        ignoreEvent() {
+          return true;
         }
       };
       var queryBlocksField = StateField.define({
@@ -27687,6 +27813,14 @@
         },
         provide: (field) => EditorView.decorations.from(field)
       });
+      function clearSearchHitHighlight(view) {
+        const highlightedLine = view.state.field(highlightedLineField, false);
+        if (typeof highlightedLine === "number" && highlightedLine > 0) {
+          view.dispatch({
+            effects: setHighlightedLineEffect.of(null)
+          });
+        }
+      }
       function buildRenderedDecorations(state) {
         if (!state.field(renderModeField, false)) {
           return Decoration.none;
@@ -27696,6 +27830,7 @@
         const tasks = state.field(tasksField);
         const selection = state.selection.main;
         const currentPagePath = state.field(pagePathField);
+        const lines = state.doc.toString().split("\n");
         let hiddenFrontmatterUntil = 0;
         if (state.doc.lines >= 1 && state.doc.line(1).text.trim() === "---") {
           for (let lineNumber = 2; lineNumber <= state.doc.lines; lineNumber += 1) {
@@ -27722,6 +27857,25 @@
           const text = line.text;
           const from = line.from;
           const editingLine = selection.from <= line.to && selection.to >= line.from;
+          const tableBlock = markdownTableBlockAt(lines, lineNumber - 1);
+          if (tableBlock) {
+            const tableEndLine = state.doc.line(tableBlock.endLineIndex + 1);
+            const editingTable = selection.from <= tableEndLine.to && selection.to >= line.from;
+            if (editingTable) {
+              lineNumber = tableBlock.endLineIndex + 1;
+              continue;
+            }
+            builder.add(
+              line.from,
+              tableEndLine.to,
+              Decoration.replace({
+                block: true,
+                widget: new MarkdownTableWidget(tableBlock.html)
+              })
+            );
+            lineNumber = tableBlock.endLineIndex + 1;
+            continue;
+          }
           if (/^```query(?:\s|$)/i.test(text.trim())) {
             let endLineNumber = lineNumber;
             while (endLineNumber < state.doc.lines) {
@@ -27800,24 +27954,25 @@
             builder.add(from, from, Decoration.line({ class: "cm-md-quote" }));
             builder.add(from, from + match[1].length, Decoration.replace({}));
           }
-          match = text.match(/^(\s*-\s+\[([ xX])\]\s+)/);
+          match = text.match(/^(\s*)-\s+\[([ xX])\]\s+/);
           if (match) {
             const task = tasks.get(lineNumber) || {
               ref: "",
-              text: text.replace(/^(\s*-\s+\[[ xX]\]\s+)/, ""),
+              text: text.replace(/^(\s*)-\s+\[[ xX]\]\s+/, ""),
               done: /[xX]/.test(match[2] || ""),
               due: "",
               remind: "",
               who: []
             };
-            const prefixLength = match[1].length;
+            const indentLength = String(match[1] || "").length;
+            const prefixLength = match[0].length;
             const bodyText = text.slice(prefixLength);
             builder.add(from, from, Decoration.line({ class: "cm-md-task-line" + (task.done ? " cm-md-task-done" : "") }));
             builder.add(
               from,
               from + prefixLength,
               Decoration.replace({
-                widget: new TaskCheckboxWidget(task.done, task.ref)
+                widget: new TaskCheckboxWidget(task.done, task.ref, indentLength)
               })
             );
             let dateMatch = null;
@@ -27964,6 +28119,7 @@
           let suppressInput = false;
           const eventHandlers = EditorView.domEventHandlers({
             mousedown(event, view2) {
+              clearSearchHitHighlight(view2);
               const target = event.target instanceof Element ? event.target : null;
               const pageLink = target ? target.closest("[data-page-link]") : null;
               if (pageLink) {
@@ -28044,6 +28200,12 @@
                 return true;
               }
               return false;
+            },
+            keydown(event, view2) {
+              if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                clearSearchHitHighlight(view2);
+              }
+              return false;
             }
           });
           const view = new EditorView({
@@ -28099,6 +28261,22 @@
               suppressInput = false;
               setTextareaValue(textarea, nextValue);
             },
+            replaceRange(from, to, insert2) {
+              const max = view.state.doc.length;
+              const nextFrom = Math.max(0, Math.min(Number(from) || 0, max));
+              const nextTo = Math.max(nextFrom, Math.min(Number(to) || 0, max));
+              const nextInsert = String(insert2 || "");
+              suppressInput = true;
+              view.dispatch({
+                changes: {
+                  from: nextFrom,
+                  to: nextTo,
+                  insert: nextInsert
+                }
+              });
+              suppressInput = false;
+              setTextareaValue(textarea, view.state.doc.toString());
+            },
             focus(options) {
               try {
                 view.focus();
@@ -28107,6 +28285,12 @@
                 }
               } catch (_error) {
                 view.focus();
+              }
+            },
+            blur() {
+              const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+              if (active && host.contains(active)) {
+                active.blur();
               }
             },
             hasFocus() {

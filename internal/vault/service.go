@@ -139,9 +139,10 @@ func (s *Service) DeleteFolder(folderPath string) error {
 	return nil
 }
 
-func (s *Service) MoveFolder(fromFolderPath string, targetFolderPath string) (string, error) {
+func (s *Service) MoveFolder(fromFolderPath string, targetFolderPath string, targetName string) (string, error) {
 	fromNormalized := normalizePagePath(fromFolderPath)
 	targetNormalized := normalizePagePath(targetFolderPath)
+	nameNormalized := normalizePagePath(targetName)
 	if fromNormalized == "" || fromNormalized == "." || strings.HasPrefix(fromNormalized, "../") || fromNormalized == ".." {
 		return "", fmt.Errorf("invalid folder path %q", fromFolderPath)
 	}
@@ -151,8 +152,14 @@ func (s *Service) MoveFolder(fromFolderPath string, targetFolderPath string) (st
 	if strings.HasPrefix(targetNormalized, "../") || targetNormalized == ".." {
 		return "", fmt.Errorf("invalid target folder path %q", targetFolderPath)
 	}
+	if strings.Contains(nameNormalized, "/") {
+		return "", fmt.Errorf("invalid target folder name %q", targetName)
+	}
 
 	folderName := path.Base(fromNormalized)
+	if nameNormalized != "" && nameNormalized != "." {
+		folderName = nameNormalized
+	}
 	destination := folderName
 	if targetNormalized != "" {
 		destination = normalizePagePath(path.Join(targetNormalized, folderName))

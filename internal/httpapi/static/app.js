@@ -487,6 +487,106 @@
   function escapeHTML(value) {
     return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
+  function splitMarkdownTableRow(line) {
+    const source = String(line || "").trim();
+    const trimmed = source.replace(/^\|/, "").replace(/\|$/, "");
+    return trimmed.split("|").map(function(cell) {
+      return cell.trim();
+    });
+  }
+  function formatMarkdownTableRow(cells) {
+    return "| " + cells.map(function(cell) {
+      return String(cell || "").trim();
+    }).join(" | ") + " |";
+  }
+  function isMarkdownTableSeparator(line) {
+    const cells = splitMarkdownTableRow(line);
+    if (!cells.length) {
+      return false;
+    }
+    return cells.every(function(cell) {
+      return /^:?-{3,}:?$/.test(cell);
+    });
+  }
+  function looksLikeMarkdownTableRow(line) {
+    const source = String(line || "").trim();
+    return source.indexOf("|") >= 0 && splitMarkdownTableRow(source).length >= 2;
+  }
+  function markdownTableBlockAt(lines, startLineIndex) {
+    if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex + 1 >= lines.length) {
+      return null;
+    }
+    const headerLine = String(lines[startLineIndex] || "");
+    const separatorLine = String(lines[startLineIndex + 1] || "");
+    if (!looksLikeMarkdownTableRow(headerLine) || !isMarkdownTableSeparator(separatorLine)) {
+      return null;
+    }
+    const headerCells = splitMarkdownTableRow(headerLine);
+    if (headerCells.length < 2) {
+      return null;
+    }
+    const alignments = splitMarkdownTableRow(separatorLine).map(function(cell) {
+      const text = String(cell || "");
+      const left = text.startsWith(":");
+      const right = text.endsWith(":");
+      if (left && right) {
+        return "center";
+      }
+      if (right) {
+        return "right";
+      }
+      return "left";
+    });
+    const rows = [];
+    let endLineIndex = startLineIndex + 1;
+    for (let index = startLineIndex + 2; index < lines.length; index += 1) {
+      const rowLine = String(lines[index] || "");
+      if (!looksLikeMarkdownTableRow(rowLine)) {
+        break;
+      }
+      rows.push(splitMarkdownTableRow(rowLine));
+      endLineIndex = index;
+    }
+    const renderCell = function(cell, rowIndex, index, tag) {
+      const alignment = alignments[index] || "left";
+      return "<" + tag + ' class="markdown-table-cell" style="text-align:' + alignment + ';" data-table-cell="true" data-table-start-line="' + String(startLineIndex + 1) + '" data-table-row="' + String(rowIndex) + '" data-table-col="' + String(index) + '">' + escapeHTML(cell) + "</" + tag + ">";
+    };
+    const html = '<div class="markdown-table-block" data-table-start-line="' + String(startLineIndex + 1) + '"><table><thead><tr>' + headerCells.map(function(cell, index) {
+      return renderCell(cell, 0, index, "th");
+    }).join("") + "</tr></thead><tbody>" + rows.map(function(row, rowIndex) {
+      return "<tr>" + headerCells.map(function(_header, index) {
+        return renderCell(String(row[index] || ""), rowIndex + 1, index, "td");
+      }).join("") + "</tr>";
+    }).join("") + "</tbody></table></div>";
+    return {
+      startLineIndex,
+      endLineIndex,
+      columnCount: headerCells.length,
+      html
+    };
+  }
+  function findMarkdownTableBlockForLine(lines, lineNumber) {
+    const target = Math.max(1, Number(lineNumber) || 0) - 1;
+    for (let index = target; index >= 0; index -= 1) {
+      const block = markdownTableBlockAt(lines, index);
+      if (block && target >= block.startLineIndex && target <= block.endLineIndex) {
+        return block;
+      }
+    }
+    return null;
+  }
+  function markdownTableRowsForLine(lines, lineNumber) {
+    const block = findMarkdownTableBlockForLine(lines, lineNumber);
+    if (!block) {
+      return null;
+    }
+    const header = splitMarkdownTableRow(String(lines[block.startLineIndex] || ""));
+    const rows = [];
+    for (let index = block.startLineIndex + 2; index <= block.endLineIndex; index += 1) {
+      rows.push(splitMarkdownTableRow(String(lines[index] || "")));
+    }
+    return { header, rows };
+  }
   function wikiLinkAtCaret(line, caret) {
     const source = String(line || "");
     const pattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -1003,7 +1103,11 @@
   }
   function markdownEditorHasFocus(state, elements) {
     const api = markdownEditorAPI(state);
-    return api ? api.hasFocus() : document.activeElement === elements.markdownEditor;
+    if (api) {
+      const active = document.activeElement instanceof Node ? document.activeElement : null;
+      return api.hasFocus() || Boolean(active && api.host.contains(active));
+    }
+    return document.activeElement === elements.markdownEditor;
   }
   function markdownEditorCaretRect(state) {
     const api = markdownEditorAPI(state);
@@ -1066,7 +1170,7 @@
   }
   function blockingOverlayOpen(elements) {
     return Boolean(
-      elements.taskModalShell && !elements.taskModalShell.classList.contains("hidden") || !elements.searchModalShell.classList.contains("hidden") || !elements.commandModalShell.classList.contains("hidden")
+      elements.taskModalShell && !elements.taskModalShell.classList.contains("hidden") || !elements.searchModalShell.classList.contains("hidden") || !elements.commandModalShell.classList.contains("hidden") || Boolean(elements.quickSwitcherModalShell && !elements.quickSwitcherModalShell.classList.contains("hidden")) || Boolean(elements.documentsModalShell && !elements.documentsModalShell.classList.contains("hidden")) || Boolean(elements.helpModalShell && !elements.helpModalShell.classList.contains("hidden")) || Boolean(elements.settingsModalShell && !elements.settingsModalShell.classList.contains("hidden")) || Boolean(elements.pageHistoryModalShell && !elements.pageHistoryModalShell.classList.contains("hidden")) || Boolean(elements.trashModalShell && !elements.trashModalShell.classList.contains("hidden"))
     );
   }
   function restoreEditorFocus(state, elements, selectedPage) {
@@ -1497,7 +1601,17 @@
     });
     return root;
   }
-  function renderPageTreeNode(node, depth, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onDeleteFolder, onDeletePage, onMovePage, onMoveFolder) {
+  function makeTreeActionIcon(pathData) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", pathData);
+    path.setAttribute("fill", "currentColor");
+    svg.appendChild(path);
+    return svg;
+  }
+  function renderPageTreeNode(node, depth, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onMovePage, onMoveFolder) {
     const group = document.createElement("div");
     group.className = depth === 0 ? "page-tree-root" : "page-tree-children";
     Object.keys(node.folders).sort().forEach(function(name) {
@@ -1552,6 +1666,7 @@
       const label = document.createElement("span");
       label.className = "page-tree-label";
       label.textContent = folder.name;
+      label.title = folder.name;
       button.appendChild(chevron);
       button.appendChild(icon);
       button.appendChild(label);
@@ -1582,6 +1697,18 @@
         onCreateSubfolder(folder.key);
       });
       actions.appendChild(createFolder);
+      const renameFolder = document.createElement("button");
+      renameFolder.type = "button";
+      renameFolder.className = "page-tree-action";
+      renameFolder.title = "Rename folder";
+      renameFolder.setAttribute("aria-label", "Rename folder " + folder.name);
+      renameFolder.appendChild(makeTreeActionIcon("M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z"));
+      renameFolder.addEventListener("click", function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        onRenameFolder(folder.key);
+      });
+      actions.appendChild(renameFolder);
       const deleteFolder = document.createElement("button");
       deleteFolder.type = "button";
       deleteFolder.className = "page-tree-action page-tree-action-danger";
@@ -1597,7 +1724,7 @@
       row.appendChild(actions);
       item.appendChild(row);
       if (expandedPageFolders[folder.key]) {
-        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onDeleteFolder, onDeletePage, onMovePage, onMoveFolder));
+        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onMovePage, onMoveFolder));
       }
       group.appendChild(item);
     });
@@ -1626,11 +1753,24 @@
       const label = document.createElement("span");
       label.className = "page-tree-label";
       label.textContent = leafName;
+      label.title = leafName;
       button.appendChild(icon);
       button.appendChild(label);
       row.appendChild(button);
       const actions = document.createElement("div");
       actions.className = "page-tree-actions";
+      const renamePage = document.createElement("button");
+      renamePage.type = "button";
+      renamePage.className = "page-tree-action";
+      renamePage.title = "Rename note";
+      renamePage.setAttribute("aria-label", "Rename note " + leafName);
+      renamePage.appendChild(makeTreeActionIcon("M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z"));
+      renamePage.addEventListener("click", function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        onRenamePage(page.path);
+      });
+      actions.appendChild(renamePage);
       const deletePage = document.createElement("button");
       deletePage.type = "button";
       deletePage.className = "page-tree-action page-tree-action-danger";
@@ -1649,7 +1789,7 @@
     });
     return group;
   }
-  function renderPagesTree(container, pages, selectedPage, expandedPageFolders, pageSearchQuery, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onDeleteFolder, onDeletePage, onMovePage, onMoveFolder) {
+  function renderPagesTree(container, pages, selectedPage, expandedPageFolders, pageSearchQuery, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onMovePage, onMoveFolder) {
     clearNode(container);
     if (!pages.length) {
       renderEmpty(container, "No indexed pages match the current search.");
@@ -1795,7 +1935,7 @@
       }
       onMoveFolder(payload.path, "");
     };
-    container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onDeleteFolder, onDeletePage, onMovePage, onMoveFolder));
+    container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onMovePage, onMoveFolder));
   }
   function renderPageTasks(container, tasks, onSelectTask) {
     clearNode(container);
@@ -2805,6 +2945,19 @@
         }
       },
       {
+        id: "table",
+        title: "Insert table",
+        description: "Replace the current line with a simple markdown table.",
+        keywords: "table grid columns rows",
+        hint: "/table",
+        apply: function() {
+          return "| Column | Value |\n| --- | --- |\n|  |  |\n";
+        },
+        caret: function(updatedLine) {
+          return updatedLine.length;
+        }
+      },
+      {
         id: "due",
         title: "Insert due date",
         description: "Append a due field with today's date.",
@@ -3171,7 +3324,10 @@
           slashContext: null,
           pendingPageLineFocus: null,
           pendingPageTaskRef: "",
-          renamingPageTitle: false
+          renamingPageTitle: false,
+          tableEditor: null,
+          pageHistory: [],
+          trashPages: []
         };
         const els = {
           metaStrip: optionalElement("meta-strip"),
@@ -3213,6 +3369,7 @@
           railPanelTags: requiredElement("rail-panel-tags"),
           noteLayout: requiredElement("note-layout"),
           noteSurface: requiredElement("note-surface"),
+          inlineTablePanel: requiredElement("inline-table-panel"),
           toggleRail: requiredElement("toggle-rail"),
           historyBack: requiredElement("history-back"),
           historyForward: requiredElement("history-forward"),
@@ -3222,6 +3379,7 @@
           sessionMenu: requiredElement("session-menu"),
           sessionMenuPanel: requiredElement("session-menu-panel"),
           openSessionMenu: requiredElement("open-session-menu"),
+          openTrash: requiredElement("open-trash"),
           openHelp: requiredElement("open-help"),
           openSettings: requiredElement("open-settings"),
           reloadPages: optionalElement("reload-pages"),
@@ -3248,6 +3406,16 @@
           closeDocumentsModal: requiredElement("close-documents-modal"),
           documentsInput: requiredElement("documents-input"),
           documentsResults: requiredElement("documents-results"),
+          pageHistoryButton: requiredElement("open-page-history"),
+          pageHistoryModalShell: requiredElement("page-history-modal-shell"),
+          purgePageHistory: requiredElement("purge-page-history"),
+          closePageHistoryModal: requiredElement("close-page-history-modal"),
+          pageHistoryTitle: requiredElement("page-history-title"),
+          pageHistoryResults: requiredElement("page-history-results"),
+          trashModalShell: requiredElement("trash-modal-shell"),
+          emptyTrash: requiredElement("empty-trash"),
+          closeTrashModal: requiredElement("close-trash-modal"),
+          trashResults: requiredElement("trash-results"),
           helpModalShell: requiredElement("help-modal-shell"),
           closeHelpModal: requiredElement("close-help-modal"),
           helpShortcutCore: requiredElement("help-shortcuts-core"),
@@ -3361,6 +3529,377 @@
           taskPickerState.ref = "";
           els.inlineTaskPicker.classList.add("hidden");
           clearNode(els.inlineTaskPicker);
+        }
+        function buildTableEditorRows(startLineNumber) {
+          const lines = String(state.currentMarkdown || "").replace(/\r\n/g, "\n").split("\n");
+          const table = markdownTableRowsForLine(lines, startLineNumber);
+          if (!table) {
+            return null;
+          }
+          const width = Math.max(2, table.header.length);
+          const normalizeRow = function(cells) {
+            const next = new Array(width).fill("");
+            for (let index = 0; index < width; index += 1) {
+              next[index] = String(cells[index] || "");
+            }
+            return next;
+          };
+          const rows = [normalizeRow(table.header)].concat(table.rows.map(normalizeRow));
+          if (rows.length < 2) {
+            rows.push(new Array(width).fill(""));
+          }
+          return rows;
+        }
+        function closeInlineTableEditor() {
+          state.tableEditor = null;
+          els.inlineTablePanel.classList.add("hidden");
+          els.inlineTablePanel.style.left = "";
+          els.inlineTablePanel.style.top = "";
+          els.inlineTablePanel.style.width = "";
+          clearNode(els.inlineTablePanel);
+        }
+        function inlineTableEditorHasFocus() {
+          const active = document.activeElement instanceof Node ? document.activeElement : null;
+          return Boolean(active && els.inlineTablePanel.contains(active));
+        }
+        function inlineTableEditorOpen() {
+          return Boolean(state.tableEditor && !els.inlineTablePanel.classList.contains("hidden"));
+        }
+        function focusInlineTableEditorCell(rowIndex, colIndex) {
+          window.requestAnimationFrame(function() {
+            const input = els.inlineTablePanel.querySelector('[data-inline-table-row="' + String(rowIndex) + '"][data-inline-table-col="' + String(colIndex) + '"]');
+            if (input instanceof HTMLInputElement) {
+              input.focus({ preventScroll: true });
+              input.select();
+            }
+          });
+        }
+        function appendInlineTableEditorRow(editorState) {
+          const cols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
+          editorState.rows.push(new Array(cols).fill(""));
+          editorState.dirty = true;
+        }
+        function insertInlineTableEditorRowAfter(editorState, rowIndex) {
+          const cols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
+          const nextRow = new Array(cols).fill("");
+          const insertAt = Math.max(0, Math.min(rowIndex + 1, editorState.rows.length));
+          editorState.rows.splice(insertAt, 0, nextRow);
+          editorState.dirty = true;
+          editorState.row = insertAt;
+          editorState.col = Math.max(0, Math.min(editorState.col, cols - 1));
+        }
+        function insertInlineTableEditorColumnAfter(editorState, colIndex) {
+          const insertAt = Math.max(0, colIndex + 1);
+          editorState.rows = editorState.rows.map(function(row) {
+            const next = row.slice();
+            next.splice(insertAt, 0, "");
+            return next;
+          });
+          editorState.dirty = true;
+          editorState.col = insertAt;
+        }
+        function moveInlineTableEditorFocus(editorState, rowIndex, colIndex, backward) {
+          const rowCount = editorState.rows.length;
+          const colCount = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
+          if (backward) {
+            if (colIndex > 0) {
+              editorState.row = rowIndex;
+              editorState.col = colIndex - 1;
+            } else if (rowIndex > 0) {
+              editorState.row = rowIndex - 1;
+              editorState.col = colCount - 1;
+            } else {
+              editorState.row = 0;
+              editorState.col = 0;
+            }
+            focusInlineTableEditorCell(editorState.row, editorState.col);
+            return;
+          }
+          if (colIndex < colCount - 1) {
+            editorState.row = rowIndex;
+            editorState.col = colIndex + 1;
+            focusInlineTableEditorCell(editorState.row, editorState.col);
+            return;
+          }
+          if (rowIndex < rowCount - 1) {
+            editorState.row = rowIndex + 1;
+            editorState.col = 0;
+            focusInlineTableEditorCell(editorState.row, editorState.col);
+            return;
+          }
+          appendInlineTableEditorRow(editorState);
+          editorState.row = editorState.rows.length - 1;
+          editorState.col = 0;
+          renderInlineTableEditor();
+          focusInlineTableEditorCell(editorState.row, editorState.col);
+        }
+        function restoreInlineTableEditorFocus() {
+          if (!state.tableEditor || els.inlineTablePanel.classList.contains("hidden")) {
+            return;
+          }
+          const row = state.tableEditor.row;
+          const col = state.tableEditor.col;
+          focusInlineTableEditorCell(row, col);
+          window.setTimeout(function() {
+            if (state.tableEditor && !els.inlineTablePanel.classList.contains("hidden")) {
+              focusInlineTableEditorCell(state.tableEditor.row, state.tableEditor.col);
+            }
+          }, 50);
+          window.setTimeout(function() {
+            if (state.tableEditor && !els.inlineTablePanel.classList.contains("hidden")) {
+              focusInlineTableEditorCell(state.tableEditor.row, state.tableEditor.col);
+            }
+          }, 180);
+        }
+        function clampTableEditorWidth(width) {
+          const viewportWidth = Math.max(320, window.innerWidth || 0);
+          return Math.max(320, Math.min(Math.round(width || 0), viewportWidth - 24, 900));
+        }
+        function positionInlineTableEditorPanel() {
+          if (!state.tableEditor) {
+            return;
+          }
+          if (els.inlineTablePanel.classList.contains("hidden")) {
+            return;
+          }
+          const viewportWidth = Math.max(320, window.innerWidth || 0);
+          const viewportHeight = Math.max(320, window.innerHeight || 0);
+          const width = clampTableEditorWidth(state.tableEditor.width || 0);
+          const rect = els.inlineTablePanel.getBoundingClientRect();
+          const panelHeight = rect.height || 0;
+          let left = Math.round(state.tableEditor.left || 12);
+          let top = Math.round(state.tableEditor.top || 12);
+          left = Math.max(12, Math.min(left, viewportWidth - width - 12));
+          if (panelHeight > 0 && top + panelHeight > viewportHeight - 12) {
+            top = Math.max(12, viewportHeight - panelHeight - 12);
+          }
+          els.inlineTablePanel.style.left = String(left) + "px";
+          els.inlineTablePanel.style.top = String(top) + "px";
+          els.inlineTablePanel.style.width = String(width) + "px";
+        }
+        function anchorInlineTableEditorToRenderedTable(startLineNumber) {
+          const host = state.markdownEditorApi && state.markdownEditorApi.host ? state.markdownEditorApi.host : null;
+          if (!host || !state.tableEditor) {
+            return;
+          }
+          const anchor = host.querySelector('[data-table-start-line="' + String(startLineNumber) + '"]');
+          const rect = anchor instanceof HTMLElement ? anchor.getBoundingClientRect() : null;
+          if (!rect) {
+            return;
+          }
+          state.tableEditor.left = Math.round(rect.left);
+          state.tableEditor.top = Math.round(rect.top);
+          state.tableEditor.width = Math.round(rect.width);
+          positionInlineTableEditorPanel();
+        }
+        function applyInlineTableEditor(closeAfter) {
+          if (!state.tableEditor || !state.selectedPage || !state.currentPage) {
+            if (closeAfter) {
+              closeInlineTableEditor();
+            }
+            return;
+          }
+          const editorState = state.tableEditor;
+          const width = Math.max(2, ...editorState.rows.map(function(row) {
+            return row.length;
+          }));
+          const normalizedRows = editorState.rows.map(function(row) {
+            const next = new Array(width).fill("");
+            for (let index = 0; index < width; index += 1) {
+              next[index] = String(row[index] || "");
+            }
+            return next;
+          });
+          if (normalizedRows.length < 2) {
+            normalizedRows.push(new Array(width).fill(""));
+          }
+          const lines = String(state.currentMarkdown || "").replace(/\r\n/g, "\n").split("\n");
+          const block = findMarkdownTableBlockForLine(lines, editorState.startLine);
+          if (!block) {
+            closeInlineTableEditor();
+            return;
+          }
+          const replaceFrom = lines.slice(0, block.startLineIndex).reduce(function(sum, line) {
+            return sum + line.length + 1;
+          }, 0);
+          const replaceTo = lines.slice(0, block.endLineIndex + 1).reduce(function(sum, line) {
+            return sum + line.length + 1;
+          }, 0) - (block.endLineIndex + 1 < lines.length ? 1 : 0);
+          const hasFollowingLine = block.endLineIndex + 1 < lines.length;
+          const replacementLines = [
+            formatMarkdownTableRow(normalizedRows[0]),
+            formatMarkdownTableRow(new Array(width).fill("---"))
+          ].concat(normalizedRows.slice(1).map(formatMarkdownTableRow));
+          const replacement = replacementLines.join("\n");
+          lines.splice(block.startLineIndex, block.endLineIndex - block.startLineIndex + 1, ...replacementLines);
+          const nextMarkdown = lines.join("\n");
+          const scrollTop = markdownEditorScrollTop(state, els);
+          if (state.markdownEditorApi) {
+            state.markdownEditorApi.replaceRange(replaceFrom, replaceTo, replacement);
+          } else {
+            setMarkdownEditorValue(state, els, nextMarkdown);
+          }
+          setMarkdownEditorScrollTop(state, els, scrollTop);
+          state.currentMarkdown = nextMarkdown;
+          state.tableEditor.rows = normalizedRows;
+          state.tableEditor.dirty = false;
+          els.rawView.textContent = nextMarkdown;
+          refreshLivePageChrome();
+          scheduleAutosave();
+          if (closeAfter) {
+            closeInlineTableEditor();
+            const focusOffset = Math.max(0, Math.min(nextMarkdown.length, replaceFrom + replacement.length + (hasFollowingLine ? 1 : 0)));
+            window.requestAnimationFrame(function() {
+              focusMarkdownEditor(state, els, { preventScroll: true });
+              setMarkdownEditorSelection(state, els, focusOffset, focusOffset, true);
+            });
+            return;
+          }
+          renderInlineTableEditor();
+          focusInlineTableEditorCell(editorState.row, editorState.col);
+        }
+        function renderInlineTableEditor() {
+          clearNode(els.inlineTablePanel);
+          if (!state.tableEditor || state.sourceOpen) {
+            els.inlineTablePanel.classList.add("hidden");
+            els.inlineTablePanel.style.left = "";
+            els.inlineTablePanel.style.top = "";
+            els.inlineTablePanel.style.width = "";
+            return;
+          }
+          const editorState = state.tableEditor;
+          const cols = editorState.rows[0] ? editorState.rows[0].length : 0;
+          const head = document.createElement("div");
+          head.className = "table-editor-head";
+          const title = document.createElement("h3");
+          title.textContent = editorState.dirty ? "Table Editor \u2022 Unsaved" : "Table Editor";
+          head.appendChild(title);
+          const actions = document.createElement("div");
+          actions.className = "table-editor-actions";
+          const addRow = document.createElement("button");
+          addRow.type = "button";
+          addRow.textContent = "+ Row";
+          addRow.addEventListener("click", function() {
+            insertInlineTableEditorRowAfter(editorState, editorState.row);
+            renderInlineTableEditor();
+            focusInlineTableEditorCell(editorState.row, editorState.col);
+          });
+          actions.appendChild(addRow);
+          const addCol = document.createElement("button");
+          addCol.type = "button";
+          addCol.textContent = "+ Col";
+          addCol.addEventListener("click", function() {
+            insertInlineTableEditorColumnAfter(editorState, editorState.col);
+            renderInlineTableEditor();
+            focusInlineTableEditorCell(editorState.row, editorState.col);
+          });
+          actions.appendChild(addCol);
+          const apply = document.createElement("button");
+          apply.type = "button";
+          apply.textContent = "Apply";
+          apply.addEventListener("click", function() {
+            applyInlineTableEditor(false);
+          });
+          actions.appendChild(apply);
+          const done = document.createElement("button");
+          done.type = "button";
+          done.textContent = "Done";
+          done.addEventListener("click", function() {
+            applyInlineTableEditor(true);
+          });
+          actions.appendChild(done);
+          const cancel = document.createElement("button");
+          cancel.type = "button";
+          cancel.textContent = "Cancel";
+          cancel.addEventListener("click", function() {
+            closeInlineTableEditor();
+          });
+          actions.appendChild(cancel);
+          head.appendChild(actions);
+          els.inlineTablePanel.appendChild(head);
+          const grid = document.createElement("div");
+          grid.className = "table-editor-grid";
+          editorState.rows.forEach(function(row, rowIndex) {
+            const rowNode = document.createElement("div");
+            rowNode.className = "table-editor-row" + (rowIndex === 0 ? " table-editor-header" : "");
+            rowNode.style.gridTemplateColumns = "repeat(" + String(Math.max(1, cols)) + ", minmax(0, 1fr))";
+            row.forEach(function(cell, colIndex) {
+              const input = document.createElement("input");
+              input.type = "text";
+              input.value = cell;
+              input.setAttribute("data-inline-table-row", String(rowIndex));
+              input.setAttribute("data-inline-table-col", String(colIndex));
+              input.addEventListener("focus", function() {
+                editorState.row = rowIndex;
+                editorState.col = colIndex;
+              });
+              input.addEventListener("input", function() {
+                editorState.rows[rowIndex][colIndex] = input.value;
+                editorState.dirty = true;
+              });
+              input.addEventListener("keydown", function(rawEvent) {
+                const event = rawEvent;
+                if (event.key !== "Tab") {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    closeInlineTableEditor();
+                    return;
+                  }
+                  if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+                    event.preventDefault();
+                    editorState.rows[rowIndex][colIndex] = input.value;
+                    applyInlineTableEditor(true);
+                  }
+                  return;
+                }
+                event.preventDefault();
+                editorState.rows[rowIndex][colIndex] = input.value;
+                moveInlineTableEditorFocus(editorState, rowIndex, colIndex, event.shiftKey);
+              });
+              rowNode.appendChild(input);
+            });
+            grid.appendChild(rowNode);
+          });
+          els.inlineTablePanel.appendChild(grid);
+          els.inlineTablePanel.classList.remove("hidden");
+          positionInlineTableEditorPanel();
+        }
+        function openInlineTableEditor(startLineNumber, rowIndex, colIndex, anchor) {
+          if (state.tableEditor && state.tableEditor.startLine === startLineNumber) {
+            state.tableEditor.row = rowIndex;
+            state.tableEditor.col = colIndex;
+            if (anchor) {
+              state.tableEditor.left = anchor.left;
+              state.tableEditor.top = anchor.top;
+              state.tableEditor.width = anchor.width;
+            }
+            renderInlineTableEditor();
+            restoreInlineTableEditorFocus();
+            return;
+          }
+          const rows = buildTableEditorRows(startLineNumber);
+          if (!rows) {
+            closeInlineTableEditor();
+            return;
+          }
+          state.tableEditor = {
+            startLine: startLineNumber,
+            row: Math.max(0, rowIndex),
+            col: Math.max(0, colIndex),
+            rows,
+            dirty: false,
+            left: anchor ? anchor.left : 12,
+            top: anchor ? anchor.top : 12,
+            width: anchor ? anchor.width : 520
+          };
+          renderInlineTableEditor();
+          if (!anchor) {
+            window.requestAnimationFrame(function() {
+              anchorInlineTableEditorToRenderedTable(startLineNumber);
+              restoreInlineTableEditorFocus();
+            });
+          }
+          restoreInlineTableEditorFocus();
         }
         function renderTaskPickerCalendar(target, mode) {
           clearNode(target);
@@ -3781,6 +4320,153 @@
           }
           node.addEventListener(eventName, handler);
         }
+        function taskLineIndent(line) {
+          const match = String(line || "").match(/^(\s*)-\s+\[[ xX]\]\s+/);
+          return match ? match[1].length : null;
+        }
+        function taskBlockEnd(lines, startIndex) {
+          const startIndent = taskLineIndent(lines[startIndex]);
+          if (startIndent === null) {
+            return startIndex + 1;
+          }
+          let index = startIndex + 1;
+          while (index < lines.length) {
+            const indent = taskLineIndent(lines[index]);
+            if (indent !== null && indent <= startIndent) {
+              break;
+            }
+            index += 1;
+          }
+          return index;
+        }
+        function previousSiblingTaskStart(lines, startIndex, indent) {
+          for (let index = startIndex - 1; index >= 0; index -= 1) {
+            const candidateIndent = taskLineIndent(lines[index]);
+            if (candidateIndent === null) {
+              continue;
+            }
+            if (candidateIndent < indent) {
+              return -1;
+            }
+            if (candidateIndent === indent) {
+              return index;
+            }
+          }
+          return -1;
+        }
+        function nextSiblingTaskStart(lines, endIndex, indent) {
+          for (let index = endIndex; index < lines.length; index += 1) {
+            const candidateIndent = taskLineIndent(lines[index]);
+            if (candidateIndent === null) {
+              continue;
+            }
+            if (candidateIndent < indent) {
+              return -1;
+            }
+            if (candidateIndent === indent) {
+              return index;
+            }
+          }
+          return -1;
+        }
+        function currentRawLineIndex(value, lineStart) {
+          return String(value || "").slice(0, Math.max(0, lineStart)).split("\n").length - 1;
+        }
+        function replaceMarkdownAndKeepEditor(nextMarkdown, nextOffset, scrollTop) {
+          setMarkdownEditorValue(state, els, nextMarkdown);
+          state.currentMarkdown = nextMarkdown;
+          els.rawView.textContent = nextMarkdown;
+          refreshLivePageChrome();
+          scheduleAutosave();
+          focusMarkdownEditor(state, els, { preventScroll: true });
+          setMarkdownEditorSelection(state, els, nextOffset, nextOffset);
+          setMarkdownEditorScrollTop(state, els, scrollTop);
+        }
+        function moveCurrentTaskBlock(direction) {
+          if (!state.selectedPage || !state.currentPage) {
+            return false;
+          }
+          const rawContext = currentRawLineContext(state, els);
+          const lines = String(rawContext.value || "").replace(/\r\n/g, "\n").split("\n");
+          const currentLineIndex = currentRawLineIndex(rawContext.value, rawContext.lineStart);
+          const startIndex = currentLineIndex;
+          const indent = taskLineIndent(lines[currentLineIndex] || "");
+          if (indent === null) {
+            return false;
+          }
+          const currentEnd = taskBlockEnd(lines, startIndex);
+          const currentLength = currentEnd - startIndex;
+          const relativeLineIndex = currentLineIndex - startIndex;
+          const scrollTop = markdownEditorScrollTop(state, els);
+          if (direction < 0) {
+            const prevStart = previousSiblingTaskStart(lines, startIndex, indent);
+            if (prevStart < 0) {
+              return false;
+            }
+            const nextLines2 = lines.slice();
+            const movedBlock2 = nextLines2.splice(startIndex, currentLength);
+            nextLines2.splice(prevStart, 0, ...movedBlock2);
+            const nextMarkdown2 = nextLines2.join("\n");
+            const nextLineIndex2 = prevStart + relativeLineIndex;
+            const nextLineText2 = nextLines2[nextLineIndex2] || "";
+            const nextOffset2 = rawOffsetForLineNumber(nextMarkdown2, nextLineIndex2 + 1) + Math.min(rawContext.caretInLine, nextLineText2.length);
+            replaceMarkdownAndKeepEditor(nextMarkdown2, nextOffset2, scrollTop);
+            return true;
+          }
+          const nextStart = nextSiblingTaskStart(lines, currentEnd, indent);
+          if (nextStart < 0) {
+            return false;
+          }
+          const nextEnd = taskBlockEnd(lines, nextStart);
+          const nextLines = lines.slice();
+          const movedBlock = nextLines.splice(startIndex, currentLength);
+          const insertedAt = nextEnd - currentLength;
+          nextLines.splice(insertedAt, 0, ...movedBlock);
+          const nextMarkdown = nextLines.join("\n");
+          const nextLineIndex = insertedAt + relativeLineIndex;
+          const nextLineText = nextLines[nextLineIndex] || "";
+          const nextOffset = rawOffsetForLineNumber(nextMarkdown, nextLineIndex + 1) + Math.min(rawContext.caretInLine, nextLineText.length);
+          replaceMarkdownAndKeepEditor(nextMarkdown, nextOffset, scrollTop);
+          return true;
+        }
+        function indentCurrentTaskBlock(delta) {
+          if (!state.selectedPage || !state.currentPage) {
+            return false;
+          }
+          const rawContext = currentRawLineContext(state, els);
+          const lines = String(rawContext.value || "").replace(/\r\n/g, "\n").split("\n");
+          const currentLineIndex = currentRawLineIndex(rawContext.value, rawContext.lineStart);
+          const startIndex = currentLineIndex;
+          const indent = taskLineIndent(lines[currentLineIndex] || "");
+          if (indent === null) {
+            return false;
+          }
+          if (delta < 0 && indent < 2) {
+            return false;
+          }
+          const endIndex = taskBlockEnd(lines, startIndex);
+          const scrollTop = markdownEditorScrollTop(state, els);
+          const nextLines = lines.slice();
+          for (let index = startIndex; index < endIndex; index += 1) {
+            const line = nextLines[index];
+            if (!String(line || "").length) {
+              continue;
+            }
+            nextLines[index] = delta > 0 ? "  " + line : String(line).replace(/^ {1,2}/, "");
+          }
+          const nextMarkdown = nextLines.join("\n");
+          const nextLineText = nextLines[currentLineIndex] || "";
+          const nextCaretInLine = Math.max(0, Math.min(rawContext.caretInLine + (delta > 0 ? 2 : -2), nextLineText.length));
+          const nextOffset = rawOffsetForLineNumber(nextMarkdown, currentLineIndex + 1) + nextCaretInLine;
+          replaceMarkdownAndKeepEditor(nextMarkdown, nextOffset, scrollTop);
+          return true;
+        }
+        function selectionOnTaskLine() {
+          const rawContext = currentRawLineContext(state, els);
+          const lines = String(rawContext.value || "").replace(/\r\n/g, "\n").split("\n");
+          const currentLineIndex = currentRawLineIndex(rawContext.value, rawContext.lineStart);
+          return taskLineIndent(lines[currentLineIndex] || "") !== null;
+        }
         function applySlashSelection() {
           if (!state.slashOpen || !state.slashContext) {
             closeSlashMenu(state, els);
@@ -3796,15 +4482,28 @@
           const updated = command.apply(rawContext.lineText);
           const nextValue = rawContext.value.slice(0, rawContext.lineStart) + updated + rawContext.value.slice(rawContext.lineEnd);
           const scrollTop = markdownEditorScrollTop(state, els);
+          const insertedRawLineNumber = rawContext.value.slice(0, rawContext.lineStart).split("\n").length;
           setMarkdownEditorValue(state, els, nextValue);
           state.currentMarkdown = nextValue;
           els.rawView.textContent = state.currentMarkdown;
           scheduleAutosave();
-          const caret = rawContext.lineStart + (typeof command.caret === "function" ? command.caret(updated) : updated.length);
-          focusMarkdownEditor(state, els, { preventScroll: true });
-          setMarkdownEditorSelection(state, els, caret, caret);
-          setMarkdownEditorScrollTop(state, els, scrollTop);
+          if (command.id === "table") {
+            const safeCaret = Math.max(0, Math.min(rawContext.lineStart + updated.length, nextValue.length));
+            setMarkdownEditorSelection(state, els, safeCaret, safeCaret);
+            setMarkdownEditorScrollTop(state, els, scrollTop);
+            if (state.markdownEditorApi) {
+              state.markdownEditorApi.blur();
+            }
+          } else {
+            const caret = rawContext.lineStart + (typeof command.caret === "function" ? command.caret(updated) : updated.length);
+            focusMarkdownEditor(state, els, { preventScroll: true });
+            setMarkdownEditorSelection(state, els, caret, caret);
+            setMarkdownEditorScrollTop(state, els, scrollTop);
+          }
           closeSlashMenu(state, els);
+          if (command.id === "table") {
+            openInlineTableEditor(insertedRawLineNumber, 1, 0);
+          }
           return true;
         }
         function insertTextAtEditorSelection(text) {
@@ -3897,6 +4596,11 @@
           els.toggleSourceMode.textContent = state.sourceOpen ? "Preview" : "Raw";
           els.toggleSourceMode.title = state.sourceOpen ? "Switch to rendered preview (" + hotkeyLabel(state.settings.preferences.hotkeys.toggleRawMode) + ")" : "Switch to raw markdown (" + hotkeyLabel(state.settings.preferences.hotkeys.toggleRawMode) + ")";
         }
+        function renderPageHistoryButton() {
+          const hasPage2 = Boolean(state.selectedPage && state.currentPage);
+          els.pageHistoryButton.disabled = !hasPage2;
+          els.pageHistoryButton.title = hasPage2 ? "Open page history" : "Open a note first";
+        }
         function updateMarkdownBodyRange(start, end, replacement) {
           const split = splitFrontmatter(state.currentMarkdown);
           const bodyLines = split.body.split("\n");
@@ -3940,10 +4644,12 @@
         function renderNoteStudio() {
           const page = currentPageView2();
           if (!page) {
+            closeInlineTableEditor();
             setMarkdownEditorValue(state, els, "");
             markdownEditorSetPagePath(state, "");
             setNoteStatus("Select a page to edit and preview markdown.");
             renderSourceModeButton();
+            renderPageHistoryButton();
             return;
           }
           setMarkdownEditorValue(state, els, state.currentMarkdown);
@@ -3962,7 +4668,18 @@
           }
           els.rawView.textContent = state.currentMarkdown;
           refreshLivePageChrome();
+          if (state.sourceOpen) {
+            closeInlineTableEditor();
+          } else if (state.tableEditor) {
+            const lines = String(state.currentMarkdown || "").replace(/\r\n/g, "\n").split("\n");
+            if (!findMarkdownTableBlockForLine(lines, state.tableEditor.startLine)) {
+              closeInlineTableEditor();
+            } else {
+              renderInlineTableEditor();
+            }
+          }
           renderSourceModeButton();
+          renderPageHistoryButton();
           if (hasUnsavedPageChanges()) {
             setNoteStatus("Unsaved local edits on " + state.selectedPage + ".");
             scheduleAutosave();
@@ -4155,6 +4872,7 @@
           setNoteHeadingValue("Waiting for selection", false);
           renderNoteStudio();
           renderSourceModeButton();
+          renderPageHistoryButton();
           renderPageTasks2([]);
           renderPageTags2();
           renderPageContext2();
@@ -4238,6 +4956,7 @@
           renderSettingsForm();
           applyUIPreferences();
           renderSourceModeButton();
+          renderPageHistoryButton();
           loadMeta();
           if (state.currentPage) {
             renderNoteStudio();
@@ -4351,8 +5070,28 @@
               });
             },
             function(folderKey) {
+              const currentName = pageTitleFromPath(folderKey);
+              const nextName = normalizePageDraftPath(window.prompt('Rename folder "' + currentName + '"', currentName) || "");
+              if (!nextName || nextName === currentName) {
+                return;
+              }
+              renameFolder(folderKey, nextName).catch(function(error) {
+                setNoteStatus("Rename folder failed: " + errorMessage(error));
+              });
+            },
+            function(folderKey) {
               deleteFolder(folderKey).catch(function(error) {
                 setNoteStatus("Delete folder failed: " + errorMessage(error));
+              });
+            },
+            function(pagePath) {
+              const currentName = pageTitleFromPath(pagePath);
+              const nextName = normalizePageDraftPath(window.prompt('Rename note "' + currentName + '"', currentName) || "");
+              if (!nextName || nextName === currentName) {
+                return;
+              }
+              renamePage(pagePath, nextName).catch(function(error) {
+                setNoteStatus("Rename note failed: " + errorMessage(error));
               });
             },
             function(pagePath) {
@@ -4416,11 +5155,12 @@
             setNoteStatus("Task toggle failed: " + errorMessage(error));
           }
         }
-        async function loadPageDetail(pagePath, force) {
+        async function loadPageDetail(pagePath, force, allowEditorFocus) {
           if (!force && hasUnsavedPageChanges()) {
             setNoteStatus("Unsaved local edits on " + state.selectedPage + ". Autosave pending.");
             return;
           }
+          const shouldFocusEditor = allowEditorFocus !== false;
           try {
             const pendingLineFocus = state.pendingPageLineFocus;
             const loaded = await loadPageDetailData(
@@ -4460,7 +5200,7 @@
               page.rawMarkdown || ""
             );
             renderNoteStudio();
-            if (state.markdownEditorApi && !blockingOverlayOpen(els)) {
+            if (shouldFocusEditor && state.markdownEditorApi && !blockingOverlayOpen(els) && !inlineTableEditorOpen()) {
               state.markdownEditorApi.setHighlightedLine(
                 typeof pendingLineFocus === "number" && pendingLineFocus > 0 ? pendingLineFocus : null
               );
@@ -4479,7 +5219,7 @@
                 state.markdownEditorApi.setHighlightedLine(null);
                 focusEditorAtBodyPosition(firstEditableLineIndex(state.currentMarkdown), 0);
               }
-            } else if (state.sourceOpen && !blockingOverlayOpen(els)) {
+            } else if (shouldFocusEditor && state.sourceOpen && !blockingOverlayOpen(els) && !inlineTableEditorOpen()) {
               window.setTimeout(function() {
                 if (els.markdownEditor) {
                   focusMarkdownEditor(state, els, { preventScroll: true });
@@ -4526,10 +5266,10 @@
         }
         function refreshCurrentDetail(force) {
           if (state.selectedPage) {
-            if (!force && markdownEditorHasFocus(state, els)) {
+            if (!force && (markdownEditorHasFocus(state, els) || inlineTableEditorHasFocus() || inlineTableEditorOpen())) {
               return;
             }
-            loadPageDetail(state.selectedPage, force);
+            loadPageDetail(state.selectedPage, force, false);
             return;
           }
           if (state.selectedSavedQuery) {
@@ -4618,15 +5358,38 @@
         }
         function setSearchOpen(open) {
           if (open) {
+            rememberNoteFocus();
             els.commandModalShell.classList.add("hidden");
             els.quickSwitcherModalShell.classList.add("hidden");
             els.documentsModalShell.classList.add("hidden");
             els.helpModalShell.classList.add("hidden");
+            els.pageHistoryModalShell.classList.add("hidden");
+            els.trashModalShell.classList.add("hidden");
           }
           setPaletteOpen(els.searchModalShell, els.globalSearchInput, open);
         }
         function closeSearchModal() {
           setSearchOpen(false);
+        }
+        function rememberNoteFocus() {
+          if (!state.selectedPage) {
+            return;
+          }
+          state.restoreFocusSpec = {
+            mode: "editor",
+            offset: markdownEditorSelectionStart(state, els)
+          };
+        }
+        function restoreNoteFocus() {
+          if (!state.selectedPage) {
+            return;
+          }
+          window.requestAnimationFrame(function() {
+            restoreEditorFocus(state, els, state.selectedPage);
+            if (state.selectedPage && !state.restoreFocusSpec && !blockingOverlayOpen(els) && !inlineTableEditorOpen()) {
+              focusMarkdownEditor(state, els, { preventScroll: true });
+            }
+          });
         }
         function searchResultButtons() {
           return resultButtons(els.globalSearchResults);
@@ -4682,10 +5445,13 @@
         }
         function setCommandPaletteOpen(open) {
           if (open) {
+            rememberNoteFocus();
             els.searchModalShell.classList.add("hidden");
             els.quickSwitcherModalShell.classList.add("hidden");
             els.documentsModalShell.classList.add("hidden");
             els.helpModalShell.classList.add("hidden");
+            els.pageHistoryModalShell.classList.add("hidden");
+            els.trashModalShell.classList.add("hidden");
           }
           setPaletteOpen(els.commandModalShell, els.commandPaletteInput, open);
         }
@@ -4694,10 +5460,13 @@
         }
         function setQuickSwitcherOpen(open) {
           if (open) {
+            rememberNoteFocus();
             els.searchModalShell.classList.add("hidden");
             els.commandModalShell.classList.add("hidden");
             els.documentsModalShell.classList.add("hidden");
             els.helpModalShell.classList.add("hidden");
+            els.pageHistoryModalShell.classList.add("hidden");
+            els.trashModalShell.classList.add("hidden");
           }
           setPaletteOpen(els.quickSwitcherModalShell, els.quickSwitcherInput, open);
         }
@@ -4706,22 +5475,257 @@
         }
         function setDocumentsOpen(open) {
           if (open) {
+            rememberNoteFocus();
             els.searchModalShell.classList.add("hidden");
             els.commandModalShell.classList.add("hidden");
             els.quickSwitcherModalShell.classList.add("hidden");
             els.helpModalShell.classList.add("hidden");
+            els.pageHistoryModalShell.classList.add("hidden");
+            els.trashModalShell.classList.add("hidden");
           }
           setPaletteOpen(els.documentsModalShell, els.documentsInput, open);
         }
         function closeDocumentsModal() {
           setDocumentsOpen(false);
         }
-        function setHelpOpen(open) {
+        function firstContentLine(rawMarkdown) {
+          const line = String(rawMarkdown || "").split(/\r?\n/).map(function(part) {
+            return part.trim();
+          }).find(Boolean);
+          return line || "Empty note";
+        }
+        function historyChangePreview(rawMarkdown, previousMarkdown) {
+          const currentLines = String(rawMarkdown || "").split(/\r?\n/);
+          const previousLines = String(previousMarkdown || "").split(/\r?\n/);
+          const changes = [];
+          const limit = Math.max(currentLines.length, previousLines.length);
+          for (let index = 0; index < limit; index += 1) {
+            const currentLine = String(currentLines[index] || "").trim();
+            const previousLine = String(previousLines[index] || "").trim();
+            if (currentLine === previousLine) {
+              continue;
+            }
+            if (previousLine) {
+              changes.push("- " + previousLine);
+            }
+            if (currentLine) {
+              changes.push("+ " + currentLine);
+            }
+            if (changes.length >= 2) {
+              break;
+            }
+          }
+          if (!changes.length) {
+            return firstContentLine(rawMarkdown);
+          }
+          return changes.slice(0, 2).join(" \xB7 ");
+        }
+        function setPageHistoryOpen(open) {
           if (open) {
+            rememberNoteFocus();
             els.searchModalShell.classList.add("hidden");
             els.commandModalShell.classList.add("hidden");
             els.quickSwitcherModalShell.classList.add("hidden");
             els.documentsModalShell.classList.add("hidden");
+            els.helpModalShell.classList.add("hidden");
+            els.settingsModalShell.classList.add("hidden");
+            els.trashModalShell.classList.add("hidden");
+            els.pageHistoryModalShell.classList.remove("hidden");
+            window.requestAnimationFrame(function() {
+              focusWithoutScroll(els.closePageHistoryModal);
+            });
+            return;
+          }
+          els.pageHistoryModalShell.classList.add("hidden");
+        }
+        function closePageHistoryModal() {
+          setPageHistoryOpen(false);
+        }
+        function renderPageHistory() {
+          clearNode(els.pageHistoryResults);
+          if (!state.pageHistory.length) {
+            renderEmpty(els.pageHistoryResults, "No saved revisions for this page yet.");
+            return;
+          }
+          state.pageHistory.forEach(function(revision, index) {
+            const item = document.createElement("div");
+            item.className = "history-item";
+            const meta = document.createElement("div");
+            meta.className = "history-item-meta";
+            meta.textContent = formatDateTimeValue(revision.savedAt);
+            const snippet = document.createElement("div");
+            snippet.className = "history-item-snippet";
+            snippet.textContent = historyChangePreview(
+              revision.rawMarkdown,
+              index + 1 < state.pageHistory.length ? state.pageHistory[index + 1].rawMarkdown : ""
+            );
+            const actions = document.createElement("div");
+            actions.className = "history-item-actions";
+            const restoreButton = document.createElement("button");
+            restoreButton.type = "button";
+            restoreButton.textContent = "Restore";
+            restoreButton.addEventListener("click", function() {
+              if (!state.selectedPage) {
+                return;
+              }
+              fetchJSON("/api/page-history/" + encodePath(state.selectedPage) + "/restore", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ revisionId: revision.id })
+              }).then(function() {
+                closePageHistoryModal();
+                return Promise.all([loadPages(), loadPageDetail(state.selectedPage, true)]);
+              }).then(function() {
+                setNoteStatus("Restored revision for " + state.selectedPage + ".");
+              }).catch(function(error) {
+                setNoteStatus("Restore failed: " + errorMessage(error));
+              });
+            });
+            actions.appendChild(restoreButton);
+            item.appendChild(meta);
+            item.appendChild(snippet);
+            item.appendChild(actions);
+            els.pageHistoryResults.appendChild(item);
+          });
+        }
+        async function loadPageHistory() {
+          if (!state.selectedPage) {
+            state.pageHistory = [];
+            renderPageHistory();
+            return;
+          }
+          els.pageHistoryTitle.textContent = "Revision History \xB7 " + pageTitleFromPath(state.selectedPage);
+          const payload = await fetchJSON("/api/page-history/" + encodePath(state.selectedPage));
+          state.pageHistory = Array.isArray(payload.revisions) ? payload.revisions : [];
+          renderPageHistory();
+        }
+        async function purgeCurrentPageHistory() {
+          if (!state.selectedPage) {
+            return;
+          }
+          if (!window.confirm("Permanently remove all saved revisions for " + state.selectedPage + "?")) {
+            return;
+          }
+          await fetchJSON("/api/page-history/" + encodePath(state.selectedPage), {
+            method: "DELETE"
+          });
+          state.pageHistory = [];
+          renderPageHistory();
+          setNoteStatus("Purged history for " + state.selectedPage + ".");
+        }
+        function setTrashOpen(open) {
+          if (open) {
+            rememberNoteFocus();
+            els.searchModalShell.classList.add("hidden");
+            els.commandModalShell.classList.add("hidden");
+            els.quickSwitcherModalShell.classList.add("hidden");
+            els.documentsModalShell.classList.add("hidden");
+            els.helpModalShell.classList.add("hidden");
+            els.settingsModalShell.classList.add("hidden");
+            els.pageHistoryModalShell.classList.add("hidden");
+            els.trashModalShell.classList.remove("hidden");
+            window.requestAnimationFrame(function() {
+              focusWithoutScroll(els.closeTrashModal);
+            });
+            return;
+          }
+          els.trashModalShell.classList.add("hidden");
+        }
+        function closeTrashModal() {
+          setTrashOpen(false);
+        }
+        function renderTrash() {
+          clearNode(els.trashResults);
+          if (!state.trashPages.length) {
+            renderEmpty(els.trashResults, "Trash is empty.");
+            return;
+          }
+          state.trashPages.forEach(function(entry) {
+            const item = document.createElement("div");
+            item.className = "history-item";
+            const meta = document.createElement("div");
+            meta.className = "history-item-meta";
+            meta.textContent = pageTitleFromPath(entry.page) + " \xB7 deleted " + formatDateTimeValue(entry.deletedAt);
+            const snippet = document.createElement("div");
+            snippet.className = "history-item-snippet";
+            snippet.textContent = firstContentLine(entry.rawMarkdown);
+            const actions = document.createElement("div");
+            actions.className = "history-item-actions";
+            const restoreButton = document.createElement("button");
+            restoreButton.type = "button";
+            restoreButton.textContent = "Restore";
+            restoreButton.addEventListener("click", function() {
+              fetchJSON("/api/trash/pages/" + encodePath(entry.page) + "/restore", {
+                method: "POST"
+              }).then(function(payload) {
+                return loadPages().then(function() {
+                  state.trashPages = state.trashPages.filter(function(item2) {
+                    return item2.page !== entry.page;
+                  });
+                  renderTrash();
+                  navigateToPage(payload.page || entry.page, false);
+                  setNoteStatus("Restored " + entry.page + " from trash.");
+                });
+              }).catch(function(error) {
+                setNoteStatus("Restore failed: " + errorMessage(error));
+              });
+            });
+            const deleteButton = document.createElement("button");
+            deleteButton.type = "button";
+            deleteButton.className = "danger-button";
+            deleteButton.textContent = "Delete Permanently";
+            deleteButton.addEventListener("click", function() {
+              if (!window.confirm('Permanently delete "' + entry.page + '" and its history?')) {
+                return;
+              }
+              fetchJSON("/api/trash/pages/" + encodePath(entry.page), {
+                method: "DELETE"
+              }).then(function() {
+                state.trashPages = state.trashPages.filter(function(item2) {
+                  return item2.page !== entry.page;
+                });
+                renderTrash();
+                setNoteStatus("Permanently deleted " + entry.page + ".");
+              }).catch(function(error) {
+                setNoteStatus("Permanent delete failed: " + errorMessage(error));
+              });
+            });
+            actions.appendChild(restoreButton);
+            actions.appendChild(deleteButton);
+            item.appendChild(meta);
+            item.appendChild(snippet);
+            item.appendChild(actions);
+            els.trashResults.appendChild(item);
+          });
+        }
+        async function loadTrash() {
+          const payload = await fetchJSON("/api/trash/pages");
+          state.trashPages = Array.isArray(payload.pages) ? payload.pages : [];
+          renderTrash();
+        }
+        async function emptyTrash() {
+          if (!state.trashPages.length) {
+            return;
+          }
+          if (!window.confirm("Permanently delete all trashed pages and their history?")) {
+            return;
+          }
+          await fetchJSON("/api/trash/pages", {
+            method: "DELETE"
+          });
+          state.trashPages = [];
+          renderTrash();
+          setNoteStatus("Trash emptied.");
+        }
+        function setHelpOpen(open) {
+          if (open) {
+            rememberNoteFocus();
+            els.searchModalShell.classList.add("hidden");
+            els.commandModalShell.classList.add("hidden");
+            els.quickSwitcherModalShell.classList.add("hidden");
+            els.documentsModalShell.classList.add("hidden");
+            els.pageHistoryModalShell.classList.add("hidden");
+            els.trashModalShell.classList.add("hidden");
             els.helpModalShell.classList.remove("hidden");
             window.requestAnimationFrame(function() {
               focusWithoutScroll(els.closeHelpModal);
@@ -4735,11 +5739,14 @@
         }
         function setSettingsOpen(open) {
           if (open) {
+            rememberNoteFocus();
             els.searchModalShell.classList.add("hidden");
             els.commandModalShell.classList.add("hidden");
             els.quickSwitcherModalShell.classList.add("hidden");
             els.documentsModalShell.classList.add("hidden");
             els.helpModalShell.classList.add("hidden");
+            els.pageHistoryModalShell.classList.add("hidden");
+            els.trashModalShell.classList.add("hidden");
             els.settingsModalShell.classList.remove("hidden");
             renderSettingsForm();
             window.requestAnimationFrame(function() {
@@ -5022,19 +6029,32 @@
           if (!normalized) {
             return;
           }
-          if (!window.confirm('Delete page "' + normalized + '"?')) {
+          const deletingSelectedPage = state.selectedPage === normalized;
+          const currentIndex = state.pages.findIndex(function(page) {
+            return normalizePageDraftPath(page.path) === normalized;
+          });
+          const fallbackPage = currentIndex >= 0 ? state.pages[currentIndex - 1] || state.pages[currentIndex + 1] || null : null;
+          const fallbackPath = fallbackPage ? normalizePageDraftPath(fallbackPage.path) : "";
+          if (!window.confirm('Move page "' + normalized + '" to trash?')) {
             return;
           }
           await fetchJSON("/api/pages/" + encodePath(normalized), {
             method: "DELETE"
           });
+          setNoteStatus("Moved " + normalized + " to trash.");
           if (currentHomePage().toLowerCase() === normalized.toLowerCase()) {
             clearHomePage();
           }
-          if (state.selectedPage === normalized) {
-            clearPageSelection();
-          }
           await loadPages();
+          if (deletingSelectedPage) {
+            if (fallbackPath && state.pages.some(function(page) {
+              return normalizePageDraftPath(page.path) === fallbackPath;
+            })) {
+              navigateToPage(fallbackPath, true);
+            } else {
+              clearPageSelection();
+            }
+          }
         }
         async function deleteFolder(folderKey) {
           const normalized = normalizePageDraftPath(folderKey);
@@ -5100,6 +6120,17 @@
           await loadPages();
           navigateToPage(payload.page || toPath, false);
         }
+        async function renamePage(pagePath, nextLeafName) {
+          const fromPath = normalizePageDraftPath(pagePath);
+          const nextLeaf = normalizePageDraftPath(nextLeafName);
+          if (!fromPath || !nextLeaf) {
+            return;
+          }
+          const slash = fromPath.lastIndexOf("/");
+          const parent = slash >= 0 ? fromPath.slice(0, slash) : "";
+          const targetPath = parent ? parent + "/" + nextLeaf : nextLeaf;
+          await movePage(fromPath, targetPath);
+        }
         async function movePageToFolder(pagePath, folderKey) {
           const fromPath = normalizePageDraftPath(pagePath);
           if (!fromPath) {
@@ -5124,7 +6155,38 @@
           const payload = await fetchJSON("/api/folders/" + encodePath(sourceFolder) + "/move", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ targetFolder: destinationParent })
+            body: JSON.stringify({ targetFolder: destinationParent, name: "" })
+          });
+          const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
+          const movedSelectedPage = state.selectedPage ? remapPathPrefix(state.selectedPage, sourceFolder, movedFolder) : "";
+          const movedHomePage = currentHomePage() ? remapPathPrefix(currentHomePage(), sourceFolder, movedFolder) : "";
+          remapExpandedFolderKeys(sourceFolder, movedFolder);
+          if (movedHomePage) {
+            setHomePage(movedHomePage);
+          }
+          await loadPages();
+          if (movedSelectedPage && movedSelectedPage !== state.selectedPage) {
+            navigateToPage(movedSelectedPage, false);
+            return;
+          }
+          renderPages();
+        }
+        async function renameFolder(folderKey, nextLeafName) {
+          const sourceFolder = normalizePageDraftPath(folderKey);
+          const nextLeaf = normalizePageDraftPath(nextLeafName);
+          if (!sourceFolder || !nextLeaf) {
+            return;
+          }
+          const slash = sourceFolder.lastIndexOf("/");
+          const parentFolder = slash >= 0 ? sourceFolder.slice(0, slash) : "";
+          const destinationFolder = parentFolder ? parentFolder + "/" + nextLeaf : nextLeaf;
+          if (destinationFolder === sourceFolder || destinationFolder.startsWith(sourceFolder + "/")) {
+            return;
+          }
+          const payload = await fetchJSON("/api/folders/" + encodePath(sourceFolder) + "/move", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ targetFolder: parentFolder, name: nextLeaf })
           });
           const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
           const movedSelectedPage = state.selectedPage ? remapPathPrefix(state.selectedPage, sourceFolder, movedFolder) : "";
@@ -5251,6 +6313,7 @@
             state.markdownEditorApi.host.classList.remove("hidden");
           }
           renderSourceModeButton();
+          renderPageHistoryButton();
           window.setTimeout(function() {
             focusMarkdownEditor(state, els, { preventScroll: true });
             setMarkdownEditorSelection(state, els, selectionStart, selectionEnd);
@@ -5324,8 +6387,8 @@
             }
             setNoteStatus("Saved " + state.selectedPage + ".");
             await loadPages();
-            if (!markdownEditorHasFocus(state, els)) {
-              await loadPageDetail(state.selectedPage, true);
+            if (!markdownEditorHasFocus(state, els) && !inlineTableEditorHasFocus()) {
+              await loadPageDetail(state.selectedPage, true, false);
             }
           } catch (error) {
             setNoteStatus("Save failed: " + errorMessage(error));
@@ -5405,6 +6468,13 @@
             setSessionMenuOpen(false);
             setHelpOpen(true);
           });
+          on(els.openTrash, "click", function() {
+            setSessionMenuOpen(false);
+            setTrashOpen(true);
+            loadTrash().catch(function(error) {
+              setNoteStatus("Trash failed: " + errorMessage(error));
+            });
+          });
           on(els.openSettings, "click", function() {
             setSessionMenuOpen(false);
             setSettingsOpen(true);
@@ -5436,11 +6506,47 @@
             }
             setSourceOpen(!state.sourceOpen);
           });
-          on(els.closeCommandModal, "click", closeCommandPalette);
+          on(els.pageHistoryButton, "click", function() {
+            if (!state.selectedPage) {
+              return;
+            }
+            setPageHistoryOpen(true);
+            loadPageHistory().catch(function(error) {
+              setNoteStatus("History failed: " + errorMessage(error));
+            });
+          });
+          on(els.purgePageHistory, "click", function() {
+            purgeCurrentPageHistory().catch(function(error) {
+              setNoteStatus("Purge history failed: " + errorMessage(error));
+            });
+          });
+          on(els.closeCommandModal, "click", function() {
+            closeCommandPalette();
+            restoreNoteFocus();
+          });
           on(els.commandPaletteInput, "input", scheduleCommandPaletteRefresh);
-          on(els.closeQuickSwitcherModal, "click", closeQuickSwitcher);
+          on(els.closeQuickSwitcherModal, "click", function() {
+            closeQuickSwitcher();
+            restoreNoteFocus();
+          });
           on(els.quickSwitcherInput, "input", scheduleQuickSwitcherRefresh);
-          on(els.closeDocumentsModal, "click", closeDocumentsModal);
+          on(els.closeDocumentsModal, "click", function() {
+            closeDocumentsModal();
+            restoreNoteFocus();
+          });
+          on(els.closePageHistoryModal, "click", function() {
+            closePageHistoryModal();
+            restoreNoteFocus();
+          });
+          on(els.emptyTrash, "click", function() {
+            emptyTrash().catch(function(error) {
+              setNoteStatus("Empty trash failed: " + errorMessage(error));
+            });
+          });
+          on(els.closeTrashModal, "click", function() {
+            closeTrashModal();
+            restoreNoteFocus();
+          });
           on(els.documentsInput, "input", scheduleDocumentsRefresh);
           on(els.railTabFiles, "click", function() {
             setRailTab("files");
@@ -5516,6 +6622,44 @@
           });
           const handleMarkdownEditorKeydown = function(rawEvent) {
             const event = rawEvent;
+            if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey) {
+              if (event.key === "ArrowUp") {
+                if (selectionOnTaskLine()) {
+                  event.preventDefault();
+                }
+                if (moveCurrentTaskBlock(-1)) {
+                  return;
+                }
+                return;
+              }
+              if (event.key === "ArrowDown") {
+                if (selectionOnTaskLine()) {
+                  event.preventDefault();
+                }
+                if (moveCurrentTaskBlock(1)) {
+                  return;
+                }
+                return;
+              }
+              if (event.key === "ArrowRight") {
+                if (selectionOnTaskLine()) {
+                  event.preventDefault();
+                }
+                if (indentCurrentTaskBlock(1)) {
+                  return;
+                }
+                return;
+              }
+              if (event.key === "ArrowLeft") {
+                if (selectionOnTaskLine()) {
+                  event.preventDefault();
+                }
+                if (indentCurrentTaskBlock(-1)) {
+                  return;
+                }
+                return;
+              }
+            }
             if (event.key === "Enter" && event.shiftKey) {
               const rawContext = currentRawLineContext(state, els);
               const link = wikiLinkAtCaret(rawContext.lineText, rawContext.caretInLine);
@@ -5551,7 +6695,10 @@
           if (state.markdownEditorApi) {
             state.markdownEditorApi.onKeydown(handleMarkdownEditorKeydown);
           }
-          on(els.closeSearchModal, "click", closeSearchModal);
+          on(els.closeSearchModal, "click", function() {
+            closeSearchModal();
+            restoreNoteFocus();
+          });
           on(els.globalSearchInput, "input", scheduleGlobalSearch);
           on(els.globalSearchInput, "keydown", function(rawEvent) {
             const event = rawEvent;
@@ -5636,21 +6783,25 @@
           on(els.searchModalShell, "click", function(event) {
             if (event.target === els.searchModalShell) {
               closeSearchModal();
+              restoreNoteFocus();
             }
           });
           on(els.commandModalShell, "click", function(event) {
             if (event.target === els.commandModalShell) {
               closeCommandPalette();
+              restoreNoteFocus();
             }
           });
           on(els.quickSwitcherModalShell, "click", function(event) {
             if (event.target === els.quickSwitcherModalShell) {
               closeQuickSwitcher();
+              restoreNoteFocus();
             }
           });
           on(els.documentsModalShell, "click", function(event) {
             if (event.target === els.documentsModalShell) {
               closeDocumentsModal();
+              restoreNoteFocus();
             }
           });
           on(els.noteHeading, "focus", function() {
@@ -5682,14 +6833,24 @@
               setNoteStatus("Rename failed: " + errorMessage(error));
             });
           });
-          on(els.closeHelpModal, "click", closeHelpModal);
+          on(els.closeHelpModal, "click", function() {
+            closeHelpModal();
+            restoreNoteFocus();
+          });
           on(els.helpModalShell, "click", function(event) {
             if (event.target === els.helpModalShell) {
               closeHelpModal();
+              restoreNoteFocus();
             }
           });
-          on(els.closeSettingsModal, "click", closeSettingsModal);
-          on(els.cancelSettings, "click", closeSettingsModal);
+          on(els.closeSettingsModal, "click", function() {
+            closeSettingsModal();
+            restoreNoteFocus();
+          });
+          on(els.cancelSettings, "click", function() {
+            closeSettingsModal();
+            restoreNoteFocus();
+          });
           on(els.saveSettings, "click", function() {
             persistSettings().catch(function(error) {
               els.settingsStatus.textContent = errorMessage(error);
@@ -5698,6 +6859,19 @@
           on(els.settingsModalShell, "click", function(event) {
             if (event.target === els.settingsModalShell) {
               closeSettingsModal();
+              restoreNoteFocus();
+            }
+          });
+          on(els.pageHistoryModalShell, "click", function(event) {
+            if (event.target === els.pageHistoryModalShell) {
+              closePageHistoryModal();
+              restoreNoteFocus();
+            }
+          });
+          on(els.trashModalShell, "click", function(event) {
+            if (event.target === els.trashModalShell) {
+              closeTrashModal();
+              restoreNoteFocus();
             }
           });
           document.addEventListener("mousedown", function(event) {
@@ -5743,26 +6917,42 @@
             }
             if (event.key === "Escape" && els.searchModalShell && !els.searchModalShell.classList.contains("hidden")) {
               closeSearchModal();
+              restoreNoteFocus();
               return;
             }
             if (event.key === "Escape" && els.commandModalShell && !els.commandModalShell.classList.contains("hidden")) {
               closeCommandPalette();
+              restoreNoteFocus();
               return;
             }
             if (event.key === "Escape" && els.quickSwitcherModalShell && !els.quickSwitcherModalShell.classList.contains("hidden")) {
               closeQuickSwitcher();
+              restoreNoteFocus();
               return;
             }
             if (event.key === "Escape" && els.documentsModalShell && !els.documentsModalShell.classList.contains("hidden")) {
               closeDocumentsModal();
+              restoreNoteFocus();
+              return;
+            }
+            if (event.key === "Escape" && els.pageHistoryModalShell && !els.pageHistoryModalShell.classList.contains("hidden")) {
+              closePageHistoryModal();
+              restoreNoteFocus();
+              return;
+            }
+            if (event.key === "Escape" && els.trashModalShell && !els.trashModalShell.classList.contains("hidden")) {
+              closeTrashModal();
+              restoreNoteFocus();
               return;
             }
             if (event.key === "Escape" && els.helpModalShell && !els.helpModalShell.classList.contains("hidden")) {
               closeHelpModal();
+              restoreNoteFocus();
               return;
             }
             if (event.key === "Escape" && els.settingsModalShell && !els.settingsModalShell.classList.contains("hidden")) {
               closeSettingsModal();
+              restoreNoteFocus();
               return;
             }
             if (event.key === "Escape" && (state.propertyDraft || state.propertyTypeMenuKey)) {
@@ -5819,7 +7009,11 @@
           });
           window.addEventListener("focus", function() {
             state.windowBlurred = false;
-            restoreEditorFocus(state, els, state.selectedPage);
+            if (state.tableEditor && !els.inlineTablePanel.classList.contains("hidden")) {
+              restoreInlineTableEditorFocus();
+              return;
+            }
+            restoreNoteFocus();
           });
           document.addEventListener("visibilitychange", function() {
             if (document.hidden) {
@@ -5828,13 +7022,18 @@
               return;
             }
             state.windowBlurred = false;
-            restoreEditorFocus(state, els, state.selectedPage);
+            if (state.tableEditor && !els.inlineTablePanel.classList.contains("hidden")) {
+              restoreInlineTableEditorFocus();
+              return;
+            }
+            restoreNoteFocus();
           });
           window.addEventListener("popstate", function() {
             applyURLState2();
           });
         }
         async function boot() {
+          renderPageHistoryButton();
           if (window.NoteriousCodeEditor && els.markdownEditor) {
             state.markdownEditorApi = window.NoteriousCodeEditor.create(els.markdownEditor);
             const markdownEditorApi = state.markdownEditorApi;
@@ -5910,7 +7109,30 @@
                 setNoteStatus("Delete task failed: " + errorMessage(error));
               });
             });
+            on(markdownEditorApi.host, "noterious:table-open", function(event) {
+              const detail = event.detail || {};
+              const startLine = Number(detail.startLine) || 0;
+              const row = Math.max(0, Number(detail.row) || 0);
+              const col = Math.max(0, Number(detail.col) || 0);
+              const left = Number(detail.left);
+              const top = Number(detail.top);
+              const width = Number(detail.width);
+              const anchor = Number.isFinite(left) && Number.isFinite(top) ? {
+                left,
+                top,
+                width: Number.isFinite(width) ? width : 520
+              } : void 0;
+              openInlineTableEditor(startLine, row, col, anchor);
+            });
           }
+          on(window, "resize", function() {
+            positionInlineTableEditorPanel();
+          });
+          on(window, "scroll", function() {
+            if (state.tableEditor) {
+              anchorInlineTableEditorToRenderedTable(state.tableEditor.startLine);
+            }
+          });
           setDebugOpen(false);
           setRailTab("files");
           setRailOpen(!window.matchMedia("(max-width: 1180px)").matches);

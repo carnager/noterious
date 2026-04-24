@@ -18,6 +18,12 @@ export interface EditorControllerElements {
   taskModalShell?: HTMLElement;
   searchModalShell: HTMLElement;
   commandModalShell: HTMLElement;
+  quickSwitcherModalShell?: HTMLElement;
+  documentsModalShell?: HTMLElement;
+  helpModalShell?: HTMLElement;
+  settingsModalShell?: HTMLElement;
+  pageHistoryModalShell?: HTMLElement;
+  trashModalShell?: HTMLElement;
 }
 
 export interface RawLineContext {
@@ -102,7 +108,11 @@ export function setMarkdownEditorScrollTop(state: EditorControllerState, element
 
 export function markdownEditorHasFocus(state: EditorControllerState, elements: EditorControllerElements): boolean {
   const api = markdownEditorAPI(state);
-  return api ? api.hasFocus() : document.activeElement === elements.markdownEditor;
+  if (api) {
+    const active = document.activeElement instanceof Node ? document.activeElement : null;
+    return api.hasFocus() || Boolean(active && api.host.contains(active));
+  }
+  return document.activeElement === elements.markdownEditor;
 }
 
 export function markdownEditorCaretRect(state: EditorControllerState): DOMRect | null {
@@ -176,7 +186,13 @@ export function blockingOverlayOpen(elements: EditorControllerElements): boolean
   return Boolean(
     (elements.taskModalShell && !elements.taskModalShell.classList.contains("hidden")) ||
     !elements.searchModalShell.classList.contains("hidden") ||
-    !elements.commandModalShell.classList.contains("hidden")
+    !elements.commandModalShell.classList.contains("hidden") ||
+    Boolean(elements.quickSwitcherModalShell && !elements.quickSwitcherModalShell.classList.contains("hidden")) ||
+    Boolean(elements.documentsModalShell && !elements.documentsModalShell.classList.contains("hidden")) ||
+    Boolean(elements.helpModalShell && !elements.helpModalShell.classList.contains("hidden")) ||
+    Boolean(elements.settingsModalShell && !elements.settingsModalShell.classList.contains("hidden")) ||
+    Boolean(elements.pageHistoryModalShell && !elements.pageHistoryModalShell.classList.contains("hidden")) ||
+    Boolean(elements.trashModalShell && !elements.trashModalShell.classList.contains("hidden"))
   );
 }
 

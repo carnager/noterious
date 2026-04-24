@@ -21,6 +21,18 @@ export interface WikiLinkMatch {
   label: string;
 }
 
+export interface MarkdownTableBlock {
+  startLineIndex: number;
+  endLineIndex: number;
+  columnCount: number;
+  html: string;
+}
+
+export interface MarkdownTableRows {
+  header: string[];
+  rows: string[][];
+}
+
 export function splitFrontmatter(markdown: string): FrontmatterSplit {
   const source = String(markdown || "").replace(/\r\n/g, "\n");
   if (!source.startsWith("---\n")) {
@@ -246,6 +258,127 @@ export function escapeHTML(value: unknown): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+export function splitMarkdownTableRow(line: string): string[] {
+  const source = String(line || "").trim();
+  const trimmed = source.replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed.split("|").map(function (cell) {
+    return cell.trim();
+  });
+}
+
+export function formatMarkdownTableRow(cells: string[]): string {
+  return "| " + cells.map(function (cell) {
+    return String(cell || "").trim();
+  }).join(" | ") + " |";
+}
+
+function isMarkdownTableSeparator(line: string): boolean {
+  const cells = splitMarkdownTableRow(line);
+  if (!cells.length) {
+    return false;
+  }
+  return cells.every(function (cell) {
+    return /^:?-{3,}:?$/.test(cell);
+  });
+}
+
+function looksLikeMarkdownTableRow(line: string): boolean {
+  const source = String(line || "").trim();
+  return source.indexOf("|") >= 0 && splitMarkdownTableRow(source).length >= 2;
+}
+
+export function markdownTableBlockAt(lines: string[], startLineIndex: number): MarkdownTableBlock | null {
+  if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex + 1 >= lines.length) {
+    return null;
+  }
+
+  const headerLine = String(lines[startLineIndex] || "");
+  const separatorLine = String(lines[startLineIndex + 1] || "");
+  if (!looksLikeMarkdownTableRow(headerLine) || !isMarkdownTableSeparator(separatorLine)) {
+    return null;
+  }
+
+  const headerCells = splitMarkdownTableRow(headerLine);
+  if (headerCells.length < 2) {
+    return null;
+  }
+
+  const alignments = splitMarkdownTableRow(separatorLine).map(function (cell) {
+    const text = String(cell || "");
+    const left = text.startsWith(":");
+    const right = text.endsWith(":");
+    if (left && right) {
+      return "center";
+    }
+    if (right) {
+      return "right";
+    }
+    return "left";
+  });
+
+  const rows: string[][] = [];
+  let endLineIndex = startLineIndex + 1;
+  for (let index = startLineIndex + 2; index < lines.length; index += 1) {
+    const rowLine = String(lines[index] || "");
+    if (!looksLikeMarkdownTableRow(rowLine)) {
+      break;
+    }
+    rows.push(splitMarkdownTableRow(rowLine));
+    endLineIndex = index;
+  }
+
+  const renderCell = function (cell: string, rowIndex: number, index: number, tag: "th" | "td"): string {
+    const alignment = alignments[index] || "left";
+    return "<" + tag + ' class="markdown-table-cell" style="text-align:' + alignment + ';" data-table-cell="true" data-table-start-line="' + String(startLineIndex + 1) + '" data-table-row="' + String(rowIndex) + '" data-table-col="' + String(index) + '">' +
+      escapeHTML(cell) +
+      "</" + tag + ">";
+  };
+
+  const html = '<div class="markdown-table-block" data-table-start-line="' + String(startLineIndex + 1) + '">' +
+    "<table><thead><tr>" +
+    headerCells.map(function (cell, index) {
+      return renderCell(cell, 0, index, "th");
+    }).join("") +
+    "</tr></thead><tbody>" +
+    rows.map(function (row, rowIndex) {
+      return "<tr>" + headerCells.map(function (_header, index) {
+        return renderCell(String(row[index] || ""), rowIndex + 1, index, "td");
+      }).join("") + "</tr>";
+    }).join("") +
+    "</tbody></table></div>";
+
+  return {
+    startLineIndex,
+    endLineIndex,
+    columnCount: headerCells.length,
+    html,
+  };
+}
+
+export function findMarkdownTableBlockForLine(lines: string[], lineNumber: number): MarkdownTableBlock | null {
+  const target = Math.max(1, Number(lineNumber) || 0) - 1;
+  for (let index = target; index >= 0; index -= 1) {
+    const block = markdownTableBlockAt(lines, index);
+    if (block && target >= block.startLineIndex && target <= block.endLineIndex) {
+      return block;
+    }
+  }
+  return null;
+}
+
+export function markdownTableRowsForLine(lines: string[], lineNumber: number): MarkdownTableRows | null {
+  const block = findMarkdownTableBlockForLine(lines, lineNumber);
+  if (!block) {
+    return null;
+  }
+  const header = splitMarkdownTableRow(String(lines[block.startLineIndex] || ""));
+  const rows: string[][] = [];
+  for (let index = block.startLineIndex + 2; index <= block.endLineIndex; index += 1) {
+    rows.push(splitMarkdownTableRow(String(lines[index] || "")));
+  }
+  return { header, rows };
 }
 
 export function renderInline(value: string): string {

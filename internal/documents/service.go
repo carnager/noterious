@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type Document struct {
@@ -213,7 +214,58 @@ func sanitizeDocumentName(value string) string {
 	if name == "." || name == "" {
 		return ""
 	}
-	return name
+	extension := path.Ext(name)
+	base := strings.TrimSuffix(name, extension)
+	base = strings.TrimSpace(base)
+	base = strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r):
+			return unicode.ToLower(r)
+		case r == '.', r == '_', r == '-':
+			return r
+		case unicode.IsSpace(r):
+			return '-'
+		default:
+			return '-'
+		}
+	}, base)
+	base = strings.Trim(base, ".-_")
+	base = collapseDashes(base)
+	if base == "" {
+		base = "document"
+	}
+
+	extBase := strings.TrimPrefix(extension, ".")
+	extBase = strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r):
+			return unicode.ToLower(r)
+		default:
+			return -1
+		}
+	}, extBase)
+	if extBase == "" {
+		return base
+	}
+	return base + "." + extBase
+}
+
+func collapseDashes(value string) string {
+	var builder strings.Builder
+	lastDash := false
+	for _, r := range value {
+		if r == '-' {
+			if lastDash {
+				continue
+			}
+			lastDash = true
+			builder.WriteRune(r)
+			continue
+		}
+		lastDash = false
+		builder.WriteRune(r)
+	}
+	return builder.String()
 }
 
 func joinDocumentPath(dirPath string, name string) string {

@@ -53,3 +53,24 @@ func TestCreateListAndGetDocument(t *testing.T) {
 		t.Fatalf("file extension = %q", filepath.Ext(filePath))
 	}
 }
+
+func TestCreateSanitizesUploadedDocumentName(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	document, err := service.Create(context.Background(), "notes/alpha", "Meeting Notes (Final) 2026.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if document.Name != "meeting-notes-final-2026.pdf" {
+		t.Fatalf("document name = %q", document.Name)
+	}
+	if document.Path != "notes/meeting-notes-final-2026.pdf" {
+		t.Fatalf("document path = %q", document.Path)
+	}
+}

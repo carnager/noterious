@@ -10,7 +10,12 @@
     <div class="shell">
       <header class="topbar">
         <div class="topbar-actions topbar-actions-left">
-          <button type="button" id="toggle-rail" class="topbar-toggle topbar-toggle-rail" aria-label="Toggle files">☰</button>
+          <button type="button" id="toggle-rail" class="topbar-toggle topbar-toggle-rail" aria-label="Toggle files">
+            <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true">
+              <path d="M5 7h14M5 12h14M5 17h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+            <span class="sr-only">Toggle files</span>
+          </button>
           <button type="button" id="history-back" class="topbar-toggle topbar-toggle-history" aria-label="Go back">←</button>
           <button type="button" id="history-forward" class="topbar-toggle topbar-toggle-history" aria-label="Go forward">→</button>
         </div>
@@ -28,12 +33,13 @@
             <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><circle cx="11" cy="11" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 15.5 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
             <span class="sr-only">Global search</span>
           </button>
-          <div class="session-menu" id="session-menu">
-            <button type="button" id="open-session-menu" class="topbar-toggle topbar-toggle-icon topbar-toggle-session" aria-label="Session menu" aria-haspopup="menu" aria-expanded="false" title="Session menu">
+            <div class="session-menu" id="session-menu">
+              <button type="button" id="open-session-menu" class="topbar-toggle topbar-toggle-icon topbar-toggle-session" aria-label="Session menu" aria-haspopup="menu" aria-expanded="false" title="Session menu">
               <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.5 18.5c1.4-2.6 3.3-3.9 5.5-3.9s4.1 1.3 5.5 3.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
               <span class="sr-only">Session menu</span>
             </button>
             <div id="session-menu-panel" class="session-menu-panel hidden" role="menu" aria-label="Session">
+              <button type="button" id="open-trash" class="session-menu-item" role="menuitem">Trash</button>
               <button type="button" id="open-settings" class="session-menu-item" role="menuitem">Settings</button>
               <button type="button" id="open-help" class="session-menu-item" role="menuitem">Help</button>
             </div>
@@ -114,6 +120,7 @@
                 <div class="note-frame">
                   <div class="note-heading-row">
                     <input type="text" class="note-heading-input" id="note-heading" value="Waiting for selection" aria-label="Note title" autocomplete="off" spellcheck="false">
+                    <button type="button" id="open-page-history" class="mode-button note-mode-button" aria-label="Open page history">History</button>
                     <button type="button" id="toggle-source-mode" class="mode-button note-mode-button" aria-pressed="false">Raw</button>
                   </div>
                 </div>
@@ -130,6 +137,7 @@
                   </div>
                   <div id="inline-task-picker" class="task-inline-picker hidden"></div>
                 </div>
+                <div id="inline-table-panel" class="table-editor-panel hidden"></div>
               </section>
             </section>
           </div>
@@ -266,6 +274,42 @@
         </label>
         <div class="search-results" id="documents-results">
           <div class="empty">Type to find a document, or drop files into the note to upload.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-shell hidden" id="page-history-modal-shell">
+      <div class="modal-card search-modal-card">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Page History</p>
+            <h2 id="page-history-title">Revision History</h2>
+          </div>
+          <div class="hero-actions">
+            <button type="button" id="purge-page-history" aria-label="Purge page history">Purge</button>
+            <button type="button" id="close-page-history-modal" aria-label="Close page history">×</button>
+          </div>
+        </div>
+        <div class="search-results" id="page-history-results">
+          <div class="empty">No saved revisions for this page yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-shell hidden" id="trash-modal-shell">
+      <div class="modal-card search-modal-card">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Trash</p>
+            <h2>Deleted Pages</h2>
+          </div>
+          <div class="hero-actions">
+            <button type="button" id="empty-trash" aria-label="Empty trash">Empty Trash</button>
+            <button type="button" id="close-trash-modal" aria-label="Close trash">×</button>
+          </div>
+        </div>
+        <div class="search-results" id="trash-results">
+          <div class="empty">Trash is empty.</div>
         </div>
       </div>
     </div>

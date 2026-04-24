@@ -19,6 +19,7 @@ import (
 
 	"github.com/carnager/noterious/internal/config"
 	"github.com/carnager/noterious/internal/documents"
+	"github.com/carnager/noterious/internal/history"
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/settings"
@@ -226,7 +227,7 @@ func TestDocumentsAPIUploadsListsAndDownloads(t *testing.T) {
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("file", "meeting-notes.pdf")
+	part, err := writer.CreateFormFile("file", "Meeting Notes.pdf")
 	if err != nil {
 		t.Fatalf("CreateFormFile() error = %v", err)
 	}
@@ -842,7 +843,7 @@ func TestDeletePageRemovesMarkdownAndIndexEntry(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusNoContent {
+	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 
@@ -856,9 +857,70 @@ func TestDeletePageRemovesMarkdownAndIndexEntry(t *testing.T) {
 	if getRecorder.Code != http.StatusNotFound {
 		t.Fatalf("get status = %d, body = %s", getRecorder.Code, getRecorder.Body.String())
 	}
+
+	trashRequest := httptest.NewRequest(http.MethodGet, "/api/trash/pages", nil)
+	trashRecorder := httptest.NewRecorder()
+	router.ServeHTTP(trashRecorder, trashRequest)
+	if trashRecorder.Code != http.StatusOK {
+		t.Fatalf("trash status = %d, body = %s", trashRecorder.Code, trashRecorder.Body.String())
+	}
+	if !strings.Contains(trashRecorder.Body.String(), "\"notes/alpha\"") {
+		t.Fatalf("trash body = %s, want notes/alpha", trashRecorder.Body.String())
+	}
 }
 
-func TestDeleteFolderRemovesNestedMarkdownAndRebuildsIndex(t *testing.T) {
+func TestPurgePageHistoryClearsSavedRevisions(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	putRequest := httptest.NewRequest(http.MethodPut, "/api/pages/notes/alpha", strings.NewReader(`{"rawMarkdown":"# Alpha 2\n"}`))
+	putRequest.Header.Set("Content-Type", "application/json")
+	putRecorder := httptest.NewRecorder()
+	router.ServeHTTP(putRecorder, putRequest)
+	if putRecorder.Code != http.StatusOK {
+		t.Fatalf("put status = %d, body = %s", putRecorder.Code, putRecorder.Body.String())
+	}
+
+	historyRequest := httptest.NewRequest(http.MethodGet, "/api/page-history/notes/alpha", nil)
+	historyRecorder := httptest.NewRecorder()
+	router.ServeHTTP(historyRecorder, historyRequest)
+	if historyRecorder.Code != http.StatusOK {
+		t.Fatalf("history status = %d, body = %s", historyRecorder.Code, historyRecorder.Body.String())
+	}
+	if !strings.Contains(historyRecorder.Body.String(), "\"count\":1") {
+		t.Fatalf("history body = %s, want one revision", historyRecorder.Body.String())
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/page-history/notes/alpha", nil)
+	deleteRecorder := httptest.NewRecorder()
+	router.ServeHTTP(deleteRecorder, deleteRequest)
+	if deleteRecorder.Code != http.StatusOK {
+		t.Fatalf("delete history status = %d, body = %s", deleteRecorder.Code, deleteRecorder.Body.String())
+	}
+
+	historyRecorder = httptest.NewRecorder()
+	router.ServeHTTP(historyRecorder, historyRequest)
+	if historyRecorder.Code != http.StatusOK {
+		t.Fatalf("history after delete status = %d, body = %s", historyRecorder.Code, historyRecorder.Body.String())
+	}
+	if !strings.Contains(historyRecorder.Body.String(), "\"count\":0") {
+		t.Fatalf("history after delete body = %s, want zero revisions", historyRecorder.Body.String())
+	}
+}
+
+func TestDeleteFolderMovesNestedPagesToTrashAndRebuildsIndex(t *testing.T) {
 	t.Parallel()
 
 	rootDir := t.TempDir()
@@ -881,7 +943,7 @@ func TestDeleteFolderRemovesNestedMarkdownAndRebuildsIndex(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusNoContent {
+	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 
@@ -904,6 +966,67 @@ func TestDeleteFolderRemovesNestedMarkdownAndRebuildsIndex(t *testing.T) {
 	}
 	if payload.Count != 0 {
 		t.Fatalf("count = %d, want 0", payload.Count)
+	}
+
+	trashRequest := httptest.NewRequest(http.MethodGet, "/api/trash/pages", nil)
+	trashRecorder := httptest.NewRecorder()
+	router.ServeHTTP(trashRecorder, trashRequest)
+	if trashRecorder.Code != http.StatusOK {
+		t.Fatalf("trash status = %d, body = %s", trashRecorder.Code, trashRecorder.Body.String())
+	}
+	if !strings.Contains(trashRecorder.Body.String(), "\"notes/team/alpha\"") || !strings.Contains(trashRecorder.Body.String(), "\"notes/team/beta\"") {
+		t.Fatalf("trash body = %s, want both deleted folder pages", trashRecorder.Body.String())
+	}
+}
+
+func TestEmptyTrashPermanentlyDeletesTrashedPagesAndHistory(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	deletePageRequest := httptest.NewRequest(http.MethodDelete, "/api/pages/notes/alpha", nil)
+	deletePageRecorder := httptest.NewRecorder()
+	router.ServeHTTP(deletePageRecorder, deletePageRequest)
+	if deletePageRecorder.Code != http.StatusOK {
+		t.Fatalf("delete page status = %d, body = %s", deletePageRecorder.Code, deletePageRecorder.Body.String())
+	}
+
+	emptyRequest := httptest.NewRequest(http.MethodDelete, "/api/trash/pages", nil)
+	emptyRecorder := httptest.NewRecorder()
+	router.ServeHTTP(emptyRecorder, emptyRequest)
+	if emptyRecorder.Code != http.StatusOK {
+		t.Fatalf("empty trash status = %d, body = %s", emptyRecorder.Code, emptyRecorder.Body.String())
+	}
+
+	trashRequest := httptest.NewRequest(http.MethodGet, "/api/trash/pages", nil)
+	trashRecorder := httptest.NewRecorder()
+	router.ServeHTTP(trashRecorder, trashRequest)
+	if trashRecorder.Code != http.StatusOK {
+		t.Fatalf("trash status = %d, body = %s", trashRecorder.Code, trashRecorder.Body.String())
+	}
+	if !strings.Contains(trashRecorder.Body.String(), "\"count\":0") {
+		t.Fatalf("trash body = %s, want empty trash", trashRecorder.Body.String())
+	}
+
+	historyRequest := httptest.NewRequest(http.MethodGet, "/api/page-history/notes/alpha", nil)
+	historyRecorder := httptest.NewRecorder()
+	router.ServeHTTP(historyRecorder, historyRequest)
+	if historyRecorder.Code != http.StatusOK {
+		t.Fatalf("history status = %d, body = %s", historyRecorder.Code, historyRecorder.Body.String())
+	}
+	if !strings.Contains(historyRecorder.Body.String(), "\"count\":0") {
+		t.Fatalf("history body = %s, want no history after empty trash", historyRecorder.Body.String())
 	}
 }
 
@@ -9225,6 +9348,13 @@ func buildTestRouterWithDeps(t *testing.T, vaultDir, dataDir string, deps Depend
 			t.Fatalf("documents.NewService() error = %v", err)
 		}
 		deps.Documents = documentService
+	}
+	if deps.History == nil {
+		historyService, err := history.NewService(dataDir)
+		if err != nil {
+			t.Fatalf("history.NewService() error = %v", err)
+		}
+		deps.History = historyService
 	}
 	if deps.Events == nil {
 		deps.Events = NewEventBroker()

@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.4] - 2026-04-24
+
+### Added
+- Page revision history backed by real markdown snapshots, with restore support and change-focused previews in the UI.
+- Trash for deleted pages, including restore, permanent delete, and `Empty Trash` support.
+- Per-page history purge action and history cleanup on permanent delete.
+- Folder delete now moves descendant pages to trash instead of hard-deleting them immediately.
+- Tree rename actions for pages and folders, now using consistent SVG icons.
+- Task keyboard reordering and indentation shortcuts with subtree-aware movement.
+
+### Changed
+- Table editing now uses an overlay editor aligned with the rendered table instead of fragile inline widget inputs.
+- Table editor navigation supports `Tab`/`Shift+Tab`, row/column insertion after the current position, `Enter` to finish, and `Esc` to cancel.
+- Revision creation is now coalesced within a short window to avoid autosave-spam in history.
+- Restore actions no longer prompt for confirmation; restores snapshot current content first so they remain reversible.
+- Tree labels now show tooltips and expand to two lines on hover/focus/selection for long filenames.
+- Deleting the currently selected page now selects the previous page when possible.
+
+### Fixed
+- Shared editor focus reclaim bugs that were snapping the caret back to the first line after table edits.
+- Editor focus restoration when closing overlays and returning from another window, so the edit area regains focus consistently.
+- Firefox-specific missing icons for task checkboxes, rename actions, and the rail toggle.
+- Rendered task indentation so subtasks keep visible nesting in preview mode.
+- Root-level drag/drop, rename, and tree action visibility issues.
+
 ## [v0.1.3] - 2026-04-24
 
 ### Added

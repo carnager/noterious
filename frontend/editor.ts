@@ -14,6 +14,7 @@ import {sql} from "@codemirror/lang-sql";
 import {tags} from "@lezer/highlight";
 import { formatDateTimeValue, formatDateValue, normalizeDateTimeDisplayFormat, setDateTimeDisplayFormat } from "./datetime";
 import { pageTitleFromPath } from "./commands";
+import { markdownTableBlockAt } from "./markdown";
 import type { NoteriousEditorApi, QueryBlockRender, TaskRender } from "./types";
 
 interface EditorTaskState {
@@ -231,15 +232,17 @@ class CodeCopyWidget extends WidgetType {
 class TaskCheckboxWidget extends WidgetType {
   done: boolean;
   ref: string;
+  indent: number;
 
-  constructor(done: boolean, ref?: string) {
+  constructor(done: boolean, ref?: string, indent?: number) {
     super();
     this.done = done;
     this.ref = ref || "";
+    this.indent = Math.max(0, Number(indent) || 0);
   }
 
   eq(other: TaskCheckboxWidget): boolean {
-    return other.done === this.done && other.ref === this.ref;
+    return other.done === this.done && other.ref === this.ref && other.indent === this.indent;
   }
 
   toDOM(): HTMLButtonElement {
@@ -247,10 +250,12 @@ class TaskCheckboxWidget extends WidgetType {
     button.type = "button";
     button.className = "cm-md-task-toggle";
     button.setAttribute("data-task-toggle", "true");
+    button.setAttribute("data-done", this.done ? "true" : "false");
+    button.style.marginLeft = String(this.indent * 0.62) + "rem";
     if (this.ref) {
       button.setAttribute("data-task-ref", this.ref);
     }
-    button.textContent = this.done ? "☑" : "☐";
+    button.setAttribute("aria-label", this.done ? "Mark task incomplete" : "Mark task complete");
     return button;
   }
 
@@ -310,6 +315,51 @@ class QueryBlockWidget extends WidgetType {
 
   ignoreEvent() {
     return false;
+  }
+}
+
+class MarkdownTableWidget extends WidgetType {
+  html: string;
+
+  constructor(html: string) {
+    super();
+    this.html = html;
+  }
+
+  eq(other: MarkdownTableWidget): boolean {
+    return other.html === this.html;
+  }
+
+  toDOM(): HTMLDivElement {
+    const wrapper = document.createElement("div");
+    wrapper.className = "cm-md-table-block";
+    wrapper.innerHTML = this.html;
+    wrapper.addEventListener("click", function (event) {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const cell = target ? target.closest("[data-table-cell]") : null;
+      if (cell) {
+        event.preventDefault();
+        const tableBlock = cell.closest(".markdown-table-block");
+        const rect = (tableBlock instanceof HTMLElement ? tableBlock : cell).getBoundingClientRect();
+        cell.dispatchEvent(new CustomEvent("noterious:table-open", {
+          bubbles: true,
+          detail: {
+            startLine: cell.getAttribute("data-table-start-line") || "",
+            row: cell.getAttribute("data-table-row") || "",
+            col: cell.getAttribute("data-table-col") || "",
+            left: String(Math.round(rect.left)),
+            top: String(Math.round(rect.top)),
+            width: String(Math.round(rect.width)),
+          },
+        }));
+        return;
+      }
+    });
+    return wrapper;
+  }
+
+  ignoreEvent() {
+    return true;
   }
 }
 
@@ -393,6 +443,15 @@ const highlightedLineDecorationsField = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field),
 });
 
+function clearSearchHitHighlight(view: EditorView): void {
+  const highlightedLine = view.state.field(highlightedLineField, false);
+  if (typeof highlightedLine === "number" && highlightedLine > 0) {
+    view.dispatch({
+      effects: setHighlightedLineEffect.of(null),
+    });
+  }
+}
+
 function buildRenderedDecorations(state: EditorState): DecorationSet {
   if (!state.field(renderModeField, false)) {
     return Decoration.none;
@@ -403,6 +462,7 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
   const tasks = state.field(tasksField);
   const selection = state.selection.main;
   const currentPagePath = state.field(pagePathField);
+  const lines = state.doc.toString().split("\n");
   let hiddenFrontmatterUntil = 0;
 
   if (state.doc.lines >= 1 && state.doc.line(1).text.trim() === "---") {
@@ -431,6 +491,25 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
     const text = line.text;
     const from = line.from;
     const editingLine = selection.from <= line.to && selection.to >= line.from;
+    const tableBlock = markdownTableBlockAt(lines, lineNumber - 1);
+    if (tableBlock) {
+      const tableEndLine = state.doc.line(tableBlock.endLineIndex + 1);
+      const editingTable = selection.from <= tableEndLine.to && selection.to >= line.from;
+      if (editingTable) {
+        lineNumber = tableBlock.endLineIndex + 1;
+        continue;
+      }
+      builder.add(
+        line.from,
+        tableEndLine.to,
+        Decoration.replace({
+          block: true,
+          widget: new MarkdownTableWidget(tableBlock.html),
+        })
+      );
+      lineNumber = tableBlock.endLineIndex + 1;
+      continue;
+    }
 
     if (/^```query(?:\s|$)/i.test(text.trim())) {
       let endLineNumber = lineNumber;
@@ -516,24 +595,25 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
       builder.add(from, from + match[1].length, Decoration.replace({}));
     }
 
-    match = text.match(/^(\s*-\s+\[([ xX])\]\s+)/);
+    match = text.match(/^(\s*)-\s+\[([ xX])\]\s+/);
     if (match) {
       const task = tasks.get(lineNumber) || {
         ref: "",
-        text: text.replace(/^(\s*-\s+\[[ xX]\]\s+)/, ""),
+        text: text.replace(/^(\s*)-\s+\[[ xX]\]\s+/, ""),
         done: /[xX]/.test(match[2] || ""),
         due: "",
         remind: "",
         who: [],
       };
-      const prefixLength = match[1].length;
+      const indentLength = String(match[1] || "").length;
+      const prefixLength = match[0].length;
       const bodyText = text.slice(prefixLength);
       builder.add(from, from, Decoration.line({class: "cm-md-task-line" + (task.done ? " cm-md-task-done" : "")}));
       builder.add(
         from,
         from + prefixLength,
         Decoration.replace({
-          widget: new TaskCheckboxWidget(task.done, task.ref),
+          widget: new TaskCheckboxWidget(task.done, task.ref, indentLength),
         })
       );
       let dateMatch: RegExpExecArray | null = null;
@@ -690,6 +770,7 @@ window.NoteriousCodeEditor = {
 
     const eventHandlers = EditorView.domEventHandlers({
       mousedown(event, view) {
+        clearSearchHitHighlight(view);
         const target = event.target instanceof Element ? event.target : null;
         const pageLink = target ? target.closest("[data-page-link]") : null;
         if (pageLink) {
@@ -777,6 +858,12 @@ window.NoteriousCodeEditor = {
 
         return false;
       },
+      keydown(event, view) {
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          clearSearchHitHighlight(view);
+        }
+        return false;
+      },
     });
 
     const view = new EditorView({
@@ -833,6 +920,22 @@ window.NoteriousCodeEditor = {
         suppressInput = false;
         setTextareaValue(textarea, nextValue);
       },
+      replaceRange(from: number, to: number, insert: string) {
+        const max = view.state.doc.length;
+        const nextFrom = Math.max(0, Math.min(Number(from) || 0, max));
+        const nextTo = Math.max(nextFrom, Math.min(Number(to) || 0, max));
+        const nextInsert = String(insert || "");
+        suppressInput = true;
+        view.dispatch({
+          changes: {
+            from: nextFrom,
+            to: nextTo,
+            insert: nextInsert,
+          },
+        });
+        suppressInput = false;
+        setTextareaValue(textarea, view.state.doc.toString());
+      },
       focus(options?: FocusOptions) {
         try {
           view.focus();
@@ -841,6 +944,12 @@ window.NoteriousCodeEditor = {
           }
         } catch (_error) {
           view.focus();
+        }
+      },
+      blur() {
+        const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        if (active && host.contains(active)) {
+          active.blur();
         }
       },
       hasFocus() {

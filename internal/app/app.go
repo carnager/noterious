@@ -8,6 +8,7 @@ import (
 
 	"github.com/carnager/noterious/internal/config"
 	"github.com/carnager/noterious/internal/documents"
+	"github.com/carnager/noterious/internal/history"
 	"github.com/carnager/noterious/internal/httpapi"
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/notify"
@@ -47,6 +48,10 @@ func New(cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init document store: %w", err)
 	}
+	historyService, err := history.NewService(cfg.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("init history store: %w", err)
+	}
 	eventBroker := httpapi.NewEventBroker()
 	notifier, err := notify.NewService(cfg.DataDir, indexService, cfg.NtfyTopicURL, cfg.NtfyToken)
 	if err != nil {
@@ -74,6 +79,7 @@ func New(cfg config.Config) (*App, error) {
 		Config:        cfg,
 		Settings:      settingsStore,
 		Documents:     documentService,
+		History:       historyService,
 		Vault:         vaultService,
 		Index:         indexService,
 		Query:         queryService,

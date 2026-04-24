@@ -42,6 +42,9 @@ describe("slash menu", function () {
     expect(commands.some(function (command) {
       return command.id === "callout";
     })).toBe(true);
+    expect(commands.some(function (command) {
+      return command.id === "table";
+    })).toBe(true);
   });
 
   it("filters commands with fuzzy matching", function () {
@@ -70,6 +73,15 @@ describe("slash menu", function () {
     expect(remind).toBeTruthy();
     expect(due?.apply("- [ ] follow up /due")).toMatch(/^- \[ \] follow up \[due: \d{4}-\d{2}-\d{2}\]$/);
     expect(remind?.apply("- [ ] follow up /remind")).toMatch(/^- \[ \] follow up \[remind: \d{4}-\d{2}-\d{2} \d{2}:\d{2}\]$/);
+  });
+
+  it("inserts a markdown table template", function () {
+    const table = slashCommandsForText("/table").find(function (command) {
+      return command.id === "table";
+    });
+
+    expect(table).toBeTruthy();
+    expect(table?.apply("/table")).toBe("| Column | Value |\n| --- | --- |\n|  |  |\n");
   });
 
   it("offers page links when typing a wikilink", function () {

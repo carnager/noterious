@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   bodyPositionFromRawOffset,
   inferMarkdownTitle,
+  markdownTableBlockAt,
   parseFrontmatter,
   parseQueryFenceOptions,
   rawOffsetForBodyPosition,
@@ -70,5 +71,20 @@ describe("markdown helpers", function () {
       empty: "Nothing here",
       id: "test",
     });
+  });
+
+  it("renders markdown pipe tables into HTML", function () {
+    const block = markdownTableBlockAt([
+      "| Name | Page |",
+      "| --- | --- |",
+      "| Alpha | [[notes/alpha]] |",
+      "",
+    ], 0);
+
+    expect(block?.endLineIndex).toBe(2);
+    expect(block?.html).toContain("<table>");
+    expect(block?.html).toContain("<th");
+    expect(block?.html).toContain('data-table-cell="true"');
+    expect(block?.html).toContain("[[notes/alpha]]");
   });
 });
