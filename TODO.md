@@ -11,8 +11,17 @@
   - keep the app file-first: vaults must remain real directories, pages real markdown files, and attachments real files
   - avoid drifting into opaque database-only notes or a virtual document model detached from the filesystem
 
-- Explore a personal companion app with native OS integration:
-  - trigger native notifications when tasks have due/reminder dates
-  - show contacts and open tasks in a focused companion UI
-  - show a list of meetings with inline preview support
-  - keep it intentionally personal/specialized rather than forcing those features into the main app UI
+- Add PWA support:
+  - ship a web app manifest and service worker
+  - support installable mobile/desktop behavior for browser clients
+  - decide which views/assets should work offline and which should remain network-only
+
+- Add SSE for remote clients:
+  - expose live invalidation/update events over server-sent events
+  - let browser and companion clients refresh tasks/pages/search state without polling
+  - define a stable event contract for page changes, task changes, and settings/runtime state changes
+
+- Add authentication:
+  - introduce a real user/session model instead of assuming a single open local user
+  - protect settings, write operations, uploads, and future companion endpoints
+  - keep the first version simple, likely cookie/session based, before considering more complex auth flows
