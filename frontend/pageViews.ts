@@ -297,10 +297,6 @@ export function renderPagesTree(
   onMoveFolder: (folderKey: string, targetFolder: string) => void
 ): void {
   clearNode(container);
-  if (!pages.length) {
-    renderEmpty(container, "No indexed pages match the current search.");
-    return;
-  }
 
   if (pageSearchQuery) {
     const expanded: Record<string, boolean> = {};
@@ -413,6 +409,16 @@ export function renderPagesTree(
     element.addEventListener("drop", handleRootDrop);
   });
   container.appendChild(rootRow);
+
+  if (!pages.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = pageSearchQuery
+      ? "No indexed pages match the current search."
+      : "No notes yet. Use + to create the first note.";
+    container.appendChild(empty);
+    return;
+  }
 
   container.ondragover = function (event) {
     const payload = getDragPayload(event);

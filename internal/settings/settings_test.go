@@ -1,7 +1,9 @@
 package settings
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/carnager/noterious/internal/config"
@@ -28,21 +30,11 @@ func TestStorePersistsAndMarksRestartRequiredForRuntimeSettings(t *testing.T) {
 	}
 
 	updated, err := store.Update(AppSettings{
-		Preferences: Preferences{
-			Hotkeys: initial.Settings.Preferences.Hotkeys,
-			UI: UI{
-				FontFamily:     "sans",
-				FontSize:       "18",
-				DateTimeFormat: "de",
-			},
-		},
 		Workspace: Workspace{
 			VaultPath: filepath.Join(rootDir, "vault-b"),
 			HomePage:  "notes/start",
 		},
 		Notifications: Notifications{
-			NtfyTopicURL: "https://ntfy.sh/noterious-test",
-			NtfyToken:    "secret-token",
 			NtfyInterval: "2m",
 		},
 	})
@@ -67,12 +59,14 @@ func TestStorePersistsAndMarksRestartRequiredForRuntimeSettings(t *testing.T) {
 	if snapshot.Settings.Workspace.HomePage != "notes/start" {
 		t.Fatalf("home page not persisted: got %q", snapshot.Settings.Workspace.HomePage)
 	}
-	if snapshot.Settings.Preferences.UI.FontFamily != "sans" || snapshot.Settings.Preferences.UI.FontSize != "18" || snapshot.Settings.Preferences.UI.DateTimeFormat != "de" {
-		t.Fatalf("ui settings not persisted: %#v", snapshot.Settings.Preferences.UI)
-	}
-	if snapshot.Settings.Notifications.NtfyTopicURL != "https://ntfy.sh/noterious-test" ||
-		snapshot.Settings.Notifications.NtfyToken != "secret-token" ||
-		snapshot.Settings.Notifications.NtfyInterval != "2m" {
+	if snapshot.Settings.Notifications.NtfyInterval != "2m" {
 		t.Fatalf("notification settings not persisted: %#v", snapshot.Settings.Notifications)
+	}
+	raw, err := os.ReadFile(store.Path())
+	if err != nil {
+		t.Fatalf("ReadFile(settings) error = %v", err)
+	}
+	if strings.Contains(string(raw), "\"preferences\"") {
+		t.Fatalf("settings file unexpectedly contains client preferences: %s", string(raw))
 	}
 }

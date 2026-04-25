@@ -125,7 +125,7 @@ Link to [[projects/alpha]].
 	}
 }
 
-func TestSettingsAPIStoresWorkspaceAndHotkeys(t *testing.T) {
+func TestSettingsAPIStoresRuntimeSettingsOnly(t *testing.T) {
 	t.Parallel()
 
 	rootDir := t.TempDir()
@@ -170,23 +170,12 @@ func TestSettingsAPIStoresWorkspaceAndHotkeys(t *testing.T) {
 	}
 
 	body := bytes.NewBufferString(`{
-	  "preferences": {
-	    "ui": {
-	      "fontFamily": "sans",
-	      "fontSize": "18"
-	    },
-	    "hotkeys": {
-	      "quickSwitcher": "Mod+O",
-	      "globalSearch": "Mod+Shift+F",
-	      "commandPalette": "Mod+/",
-	      "help": "?",
-	      "saveCurrentPage": "Mod+S",
-	      "toggleRawMode": "Mod+E"
-	    }
-	  },
 	  "workspace": {
 	    "vaultPath": "` + filepath.ToSlash(filepath.Join(rootDir, "other-vault")) + `",
 	    "homePage": "notes/start"
+	  },
+	  "notifications": {
+	    "ntfyInterval": "2m"
 	  }
 	}`)
 	putRequest := httptest.NewRequest(http.MethodPut, "/api/settings", body)
@@ -201,17 +190,14 @@ func TestSettingsAPIStoresWorkspaceAndHotkeys(t *testing.T) {
 	if err := json.NewDecoder(putResponse.Body).Decode(&updated); err != nil {
 		t.Fatalf("Decode(updated) error = %v", err)
 	}
-	if updated.Settings.Preferences.Hotkeys.GlobalSearch != "Mod+Shift+F" {
-		t.Fatalf("global search hotkey = %q want %q", updated.Settings.Preferences.Hotkeys.GlobalSearch, "Mod+Shift+F")
-	}
-	if updated.Settings.Preferences.UI.FontFamily != "sans" || updated.Settings.Preferences.UI.FontSize != "18" {
-		t.Fatalf("ui settings = %#v", updated.Settings.Preferences.UI)
-	}
 	if !updated.RestartRequired {
 		t.Fatalf("updated settings should require restart after vault path change")
 	}
 	if updated.AppliedWorkspace.VaultPath != vaultDir {
 		t.Fatalf("applied vault path = %q want %q", updated.AppliedWorkspace.VaultPath, vaultDir)
+	}
+	if updated.Settings.Notifications.NtfyInterval != "2m" {
+		t.Fatalf("notifications = %#v", updated.Settings.Notifications)
 	}
 }
 
@@ -602,6 +588,170 @@ func TestAuthLoginMeLogoutFlow(t *testing.T) {
 	}
 }
 
+func TestAuthSetupCreatesInitialAdminAndSession(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	authService, err := auth.NewService(context.Background(), dataDir, "test_session", time.Hour)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = authService.Close()
+	})
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Auth: authService,
+	})
+
+	setupRequest := httptest.NewRequest(http.MethodPost, "/api/auth/setup", strings.NewReader(`{"username":"owner","password":"secret-pass"}`))
+	setupRequest.Header.Set("Content-Type", "application/json")
+	setupResponse := httptest.NewRecorder()
+	router.ServeHTTP(setupResponse, setupRequest)
+	if setupResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/auth/setup status = %d body=%s", setupResponse.Code, setupResponse.Body.String())
+	}
+
+	cookies := setupResponse.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("setup did not set session cookie")
+	}
+
+	var setupPayload struct {
+		Authenticated bool `json:"authenticated"`
+		User          struct {
+			Username string `json:"username"`
+			Role     string `json:"role"`
+		} `json:"user"`
+	}
+	if err := json.NewDecoder(setupResponse.Body).Decode(&setupPayload); err != nil {
+		t.Fatalf("Decode(setup) error = %v", err)
+	}
+	if !setupPayload.Authenticated || setupPayload.User.Username != "owner" || setupPayload.User.Role != "admin" {
+		t.Fatalf("setup payload = %#v", setupPayload)
+	}
+
+	meRequest := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	meRequest.AddCookie(cookies[0])
+	meResponse := httptest.NewRecorder()
+	router.ServeHTTP(meResponse, meRequest)
+	if meResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/auth/me status = %d body=%s", meResponse.Code, meResponse.Body.String())
+	}
+}
+
+func TestAuthMeReportsSetupRequiredWhenUnauthenticated(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	authService, err := auth.NewService(context.Background(), dataDir, "test_session", time.Hour)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = authService.Close()
+	})
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Auth: authService,
+	})
+
+	meRequest := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	meResponse := httptest.NewRecorder()
+	router.ServeHTTP(meResponse, meRequest)
+	if meResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/auth/me status = %d body=%s", meResponse.Code, meResponse.Body.String())
+	}
+
+	var payload struct {
+		Authenticated bool `json:"authenticated"`
+		SetupRequired bool `json:"setupRequired"`
+	}
+	if err := json.NewDecoder(meResponse.Body).Decode(&payload); err != nil {
+		t.Fatalf("Decode(me) error = %v", err)
+	}
+	if payload.Authenticated {
+		t.Fatalf("me payload unexpectedly authenticated = %#v", payload)
+	}
+	if !payload.SetupRequired {
+		t.Fatalf("me payload = %#v, want setupRequired=true", payload)
+	}
+}
+
+func TestUserSettingsAPIStoresPersonalNotificationTargets(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	authService := buildTestAuthService(t, dataDir, "ralf", "secret-pass")
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Auth: authService,
+	})
+
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"username":"ralf","password":"secret-pass"}`))
+	loginRequest.Header.Set("Content-Type", "application/json")
+	loginResponse := httptest.NewRecorder()
+	router.ServeHTTP(loginResponse, loginRequest)
+	if loginResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/auth/login status = %d body=%s", loginResponse.Code, loginResponse.Body.String())
+	}
+	cookies := loginResponse.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("login did not set session cookie")
+	}
+
+	putRequest := httptest.NewRequest(http.MethodPut, "/api/user/settings", strings.NewReader(`{
+	  "settings": {
+	    "homePage": "notes/home",
+	    "notifications": {
+	      "ntfyTopicUrl": "https://ntfy.sh/ralf",
+	      "ntfyToken": "secret-token"
+	    }
+	  }
+	}`))
+	putRequest.Header.Set("Content-Type", "application/json")
+	putRequest.AddCookie(cookies[0])
+	putResponse := httptest.NewRecorder()
+	router.ServeHTTP(putResponse, putRequest)
+	if putResponse.Code != http.StatusOK {
+		t.Fatalf("PUT /api/user/settings status = %d body=%s", putResponse.Code, putResponse.Body.String())
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/user/settings", nil)
+	getRequest.AddCookie(cookies[0])
+	getResponse := httptest.NewRecorder()
+	router.ServeHTTP(getResponse, getRequest)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/user/settings status = %d body=%s", getResponse.Code, getResponse.Body.String())
+	}
+
+	var payload struct {
+		Settings struct {
+			HomePage      string `json:"homePage"`
+			Notifications struct {
+				NtfyTopicURL string `json:"ntfyTopicUrl"`
+				NtfyToken    string `json:"ntfyToken"`
+			} `json:"notifications"`
+		} `json:"settings"`
+	}
+	if err := json.NewDecoder(getResponse.Body).Decode(&payload); err != nil {
+		t.Fatalf("Decode(user settings) error = %v", err)
+	}
+	if payload.Settings.HomePage != "notes/home" ||
+		payload.Settings.Notifications.NtfyTopicURL != "https://ntfy.sh/ralf" ||
+		payload.Settings.Notifications.NtfyToken != "secret-token" {
+		t.Fatalf("user settings payload = %#v", payload)
+	}
+}
+
 func TestProtectedAPIsRequireAuthWhenEnabled(t *testing.T) {
 	t.Parallel()
 
@@ -617,6 +767,7 @@ func TestProtectedAPIsRequireAuthWhenEnabled(t *testing.T) {
 	for _, path := range []string{
 		"/api/pages",
 		"/api/settings",
+		"/api/user/settings",
 		"/api/events",
 	} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
@@ -9659,6 +9810,21 @@ func readSSEEvent(reader *bufio.Reader) (string, string, error) {
 		if strings.HasPrefix(line, "data: ") {
 			data = strings.TrimSpace(strings.TrimPrefix(line, "data: "))
 		}
+	}
+}
+
+func TestEventBrokerCloseClosesSubscribers(t *testing.T) {
+	t.Parallel()
+
+	broker := NewEventBroker()
+	events, unsubscribe := broker.Subscribe()
+	defer unsubscribe()
+
+	broker.Close()
+
+	event, ok := <-events
+	if ok {
+		t.Fatalf("events channel still open, received %#v", event)
 	}
 }
 

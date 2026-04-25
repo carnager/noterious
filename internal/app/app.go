@@ -27,6 +27,7 @@ type App struct {
 	workspaces *workspaces.Service
 	index      *index.Service
 	store      *settings.Store
+	events     *httpapi.EventBroker
 	server     *http.Server
 	watcher    *VaultWatcher
 	notifier   *notify.Service
@@ -38,8 +39,6 @@ func New(cfg config.Config) (*App, error) {
 		return nil, fmt.Errorf("init settings: %w", err)
 	}
 	appliedSettings := settingsStore.Settings()
-	cfg.NtfyTopicURL = appliedSettings.Notifications.NtfyTopicURL
-	cfg.NtfyToken = appliedSettings.Notifications.NtfyToken
 	if parsed, err := time.ParseDuration(appliedSettings.Notifications.NtfyInterval); err == nil {
 		cfg.NtfyInterval = parsed
 	}
@@ -99,7 +98,7 @@ func New(cfg config.Config) (*App, error) {
 		return nil, fmt.Errorf("migrate history into workspace: %w", err)
 	}
 	eventBroker := httpapi.NewEventBroker()
-	notifier, err := notify.NewService(cfg.DataDir, indexService, cfg.NtfyTopicURL, cfg.NtfyToken)
+	notifier, err := notify.NewService(cfg.DataDir, indexService, authService)
 	if err != nil {
 		_ = workspaceService.Close()
 		_ = authService.Close()
@@ -147,16 +146,9 @@ func New(cfg config.Config) (*App, error) {
 	router = withHTTPLogging(router)
 
 	if bootstrap.Created {
-		if bootstrap.GeneratedPassword != "" {
-			slog.Info("bootstrapped auth admin user",
-				"username", bootstrap.Username,
-				"generated_password", bootstrap.GeneratedPassword,
-			)
-		} else {
-			slog.Info("bootstrapped auth admin user",
-				"username", bootstrap.Username,
-			)
-		}
+		slog.Info("bootstrapped auth admin user", "username", bootstrap.Username)
+	} else if bootstrap.SetupRequired {
+		slog.Info("initial auth setup required")
 	}
 
 	return &App{
@@ -166,6 +158,7 @@ func New(cfg config.Config) (*App, error) {
 		workspaces: workspaceService,
 		index:      indexService,
 		store:      settingsStore,
+		events:     eventBroker,
 		watcher:    watcher,
 		notifier:   notifier,
 		server: &http.Server{
@@ -218,6 +211,9 @@ func (a *App) Run(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		slog.Info("shutting down noterious server")
+		if a.events != nil {
+			a.events.Close()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := a.server.Shutdown(shutdownCtx); err != nil {

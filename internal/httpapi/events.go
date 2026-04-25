@@ -20,6 +20,7 @@ type Event struct {
 type EventBroker struct {
 	mu          sync.Mutex
 	subscribers map[int64]map[chan Event]struct{}
+	closed      bool
 }
 
 func NewEventBroker() *EventBroker {
@@ -35,6 +36,9 @@ func (b *EventBroker) Publish(event Event) {
 func (b *EventBroker) PublishToWorkspace(workspaceID int64, event Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.closed {
+		return
+	}
 
 	subscribers := b.subscribers[workspaceID]
 	for subscriber := range subscribers {
@@ -53,6 +57,11 @@ func (b *EventBroker) SubscribeWorkspace(workspaceID int64) (<-chan Event, func(
 	ch := make(chan Event, 16)
 
 	b.mu.Lock()
+	if b.closed {
+		close(ch)
+		b.mu.Unlock()
+		return ch, func() {}
+	}
 	if b.subscribers[workspaceID] == nil {
 		b.subscribers[workspaceID] = make(map[chan Event]struct{})
 	}
@@ -74,6 +83,29 @@ func (b *EventBroker) SubscribeWorkspace(workspaceID int64) (<-chan Event, func(
 	}
 
 	return ch, cancel
+}
+
+func (b *EventBroker) Close() {
+	if b == nil {
+		return
+	}
+
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return
+	}
+	b.closed = true
+
+	subscribersByWorkspace := b.subscribers
+	b.subscribers = make(map[int64]map[chan Event]struct{})
+	b.mu.Unlock()
+
+	for _, subscribers := range subscribersByWorkspace {
+		for subscriber := range subscribers {
+			close(subscriber)
+		}
+	}
 }
 
 func serveEvents(w http.ResponseWriter, r *http.Request, broker *EventBroker) {

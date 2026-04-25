@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.6] - 2026-04-25
+
+### Added
+- First-run admin setup with `Create The First Admin` flow for fresh installs, plus forced bootstrap password rotation before normal API access is restored.
+- Per-user notification settings backed by the auth store and exposed through `/api/user/settings`.
+- Separate `User Settings` and `Admin Settings` entry points with a sidebar-based settings layout.
+
+### Changed
+- Appearance and hotkey preferences now stay in the browser instead of being stored as shared server settings.
+- ntfy delivery now routes to each user's configured topic/token instead of one global server-wide target.
+- Home page preference is now tied to the signed-in user while still being managed from the tree context menu.
+
+### Fixed
+- Auth bootstrap/setup state now reaches the UI correctly, so fresh servers show setup instead of the generic login form.
+- Graceful shutdown no longer times out when SSE clients are connected.
+- Fresh empty vaults now still show the root row in the file tree, so the first note can be created immediately.
+- Saving user or admin settings now closes the dialog consistently.
+
 ## [v0.1.5] - 2026-04-25
 
 ### Added

@@ -13,13 +13,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/index"
 )
 
 type Service struct {
 	index     *index.Service
-	topicURL  string
-	token     string
+	auth      *auth.Service
 	statePath string
 	client    *http.Client
 	now       func() time.Time
@@ -28,7 +28,7 @@ type Service struct {
 	sent map[string]string
 }
 
-func NewService(dataDir string, indexService *index.Service, topicURL string, token string) (*Service, error) {
+func NewService(dataDir string, indexService *index.Service, authService *auth.Service) (*Service, error) {
 	if strings.TrimSpace(dataDir) == "" {
 		return nil, fmt.Errorf("data dir must not be empty")
 	}
@@ -37,8 +37,7 @@ func NewService(dataDir string, indexService *index.Service, topicURL string, to
 	}
 	service := &Service{
 		index:     indexService,
-		topicURL:  strings.TrimSpace(topicURL),
-		token:     strings.TrimSpace(token),
+		auth:      authService,
 		statePath: filepath.Join(dataDir, "ntfy-state.json"),
 		client:    &http.Client{Timeout: 10 * time.Second},
 		now:       time.Now,
@@ -51,7 +50,7 @@ func NewService(dataDir string, indexService *index.Service, topicURL string, to
 }
 
 func (s *Service) Enabled() bool {
-	return s != nil && s.index != nil && s.topicURL != ""
+	return s != nil && s.index != nil && s.auth != nil
 }
 
 func (s *Service) Run(ctx context.Context, interval time.Duration) {
@@ -86,6 +85,19 @@ func (s *Service) Poll(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list tasks: %w", err)
 	}
+	targets, err := s.auth.ListNotificationTargets(ctx)
+	if err != nil {
+		return fmt.Errorf("list notification targets: %w", err)
+	}
+	targetsByUser := make(map[string]auth.NotificationTarget, len(targets))
+	for _, target := range targets {
+		targetsByUser[normalizeUsername(target.Username)] = target
+	}
+	var soleTarget auth.NotificationTarget
+	hasSoleTarget := len(targets) == 1
+	if hasSoleTarget {
+		soleTarget = targets[0]
+	}
 
 	now := s.now()
 	activeKeys := make(map[string]struct{})
@@ -98,18 +110,24 @@ func (s *Service) Poll(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		activeKeys[candidate.Key] = struct{}{}
+		recipients := notificationTargetsForTask(task, targetsByUser, soleTarget, hasSoleTarget)
+		for _, target := range recipients {
+			activeKeys[notificationKey(candidate.Key, target.Username)] = struct{}{}
+		}
 		if candidate.At.After(now) {
 			continue
 		}
-		if s.wasSent(candidate.Key) {
-			continue
+		for _, target := range recipients {
+			key := notificationKey(candidate.Key, target.Username)
+			if s.wasSent(key) {
+				continue
+			}
+			if err := s.send(ctx, target, candidate); err != nil {
+				return err
+			}
+			s.markSent(key, now.UTC().Format(time.RFC3339Nano))
+			updated = true
 		}
-		if err := s.send(ctx, candidate); err != nil {
-			return err
-		}
-		s.markSent(candidate.Key, now.UTC().Format(time.RFC3339Nano))
-		updated = true
 	}
 
 	if s.prune(activeKeys) {
@@ -213,8 +231,8 @@ func parseNotificationTime(raw string, dateOnlyHour int, loc *time.Location) (ti
 	return time.Time{}, false
 }
 
-func (s *Service) send(ctx context.Context, candidate candidateNotification) error {
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, s.topicURL, bytes.NewBufferString(candidate.Body))
+func (s *Service) send(ctx context.Context, target auth.NotificationTarget, candidate candidateNotification) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, target.TopicURL, bytes.NewBufferString(candidate.Body))
 	if err != nil {
 		return fmt.Errorf("build ntfy request: %w", err)
 	}
@@ -228,8 +246,8 @@ func (s *Service) send(ctx context.Context, candidate candidateNotification) err
 	if candidate.Task.Ref != "" {
 		request.Header.Set("X-Task-Ref", candidate.Task.Ref)
 	}
-	if s.token != "" {
-		request.Header.Set("Authorization", "Bearer "+s.token)
+	if target.Token != "" {
+		request.Header.Set("Authorization", "Bearer "+target.Token)
 	}
 	response, err := s.client.Do(request)
 	if err != nil {
@@ -240,12 +258,54 @@ func (s *Service) send(ctx context.Context, candidate candidateNotification) err
 		return fmt.Errorf("send ntfy notification: unexpected status %s", response.Status)
 	}
 	slog.Info("ntfy notification sent",
+		"username", target.Username,
 		"task_ref", candidate.Task.Ref,
 		"page", candidate.Task.Page,
 		"kind", candidate.Kind,
 		"at", candidate.At.Format(time.RFC3339),
 	)
 	return nil
+}
+
+func notificationTargetsForTask(
+	task index.Task,
+	targetsByUser map[string]auth.NotificationTarget,
+	soleTarget auth.NotificationTarget,
+	hasSoleTarget bool,
+) []auth.NotificationTarget {
+	if len(task.Who) == 0 {
+		if hasSoleTarget {
+			return []auth.NotificationTarget{soleTarget}
+		}
+		return nil
+	}
+
+	recipients := make([]auth.NotificationTarget, 0, len(task.Who))
+	seen := make(map[string]struct{}, len(task.Who))
+	for _, raw := range task.Who {
+		username := normalizeUsername(raw)
+		if username == "" {
+			continue
+		}
+		if _, ok := seen[username]; ok {
+			continue
+		}
+		target, ok := targetsByUser[username]
+		if !ok {
+			continue
+		}
+		seen[username] = struct{}{}
+		recipients = append(recipients, target)
+	}
+	return recipients
+}
+
+func notificationKey(candidateKey string, username string) string {
+	return candidateKey + "|" + normalizeUsername(username)
+}
+
+func normalizeUsername(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func (s *Service) wasSent(key string) bool {

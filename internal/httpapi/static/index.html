@@ -53,7 +53,8 @@
                 <strong id="session-user">Sign In</strong>
               </div>
               <button type="button" id="open-trash" class="session-menu-item" role="menuitem">Trash</button>
-              <button type="button" id="open-settings" class="session-menu-item" role="menuitem">Settings</button>
+              <button type="button" id="open-settings" class="session-menu-item" role="menuitem">User Settings</button>
+              <button type="button" id="open-admin-settings" class="session-menu-item hidden" role="menuitem">Admin Settings</button>
               <button type="button" id="open-help" class="session-menu-item" role="menuitem">Help</button>
               <button type="button" id="logout-session" class="session-menu-item" role="menuitem">Logout</button>
             </div>
@@ -221,19 +222,38 @@
 
     <div class="auth-shell hidden" id="auth-shell">
       <form class="auth-card" id="auth-form">
-        <p class="eyebrow">Auth Required</p>
-        <h2>Sign In To Noterious</h2>
-        <p class="auth-copy">The server now requires a session before loading notes, queries, documents, history, or live events.</p>
-        <label class="search">
+        <p class="eyebrow" id="auth-eyebrow">Auth Required</p>
+        <h2 id="auth-title">Sign In To Noterious</h2>
+        <p class="auth-copy" id="auth-copy">The server now requires a session before loading notes, queries, documents, history, or live events.</p>
+        <p class="auth-identity hidden" id="auth-identity"></p>
+        <label class="search" id="auth-username-row">
           <span>Username</span>
           <input id="auth-username" type="text" autocomplete="username" autocorrect="off" autocapitalize="none" spellcheck="false">
         </label>
-        <label class="search">
+        <label class="search" id="auth-password-row">
           <span>Password</span>
           <input id="auth-password" type="password" autocomplete="current-password">
         </label>
+        <label class="search hidden" id="auth-setup-confirm-row">
+          <span>Confirm Password</span>
+          <input id="auth-setup-confirm" type="password" autocomplete="new-password">
+        </label>
+        <div class="auth-change-fields hidden" id="auth-change-fields">
+          <label class="search">
+            <span>Current Password</span>
+            <input id="auth-current-password" type="password" autocomplete="current-password">
+          </label>
+          <label class="search">
+            <span>New Password</span>
+            <input id="auth-new-password" type="password" autocomplete="new-password">
+          </label>
+          <label class="search">
+            <span>Confirm New Password</span>
+            <input id="auth-confirm-password" type="password" autocomplete="new-password">
+          </label>
+        </div>
         <div class="auth-actions">
-          <button type="submit">Sign In</button>
+          <button type="submit" id="auth-submit">Sign In</button>
         </div>
         <p class="auth-status" id="auth-status" aria-live="polite"></p>
       </form>
@@ -399,98 +419,123 @@
       <div class="modal-card settings-modal-card">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Settings</p>
-            <h2>Workspace, Notifications, UI & Hotkeys</h2>
+            <p class="eyebrow" id="settings-eyebrow">User</p>
+            <h2 id="settings-title">Settings</h2>
           </div>
           <button type="button" id="close-settings-modal" aria-label="Close settings">×</button>
         </div>
-        <p class="help-lead">Workspace and notification settings are stored on the server. Changing runtime settings updates the saved config and may require a restart.</p>
-        <div class="modal-fields">
-          <label class="search modal-field-wide">
-            <span>Vault Path</span>
-            <input id="settings-vault-path" type="text" placeholder="./vault" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          </label>
-          <label class="search modal-field-wide">
-            <span>Home Page</span>
-            <input id="settings-home-page" type="text" placeholder="notes/home" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          </label>
-          <label class="search modal-field-wide">
-            <span>ntfy Topic URL</span>
-            <input id="settings-ntfy-topic-url" type="text" placeholder="https://ntfy.sh/your-topic" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          </label>
-          <label class="search">
-            <span>ntfy Token</span>
-            <input id="settings-ntfy-token" type="password" placeholder="Optional bearer token" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          </label>
-          <label class="search">
-            <span>ntfy Interval</span>
-            <input id="settings-ntfy-interval" type="text" placeholder="1m" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          </label>
-          <label class="search">
-            <span>Font</span>
-            <select id="settings-ui-font-family">
-              <option value="mono">Mono</option>
-              <option value="sans">Sans</option>
-              <option value="serif">Serif</option>
-            </select>
-          </label>
-          <label class="search">
-            <span>Font Size</span>
-            <select id="settings-ui-font-size">
-              <option value="14">14 px</option>
-              <option value="15">15 px</option>
-              <option value="16">16 px</option>
-              <option value="17">17 px</option>
-              <option value="18">18 px</option>
-              <option value="19">19 px</option>
-              <option value="20">20 px</option>
-            </select>
-          </label>
-          <label class="search">
-            <span>Date &amp; Time</span>
-            <select id="settings-ui-date-time-format">
-              <option value="browser">Browser Default</option>
-              <option value="iso">ISO</option>
-              <option value="de">DE</option>
-            </select>
-          </label>
-          <label class="search">
-            <span>Quick Switcher</span>
-            <input id="settings-hotkey-quick-switcher" type="text" placeholder="Mod+K" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          </label>
-          <label class="search">
-            <span>Full Search</span>
-            <input id="settings-hotkey-global-search" type="text" placeholder="Mod+Shift+K" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          </label>
-          <label class="search">
-            <span>Command Palette</span>
-            <input id="settings-hotkey-command-palette" type="text" placeholder="Mod+Shift+P" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          </label>
-          <label class="search">
-            <span>Open Daily Note</span>
-            <input id="settings-hotkey-quick-note" type="text" placeholder="Optional" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          </label>
-          <label class="search">
-            <span>Open Help</span>
-            <input id="settings-hotkey-help" type="text" placeholder="?" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          </label>
-          <label class="search">
-            <span>Save Current Note</span>
-            <input id="settings-hotkey-save-current-page" type="text" placeholder="Mod+S" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          </label>
-          <label class="search">
-            <span>Toggle Raw Mode</span>
-            <input id="settings-hotkey-toggle-raw-mode" type="text" placeholder="Mod+E" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          </label>
-          <label class="search">
-            <span>Toggle Task Done</span>
-            <input id="settings-hotkey-toggle-task-done" type="text" placeholder="Mod+Enter" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          </label>
+        <div class="settings-layout">
+          <aside class="settings-sidebar" aria-label="Settings sections">
+            <button type="button" class="settings-nav-button active" id="settings-nav-appearance">Appearance &amp; Hotkeys</button>
+            <button type="button" class="settings-nav-button" id="settings-nav-notifications">Notifications</button>
+            <button type="button" class="settings-nav-button hidden" id="settings-nav-workspace">Workspace &amp; Polling</button>
+          </aside>
+          <div class="settings-main">
+          <section class="settings-group-card settings-group-server hidden" id="settings-group-server">
+            <div class="settings-group-head">
+              <h3>Workspace &amp; Polling</h3>
+            </div>
+            <div class="modal-fields settings-group-fields">
+              <label class="search modal-field-wide">
+                <span>Vault Path</span>
+                <input id="settings-vault-path" type="text" placeholder="./vault" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+              <label class="search">
+                <span>Reminder Poll Interval</span>
+                <input id="settings-ntfy-interval" type="text" placeholder="1m" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+            </div>
+          </section>
+
+          <section class="settings-group-card hidden" id="settings-group-user-notifications">
+            <div class="settings-group-head">
+              <h3>Notifications</h3>
+            </div>
+            <div class="modal-fields settings-group-fields">
+              <label class="search modal-field-wide">
+                <span>ntfy Topic URL</span>
+                <input id="settings-user-ntfy-topic-url" type="text" placeholder="https://ntfy.sh/your-topic" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+              <label class="search">
+                <span>ntfy Token</span>
+                <input id="settings-user-ntfy-token" type="password" placeholder="Optional bearer token" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+            </div>
+          </section>
+
+          <section class="settings-group-card settings-group-session" id="settings-group-session">
+            <div class="settings-group-head">
+              <h3>Appearance &amp; Hotkeys</h3>
+            </div>
+            <div class="modal-fields settings-group-fields">
+              <label class="search">
+                <span>Font</span>
+                <select id="settings-ui-font-family">
+                  <option value="mono">Mono</option>
+                  <option value="sans">Sans</option>
+                  <option value="serif">Serif</option>
+                </select>
+              </label>
+              <label class="search">
+                <span>Font Size</span>
+                <select id="settings-ui-font-size">
+                  <option value="14">14 px</option>
+                  <option value="15">15 px</option>
+                  <option value="16">16 px</option>
+                  <option value="17">17 px</option>
+                  <option value="18">18 px</option>
+                  <option value="19">19 px</option>
+                  <option value="20">20 px</option>
+                </select>
+              </label>
+              <label class="search">
+                <span>Date &amp; Time</span>
+                <select id="settings-ui-date-time-format">
+                  <option value="browser">Browser Default</option>
+                  <option value="iso">ISO</option>
+                  <option value="de">DE</option>
+                </select>
+              </label>
+              <label class="search">
+                <span>Quick Switcher</span>
+                <input id="settings-hotkey-quick-switcher" type="text" placeholder="Mod+K" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+              <label class="search">
+                <span>Full Search</span>
+                <input id="settings-hotkey-global-search" type="text" placeholder="Mod+Shift+K" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+              <label class="search">
+                <span>Command Palette</span>
+                <input id="settings-hotkey-command-palette" type="text" placeholder="Mod+Shift+P" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+              <label class="search">
+                <span>Open Daily Note</span>
+                <input id="settings-hotkey-quick-note" type="text" placeholder="Optional" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+              <label class="search">
+                <span>Open Help</span>
+                <input id="settings-hotkey-help" type="text" placeholder="?" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+              <label class="search">
+                <span>Save Current Note</span>
+                <input id="settings-hotkey-save-current-page" type="text" placeholder="Mod+S" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+              <label class="search">
+                <span>Toggle Raw Mode</span>
+                <input id="settings-hotkey-toggle-raw-mode" type="text" placeholder="Mod+E" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+              <label class="search">
+                <span>Toggle Task Done</span>
+                <input id="settings-hotkey-toggle-task-done" type="text" placeholder="Mod+Enter" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+            </div>
+          </section>
+          </div>
         </div>
-        <p id="settings-status" class="help-lead">Settings are stored in the server data directory.</p>
+        <p id="settings-status" class="help-lead">Server runtime settings save here. Client preferences stay in this browser.</p>
         <div class="task-modal-footer">
           <button type="button" id="cancel-settings">Cancel</button>
-          <button type="button" id="save-settings">Save Settings</button>
+          <button type="button" id="save-settings">Save User Settings</button>
         </div>
       </div>
     </div>

@@ -2,14 +2,16 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
-func TestEnsureBootstrapCreatesDefaultAdmin(t *testing.T) {
+func TestEnsureBootstrapWithoutPasswordRequiresSetup(t *testing.T) {
 	t.Parallel()
 
 	service, err := NewService(context.Background(), t.TempDir(), "", 0)
@@ -24,22 +26,57 @@ func TestEnsureBootstrapCreatesDefaultAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureBootstrap() error = %v", err)
 	}
-	if !result.Created {
-		t.Fatal("EnsureBootstrap() did not create bootstrap user")
+	if result.Created {
+		t.Fatal("EnsureBootstrap() unexpectedly created admin user")
 	}
-	if result.Username != "admin" {
-		t.Fatalf("Username = %q want %q", result.Username, "admin")
-	}
-	if result.GeneratedPassword == "" {
-		t.Fatal("GeneratedPassword = empty, want generated password")
+	if !result.SetupRequired {
+		t.Fatal("SetupRequired = false, want true when no bootstrap password is configured")
 	}
 
-	second, err := service.EnsureBootstrap(context.Background(), BootstrapConfig{})
+	setupRequired, err := service.SetupRequired(context.Background())
 	if err != nil {
-		t.Fatalf("EnsureBootstrap(second) error = %v", err)
+		t.Fatalf("SetupRequired() error = %v", err)
 	}
-	if second.Created {
-		t.Fatal("second bootstrap unexpectedly created another user")
+	if !setupRequired {
+		t.Fatal("SetupRequired() = false, want true")
+	}
+}
+
+func TestCreateInitialAdminCreatesFirstUserAndDisablesSetup(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService(context.Background(), t.TempDir(), "", 0)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = service.Close()
+	})
+
+	user, err := service.CreateInitialAdmin(context.Background(), "Owner", "secret-pass")
+	if err != nil {
+		t.Fatalf("CreateInitialAdmin() error = %v", err)
+	}
+	if user.Username != "owner" {
+		t.Fatalf("Username = %q want %q", user.Username, "owner")
+	}
+	if user.Role != "admin" {
+		t.Fatalf("Role = %q want %q", user.Role, "admin")
+	}
+	if user.MustChangePassword {
+		t.Fatal("MustChangePassword = true, want false")
+	}
+
+	setupRequired, err := service.SetupRequired(context.Background())
+	if err != nil {
+		t.Fatalf("SetupRequired() error = %v", err)
+	}
+	if setupRequired {
+		t.Fatal("SetupRequired() = true after initial admin creation, want false")
+	}
+
+	if _, err := service.CreateInitialAdmin(context.Background(), "other", "secret-pass"); !errors.Is(err, ErrSetupRejected) {
+		t.Fatalf("CreateInitialAdmin(second) error = %v want ErrSetupRejected", err)
 	}
 }
 
@@ -71,6 +108,9 @@ func TestLoginAndCurrentUserByToken(t *testing.T) {
 	if session.User.Username != "owner" {
 		t.Fatalf("Username = %q want %q", session.User.Username, "owner")
 	}
+	if session.User.MustChangePassword {
+		t.Fatal("MustChangePassword = true for configured bootstrap password, want false")
+	}
 
 	user, err := service.CurrentUserByToken(context.Background(), session.Token)
 	if err != nil {
@@ -78,6 +118,9 @@ func TestLoginAndCurrentUserByToken(t *testing.T) {
 	}
 	if user.Username != "owner" {
 		t.Fatalf("CurrentUserByToken() username = %q want %q", user.Username, "owner")
+	}
+	if user.MustChangePassword {
+		t.Fatal("CurrentUserByToken().MustChangePassword = true, want false")
 	}
 
 	if err := service.Logout(context.Background(), session.Token); err != nil {
@@ -123,5 +166,197 @@ func TestAuthenticateRequestReadsCookie(t *testing.T) {
 	}
 	if user.Username != "admin" {
 		t.Fatalf("Username = %q want %q", user.Username, "admin")
+	}
+}
+
+func TestChangePasswordClearsLegacyMustChangeRequirement(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService(context.Background(), t.TempDir(), "test_session", time.Hour)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = service.Close()
+	})
+
+	user, err := service.CreateInitialAdmin(context.Background(), "admin", "secret-pass")
+	if err != nil {
+		t.Fatalf("CreateInitialAdmin() error = %v", err)
+	}
+	if _, err := service.db.ExecContext(context.Background(), `
+		UPDATE users
+		SET must_change_password = 1
+		WHERE id = ?;
+	`, user.ID); err != nil {
+		t.Fatalf("UPDATE users must_change_password error = %v", err)
+	}
+
+	session, err := service.Login(context.Background(), "admin", "secret-pass")
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	if !session.User.MustChangePassword {
+		t.Fatal("MustChangePassword = false, want true before password rotation")
+	}
+
+	updatedUser, err := service.ChangePassword(context.Background(), session.User.ID, "secret-pass", "new-secret-pass")
+	if err != nil {
+		t.Fatalf("ChangePassword() error = %v", err)
+	}
+	if updatedUser.MustChangePassword {
+		t.Fatal("MustChangePassword = true after ChangePassword(), want false")
+	}
+
+	if _, err := service.Login(context.Background(), "admin", "secret-pass"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("Login(old password) error = %v, want ErrInvalidCredentials", err)
+	}
+	newSession, err := service.Login(context.Background(), "admin", "new-secret-pass")
+	if err != nil {
+		t.Fatalf("Login(new password) error = %v", err)
+	}
+	if newSession.User.MustChangePassword {
+		t.Fatal("MustChangePassword = true after logging in with rotated password, want false")
+	}
+}
+
+func TestUserSettingsPersistPerUserAndListNotificationTargets(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService(context.Background(), t.TempDir(), "test_session", time.Hour)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = service.Close()
+	})
+
+	user, err := service.CreateInitialAdmin(context.Background(), "Ralf", "secret-pass")
+	if err != nil {
+		t.Fatalf("CreateInitialAdmin() error = %v", err)
+	}
+
+	updated, err := service.UpdateUserSettings(context.Background(), user.ID, UserSettings{
+		HomePage: "notes/home",
+		Notifications: NotificationSettings{
+			NtfyTopicURL: " https://ntfy.sh/ralf ",
+			NtfyToken:    " secret-token ",
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateUserSettings() error = %v", err)
+	}
+	if updated.HomePage != "notes/home" {
+		t.Fatalf("updated.HomePage = %q want %q", updated.HomePage, "notes/home")
+	}
+	if updated.Notifications.NtfyTopicURL != "https://ntfy.sh/ralf" || updated.Notifications.NtfyToken != "secret-token" {
+		t.Fatalf("updated user settings = %#v", updated)
+	}
+
+	loaded, err := service.UserSettings(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("UserSettings() error = %v", err)
+	}
+	if loaded.HomePage != "notes/home" {
+		t.Fatalf("loaded.HomePage = %q want %q", loaded.HomePage, "notes/home")
+	}
+	if loaded.Notifications.NtfyTopicURL != "https://ntfy.sh/ralf" || loaded.Notifications.NtfyToken != "secret-token" {
+		t.Fatalf("loaded user settings = %#v", loaded)
+	}
+
+	targets, err := service.ListNotificationTargets(context.Background())
+	if err != nil {
+		t.Fatalf("ListNotificationTargets() error = %v", err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("len(targets) = %d want 1", len(targets))
+	}
+	if targets[0].Username != "ralf" || targets[0].TopicURL != "https://ntfy.sh/ralf" || targets[0].Token != "secret-token" {
+		t.Fatalf("targets[0] = %#v", targets[0])
+	}
+}
+
+func TestMigrateAddsMustChangePasswordColumn(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	dbPath := filepath.Join(dataDir, "noterious.db")
+
+	legacyDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	if _, err := legacyDB.ExecContext(context.Background(), `
+		CREATE TABLE users (
+			id INTEGER PRIMARY KEY,
+			username TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			role TEXT NOT NULL DEFAULT 'admin',
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			last_login_at INTEGER
+		);
+	`); err != nil {
+		t.Fatalf("create legacy users table error = %v", err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatalf("Close(legacyDB) error = %v", err)
+	}
+
+	migratedService, err := NewService(context.Background(), dataDir, "", 0)
+	if err != nil {
+		t.Fatalf("NewService(migrate) error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = migratedService.Close()
+	})
+
+	rows, err := migratedService.db.QueryContext(context.Background(), `PRAGMA table_info(users);`)
+	if err != nil {
+		t.Fatalf("PRAGMA table_info(users) error = %v", err)
+	}
+	defer rows.Close()
+
+	foundMustChange := false
+	foundHomePage := false
+	foundTopicURL := false
+	foundToken := false
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue any
+		var primaryKey int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			t.Fatalf("Scan(table_info) error = %v", err)
+		}
+		if name == "must_change_password" {
+			foundMustChange = true
+		}
+		if name == "home_page" {
+			foundHomePage = true
+		}
+		if name == "ntfy_topic_url" {
+			foundTopicURL = true
+		}
+		if name == "ntfy_token" {
+			foundToken = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err() = %v", err)
+	}
+	if !foundMustChange {
+		t.Fatal("users schema missing must_change_password column after migration")
+	}
+	if !foundHomePage {
+		t.Fatal("users schema missing home_page column after migration")
+	}
+	if !foundTopicURL {
+		t.Fatal("users schema missing ntfy_topic_url column after migration")
+	}
+	if !foundToken {
+		t.Fatal("users schema missing ntfy_token column after migration")
 	}
 }

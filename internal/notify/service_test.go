@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/vault"
 )
@@ -38,7 +39,9 @@ func TestParseNotificationTime(t *testing.T) {
 func TestPollSendsAndDeduplicatesDueNotifications(t *testing.T) {
 	tempDir := t.TempDir()
 	vaultDir := filepath.Join(tempDir, "vault")
-	dataDir := filepath.Join(tempDir, "data")
+	indexDataDir := filepath.Join(tempDir, "index-data")
+	authDataDir := filepath.Join(tempDir, "auth-data")
+	notifyDataDir := filepath.Join(tempDir, "notify-data")
 	if err := os.MkdirAll(filepath.Join(vaultDir, "daily"), 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
@@ -48,7 +51,7 @@ func TestPollSendsAndDeduplicatesDueNotifications(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	indexService := index.NewService(dataDir)
+	indexService := index.NewService(indexDataDir)
 	if err := indexService.Open(context.Background()); err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -58,6 +61,17 @@ func TestPollSendsAndDeduplicatesDueNotifications(t *testing.T) {
 	vaultService := vault.NewService(vaultDir)
 	if err := indexService.RebuildFromVault(context.Background(), vaultService); err != nil {
 		t.Fatalf("RebuildFromVault() error = %v", err)
+	}
+	authService, err := auth.NewService(context.Background(), authDataDir, "test_session", time.Hour)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	defer func() {
+		_ = authService.Close()
+	}()
+	user, err := authService.CreateInitialAdmin(context.Background(), "ralf", "secret-pass")
+	if err != nil {
+		t.Fatalf("CreateInitialAdmin() error = %v", err)
 	}
 
 	requests := 0
@@ -73,7 +87,15 @@ func TestPollSendsAndDeduplicatesDueNotifications(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := NewService(dataDir, indexService, server.URL, "")
+	if _, err := authService.UpdateUserSettings(context.Background(), user.ID, auth.UserSettings{
+		Notifications: auth.NotificationSettings{
+			NtfyTopicURL: server.URL,
+		},
+	}); err != nil {
+		t.Fatalf("UpdateUserSettings() error = %v", err)
+	}
+
+	service, err := NewService(notifyDataDir, indexService, authService)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

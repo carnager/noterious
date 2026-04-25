@@ -104,15 +104,18 @@ import type {
   PropertyDraft,
   QueryBlockRecord,
   QueryRow,
+  Preferences as ClientPreferences,
   SavedQueryRecord,
   SavedQueryTreeFolder,
   SavedQueryTreeResponse,
+  ServerSettings,
   SettingsResponse,
   SearchPayload,
   SlashMenuContext,
   TaskRecord,
   TrashListResponse,
   TrashPageRecord,
+  UserSettingsResponse,
   WorkspaceSettings,
 } from "./types";
 import type { PropertyRow } from "./properties";
@@ -230,6 +233,7 @@ interface AppState {
   appliedWorkspace: WorkspaceSettings;
   settingsRestartRequired: boolean;
   settingsLoaded: boolean;
+  userSettingsLoaded: boolean;
   configHomePage: string;
   homePage: string;
   markdownEditorApi: NoteriousEditorApi | null;
@@ -250,6 +254,11 @@ interface AppState {
   trashPages: TrashPageRecord[];
   authenticated: boolean;
   currentUser: AuthenticatedUser | null;
+  mustChangePassword: boolean;
+  setupRequired: boolean;
+  authGateMode: "login" | "setup" | "changePassword";
+  settingsModalMode: "user" | "admin";
+  settingsSection: "appearance" | "notifications" | "workspace";
 }
 
 interface TaskPickerState {
@@ -270,8 +279,103 @@ interface TreeContextMenuState {
   top: number;
 }
 
+const clientPreferencesStorageKey = "noterious.client-preferences";
+
+function defaultClientPreferences(): ClientPreferences {
+  return {
+    hotkeys: {
+      quickSwitcher: "Mod+K",
+      globalSearch: "Mod+Shift+K",
+      commandPalette: "Mod+Shift+P",
+      quickNote: "",
+      help: "?",
+      saveCurrentPage: "Mod+S",
+      toggleRawMode: "Mod+E",
+      toggleTaskDone: "Mod+Enter",
+    },
+    ui: {
+      fontFamily: "mono",
+      fontSize: "16",
+      dateTimeFormat: "browser",
+    },
+  };
+}
+
 (function () {
   let pwaRegistrationPromise: Promise<void> | null = null;
+
+  function cloneClientPreferences(input: ClientPreferences): ClientPreferences {
+    return {
+      hotkeys: {
+        quickSwitcher: input.hotkeys.quickSwitcher,
+        globalSearch: input.hotkeys.globalSearch,
+        commandPalette: input.hotkeys.commandPalette,
+        quickNote: input.hotkeys.quickNote,
+        help: input.hotkeys.help,
+        saveCurrentPage: input.hotkeys.saveCurrentPage,
+        toggleRawMode: input.hotkeys.toggleRawMode,
+        toggleTaskDone: input.hotkeys.toggleTaskDone,
+      },
+      ui: {
+        fontFamily: input.ui.fontFamily,
+        fontSize: input.ui.fontSize,
+        dateTimeFormat: input.ui.dateTimeFormat,
+      },
+    };
+  }
+
+  function normalizeClientPreferences(input: unknown): ClientPreferences {
+    const defaults = defaultClientPreferences();
+    const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+    const hotkeysSource = source.hotkeys && typeof source.hotkeys === "object"
+      ? source.hotkeys as Record<string, unknown>
+      : {};
+    const uiSource = source.ui && typeof source.ui === "object"
+      ? source.ui as Record<string, unknown>
+      : {};
+
+    const fontFamily = String(uiSource.fontFamily ?? defaults.ui.fontFamily).trim();
+    const fontSize = String(uiSource.fontSize ?? defaults.ui.fontSize).trim();
+    const dateTimeFormat = String(uiSource.dateTimeFormat ?? defaults.ui.dateTimeFormat).trim();
+
+    return {
+      hotkeys: {
+        quickSwitcher: typeof hotkeysSource.quickSwitcher === "string" ? hotkeysSource.quickSwitcher.trim() : defaults.hotkeys.quickSwitcher,
+        globalSearch: typeof hotkeysSource.globalSearch === "string" ? hotkeysSource.globalSearch.trim() : defaults.hotkeys.globalSearch,
+        commandPalette: typeof hotkeysSource.commandPalette === "string" ? hotkeysSource.commandPalette.trim() : defaults.hotkeys.commandPalette,
+        quickNote: typeof hotkeysSource.quickNote === "string" ? hotkeysSource.quickNote.trim() : defaults.hotkeys.quickNote,
+        help: typeof hotkeysSource.help === "string" ? hotkeysSource.help.trim() : defaults.hotkeys.help,
+        saveCurrentPage: typeof hotkeysSource.saveCurrentPage === "string" ? hotkeysSource.saveCurrentPage.trim() : defaults.hotkeys.saveCurrentPage,
+        toggleRawMode: typeof hotkeysSource.toggleRawMode === "string" ? hotkeysSource.toggleRawMode.trim() : defaults.hotkeys.toggleRawMode,
+        toggleTaskDone: typeof hotkeysSource.toggleTaskDone === "string" ? hotkeysSource.toggleTaskDone.trim() : defaults.hotkeys.toggleTaskDone,
+      },
+      ui: {
+        fontFamily: fontFamily === "sans" || fontFamily === "serif" ? fontFamily : "mono",
+        fontSize: ["14", "15", "16", "17", "18", "19", "20"].includes(fontSize) ? fontSize : defaults.ui.fontSize,
+        dateTimeFormat: dateTimeFormat === "iso" || dateTimeFormat === "de" ? dateTimeFormat : "browser",
+      },
+    };
+  }
+
+  function loadStoredClientPreferences(): ClientPreferences {
+    try {
+      const raw = window.localStorage.getItem(clientPreferencesStorageKey);
+      if (!raw) {
+        return defaultClientPreferences();
+      }
+      return normalizeClientPreferences(JSON.parse(raw));
+    } catch (_error) {
+      return defaultClientPreferences();
+    }
+  }
+
+  function saveStoredClientPreferences(preferences: ClientPreferences): void {
+    try {
+      window.localStorage.setItem(clientPreferencesStorageKey, JSON.stringify(preferences));
+    } catch (_error) {
+      // Ignore storage failures and continue with in-memory preferences.
+    }
+  }
 
   function registerPWA(): Promise<void> {
     if (pwaRegistrationPromise) {
@@ -327,31 +431,17 @@ interface TreeContextMenuState {
     railTab: "files",
     sourceOpen: false,
     settings: {
-      preferences: {
-        hotkeys: {
-          quickSwitcher: "Mod+K",
-          globalSearch: "Mod+Shift+K",
-          commandPalette: "Mod+Shift+P",
-          quickNote: "",
-          help: "?",
-          saveCurrentPage: "Mod+S",
-          toggleRawMode: "Mod+E",
-          toggleTaskDone: "Mod+Enter",
-        },
-        ui: {
-          fontFamily: "mono",
-          fontSize: "16",
-          dateTimeFormat: "browser",
-        },
-      },
+      preferences: cloneClientPreferences(defaultClientPreferences()),
       workspace: {
         vaultPath: "./vault",
         homePage: "",
       },
       notifications: {
+        ntfyInterval: "1m",
+      },
+      userNotifications: {
         ntfyTopicUrl: "",
         ntfyToken: "",
-        ntfyInterval: "1m",
       },
     },
     appliedWorkspace: {
@@ -360,6 +450,7 @@ interface TreeContextMenuState {
     },
     settingsRestartRequired: false,
     settingsLoaded: false,
+    userSettingsLoaded: false,
     configHomePage: "",
     homePage: "",
     markdownEditorApi: null,
@@ -380,14 +471,32 @@ interface TreeContextMenuState {
     trashPages: [],
     authenticated: false,
     currentUser: null,
+    mustChangePassword: false,
+    setupRequired: false,
+    authGateMode: "login",
+    settingsModalMode: "user",
+    settingsSection: "appearance",
   };
 
   const els = {
     appShell: optionalQuery<HTMLElement>(".shell"),
     authShell: requiredElement<HTMLElement>("auth-shell"),
     authForm: requiredElement<HTMLFormElement>("auth-form"),
+    authEyebrow: requiredElement<HTMLElement>("auth-eyebrow"),
+    authTitle: requiredElement<HTMLElement>("auth-title"),
+    authCopy: requiredElement<HTMLElement>("auth-copy"),
+    authIdentity: requiredElement<HTMLElement>("auth-identity"),
+    authUsernameRow: requiredElement<HTMLElement>("auth-username-row"),
     authUsername: requiredElement<HTMLInputElement>("auth-username"),
+    authPasswordRow: requiredElement<HTMLElement>("auth-password-row"),
     authPassword: requiredElement<HTMLInputElement>("auth-password"),
+    authSetupConfirmRow: requiredElement<HTMLElement>("auth-setup-confirm-row"),
+    authSetupConfirm: requiredElement<HTMLInputElement>("auth-setup-confirm"),
+    authChangeFields: requiredElement<HTMLElement>("auth-change-fields"),
+    authCurrentPassword: requiredElement<HTMLInputElement>("auth-current-password"),
+    authNewPassword: requiredElement<HTMLInputElement>("auth-new-password"),
+    authConfirmPassword: requiredElement<HTMLInputElement>("auth-confirm-password"),
+    authSubmit: requiredElement<HTMLButtonElement>("auth-submit"),
     authStatus: requiredElement<HTMLElement>("auth-status"),
     vaultHealthBanner: requiredElement<HTMLElement>("vault-health-banner"),
     vaultHealthTitle: requiredElement<HTMLElement>("vault-health-title"),
@@ -447,6 +556,7 @@ interface TreeContextMenuState {
     openTrash: requiredElement<HTMLButtonElement>("open-trash"),
     openHelp: requiredElement<HTMLButtonElement>("open-help"),
     openSettings: requiredElement<HTMLButtonElement>("open-settings"),
+    openAdminSettings: requiredElement<HTMLButtonElement>("open-admin-settings"),
     logoutSession: requiredElement<HTMLButtonElement>("logout-session"),
     reloadPages: optionalElement<HTMLButtonElement>("reload-pages"),
     reloadQueries: optionalElement<HTMLButtonElement>("reload-queries"),
@@ -492,13 +602,20 @@ interface TreeContextMenuState {
     helpShortcutEditor: requiredElement<HTMLDivElement>("help-shortcuts-editor"),
     settingsModalShell: requiredElement<HTMLElement>("settings-modal-shell"),
     closeSettingsModal: requiredElement<HTMLButtonElement>("close-settings-modal"),
+    settingsEyebrow: requiredElement<HTMLElement>("settings-eyebrow"),
+    settingsTitle: requiredElement<HTMLElement>("settings-title"),
+    settingsNavAppearance: requiredElement<HTMLButtonElement>("settings-nav-appearance"),
+    settingsNavNotifications: requiredElement<HTMLButtonElement>("settings-nav-notifications"),
+    settingsNavWorkspace: requiredElement<HTMLButtonElement>("settings-nav-workspace"),
+    settingsGroupServer: requiredElement<HTMLElement>("settings-group-server"),
+    settingsGroupSession: requiredElement<HTMLElement>("settings-group-session"),
+    settingsGroupUserNotifications: requiredElement<HTMLElement>("settings-group-user-notifications"),
     cancelSettings: requiredElement<HTMLButtonElement>("cancel-settings"),
     saveSettings: requiredElement<HTMLButtonElement>("save-settings"),
     settingsVaultPath: requiredElement<HTMLInputElement>("settings-vault-path"),
-    settingsHomePage: requiredElement<HTMLInputElement>("settings-home-page"),
-    settingsNtfyTopicUrl: requiredElement<HTMLInputElement>("settings-ntfy-topic-url"),
-    settingsNtfyToken: requiredElement<HTMLInputElement>("settings-ntfy-token"),
     settingsNtfyInterval: requiredElement<HTMLInputElement>("settings-ntfy-interval"),
+    settingsUserNtfyTopicUrl: requiredElement<HTMLInputElement>("settings-user-ntfy-topic-url"),
+    settingsUserNtfyToken: requiredElement<HTMLInputElement>("settings-user-ntfy-token"),
     settingsFontFamily: requiredElement<HTMLSelectElement>("settings-ui-font-family"),
     settingsFontSize: requiredElement<HTMLSelectElement>("settings-ui-font-size"),
     settingsDateTimeFormat: requiredElement<HTMLSelectElement>("settings-ui-date-time-format"),
@@ -1346,24 +1463,24 @@ interface TreeContextMenuState {
   function setHomePage(pagePath: string): void {
     const normalized = normalizePageDraftPath(pagePath);
     state.homePage = normalized;
-    state.settings.workspace.homePage = normalized;
     renderHomeButton();
-    if (state.settingsLoaded) {
+    if (!els.settingsModalShell.classList.contains("hidden")) {
       renderSettingsForm();
     }
+    persistUserHomePage(true);
   }
 
   function clearHomePage() {
     state.homePage = "";
-    state.settings.workspace.homePage = "";
     renderHomeButton();
-    if (state.settingsLoaded) {
+    if (!els.settingsModalShell.classList.contains("hidden")) {
       renderSettingsForm();
     }
+    persistUserHomePage(true);
   }
 
   function currentHomePage() {
-    return normalizePageDraftPath(state.homePage || state.settings.workspace.homePage || "");
+    return normalizePageDraftPath(state.homePage || "");
   }
 
   function renderHomeButton(): void {
@@ -1387,6 +1504,7 @@ interface TreeContextMenuState {
       ? state.currentUser.username
       : "Sign In";
     els.sessionUser.textContent = username;
+    els.openAdminSettings.classList.toggle("hidden", !(state.authenticated && currentUserIsAdmin()));
     els.logoutSession.classList.toggle("hidden", !state.authenticated);
     els.openSessionMenu.title = state.authenticated
       ? "Session menu"
@@ -1396,15 +1514,60 @@ interface TreeContextMenuState {
     }
   }
 
+  function renderAuthGate(): void {
+    const setupRequired = state.authGateMode === "setup";
+    const mustChangePassword = state.authGateMode === "changePassword";
+
+    if (mustChangePassword) {
+      els.authEyebrow.textContent = "Password Rotation";
+      els.authTitle.textContent = "Rotate Bootstrap Password";
+      els.authCopy.textContent = "This session is using a generated bootstrap credential. Set a new password before loading notes, queries, documents, history, or live events.";
+    } else if (setupRequired) {
+      els.authEyebrow.textContent = "Initial Setup";
+      els.authTitle.textContent = "Create The First Admin";
+      els.authCopy.textContent = "This server does not have any users yet. Create the initial admin account with the username and password you want to keep using.";
+    } else {
+      els.authEyebrow.textContent = "Auth Required";
+      els.authTitle.textContent = "Sign In To Noterious";
+      els.authCopy.textContent = "The server now requires a session before loading notes, queries, documents, history, or live events.";
+    }
+
+    els.authIdentity.classList.toggle("hidden", !mustChangePassword);
+    if (mustChangePassword && state.currentUser) {
+      els.authIdentity.textContent = "Signed in as " + state.currentUser.username + ".";
+    } else {
+      els.authIdentity.textContent = "";
+    }
+
+    els.authUsernameRow.classList.toggle("hidden", mustChangePassword);
+    els.authPasswordRow.classList.toggle("hidden", mustChangePassword);
+    els.authSetupConfirmRow.classList.toggle("hidden", !setupRequired);
+    els.authChangeFields.classList.toggle("hidden", !mustChangePassword);
+    els.authSubmit.textContent = mustChangePassword
+      ? "Update Password"
+      : (setupRequired ? "Create Admin" : "Sign In");
+  }
+
   function setAuthSession(session: AuthSessionResponse): void {
     state.authenticated = Boolean(session.authenticated);
     state.currentUser = state.authenticated && session.user
       ? session.user
       : null;
+    state.mustChangePassword = Boolean(state.currentUser && state.currentUser.mustChangePassword);
+    state.setupRequired = Boolean(!state.authenticated && session.setupRequired);
+    state.authGateMode = state.mustChangePassword
+      ? "changePassword"
+      : (state.setupRequired ? "setup" : "login");
     renderSessionState();
+    renderAuthGate();
+  }
+
+  function currentUserIsAdmin(): boolean {
+    return Boolean(state.currentUser && state.currentUser.role === "admin");
   }
 
   function setAuthGateOpen(open: boolean, status?: string): void {
+    renderAuthGate();
     els.authShell.classList.toggle("hidden", !open);
     if (els.appShell) {
       if (open) {
@@ -1420,6 +1583,22 @@ interface TreeContextMenuState {
     }
     if (open) {
       window.setTimeout(function () {
+        if (state.authGateMode === "changePassword") {
+          if (els.authCurrentPassword.value.trim()) {
+            els.authNewPassword.focus();
+            return;
+          }
+          els.authCurrentPassword.focus();
+          return;
+        }
+        if (state.authGateMode === "setup") {
+          if (els.authUsername.value.trim()) {
+            els.authPassword.focus();
+            return;
+          }
+          els.authUsername.focus();
+          return;
+        }
         if (els.authUsername.value.trim()) {
           els.authPassword.focus();
           return;
@@ -1436,6 +1615,7 @@ interface TreeContextMenuState {
   async function login() {
     els.authStatus.textContent = "Signing in…";
     try {
+      const loginPassword = els.authPassword.value;
       const session = await fetchJSON<AuthSessionResponse>("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1445,8 +1625,91 @@ interface TreeContextMenuState {
         }),
       }, true);
       setAuthSession(session);
-      setAuthGateOpen(false);
       els.authPassword.value = "";
+      if (state.mustChangePassword) {
+        els.authCurrentPassword.value = loginPassword;
+        els.authNewPassword.value = "";
+        els.authConfirmPassword.value = "";
+        setAuthGateOpen(true, "Change your password to continue.");
+        return;
+      }
+      setAuthGateOpen(false);
+      window.location.reload();
+    } catch (error) {
+      els.authStatus.textContent = errorMessage(error);
+    }
+  }
+
+  async function setupInitialAdmin() {
+    const username = els.authUsername.value.trim();
+    const password = els.authPassword.value;
+    const confirmPassword = els.authSetupConfirm.value;
+
+    if (!username) {
+      els.authStatus.textContent = "Username is required.";
+      return;
+    }
+    if (!password.trim()) {
+      els.authStatus.textContent = "Password is required.";
+      return;
+    }
+    if (password !== confirmPassword) {
+      els.authStatus.textContent = "Passwords do not match.";
+      return;
+    }
+
+    els.authStatus.textContent = "Creating admin account…";
+    try {
+      const session = await fetchJSON<AuthSessionResponse>("/api/auth/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: username,
+          password: password,
+        }),
+      }, true);
+      setAuthSession(session);
+      els.authPassword.value = "";
+      els.authSetupConfirm.value = "";
+      setAuthGateOpen(false);
+      window.location.reload();
+    } catch (error) {
+      els.authStatus.textContent = errorMessage(error);
+    }
+  }
+
+  async function changePassword() {
+    const currentPassword = els.authCurrentPassword.value;
+    const newPassword = els.authNewPassword.value;
+    const confirmPassword = els.authConfirmPassword.value;
+    if (!currentPassword.trim()) {
+      els.authStatus.textContent = "Current password is required.";
+      return;
+    }
+    if (!newPassword.trim()) {
+      els.authStatus.textContent = "New password is required.";
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      els.authStatus.textContent = "New passwords do not match.";
+      return;
+    }
+
+    els.authStatus.textContent = "Updating password…";
+    try {
+      const session = await fetchJSON<AuthSessionResponse>("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword: currentPassword,
+          newPassword: newPassword,
+        }),
+      }, true);
+      setAuthSession(session);
+      els.authCurrentPassword.value = "";
+      els.authNewPassword.value = "";
+      els.authConfirmPassword.value = "";
+      setAuthGateOpen(false);
       window.location.reload();
     } catch (error) {
       els.authStatus.textContent = errorMessage(error);
@@ -1463,7 +1726,16 @@ interface TreeContextMenuState {
   }
 
   async function loadAuthenticatedApp() {
-    await Promise.all([loadSettings(), loadMeta(), loadPages(), loadSavedQueryTree(), loadDocuments()]);
+    await Promise.all([
+      loadSettings(),
+      loadUserSettings().catch(function (error) {
+        setNoteStatus("User settings failed: " + errorMessage(error));
+      }),
+      loadMeta(),
+      loadPages(),
+      loadSavedQueryTree(),
+      loadDocuments(),
+    ]);
     applyURLState();
     connectEvents();
   }
@@ -2321,13 +2593,59 @@ interface TreeContextMenuState {
     });
   }
 
+  function defaultSettingsSectionForMode(mode: "user" | "admin"): "appearance" | "notifications" | "workspace" {
+    return mode === "admin" ? "workspace" : "appearance";
+  }
+
+  function availableSettingsSections(): Array<"appearance" | "notifications" | "workspace"> {
+    return state.settingsModalMode === "admin"
+      ? ["workspace"]
+      : ["appearance", "notifications"];
+  }
+
+  function normalizeSettingsSection(): void {
+    if (!availableSettingsSections().includes(state.settingsSection)) {
+      state.settingsSection = defaultSettingsSectionForMode(state.settingsModalMode);
+    }
+  }
+
+  function renderSettingsModal(): void {
+    const adminMode = state.settingsModalMode === "admin";
+    normalizeSettingsSection();
+
+    els.settingsEyebrow.textContent = adminMode ? "Admin" : "User";
+    els.settingsTitle.textContent = "Settings";
+
+    const activeSection = state.settingsSection;
+    const navButtons: Array<{ button: HTMLButtonElement; section: "appearance" | "notifications" | "workspace" }> = [
+      { button: els.settingsNavAppearance, section: "appearance" },
+      { button: els.settingsNavNotifications, section: "notifications" },
+      { button: els.settingsNavWorkspace, section: "workspace" },
+    ];
+
+    navButtons.forEach(function (entry) {
+      const visible = availableSettingsSections().includes(entry.section);
+      entry.button.classList.toggle("hidden", !visible);
+      entry.button.classList.toggle("active", visible && activeSection === entry.section);
+      entry.button.setAttribute("aria-current", visible && activeSection === entry.section ? "page" : "false");
+    });
+
+    els.settingsGroupSession.classList.toggle("hidden", activeSection !== "appearance");
+    els.settingsGroupUserNotifications.classList.toggle("hidden", activeSection !== "notifications");
+    els.settingsGroupServer.classList.toggle("hidden", activeSection !== "workspace");
+    els.saveSettings.textContent = adminMode ? "Save Admin Settings" : "Save User Settings";
+  }
+
   function renderSettingsForm() {
-    const formFields: Array<HTMLInputElement | HTMLSelectElement> = [
+    renderSettingsModal();
+
+    const serverFields: Array<HTMLInputElement | HTMLSelectElement> = [
       els.settingsVaultPath,
-      els.settingsHomePage,
-      els.settingsNtfyTopicUrl,
-      els.settingsNtfyToken,
       els.settingsNtfyInterval,
+    ];
+    const userFields: Array<HTMLInputElement | HTMLSelectElement> = [
+      els.settingsUserNtfyTopicUrl,
+      els.settingsUserNtfyToken,
       els.settingsFontFamily,
       els.settingsFontSize,
       els.settingsDateTimeFormat,
@@ -2341,24 +2659,24 @@ interface TreeContextMenuState {
       els.settingsToggleTaskDone,
     ];
 
-    if (!state.settingsLoaded) {
-      formFields.forEach(function (field) {
-        field.disabled = true;
-      });
+    serverFields.forEach(function (field) {
+      field.disabled = state.settingsModalMode === "admin" && !state.settingsLoaded;
+    });
+    userFields.forEach(function (field) {
+      field.disabled = false;
+    });
+
+    if (state.settingsModalMode === "admin" && !state.settingsLoaded) {
       els.saveSettings.disabled = true;
-      els.settingsStatus.textContent = "Loading settings from the server…";
+      els.settingsStatus.textContent = "Loading server runtime settings…";
       return;
     }
 
-    formFields.forEach(function (field) {
-      field.disabled = false;
-    });
     els.saveSettings.disabled = false;
     els.settingsVaultPath.value = state.settings.workspace.vaultPath || "";
-    els.settingsHomePage.value = state.settings.workspace.homePage || "";
-    els.settingsNtfyTopicUrl.value = state.settings.notifications.ntfyTopicUrl || "";
-    els.settingsNtfyToken.value = state.settings.notifications.ntfyToken || "";
     els.settingsNtfyInterval.value = state.settings.notifications.ntfyInterval || "1m";
+    els.settingsUserNtfyTopicUrl.value = state.settings.userNotifications.ntfyTopicUrl || "";
+    els.settingsUserNtfyToken.value = state.settings.userNotifications.ntfyToken || "";
     els.settingsFontFamily.value = state.settings.preferences.ui.fontFamily || "mono";
     els.settingsFontSize.value = state.settings.preferences.ui.fontSize || "16";
     els.settingsDateTimeFormat.value = state.settings.preferences.ui.dateTimeFormat || "browser";
@@ -2370,29 +2688,34 @@ interface TreeContextMenuState {
     els.settingsSaveCurrentPage.value = state.settings.preferences.hotkeys.saveCurrentPage || "";
     els.settingsToggleRawMode.value = state.settings.preferences.hotkeys.toggleRawMode || "";
     els.settingsToggleTaskDone.value = state.settings.preferences.hotkeys.toggleTaskDone || "";
+    if (state.settingsModalMode !== "admin") {
+      els.settingsStatus.textContent = state.userSettingsLoaded
+        ? "Appearance and hotkeys stay in this browser. Personal ntfy delivery is saved with your account."
+        : "Appearance and hotkeys stay in this browser. Loading your personal ntfy delivery settings…";
+      return;
+    }
     if (
       state.settingsRestartRequired
       || state.settings.workspace.vaultPath !== state.appliedWorkspace.vaultPath
-      || state.settings.workspace.homePage !== state.appliedWorkspace.homePage
     ) {
       els.settingsStatus.textContent =
-        "Saved config differs from the running server. Current runtime vault: "
+        "Server runtime changes are saved but not yet applied. Current runtime vault: "
         + (state.appliedWorkspace.vaultPath || "(none)")
-        + ". Restart the server to apply workspace changes.";
+        + ". Restart the server to apply workspace settings. Client experience settings still apply immediately.";
       return;
     }
     els.settingsStatus.textContent =
-      "Settings are stored in the server data directory. Current runtime vault: "
+      "Server runtime settings save to this server. Personal ntfy targets live per user. Current runtime vault: "
       + (state.appliedWorkspace.vaultPath || "(none)")
       + ".";
   }
 
   function setSettingsSnapshot(snapshot: SettingsResponse): void {
-    state.settings = snapshot.settings;
+    state.settings.workspace = snapshot.settings.workspace;
+    state.settings.notifications = snapshot.settings.notifications;
     state.appliedWorkspace = snapshot.appliedWorkspace;
     state.settingsRestartRequired = snapshot.restartRequired;
     state.settingsLoaded = true;
-    state.homePage = normalizePageDraftPath(snapshot.settings.workspace.homePage || "");
     renderHomeButton();
     renderHelpShortcuts();
     renderSettingsForm();
@@ -2408,6 +2731,17 @@ interface TreeContextMenuState {
     } else if (state.selectedSavedQuery) {
       loadSavedQueryDetail(state.selectedSavedQuery);
     }
+  }
+
+  function setUserSettingsSnapshot(snapshot: UserSettingsResponse): void {
+    state.homePage = normalizePageDraftPath(snapshot.settings.homePage || "");
+    state.settings.userNotifications = {
+      ntfyTopicUrl: snapshot.settings.notifications.ntfyTopicUrl || "",
+      ntfyToken: snapshot.settings.notifications.ntfyToken || "",
+    };
+    state.userSettingsLoaded = true;
+    renderHomeButton();
+    renderSettingsForm();
   }
 
   function applyUIPreferences(): void {
@@ -2435,6 +2769,17 @@ interface TreeContextMenuState {
       state.settingsLoaded = false;
       renderSettingsForm();
       els.settingsStatus.textContent = errorMessage(error);
+    }
+  }
+
+  async function loadUserSettings() {
+    try {
+      const snapshot = await fetchJSON<UserSettingsResponse>("/api/user/settings");
+      setUserSettingsSnapshot(snapshot);
+    } catch (error) {
+      state.userSettingsLoaded = false;
+      renderSettingsForm();
+      throw error;
     }
   }
 
@@ -3519,8 +3864,16 @@ interface TreeContextMenuState {
     setHelpOpen(false);
   }
 
-  function setSettingsOpen(open: boolean): void {
+  function setSettingsOpen(open: boolean, mode?: "user" | "admin"): void {
+    if (mode) {
+      state.settingsModalMode = mode;
+      state.settingsSection = defaultSettingsSectionForMode(mode);
+    }
     if (open) {
+      if (state.settingsModalMode === "admin" && !currentUserIsAdmin()) {
+        setNoteStatus("Admin settings require an admin session.");
+        return;
+      }
       rememberNoteFocus();
       els.searchModalShell.classList.add("hidden");
       els.commandModalShell.classList.add("hidden");
@@ -3531,12 +3884,20 @@ interface TreeContextMenuState {
       els.trashModalShell.classList.add("hidden");
       els.settingsModalShell.classList.remove("hidden");
       renderSettingsForm();
-      if (!state.settingsLoaded) {
+      if (state.settingsModalMode === "admin" && !state.settingsLoaded) {
         loadSettings();
       }
       window.requestAnimationFrame(function () {
-        if (state.settingsLoaded) {
+        if (state.settingsSection === "workspace" && state.settingsLoaded) {
           focusWithoutScroll(els.settingsVaultPath);
+          return;
+        }
+        if (state.settingsSection === "notifications") {
+          focusWithoutScroll(els.settingsUserNtfyTopicUrl);
+          return;
+        }
+        if (state.settingsSection === "appearance") {
+          focusWithoutScroll(els.settingsFontFamily);
           return;
         }
         focusWithoutScroll(els.closeSettingsModal);
@@ -3550,57 +3911,137 @@ interface TreeContextMenuState {
     setSettingsOpen(false);
   }
 
-  function collectSettingsForm(): SettingsModel {
+  function collectServerSettingsForm(): ServerSettings {
     return {
       workspace: {
         vaultPath: String(els.settingsVaultPath.value || "").trim(),
-        homePage: normalizePageDraftPath(els.settingsHomePage.value || ""),
+        homePage: state.settings.workspace.homePage || "",
       },
       notifications: {
-        ntfyTopicUrl: String(els.settingsNtfyTopicUrl.value || "").trim(),
-        ntfyToken: String(els.settingsNtfyToken.value || "").trim(),
         ntfyInterval: String(els.settingsNtfyInterval.value || "1m").trim(),
       },
-      preferences: {
-        ui: {
-          fontFamily: String(els.settingsFontFamily.value || "mono").trim() as "mono" | "sans" | "serif",
-          fontSize: String(els.settingsFontSize.value || "16").trim(),
-          dateTimeFormat: String(els.settingsDateTimeFormat.value || "browser").trim() as "browser" | "iso" | "de",
-        },
-        hotkeys: {
-          quickSwitcher: String(els.settingsQuickSwitcher.value || "").trim(),
-          globalSearch: String(els.settingsGlobalSearch.value || "").trim(),
-          commandPalette: String(els.settingsCommandPalette.value || "").trim(),
-          quickNote: String(els.settingsQuickNote.value || "").trim(),
-          help: String(els.settingsHelp.value || "").trim(),
-          saveCurrentPage: String(els.settingsSaveCurrentPage.value || "").trim(),
-          toggleRawMode: String(els.settingsToggleRawMode.value || "").trim(),
-          toggleTaskDone: String(els.settingsToggleTaskDone.value || "").trim(),
+    };
+  }
+
+  function collectUserSettingsForm(): UserSettingsResponse {
+    return {
+      settings: {
+        homePage: normalizePageDraftPath(state.homePage || ""),
+        notifications: {
+          ntfyTopicUrl: String(els.settingsUserNtfyTopicUrl.value || "").trim(),
+          ntfyToken: String(els.settingsUserNtfyToken.value || "").trim(),
         },
       },
     };
   }
 
+  function currentUserSettingsPayload(): UserSettingsResponse {
+    return {
+      settings: {
+        homePage: normalizePageDraftPath(state.homePage || ""),
+        notifications: {
+          ntfyTopicUrl: state.settings.userNotifications.ntfyTopicUrl || "",
+          ntfyToken: state.settings.userNotifications.ntfyToken || "",
+        },
+      },
+    };
+  }
+
+  function persistUserHomePage(showFailure: boolean): void {
+    if (!state.authenticated) {
+      return;
+    }
+    fetchJSON<UserSettingsResponse>("/api/user/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(currentUserSettingsPayload()),
+    }).then(function (snapshot) {
+      setUserSettingsSnapshot(snapshot);
+    }).catch(function (error) {
+      if (showFailure) {
+        setNoteStatus("Home page update failed: " + errorMessage(error));
+      }
+    });
+  }
+
+  function collectClientPreferencesForm(): ClientPreferences {
+    return normalizeClientPreferences({
+      ui: {
+        fontFamily: String(els.settingsFontFamily.value || "mono").trim(),
+        fontSize: String(els.settingsFontSize.value || "16").trim(),
+        dateTimeFormat: String(els.settingsDateTimeFormat.value || "browser").trim(),
+      },
+      hotkeys: {
+        quickSwitcher: String(els.settingsQuickSwitcher.value || "").trim(),
+        globalSearch: String(els.settingsGlobalSearch.value || "").trim(),
+        commandPalette: String(els.settingsCommandPalette.value || "").trim(),
+        quickNote: String(els.settingsQuickNote.value || "").trim(),
+        help: String(els.settingsHelp.value || "").trim(),
+        saveCurrentPage: String(els.settingsSaveCurrentPage.value || "").trim(),
+        toggleRawMode: String(els.settingsToggleRawMode.value || "").trim(),
+        toggleTaskDone: String(els.settingsToggleTaskDone.value || "").trim(),
+      },
+    });
+  }
+
+  function applyClientPreferences(preferences: ClientPreferences): void {
+    state.settings.preferences = cloneClientPreferences(preferences);
+    saveStoredClientPreferences(state.settings.preferences);
+    renderHelpShortcuts();
+    renderSettingsForm();
+    applyUIPreferences();
+    renderSourceModeButton();
+    renderPageHistoryButton();
+    if (state.currentPage) {
+      renderNoteStudio();
+      renderPageTasks(state.currentPage.tasks || []);
+      renderPageContext();
+      renderPageProperties();
+    }
+  }
+
   async function persistSettings() {
-    if (!state.settingsLoaded) {
+    if (state.settingsModalMode === "admin" && !state.settingsLoaded) {
       els.settingsStatus.textContent = "Settings are still loading. Try again in a moment.";
       return;
     }
-    els.settingsStatus.textContent = "Saving settings…";
+    if (state.settingsModalMode !== "admin") {
+      applyClientPreferences(collectClientPreferencesForm());
+      els.settingsStatus.textContent = "Saving user settings…";
+      try {
+        const snapshot = await fetchJSON<UserSettingsResponse>("/api/user/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(collectUserSettingsForm()),
+        });
+        setUserSettingsSnapshot(snapshot);
+        closeSettingsModal();
+        restoreNoteFocus();
+        setNoteStatus("User settings saved.");
+      } catch (error) {
+        els.settingsStatus.textContent =
+          "Local preferences updated in this browser, but personal ntfy delivery settings failed to save: " + errorMessage(error);
+      }
+      return;
+    }
+
+    els.settingsStatus.textContent = "Saving admin settings…";
     try {
       const snapshot = await fetchJSON<SettingsResponse>("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(collectSettingsForm()),
+        body: JSON.stringify(collectServerSettingsForm()),
       });
       setSettingsSnapshot(snapshot);
       await loadMeta();
       if (state.selectedPage || state.selectedSavedQuery) {
         syncURLState(true);
       }
-      els.settingsStatus.textContent = snapshot.restartRequired
-        ? "Saved. Restart the server to apply the new runtime vault: " + (snapshot.settings.workspace.vaultPath || "(none)") + "."
-        : "Settings saved. Runtime vault: " + (snapshot.appliedWorkspace.vaultPath || "(none)") + ".";
+      closeSettingsModal();
+      restoreNoteFocus();
+      setNoteStatus(snapshot.restartRequired
+        ? "Admin settings saved. Restart required to apply runtime changes."
+        : "Admin settings saved.");
     } catch (error) {
       els.settingsStatus.textContent = errorMessage(error);
     }
@@ -4063,7 +4504,7 @@ interface TreeContextMenuState {
       },
       onOpenSettings: function () {
         closeCommandPalette();
-        setSettingsOpen(true);
+        setSettingsOpen(true, "user");
       },
       onOpenDocuments: function () {
         closeCommandPalette();
@@ -4303,6 +4744,14 @@ interface TreeContextMenuState {
     });
     on(els.authForm, "submit", function (event) {
       event.preventDefault();
+      if (state.authGateMode === "changePassword") {
+        changePassword();
+        return;
+      }
+      if (state.authGateMode === "setup") {
+        setupInitialAdmin();
+        return;
+      }
       login();
     });
     function isTypingTarget(target: EventTarget | null): boolean {
@@ -4354,7 +4803,23 @@ interface TreeContextMenuState {
     });
     on(els.openSettings, "click", function () {
       setSessionMenuOpen(false);
-      setSettingsOpen(true);
+      setSettingsOpen(true, "user");
+    });
+    on(els.openAdminSettings, "click", function () {
+      setSessionMenuOpen(false);
+      setSettingsOpen(true, "admin");
+    });
+    on(els.settingsNavAppearance, "click", function () {
+      state.settingsSection = "appearance";
+      renderSettingsForm();
+    });
+    on(els.settingsNavNotifications, "click", function () {
+      state.settingsSection = "notifications";
+      renderSettingsForm();
+    });
+    on(els.settingsNavWorkspace, "click", function () {
+      state.settingsSection = "workspace";
+      renderSettingsForm();
     });
     on(els.openQuickSwitcher, "click", function () {
       setSessionMenuOpen(false);
@@ -5078,6 +5543,7 @@ interface TreeContextMenuState {
     setRailOpen(!window.matchMedia("(max-width: 1180px)").matches);
     setPageSearchOpen(false);
     setSourceOpen(false);
+    state.settings.preferences = loadStoredClientPreferences();
     applyUIPreferences();
     renderNoteStudio();
     renderPageTasks([]);
@@ -5089,8 +5555,16 @@ interface TreeContextMenuState {
     try {
       const session = await loadSession();
       setAuthSession(session);
+      if (session.setupRequired) {
+        setAuthGateOpen(true, "Create the first admin account to continue.");
+        return;
+      }
       if (!session.authenticated) {
         setAuthGateOpen(true, "Sign in to continue.");
+        return;
+      }
+      if (session.user && session.user.mustChangePassword) {
+        setAuthGateOpen(true, "Change your password to continue.");
         return;
       }
       await loadAuthenticatedApp();

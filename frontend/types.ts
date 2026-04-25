@@ -170,12 +170,14 @@ export interface AuthenticatedUser {
   role: string;
   createdAt: string;
   lastLoginAt?: string;
+  mustChangePassword: boolean;
 }
 
 export interface AuthSessionResponse {
   authenticated: boolean;
   user?: AuthenticatedUser;
   workspace?: WorkspaceRecord;
+  setupRequired?: boolean;
 }
 
 export interface Hotkeys {
@@ -205,22 +207,38 @@ export interface WorkspaceSettings {
   homePage: string;
 }
 
-export interface NotificationSettings {
-  ntfyTopicUrl: string;
-  ntfyToken: string;
+export interface ServerNotificationSettings {
   ntfyInterval: string;
 }
 
-export interface AppSettings {
-  preferences: Preferences;
+export interface UserNotificationSettings {
+  ntfyTopicUrl: string;
+  ntfyToken: string;
+}
+
+export interface UserSettings {
+  homePage: string;
+  notifications: UserNotificationSettings;
+}
+
+export interface ServerSettings {
   workspace: WorkspaceSettings;
-  notifications: NotificationSettings;
+  notifications: ServerNotificationSettings;
+}
+
+export interface AppSettings extends ServerSettings {
+  preferences: Preferences;
+  userNotifications: UserNotificationSettings;
 }
 
 export interface SettingsResponse {
-  settings: AppSettings;
+  settings: ServerSettings;
   appliedWorkspace: WorkspaceSettings;
   restartRequired: boolean;
+}
+
+export interface UserSettingsResponse {
+  settings: UserSettings;
 }
 
 export interface PageListResponse {

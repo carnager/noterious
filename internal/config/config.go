@@ -13,8 +13,6 @@ type Config struct {
 	DataDir               string
 	HomePage              string
 	WatchInterval         time.Duration
-	NtfyTopicURL          string
-	NtfyToken             string
 	NtfyInterval          time.Duration
 	AuthCookieName        string
 	AuthSessionTTL        time.Duration
@@ -42,8 +40,6 @@ func LoadFromEnv() (Config, error) {
 		DataDir:               envOrDefault("NOTERIOUS_DATA_DIR", "./data"),
 		HomePage:              envOrDefault("NOTERIOUS_HOME_PAGE", ""),
 		WatchInterval:         watchInterval,
-		NtfyTopicURL:          envOrDefault("NOTERIOUS_NTFY_TOPIC_URL", ""),
-		NtfyToken:             envOrDefault("NOTERIOUS_NTFY_TOKEN", ""),
 		NtfyInterval:          ntfyInterval,
 		AuthCookieName:        envOrDefault("NOTERIOUS_AUTH_COOKIE_NAME", "noterious_session"),
 		AuthSessionTTL:        authSessionTTL,
