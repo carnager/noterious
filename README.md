@@ -111,17 +111,14 @@ By default the app uses:
 
 - vault: `./vault`
 - data dir: `./data`
-- listen address: `:8080`
+- listen address: `:3000`
 
 These can be overridden with:
 
 - `NOTERIOUS_VAULT_PATH`
 - `NOTERIOUS_DATA_DIR`
 - `NOTERIOUS_LISTEN_ADDR`
-- `NOTERIOUS_HOME_PAGE`
 - `NOTERIOUS_WATCH_INTERVAL`
-- `NOTERIOUS_NTFY_TOPIC_URL`
-- `NOTERIOUS_NTFY_TOKEN`
 - `NOTERIOUS_NTFY_INTERVAL`
 - `NOTERIOUS_AUTH_COOKIE_NAME`
 - `NOTERIOUS_AUTH_SESSION_TTL`
@@ -130,12 +127,12 @@ These can be overridden with:
 
 CLI flags override the corresponding environment variables when both are set.
 
-If `NOTERIOUS_NTFY_TOPIC_URL` is set, the server will periodically scan open tasks and push ntfy notifications when a task reminder is due, or when the due date is reached if no explicit reminder is set. Due-only dates are delivered at 09:00 server-local time.
+The repository includes a user-level systemd unit template at [contrib/systemd/noterious.service](/home/carnager/Code/noterious/contrib/systemd/noterious.service). Copy it to `~/.config/systemd/user/noterious.service`, adjust the paths, then run `systemctl --user daemon-reload` and `systemctl --user enable --now noterious`.
 
 Auth is now enabled for the server API. On first startup against an empty data directory, Noterious bootstraps one admin user:
 
 - If `NOTERIOUS_AUTH_BOOTSTRAP_USERNAME` and `NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD` are set, those credentials are used.
-- Otherwise the server creates `admin` with a generated password and logs it once at startup.
+- Otherwise the server starts in first-run setup mode and the web UI lets you create the initial admin account.
 
 The web UI now signs in through:
 

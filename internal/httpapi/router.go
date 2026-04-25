@@ -203,7 +203,7 @@ func NewRouter(deps Dependencies) http.Handler {
 			}
 			movedFolderPath, err := vaultService.MoveFolder(folderPath, targetFolder, targetName)
 			if err != nil {
-				http.Error(w, "failed to move folder", http.StatusInternalServerError)
+				http.Error(w, err.Error(), statusForFolderMoveError(err))
 				return
 			}
 			if deps.History != nil {
@@ -2595,6 +2595,23 @@ func splitPageSubresource(rawPath string) (string, string, bool) {
 
 	pagePath, ok := normalizeAPIPagePath(trimmed)
 	return pagePath, "", ok
+}
+
+func statusForFolderMoveError(err error) int {
+	if err == nil {
+		return http.StatusOK
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	switch {
+	case strings.Contains(message, "already exists"):
+		return http.StatusConflict
+	case strings.Contains(message, "invalid "):
+		return http.StatusBadRequest
+	case strings.Contains(message, "not exist"), strings.Contains(message, "no such file"):
+		return http.StatusNotFound
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 func parseQueryBlockPath(rawPath string) (string, string, string, bool) {

@@ -1442,6 +1442,74 @@ func TestMoveFolderRenamesNestedMarkdownAndRebuildsIndex(t *testing.T) {
 	}
 }
 
+func TestMoveFolderKeepsLiteralTildeName(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "~upda"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(vaultDir, "archive"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "~upda", "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/folders/~upda/move", strings.NewReader(`{"targetFolder":"archive"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(vaultDir, "~upda")); !os.IsNotExist(err) {
+		t.Fatalf("old Stat() error = %v, want not exists", err)
+	}
+	if _, err := os.Stat(filepath.Join(vaultDir, "archive", "~upda", "alpha.md")); err != nil {
+		t.Fatalf("new Stat() error = %v", err)
+	}
+}
+
+func TestMoveFolderReturnsConflictWhenTargetExists(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes", "team"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(vaultDir, "archive", "team"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "team", "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/folders/notes/team/move", strings.NewReader(`{"targetFolder":"archive"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "already exists") {
+		t.Fatalf("body = %s, want collision detail", recorder.Body.String())
+	}
+}
+
 func TestMovePageRenamesMarkdownAndReindexes(t *testing.T) {
 	t.Parallel()
 

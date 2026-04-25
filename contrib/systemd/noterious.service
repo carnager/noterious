@@ -1,0 +1,29 @@
+[Unit]
+Description=Noterious personal knowledge base
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/noterious
+ExecStart=%h/.local/bin/noterious
+Restart=on-failure
+RestartSec=2s
+
+# Copy this file to ~/.config/systemd/user/noterious.service and adjust paths as needed.
+# All environment variables currently supported by the server are listed here.
+# Leave the bootstrap variables empty for the normal first-run web setup flow.
+# Only set NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD for unattended/headless provisioning.
+# NOTERIOUS_AUTH_BOOTSTRAP_USERNAME is only used when the bootstrap password is set.
+Environment="NOTERIOUS_LISTEN_ADDR=:3000"
+Environment="NOTERIOUS_VAULT_PATH=%h/.local/share/noterious/vault"
+Environment="NOTERIOUS_DATA_DIR=%h/.local/share/noterious/data"
+Environment="NOTERIOUS_WATCH_INTERVAL=2s"
+Environment="NOTERIOUS_NTFY_INTERVAL=1m"
+Environment="NOTERIOUS_AUTH_COOKIE_NAME=noterious_session"
+Environment="NOTERIOUS_AUTH_SESSION_TTL=720h"
+Environment="NOTERIOUS_AUTH_BOOTSTRAP_USERNAME="
+Environment="NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD="
+
+[Install]
+WantedBy=default.target
