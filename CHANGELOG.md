@@ -2,12 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v0.1.5] - 2026-04-24
+## [v0.1.5] - 2026-04-25
 
 ### Added
+- Session-cookie authentication with bootstrap admin creation, login/logout/session endpoints, and API protection for non-public routes.
+- A default workspace wrapper around the existing single-vault runtime, exposed through auth and meta responses.
+- Vault health detection in backend metadata so missing or unreadable vault paths are surfaced explicitly.
 - Structured server logging for startup, shutdown, watcher/notifier lifecycle, ntfy deliveries, and noteworthy HTTP requests.
 
 ### Changed
+- Backend internals are now workspace-aware: index, query refresh, history/trash, watcher invalidation, and SSE all resolve within the active workspace boundary.
+- Workspace-scoped backend storage now keeps the filesystem model intact: one workspace still maps to one real vault directory with real markdown pages and attachments.
 - `/due` and `/remind` now open the inline picker immediately after insertion instead of only inserting text.
 - Quote rendering now uses clearer indentation, spacing, italics, and a proper left rule.
 
@@ -15,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - Due/remind picker apply no longer visibly snaps the editor to line 1 before focus is restored.
 - Task-date picker interactions now participate in the same note-focus restore flow as the rest of the UI.
 - Firefox quote styling now respects the intended spacing instead of collapsing against the text.
+- Default-workspace indexing/history state now migrates cleanly into workspace-scoped storage instead of being stranded in legacy global paths.
 
 ## [v0.1.4] - 2026-04-24
 

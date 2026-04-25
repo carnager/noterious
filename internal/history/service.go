@@ -13,6 +13,7 @@ import (
 )
 
 type Service struct {
+	historyRoot   string
 	revisionsRoot string
 	trashRoot     string
 }
@@ -20,6 +21,7 @@ type Service struct {
 const revisionCoalesceWindow = time.Minute
 
 type Revision struct {
+	WorkspaceID int64     `json:"workspaceId,omitempty"`
 	ID          string    `json:"id"`
 	Page        string    `json:"page"`
 	SavedAt     time.Time `json:"savedAt"`
@@ -27,6 +29,7 @@ type Revision struct {
 }
 
 type TrashEntry struct {
+	WorkspaceID int64     `json:"workspaceId,omitempty"`
 	Page        string    `json:"page"`
 	DeletedAt   time.Time `json:"deletedAt"`
 	RawMarkdown string    `json:"rawMarkdown"`
@@ -35,6 +38,7 @@ type TrashEntry struct {
 func NewService(dataDir string) (*Service, error) {
 	root := filepath.Join(dataDir, "history")
 	service := &Service{
+		historyRoot:   root,
 		revisionsRoot: filepath.Join(root, "revisions"),
 		trashRoot:     filepath.Join(root, "trash"),
 	}
@@ -44,7 +48,132 @@ func NewService(dataDir string) (*Service, error) {
 	if err := os.MkdirAll(service.trashRoot, 0o755); err != nil {
 		return nil, fmt.Errorf("create trash dir: %w", err)
 	}
+	if err := os.MkdirAll(filepath.Join(root, "workspaces"), 0o755); err != nil {
+		return nil, fmt.Errorf("create workspace history dir: %w", err)
+	}
 	return service, nil
+}
+
+func (s *Service) EnsureWorkspace(workspaceID int64) error {
+	scoped := s.scoped(workspaceID)
+	if err := os.MkdirAll(scoped.revisionsRoot, 0o755); err != nil {
+		return fmt.Errorf("create workspace revisions dir: %w", err)
+	}
+	if err := os.MkdirAll(scoped.trashRoot, 0o755); err != nil {
+		return fmt.Errorf("create workspace trash dir: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) AdoptLegacyWorkspace(workspaceID int64) error {
+	if workspaceID <= 0 {
+		return nil
+	}
+	if err := s.EnsureWorkspace(workspaceID); err != nil {
+		return err
+	}
+
+	scoped := s.scoped(workspaceID)
+	if hasFiles(scoped.revisionsRoot) || hasFiles(scoped.trashRoot) {
+		return nil
+	}
+	if err := s.moveTree(s.revisionsRoot, scoped.revisionsRoot); err != nil {
+		return fmt.Errorf("move legacy revisions into workspace %d: %w", workspaceID, err)
+	}
+	if err := s.moveTree(s.trashRoot, scoped.trashRoot); err != nil {
+		return fmt.Errorf("move legacy trash into workspace %d: %w", workspaceID, err)
+	}
+	return nil
+}
+
+func (s *Service) SaveRevisionForWorkspace(workspaceID int64, pagePath string, rawMarkdown []byte) (bool, error) {
+	if err := s.EnsureWorkspace(workspaceID); err != nil {
+		return false, err
+	}
+	return s.scoped(workspaceID).SaveRevision(pagePath, rawMarkdown)
+}
+
+func (s *Service) ListRevisionsForWorkspace(workspaceID int64, pagePath string) ([]Revision, error) {
+	revisions, err := s.scoped(workspaceID).ListRevisions(pagePath)
+	if err != nil {
+		return nil, err
+	}
+	for idx := range revisions {
+		revisions[idx].WorkspaceID = workspaceID
+	}
+	return revisions, nil
+}
+
+func (s *Service) GetRevisionForWorkspace(workspaceID int64, pagePath string, revisionID string) (Revision, error) {
+	revision, err := s.scoped(workspaceID).GetRevision(pagePath, revisionID)
+	if err != nil {
+		return Revision{}, err
+	}
+	revision.WorkspaceID = workspaceID
+	return revision, nil
+}
+
+func (s *Service) MovePageForWorkspace(workspaceID int64, fromPath string, toPath string) error {
+	return s.scoped(workspaceID).MovePage(fromPath, toPath)
+}
+
+func (s *Service) MovePrefixForWorkspace(workspaceID int64, fromPrefix string, toPrefix string) error {
+	return s.scoped(workspaceID).MovePrefix(fromPrefix, toPrefix)
+}
+
+func (s *Service) DeletePageHistoryForWorkspace(workspaceID int64, pagePath string) error {
+	return s.scoped(workspaceID).DeletePageHistory(pagePath)
+}
+
+func (s *Service) DeleteHistoryPrefixForWorkspace(workspaceID int64, prefix string) error {
+	return s.scoped(workspaceID).DeleteHistoryPrefix(prefix)
+}
+
+func (s *Service) MoveToTrashForWorkspace(workspaceID int64, pagePath string, rawMarkdown []byte) error {
+	if err := s.EnsureWorkspace(workspaceID); err != nil {
+		return err
+	}
+	return s.scoped(workspaceID).MoveToTrash(pagePath, rawMarkdown)
+}
+
+func (s *Service) ListTrashForWorkspace(workspaceID int64) ([]TrashEntry, error) {
+	entries, err := s.scoped(workspaceID).ListTrash()
+	if err != nil {
+		return nil, err
+	}
+	for idx := range entries {
+		entries[idx].WorkspaceID = workspaceID
+	}
+	return entries, nil
+}
+
+func (s *Service) EmptyTrashForWorkspace(workspaceID int64) error {
+	return s.scoped(workspaceID).EmptyTrash()
+}
+
+func (s *Service) RestoreFromTrashForWorkspace(workspaceID int64, pagePath string) (TrashEntry, error) {
+	entry, err := s.scoped(workspaceID).RestoreFromTrash(pagePath)
+	if err != nil {
+		return TrashEntry{}, err
+	}
+	entry.WorkspaceID = workspaceID
+	return entry, nil
+}
+
+func (s *Service) PermanentlyDeleteForWorkspace(workspaceID int64, pagePath string) error {
+	return s.scoped(workspaceID).PermanentlyDelete(pagePath)
+}
+
+func (s *Service) scoped(workspaceID int64) *Service {
+	if s == nil || workspaceID <= 0 {
+		return s
+	}
+	base := filepath.Join(s.historyRoot, "workspaces", fmt.Sprintf("%d", workspaceID))
+	return &Service{
+		historyRoot:   s.historyRoot,
+		revisionsRoot: filepath.Join(base, "revisions"),
+		trashRoot:     filepath.Join(base, "trash"),
+	}
 }
 
 func (s *Service) SaveRevision(pagePath string, rawMarkdown []byte) (bool, error) {
@@ -349,6 +478,14 @@ func (s *Service) moveFile(fromPath string, toPath string) error {
 		return err
 	}
 	return os.Rename(fromPath, toPath)
+}
+
+func hasFiles(root string) bool {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return false
+	}
+	return len(entries) > 0
 }
 
 func (s *Service) rewriteStoredPagePaths(fromPath string, toPath string) error {

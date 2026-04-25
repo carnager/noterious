@@ -9589,11 +9589,26 @@ func buildTestRouterWithDeps(t *testing.T, vaultDir, dataDir string, deps Depend
 		if workspaceHomePage == "" {
 			workspaceHomePage = "index"
 		}
-		if _, err := workspaceService.EnsureDefault(context.Background(), workspaces.DefaultConfig{
+		workspace, err := workspaceService.EnsureDefault(context.Background(), workspaces.DefaultConfig{
 			VaultPath: deps.Config.VaultPath,
 			HomePage:  workspaceHomePage,
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("EnsureDefault() error = %v", err)
+		}
+		workspaceCtx := workspaces.WithWorkspace(context.Background(), workspace)
+		if err := deps.Index.RebuildFromVault(workspaceCtx, deps.Vault); err != nil {
+			t.Fatalf("RebuildFromVault(workspace) error = %v", err)
+		}
+		if deps.Query != nil {
+			if err := deps.Query.RefreshAll(workspaceCtx, deps.Index); err != nil {
+				t.Fatalf("RefreshAll(workspace) error = %v", err)
+			}
+		}
+		if deps.History != nil {
+			if err := deps.History.AdoptLegacyWorkspace(workspace.ID); err != nil {
+				t.Fatalf("AdoptLegacyWorkspace() error = %v", err)
+			}
 		}
 		deps.Workspaces = workspaceService
 	}

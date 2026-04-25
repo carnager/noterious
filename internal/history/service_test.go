@@ -199,3 +199,52 @@ func TestServiceEmptyTrashRemovesHistory(t *testing.T) {
 		t.Fatalf("ListRevisions(beta) len = %d, want 0", len(revisions))
 	}
 }
+
+func TestWorkspaceHistoryIsolated(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	if _, err := service.SaveRevisionForWorkspace(1, "notes/alpha", []byte("workspace-one")); err != nil {
+		t.Fatalf("SaveRevisionForWorkspace(1) error = %v", err)
+	}
+	if _, err := service.SaveRevisionForWorkspace(2, "notes/alpha", []byte("workspace-two")); err != nil {
+		t.Fatalf("SaveRevisionForWorkspace(2) error = %v", err)
+	}
+
+	revisionsOne, err := service.ListRevisionsForWorkspace(1, "notes/alpha")
+	if err != nil {
+		t.Fatalf("ListRevisionsForWorkspace(1) error = %v", err)
+	}
+	revisionsTwo, err := service.ListRevisionsForWorkspace(2, "notes/alpha")
+	if err != nil {
+		t.Fatalf("ListRevisionsForWorkspace(2) error = %v", err)
+	}
+	if len(revisionsOne) != 1 || revisionsOne[0].RawMarkdown != "workspace-one" {
+		t.Fatalf("revisionsOne = %#v", revisionsOne)
+	}
+	if len(revisionsTwo) != 1 || revisionsTwo[0].RawMarkdown != "workspace-two" {
+		t.Fatalf("revisionsTwo = %#v", revisionsTwo)
+	}
+
+	if err := service.MoveToTrashForWorkspace(1, "notes/alpha", []byte("workspace-one")); err != nil {
+		t.Fatalf("MoveToTrashForWorkspace(1) error = %v", err)
+	}
+	trashOne, err := service.ListTrashForWorkspace(1)
+	if err != nil {
+		t.Fatalf("ListTrashForWorkspace(1) error = %v", err)
+	}
+	trashTwo, err := service.ListTrashForWorkspace(2)
+	if err != nil {
+		t.Fatalf("ListTrashForWorkspace(2) error = %v", err)
+	}
+	if len(trashOne) != 1 || trashOne[0].RawMarkdown != "workspace-one" {
+		t.Fatalf("trashOne = %#v", trashOne)
+	}
+	if len(trashTwo) != 0 {
+		t.Fatalf("trashTwo = %#v, want empty", trashTwo)
+	}
+}

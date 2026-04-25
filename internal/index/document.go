@@ -40,23 +40,25 @@ type FrontmatterField struct {
 }
 
 type Link struct {
-	SourcePage string `json:"sourcePage"`
-	TargetPage string `json:"targetPage"`
-	LinkText   string `json:"linkText"`
-	Kind       string `json:"kind"`
-	Line       int    `json:"line"`
+	WorkspaceID int64  `json:"workspaceId,omitempty"`
+	SourcePage  string `json:"sourcePage"`
+	TargetPage  string `json:"targetPage"`
+	LinkText    string `json:"linkText"`
+	Kind        string `json:"kind"`
+	Line        int    `json:"line"`
 }
 
 type Task struct {
-	Ref    string   `json:"ref"`
-	Page   string   `json:"page"`
-	Line   int      `json:"line"`
-	Text   string   `json:"text"`
-	State  string   `json:"state"`
-	Done   bool     `json:"done"`
-	Due    *string  `json:"due,omitempty"`
-	Remind *string  `json:"remind,omitempty"`
-	Who    []string `json:"who,omitempty"`
+	WorkspaceID int64    `json:"workspaceId,omitempty"`
+	Ref         string   `json:"ref"`
+	Page        string   `json:"page"`
+	Line        int      `json:"line"`
+	Text        string   `json:"text"`
+	State       string   `json:"state"`
+	Done        bool     `json:"done"`
+	Due         *string  `json:"due,omitempty"`
+	Remind      *string  `json:"remind,omitempty"`
+	Who         []string `json:"who,omitempty"`
 }
 
 type Heading struct {

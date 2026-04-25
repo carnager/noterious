@@ -4,17 +4,24 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sync"
 
 	"github.com/carnager/noterious/internal/vault"
+	"github.com/carnager/noterious/internal/workspaces"
 )
 
 type Service struct {
 	dataDir string
-	store   *SQLiteStore
+	mu      sync.Mutex
+	stores  map[int64]*SQLiteStore
 }
 
 func NewService(dataDir string) *Service {
-	return &Service{dataDir: dataDir}
+	return &Service{
+		dataDir: dataDir,
+		stores:  make(map[int64]*SQLiteStore),
+	}
 }
 
 func (s *Service) DataDir() string {
@@ -25,34 +32,42 @@ func (s *Service) Open(ctx context.Context) error {
 	if err := os.MkdirAll(s.dataDir, 0o755); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
 	}
-
-	store, err := OpenSQLite(ctx, s.dataDir)
-	if err != nil {
-		return err
+	if err := os.MkdirAll(filepath.Join(s.dataDir, "index"), 0o755); err != nil {
+		return fmt.Errorf("create index data dir: %w", err)
 	}
-	s.store = store
 	return nil
 }
 
 func (s *Service) Close() error {
-	if s.store == nil {
-		return nil
+	s.mu.Lock()
+	stores := make([]*SQLiteStore, 0, len(s.stores))
+	for _, store := range s.stores {
+		stores = append(stores, store)
 	}
-	return s.store.Close()
+	s.stores = make(map[int64]*SQLiteStore)
+	s.mu.Unlock()
+
+	var closeErr error
+	for _, store := range stores {
+		if err := store.Close(); err != nil && closeErr == nil {
+			closeErr = err
+		}
+	}
+	return closeErr
 }
 
 func (s *Service) DatabasePath() string {
-	if s.store == nil {
-		return ""
+	return s.DatabasePathForWorkspace(workspaces.LegacyWorkspaceID)
+}
+
+func (s *Service) DatabasePathForWorkspace(workspaceID int64) string {
+	if workspaceID <= 0 {
+		return filepath.Join(s.dataDir, "noterious.db")
 	}
-	return s.store.Path()
+	return filepath.Join(s.dataDir, "index", fmt.Sprintf("workspace-%d.db", workspaceID))
 }
 
 func (s *Service) RebuildFromVault(ctx context.Context, vaultService *vault.Service) error {
-	if s.store == nil {
-		return fmt.Errorf("index store is not open")
-	}
-
 	pageFiles, err := vaultService.ScanMarkdownPages(ctx)
 	if err != nil {
 		return err
@@ -72,17 +87,17 @@ func (s *Service) RebuildFromVault(ctx context.Context, vaultService *vault.Serv
 		documents = append(documents, document)
 	}
 
-	if err := s.store.ReplaceAll(ctx, documents); err != nil {
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return err
+	}
+	if err := store.ReplaceAll(ctx, documents); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *Service) ReindexPage(ctx context.Context, vaultService *vault.Service, pagePath string) error {
-	if s.store == nil {
-		return fmt.Errorf("index store is not open")
-	}
-
 	pageFile, err := vaultService.StatPage(pagePath)
 	if err != nil {
 		return err
@@ -98,110 +113,285 @@ func (s *Service) ReindexPage(ctx context.Context, vaultService *vault.Service, 
 		return err
 	}
 
-	return s.store.ReplacePage(ctx, document)
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return err
+	}
+	return store.ReplacePage(ctx, document)
 }
 
 func (s *Service) RemovePage(ctx context.Context, pagePath string) error {
-	if s.store == nil {
-		return fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return err
 	}
-	return s.store.RemovePage(ctx, pagePath)
+	return store.RemovePage(ctx, pagePath)
 }
 
 func (s *Service) GetPage(ctx context.Context, pagePath string) (PageRecord, error) {
-	if s.store == nil {
-		return PageRecord{}, fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return PageRecord{}, err
 	}
-	return s.store.GetPage(ctx, pagePath)
+	record, err := store.GetPage(ctx, pagePath)
+	if err != nil {
+		return PageRecord{}, err
+	}
+	record.WorkspaceID = workspaces.WorkspaceIDFromContext(ctx)
+	return record, nil
 }
 
 func (s *Service) GetBacklinks(ctx context.Context, pagePath string) ([]BacklinkRecord, error) {
-	if s.store == nil {
-		return nil, fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return s.store.GetBacklinks(ctx, pagePath)
+	backlinks, err := store.GetBacklinks(ctx, pagePath)
+	if err != nil {
+		return nil, err
+	}
+	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	for idx := range backlinks {
+		backlinks[idx].WorkspaceID = workspaceID
+	}
+	return backlinks, nil
 }
 
 func (s *Service) ListTasks(ctx context.Context) ([]Task, error) {
-	if s.store == nil {
-		return nil, fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return s.store.ListTasks(ctx)
+	tasks, err := store.ListTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	for idx := range tasks {
+		tasks[idx].WorkspaceID = workspaceID
+	}
+	return tasks, nil
 }
 
 func (s *Service) GetTask(ctx context.Context, ref string) (Task, error) {
-	if s.store == nil {
-		return Task{}, fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return Task{}, err
 	}
-	return s.store.GetTask(ctx, ref)
+	task, err := store.GetTask(ctx, ref)
+	if err != nil {
+		return Task{}, err
+	}
+	task.WorkspaceID = workspaces.WorkspaceIDFromContext(ctx)
+	return task, nil
 }
 
 func (s *Service) ListPages(ctx context.Context) ([]PageSummary, error) {
-	if s.store == nil {
-		return nil, fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return s.store.ListPages(ctx)
+	pages, err := store.ListPages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	for idx := range pages {
+		pages[idx].WorkspaceID = workspaceID
+	}
+	return pages, nil
 }
 
 func (s *Service) ListLinks(ctx context.Context) ([]Link, error) {
-	if s.store == nil {
-		return nil, fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return s.store.ListLinks(ctx)
+	links, err := store.ListLinks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	for idx := range links {
+		links[idx].WorkspaceID = workspaceID
+	}
+	return links, nil
 }
 
 func (s *Service) ListSavedQueries(ctx context.Context) ([]SavedQuery, error) {
-	if s.store == nil {
-		return nil, fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return s.store.ListSavedQueries(ctx)
+	queries, err := store.ListSavedQueries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	for idx := range queries {
+		queries[idx].WorkspaceID = workspaceID
+	}
+	return queries, nil
 }
 
 func (s *Service) GetSavedQuery(ctx context.Context, name string) (SavedQuery, error) {
-	if s.store == nil {
-		return SavedQuery{}, fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return SavedQuery{}, err
 	}
-	return s.store.GetSavedQuery(ctx, name)
+	query, err := store.GetSavedQuery(ctx, name)
+	if err != nil {
+		return SavedQuery{}, err
+	}
+	query.WorkspaceID = workspaces.WorkspaceIDFromContext(ctx)
+	return query, nil
 }
 
 func (s *Service) PutSavedQuery(ctx context.Context, query SavedQuery) (SavedQuery, error) {
-	if s.store == nil {
-		return SavedQuery{}, fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return SavedQuery{}, err
 	}
-	return s.store.PutSavedQuery(ctx, query)
+	saved, err := store.PutSavedQuery(ctx, query)
+	if err != nil {
+		return SavedQuery{}, err
+	}
+	saved.WorkspaceID = workspaces.WorkspaceIDFromContext(ctx)
+	return saved, nil
 }
 
 func (s *Service) DeleteSavedQuery(ctx context.Context, name string) error {
-	if s.store == nil {
-		return fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return err
 	}
-	return s.store.DeleteSavedQuery(ctx, name)
+	return store.DeleteSavedQuery(ctx, name)
 }
 
 func (s *Service) ReplaceQueryBlocks(ctx context.Context, pagePath string, blocks []QueryBlock) error {
-	if s.store == nil {
-		return fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return err
 	}
-	return s.store.ReplaceQueryBlocks(ctx, pagePath, blocks)
+	return store.ReplaceQueryBlocks(ctx, pagePath, blocks)
 }
 
 func (s *Service) GetQueryBlocks(ctx context.Context, pagePath string) ([]QueryBlock, error) {
-	if s.store == nil {
-		return nil, fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return s.store.GetQueryBlocks(ctx, pagePath)
+	blocks, err := store.GetQueryBlocks(ctx, pagePath)
+	if err != nil {
+		return nil, err
+	}
+	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	for idx := range blocks {
+		blocks[idx].WorkspaceID = workspaceID
+	}
+	return blocks, nil
 }
 
 func (s *Service) ListQueryPagesByDataset(ctx context.Context, datasets []string) ([]string, error) {
-	if s.store == nil {
-		return nil, fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return s.store.ListQueryPagesByDataset(ctx, datasets)
+	return store.ListQueryPagesByDataset(ctx, datasets)
 }
 
 func (s *Service) ListQueryPagesByDatasetAndPage(ctx context.Context, datasets []string, pagePath string) ([]string, error) {
-	if s.store == nil {
-		return nil, fmt.Errorf("index store is not open")
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return s.store.ListQueryPagesByDatasetAndPage(ctx, datasets, pagePath)
+	return store.ListQueryPagesByDatasetAndPage(ctx, datasets, pagePath)
+}
+
+func (s *Service) storeForContext(ctx context.Context) (*SQLiteStore, error) {
+	return s.storeForWorkspace(ctx, workspaces.WorkspaceIDFromContext(ctx))
+}
+
+func (s *Service) storeForWorkspace(ctx context.Context, workspaceID int64) (*SQLiteStore, error) {
+	s.mu.Lock()
+	if store := s.stores[workspaceID]; store != nil {
+		s.mu.Unlock()
+		return store, nil
+	}
+	s.mu.Unlock()
+
+	dbPath := s.DatabasePathForWorkspace(workspaceID)
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		return nil, fmt.Errorf("create index workspace dir: %w", err)
+	}
+	targetMissing := true
+	if _, err := os.Stat(dbPath); err == nil {
+		targetMissing = false
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("stat workspace index db: %w", err)
+	}
+
+	store, err := OpenSQLitePath(ctx, dbPath)
+	if err != nil {
+		return nil, err
+	}
+	if workspaceID > workspaces.LegacyWorkspaceID && targetMissing {
+		if err := cloneLegacyWorkspaceData(ctx, store, filepath.Join(s.dataDir, "noterious.db")); err != nil {
+			_ = store.Close()
+			return nil, err
+		}
+	}
+
+	s.mu.Lock()
+	if existing := s.stores[workspaceID]; existing != nil {
+		s.mu.Unlock()
+		_ = store.Close()
+		return existing, nil
+	}
+	s.stores[workspaceID] = store
+	s.mu.Unlock()
+	return store, nil
+}
+
+func cloneLegacyWorkspaceData(ctx context.Context, store *SQLiteStore, legacyPath string) error {
+	if store == nil || store.db == nil {
+		return nil
+	}
+	if _, err := os.Stat(legacyPath); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("stat legacy index db: %w", err)
+	}
+	if legacyPath == store.Path() {
+		return nil
+	}
+
+	legacy, err := OpenSQLitePath(ctx, legacyPath)
+	if err != nil {
+		return nil
+	}
+	defer func() {
+		_ = legacy.Close()
+	}()
+
+	documents, err := legacy.listDocuments(ctx)
+	if err != nil {
+		return err
+	}
+	if len(documents) > 0 {
+		if err := store.ReplaceAll(ctx, documents); err != nil {
+			return err
+		}
+	}
+
+	savedQueries, err := legacy.ListSavedQueries(ctx)
+	if err != nil {
+		return nil
+	}
+	for _, savedQuery := range savedQueries {
+		if _, err := store.PutSavedQuery(ctx, savedQuery); err != nil {
+			return fmt.Errorf("migrate saved query %q: %w", savedQuery.Name, err)
+		}
+	}
+	return nil
 }

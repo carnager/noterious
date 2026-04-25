@@ -22,6 +22,7 @@ import (
 
 type App struct {
 	cfg        config.Config
+	workspace  workspaces.Workspace
 	auth       *auth.Service
 	workspaces *workspaces.Service
 	index      *index.Service
@@ -77,6 +78,7 @@ func New(cfg config.Config) (*App, error) {
 	}
 
 	vaultService := vault.NewService(cfg.VaultPath)
+	workspaceCtx := workspaces.WithWorkspace(context.Background(), currentWorkspace)
 	indexService := index.NewService(cfg.DataDir)
 	queryService := query.NewService()
 	documentService, err := documents.NewService(cfg.VaultPath)
@@ -91,6 +93,11 @@ func New(cfg config.Config) (*App, error) {
 		_ = authService.Close()
 		return nil, fmt.Errorf("init history store: %w", err)
 	}
+	if err := historyService.AdoptLegacyWorkspace(currentWorkspace.ID); err != nil {
+		_ = workspaceService.Close()
+		_ = authService.Close()
+		return nil, fmt.Errorf("migrate history into workspace: %w", err)
+	}
 	eventBroker := httpapi.NewEventBroker()
 	notifier, err := notify.NewService(cfg.DataDir, indexService, cfg.NtfyTopicURL, cfg.NtfyToken)
 	if err != nil {
@@ -104,19 +111,19 @@ func New(cfg config.Config) (*App, error) {
 		_ = authService.Close()
 		return nil, fmt.Errorf("open index: %w", err)
 	}
-	if err := indexService.RebuildFromVault(context.Background(), vaultService); err != nil {
+	if err := indexService.RebuildFromVault(workspaceCtx, vaultService); err != nil {
 		_ = workspaceService.Close()
 		_ = authService.Close()
 		_ = indexService.Close()
 		return nil, fmt.Errorf("rebuild index from vault: %w", err)
 	}
-	if err := queryService.RefreshAll(context.Background(), indexService); err != nil {
+	if err := queryService.RefreshAll(workspaceCtx, indexService); err != nil {
 		_ = workspaceService.Close()
 		_ = authService.Close()
 		_ = indexService.Close()
 		return nil, fmt.Errorf("refresh query caches: %w", err)
 	}
-	watcher, err := NewVaultWatcher(context.Background(), vaultService, indexService, queryService, eventBroker)
+	watcher, err := NewVaultWatcher(workspaceCtx, currentWorkspace, vaultService, indexService, queryService, eventBroker)
 	if err != nil {
 		_ = workspaceService.Close()
 		_ = authService.Close()
@@ -154,6 +161,7 @@ func New(cfg config.Config) (*App, error) {
 
 	return &App{
 		cfg:        cfg,
+		workspace:  currentWorkspace,
 		auth:       authService,
 		workspaces: workspaceService,
 		index:      indexService,
@@ -194,16 +202,17 @@ func (a *App) Run(ctx context.Context) error {
 		close(errCh)
 	}()
 
+	workspaceCtx := workspaces.WithWorkspace(ctx, a.workspace)
 	if a.watcher != nil && a.cfg.WatchInterval > 0 {
 		slog.Info("vault watcher started", "interval", a.cfg.WatchInterval.String())
-		go a.watcher.Run(ctx, a.cfg.WatchInterval)
+		go a.watcher.Run(workspaceCtx, a.cfg.WatchInterval)
 	}
 	if a.notifier != nil && a.cfg.NtfyInterval > 0 {
 		slog.Info("ntfy notifier started",
 			"interval", a.cfg.NtfyInterval.String(),
 			"enabled", a.notifier.Enabled(),
 		)
-		go a.notifier.Run(ctx, a.cfg.NtfyInterval)
+		go a.notifier.Run(workspaceCtx, a.cfg.NtfyInterval)
 	}
 
 	select {

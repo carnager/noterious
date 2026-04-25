@@ -23,6 +23,10 @@ type SQLiteStore struct {
 
 func OpenSQLite(ctx context.Context, dataDir string) (*SQLiteStore, error) {
 	dbPath := filepath.Join(dataDir, "noterious.db")
+	return OpenSQLitePath(ctx, dbPath)
+}
+
+func OpenSQLitePath(ctx context.Context, dbPath string) (*SQLiteStore, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -220,6 +224,108 @@ func (s *SQLiteStore) ReplaceAll(ctx context.Context, documents []Document) erro
 	return nil
 }
 
+func (s *SQLiteStore) listDocuments(ctx context.Context) ([]Document, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT path, COALESCE(title, ''), COALESCE(raw_markdown, ''), COALESCE(created_at, ''), COALESCE(updated_at, '')
+		FROM pages
+		ORDER BY path;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list pages for migration: %w", err)
+	}
+	defer rows.Close()
+
+	documents := make([]Document, 0)
+	documentsByPath := make(map[string]*Document)
+	for rows.Next() {
+		var document Document
+		if err := rows.Scan(&document.Path, &document.Title, &document.RawMarkdown, &document.CreatedAt, &document.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan migration page: %w", err)
+		}
+		documents = append(documents, document)
+		documentsByPath[document.Path] = &documents[len(documents)-1]
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate migration pages: %w", err)
+	}
+	if len(documents) == 0 {
+		return nil, nil
+	}
+
+	frontmatterRows, err := s.db.QueryContext(ctx, `
+		SELECT page, key, value_json
+		FROM frontmatter_fields
+		ORDER BY page, key;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list frontmatter for migration: %w", err)
+	}
+	defer frontmatterRows.Close()
+	for frontmatterRows.Next() {
+		var (
+			pagePath  string
+			key       string
+			valueJSON string
+		)
+		if err := frontmatterRows.Scan(&pagePath, &key, &valueJSON); err != nil {
+			return nil, fmt.Errorf("scan migration frontmatter: %w", err)
+		}
+		document := documentsByPath[pagePath]
+		if document == nil {
+			continue
+		}
+		document.Frontmatter = append(document.Frontmatter, FrontmatterField{
+			Key:       key,
+			ValueJSON: valueJSON,
+		})
+	}
+	if err := frontmatterRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate migration frontmatter: %w", err)
+	}
+
+	linkRows, err := s.db.QueryContext(ctx, `
+		SELECT source_page, target_page, COALESCE(link_text, ''), kind, line
+		FROM links
+		ORDER BY source_page, line, id;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list links for migration: %w", err)
+	}
+	defer linkRows.Close()
+	for linkRows.Next() {
+		var link Link
+		if err := linkRows.Scan(&link.SourcePage, &link.TargetPage, &link.LinkText, &link.Kind, &link.Line); err != nil {
+			return nil, fmt.Errorf("scan migration link: %w", err)
+		}
+		document := documentsByPath[link.SourcePage]
+		if document == nil {
+			continue
+		}
+		document.Links = append(document.Links, link)
+	}
+	if err := linkRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate migration links: %w", err)
+	}
+
+	tasks, err := s.loadTasks(ctx, `
+		SELECT ref, page, line, text, state, done, due, remind, who
+		FROM tasks
+		ORDER BY page, line, id;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks for migration: %w", err)
+	}
+	for _, task := range tasks {
+		document := documentsByPath[task.Page]
+		if document == nil {
+			continue
+		}
+		document.Tasks = append(document.Tasks, task)
+	}
+
+	return documents, nil
+}
+
 func (s *SQLiteStore) ReplacePage(ctx context.Context, document Document) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -295,6 +401,7 @@ func (s *SQLiteStore) RemovePage(ctx context.Context, pagePath string) error {
 }
 
 type PageRecord struct {
+	WorkspaceID int64
 	Path        string
 	Title       string
 	RawMarkdown string
@@ -306,6 +413,7 @@ type PageRecord struct {
 }
 
 type PageSummary struct {
+	WorkspaceID       int64          `json:"workspaceId,omitempty"`
 	Path              string         `json:"path"`
 	Title             string         `json:"title"`
 	Tags              []string       `json:"tags,omitempty"`
@@ -321,6 +429,7 @@ type PageSummary struct {
 }
 
 type QueryBlock struct {
+	WorkspaceID int64    `json:"workspaceId,omitempty"`
 	Source      string   `json:"source"`
 	Line        int      `json:"line"`
 	ID          string   `json:"id,omitempty"`
@@ -341,6 +450,7 @@ type QueryBlock struct {
 }
 
 type BacklinkRecord struct {
+	WorkspaceID int64  `json:"workspaceId,omitempty"`
 	SourcePage  string `json:"sourcePage"`
 	SourceTitle string `json:"sourceTitle"`
 	LinkText    string `json:"linkText"`
@@ -349,6 +459,7 @@ type BacklinkRecord struct {
 }
 
 type SavedQuery struct {
+	WorkspaceID int64    `json:"workspaceId,omitempty"`
 	Name        string   `json:"name"`
 	Title       string   `json:"title"`
 	Description string   `json:"description,omitempty"`

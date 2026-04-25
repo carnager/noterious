@@ -54,38 +54,34 @@ func NewRouter(deps Dependencies) http.Handler {
 		})
 	})
 
-	mux.HandleFunc("/api/meta", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/api/meta", func(w http.ResponseWriter, r *http.Request) {
 		workspace := settings.Workspace{
 			VaultPath: deps.Config.VaultPath,
 			HomePage:  deps.Config.HomePage,
 		}
-		var currentWorkspace *workspaces.Workspace
+		workspaceRecord := currentWorkspace(r.Context(), deps)
+		var currentWorkspaceRecord *workspaces.Workspace
 		restartRequired := false
 		if deps.Settings != nil {
 			snapshot := deps.Settings.Snapshot()
 			workspace = snapshot.AppliedWorkspace
 			restartRequired = snapshot.RestartRequired
 		}
-		if deps.Workspaces != nil {
-			if loadedWorkspace, err := deps.Workspaces.Default(context.Background()); err == nil {
-				currentWorkspace = &loadedWorkspace
-				workspace.VaultPath = loadedWorkspace.VaultPath
-				workspace.HomePage = loadedWorkspace.HomePage
-			}
+		if workspaceRecord.VaultPath != "" {
+			currentWorkspaceRecord = &workspaceRecord
+			workspace.VaultPath = workspaceRecord.VaultPath
+			workspace.HomePage = workspaceRecord.HomePage
 		}
-		vaultHealth := vault.Health{Healthy: true, Reason: "ok"}
-		if deps.Vault != nil {
-			vaultHealth = deps.Vault.Health()
-		}
+		vaultHealth := currentVault(r.Context(), deps).Health()
 		writeJSON(w, http.StatusOK, map[string]any{
 			"name":            "noterious",
 			"listenAddr":      deps.Config.ListenAddr,
-			"workspace":       currentWorkspace,
+			"workspace":       currentWorkspaceRecord,
 			"vaultPath":       workspace.VaultPath,
 			"vaultHealth":     vaultHealth,
 			"dataDir":         deps.Config.DataDir,
 			"homePage":        workspace.HomePage,
-			"database":        deps.Index.DatabasePath(),
+			"database":        deps.Index.DatabasePathForWorkspace(workspaceRecord.ID),
 			"serverTime":      time.Now().UTC().Format(time.RFC3339),
 			"serverFirst":     true,
 			"restartRequired": restartRequired,
@@ -117,19 +113,20 @@ func NewRouter(deps Dependencies) http.Handler {
 		}
 	})
 	mux.HandleFunc("/api/documents", func(w http.ResponseWriter, r *http.Request) {
-		if deps.Documents == nil {
+		documentService, err := currentDocuments(r.Context(), deps)
+		if err != nil {
 			http.Error(w, "document service unavailable", http.StatusInternalServerError)
 			return
 		}
 		switch r.Method {
 		case http.MethodGet:
-			items, err := deps.Documents.List(r.Context(), r.URL.Query().Get("q"))
+			items, err := documentService.List(r.Context(), r.URL.Query().Get("q"))
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]any{
-				"documents": mapDocuments(items, deps.Documents),
+				"documents": mapDocuments(items, documentService),
 				"count":     len(items),
 				"query":     strings.TrimSpace(r.URL.Query().Get("q")),
 			})
@@ -145,17 +142,19 @@ func NewRouter(deps Dependencies) http.Handler {
 			}
 			defer file.Close()
 
-			document, err := deps.Documents.Create(r.Context(), r.FormValue("page"), header.Filename, header.Header.Get("Content-Type"), file)
+			document, err := documentService.Create(r.Context(), r.FormValue("page"), header.Filename, header.Header.Get("Content-Type"), file)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			writeJSON(w, http.StatusCreated, mapDocument(document, deps.Documents))
+			writeJSON(w, http.StatusCreated, mapDocument(document, documentService))
 		default:
 			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
 		}
 	})
 	mux.HandleFunc("/api/folders/", func(w http.ResponseWriter, r *http.Request) {
+		workspaceID := workspaces.WorkspaceIDFromContext(r.Context())
+		vaultService := currentVault(r.Context(), deps)
 		folderPath := strings.TrimPrefix(r.URL.Path, "/api/folders/")
 		action := ""
 		if strings.HasSuffix(folderPath, "/move") {
@@ -202,18 +201,18 @@ func NewRouter(deps Dependencies) http.Handler {
 					return
 				}
 			}
-			movedFolderPath, err := deps.Vault.MoveFolder(folderPath, targetFolder, targetName)
+			movedFolderPath, err := vaultService.MoveFolder(folderPath, targetFolder, targetName)
 			if err != nil {
 				http.Error(w, "failed to move folder", http.StatusInternalServerError)
 				return
 			}
 			if deps.History != nil {
-				if err := deps.History.MovePrefix(folderPath, movedFolderPath); err != nil {
+				if err := deps.History.MovePrefixForWorkspace(workspaceID, folderPath, movedFolderPath); err != nil {
 					http.Error(w, "failed to move folder history", http.StatusInternalServerError)
 					return
 				}
 			}
-			if err := deps.Index.RebuildFromVault(r.Context(), deps.Vault); err != nil {
+			if err := deps.Index.RebuildFromVault(r.Context(), vaultService); err != nil {
 				http.Error(w, "failed to rebuild index", http.StatusInternalServerError)
 				return
 			}
@@ -239,7 +238,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				return
 			}
 			if deps.History != nil {
-				pageFiles, err := deps.Vault.ScanMarkdownPages(r.Context())
+				pageFiles, err := vaultService.ScanMarkdownPages(r.Context())
 				if err != nil {
 					http.Error(w, "failed to scan folder pages", http.StatusInternalServerError)
 					return
@@ -248,26 +247,26 @@ func NewRouter(deps Dependencies) http.Handler {
 					if pageFile.Path != folderPath && !strings.HasPrefix(pageFile.Path, folderPath+"/") {
 						continue
 					}
-					rawMarkdown, err := deps.Vault.ReadPage(pageFile.Path)
+					rawMarkdown, err := vaultService.ReadPage(pageFile.Path)
 					if err != nil {
 						http.Error(w, "failed to read folder page", http.StatusInternalServerError)
 						return
 					}
-					if _, err := deps.History.SaveRevision(pageFile.Path, rawMarkdown); err != nil {
+					if _, err := deps.History.SaveRevisionForWorkspace(workspaceID, pageFile.Path, rawMarkdown); err != nil {
 						http.Error(w, "failed to save folder page history", http.StatusInternalServerError)
 						return
 					}
-					if err := deps.History.MoveToTrash(pageFile.Path, rawMarkdown); err != nil {
+					if err := deps.History.MoveToTrashForWorkspace(workspaceID, pageFile.Path, rawMarkdown); err != nil {
 						http.Error(w, "failed to move folder page to trash", http.StatusInternalServerError)
 						return
 					}
 				}
 			}
-			if err := deps.Vault.DeleteFolder(folderPath); err != nil {
+			if err := vaultService.DeleteFolder(folderPath); err != nil {
 				http.Error(w, "failed to delete folder", http.StatusInternalServerError)
 				return
 			}
-			if err := deps.Index.RebuildFromVault(r.Context(), deps.Vault); err != nil {
+			if err := deps.Index.RebuildFromVault(r.Context(), vaultService); err != nil {
 				http.Error(w, "failed to rebuild index", http.StatusInternalServerError)
 				return
 			}
@@ -287,7 +286,8 @@ func NewRouter(deps Dependencies) http.Handler {
 		}
 	})
 	mux.HandleFunc("/api/documents/download", func(w http.ResponseWriter, r *http.Request) {
-		if deps.Documents == nil {
+		documentService, err := currentDocuments(r.Context(), deps)
+		if err != nil {
 			http.Error(w, "document service unavailable", http.StatusInternalServerError)
 			return
 		}
@@ -300,7 +300,7 @@ func NewRouter(deps Dependencies) http.Handler {
 			http.Error(w, "document path is required", http.StatusBadRequest)
 			return
 		}
-		document, filePath, err := deps.Documents.Get(documentPath)
+		document, filePath, err := documentService.Get(documentPath)
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -995,6 +995,8 @@ func NewRouter(deps Dependencies) http.Handler {
 	})
 
 	mux.HandleFunc("/api/tasks/", func(w http.ResponseWriter, r *http.Request) {
+		workspaceID := workspaces.WorkspaceIDFromContext(r.Context())
+		vaultService := currentVault(r.Context(), deps)
 		if r.Method != http.MethodPatch && r.Method != http.MethodDelete {
 			writeMethodNotAllowed(w, http.MethodPatch, http.MethodDelete)
 			return
@@ -1019,7 +1021,7 @@ func NewRouter(deps Dependencies) http.Handler {
 			}
 		}
 
-		rawMarkdown, err := deps.Vault.ReadPage(task.Page)
+		rawMarkdown, err := vaultService.ReadPage(task.Page)
 		if err != nil {
 			http.Error(w, "failed to read task page", http.StatusInternalServerError)
 			return
@@ -1064,17 +1066,17 @@ func NewRouter(deps Dependencies) http.Handler {
 			}
 		}
 
-		if err := deps.Vault.WritePage(task.Page, []byte(updatedMarkdown)); err != nil {
+		if err := vaultService.WritePage(task.Page, []byte(updatedMarkdown)); err != nil {
 			http.Error(w, "failed to write task page", http.StatusInternalServerError)
 			return
 		}
 		if deps.History != nil {
-			if _, err := deps.History.SaveRevision(task.Page, []byte(updatedMarkdown)); err != nil {
+			if _, err := deps.History.SaveRevisionForWorkspace(workspaceID, task.Page, []byte(updatedMarkdown)); err != nil {
 				http.Error(w, "failed to save page history", http.StatusInternalServerError)
 				return
 			}
 		}
-		if err := deps.Index.ReindexPage(r.Context(), deps.Vault, task.Page); err != nil {
+		if err := deps.Index.ReindexPage(r.Context(), vaultService, task.Page); err != nil {
 			http.Error(w, "failed to reindex page", http.StatusInternalServerError)
 			return
 		}
@@ -1085,7 +1087,7 @@ func NewRouter(deps Dependencies) http.Handler {
 			}
 		}
 		if deps.Events != nil {
-			deps.Events.Publish(Event{
+			deps.Events.PublishToWorkspace(workspaceID, Event{
 				Type: map[bool]string{true: "task.deleted", false: "task.changed"}[r.Method == http.MethodDelete],
 				Data: map[string]any{
 					"ref":  ref,
@@ -1414,6 +1416,8 @@ func NewRouter(deps Dependencies) http.Handler {
 			return
 		}
 		if restore {
+			workspaceID := workspaces.WorkspaceIDFromContext(r.Context())
+			vaultService := currentVault(r.Context(), deps)
 			if r.Method != http.MethodPost {
 				writeMethodNotAllowed(w, http.MethodPost)
 				return
@@ -1425,28 +1429,28 @@ func NewRouter(deps Dependencies) http.Handler {
 				http.Error(w, "invalid request body", http.StatusBadRequest)
 				return
 			}
-			revision, err := deps.History.GetRevision(pagePath, request.RevisionID)
+			revision, err := deps.History.GetRevisionForWorkspace(workspaceID, pagePath, request.RevisionID)
 			if err != nil {
 				http.Error(w, "failed to load revision", http.StatusNotFound)
 				return
 			}
 			if deps.History != nil {
-				if currentMarkdown, err := deps.Vault.ReadPage(pagePath); err == nil {
-					if _, err := deps.History.SaveRevision(pagePath, currentMarkdown); err != nil {
+				if currentMarkdown, err := vaultService.ReadPage(pagePath); err == nil {
+					if _, err := deps.History.SaveRevisionForWorkspace(workspaceID, pagePath, currentMarkdown); err != nil {
 						http.Error(w, "failed to snapshot current page", http.StatusInternalServerError)
 						return
 					}
 				}
 			}
-			if err := deps.Vault.WritePage(pagePath, []byte(revision.RawMarkdown)); err != nil {
+			if err := vaultService.WritePage(pagePath, []byte(revision.RawMarkdown)); err != nil {
 				http.Error(w, "failed to restore page", http.StatusInternalServerError)
 				return
 			}
-			if _, err := deps.History.SaveRevision(pagePath, []byte(revision.RawMarkdown)); err != nil {
+			if _, err := deps.History.SaveRevisionForWorkspace(workspaceID, pagePath, []byte(revision.RawMarkdown)); err != nil {
 				http.Error(w, "failed to save restored revision", http.StatusInternalServerError)
 				return
 			}
-			if err := deps.Index.ReindexPage(r.Context(), deps.Vault, pagePath); err != nil {
+			if err := deps.Index.ReindexPage(r.Context(), vaultService, pagePath); err != nil {
 				http.Error(w, "failed to reindex page", http.StatusInternalServerError)
 				return
 			}
@@ -1476,8 +1480,9 @@ func NewRouter(deps Dependencies) http.Handler {
 			})
 			return
 		}
+		workspaceID := workspaces.WorkspaceIDFromContext(r.Context())
 		if r.Method == http.MethodDelete {
-			if err := deps.History.DeletePageHistory(pagePath); err != nil {
+			if err := deps.History.DeletePageHistoryForWorkspace(workspaceID, pagePath); err != nil {
 				http.Error(w, "failed to purge page history", http.StatusInternalServerError)
 				return
 			}
@@ -1491,7 +1496,7 @@ func NewRouter(deps Dependencies) http.Handler {
 			writeMethodNotAllowed(w, http.MethodGet, http.MethodDelete)
 			return
 		}
-		revisions, err := deps.History.ListRevisions(pagePath)
+		revisions, err := deps.History.ListRevisionsForWorkspace(workspaceID, pagePath)
 		if err != nil {
 			http.Error(w, "failed to load page history", http.StatusInternalServerError)
 			return
@@ -1517,8 +1522,9 @@ func NewRouter(deps Dependencies) http.Handler {
 			http.Error(w, "history service unavailable", http.StatusInternalServerError)
 			return
 		}
+		workspaceID := workspaces.WorkspaceIDFromContext(r.Context())
 		if r.Method == http.MethodDelete {
-			if err := deps.History.EmptyTrash(); err != nil {
+			if err := deps.History.EmptyTrashForWorkspace(workspaceID); err != nil {
 				http.Error(w, "failed to empty trash", http.StatusInternalServerError)
 				return
 			}
@@ -1531,7 +1537,7 @@ func NewRouter(deps Dependencies) http.Handler {
 			writeMethodNotAllowed(w, http.MethodGet, http.MethodDelete)
 			return
 		}
-		trashEntries, err := deps.History.ListTrash()
+		trashEntries, err := deps.History.ListTrashForWorkspace(workspaceID)
 		if err != nil {
 			http.Error(w, "failed to load trash", http.StatusInternalServerError)
 			return
@@ -1555,6 +1561,8 @@ func NewRouter(deps Dependencies) http.Handler {
 			http.Error(w, "history service unavailable", http.StatusInternalServerError)
 			return
 		}
+		workspaceID := workspaces.WorkspaceIDFromContext(r.Context())
+		vaultService := currentVault(r.Context(), deps)
 		raw := strings.TrimPrefix(r.URL.Path, "/api/trash/pages/")
 		restore := false
 		if strings.HasSuffix(raw, "/restore") {
@@ -1571,20 +1579,20 @@ func NewRouter(deps Dependencies) http.Handler {
 				writeMethodNotAllowed(w, http.MethodPost)
 				return
 			}
-			entry, err := deps.History.RestoreFromTrash(pagePath)
+			entry, err := deps.History.RestoreFromTrashForWorkspace(workspaceID, pagePath)
 			if err != nil {
 				http.Error(w, "failed to restore trashed page", http.StatusNotFound)
 				return
 			}
-			if err := deps.Vault.WritePage(pagePath, []byte(entry.RawMarkdown)); err != nil {
+			if err := vaultService.WritePage(pagePath, []byte(entry.RawMarkdown)); err != nil {
 				http.Error(w, "failed to restore page", http.StatusInternalServerError)
 				return
 			}
-			if _, err := deps.History.SaveRevision(pagePath, []byte(entry.RawMarkdown)); err != nil {
+			if _, err := deps.History.SaveRevisionForWorkspace(workspaceID, pagePath, []byte(entry.RawMarkdown)); err != nil {
 				http.Error(w, "failed to save restored page history", http.StatusInternalServerError)
 				return
 			}
-			if err := deps.Index.ReindexPage(r.Context(), deps.Vault, pagePath); err != nil {
+			if err := deps.Index.ReindexPage(r.Context(), vaultService, pagePath); err != nil {
 				http.Error(w, "failed to reindex restored page", http.StatusInternalServerError)
 				return
 			}
@@ -1618,7 +1626,7 @@ func NewRouter(deps Dependencies) http.Handler {
 			writeMethodNotAllowed(w, http.MethodDelete)
 			return
 		}
-		if err := deps.History.PermanentlyDelete(pagePath); err != nil {
+		if err := deps.History.PermanentlyDeleteForWorkspace(workspaceID, pagePath); err != nil {
 			http.Error(w, "failed to permanently delete trashed page", http.StatusInternalServerError)
 			return
 		}
@@ -1628,7 +1636,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		})
 	})
 
-	return wrapWithAPIAuth(mux, deps.Auth)
+	return wrapWithAPIAuth(wrapWithWorkspace(mux, deps.Workspaces), deps.Auth)
 }
 
 func mapDocument(document documents.Document, service *documents.Service) map[string]any {
@@ -1652,6 +1660,8 @@ func mapDocuments(items []documents.Document, service *documents.Service) []map[
 }
 
 func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
+	workspaceID := workspaces.WorkspaceIDFromContext(r.Context())
+	vaultService := currentVault(r.Context(), deps)
 	pagePath, subresource, ok := splitPageSubresource(strings.TrimPrefix(r.URL.Path, "/api/pages/"))
 	if !ok {
 		http.Error(w, "invalid page path", http.StatusBadRequest)
@@ -1696,17 +1706,17 @@ func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 				return
 			}
 
-			if err := deps.Vault.WritePage(pagePath, []byte(request.RawMarkdown)); err != nil {
+			if err := vaultService.WritePage(pagePath, []byte(request.RawMarkdown)); err != nil {
 				http.Error(w, "failed to write page", http.StatusInternalServerError)
 				return
 			}
 			if deps.History != nil {
-				if _, err := deps.History.SaveRevision(pagePath, []byte(request.RawMarkdown)); err != nil {
+				if _, err := deps.History.SaveRevisionForWorkspace(workspaceID, pagePath, []byte(request.RawMarkdown)); err != nil {
 					http.Error(w, "failed to save page history", http.StatusInternalServerError)
 					return
 				}
 			}
-			if err := deps.Index.ReindexPage(r.Context(), deps.Vault, pagePath); err != nil {
+			if err := deps.Index.ReindexPage(r.Context(), vaultService, pagePath); err != nil {
 				http.Error(w, "failed to reindex page", http.StatusInternalServerError)
 				return
 			}
@@ -1764,16 +1774,16 @@ func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 			}
 			dependentPages := collectBacklinkSourcePages(backlinks)
 			if deps.History != nil {
-				if _, err := deps.History.SaveRevision(pagePath, []byte(pageRecord.RawMarkdown)); err != nil {
+				if _, err := deps.History.SaveRevisionForWorkspace(workspaceID, pagePath, []byte(pageRecord.RawMarkdown)); err != nil {
 					http.Error(w, "failed to save page history", http.StatusInternalServerError)
 					return
 				}
-				if err := deps.History.MoveToTrash(pagePath, []byte(pageRecord.RawMarkdown)); err != nil {
+				if err := deps.History.MoveToTrashForWorkspace(workspaceID, pagePath, []byte(pageRecord.RawMarkdown)); err != nil {
 					http.Error(w, "failed to move page to trash", http.StatusInternalServerError)
 					return
 				}
 			}
-			if err := deps.Vault.DeletePage(pagePath); err != nil {
+			if err := vaultService.DeletePage(pagePath); err != nil {
 				http.Error(w, "failed to delete page", http.StatusInternalServerError)
 				return
 			}
@@ -1948,12 +1958,12 @@ func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 			return
 		}
 		dependentPages := collectBacklinkSourcePages(backlinks)
-		if err := deps.Vault.MovePage(pagePath, targetPage); err != nil {
+		if err := vaultService.MovePage(pagePath, targetPage); err != nil {
 			http.Error(w, "failed to move page", http.StatusInternalServerError)
 			return
 		}
 		if deps.History != nil {
-			if err := deps.History.MovePage(pagePath, targetPage); err != nil {
+			if err := deps.History.MovePageForWorkspace(workspaceID, pagePath, targetPage); err != nil {
 				http.Error(w, "failed to move page history", http.StatusInternalServerError)
 				return
 			}
@@ -1962,7 +1972,7 @@ func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 			http.Error(w, "failed to remove old page from index", http.StatusInternalServerError)
 			return
 		}
-		if err := deps.Index.ReindexPage(r.Context(), deps.Vault, targetPage); err != nil {
+		if err := deps.Index.ReindexPage(r.Context(), vaultService, targetPage); err != nil {
 			http.Error(w, "failed to index moved page", http.StatusInternalServerError)
 			return
 		}
@@ -2064,17 +2074,18 @@ func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 				return
 			}
 			if deps.Events != nil {
+				workspaceID := workspaces.WorkspaceIDFromContext(r.Context())
 				for _, block := range queryBlocks {
-					deps.Events.Publish(Event{
+					deps.Events.PublishToWorkspace(workspaceID, Event{
 						Type: "query-block.changed",
 						Data: queryBlockChangedData(pagePath, block),
 					})
 				}
-				deps.Events.Publish(Event{
+				deps.Events.PublishToWorkspace(workspaceID, Event{
 					Type: "derived.changed",
 					Data: map[string]any{"page": pagePath},
 				})
-				deps.Events.Publish(Event{
+				deps.Events.PublishToWorkspace(workspaceID, Event{
 					Type: "query.changed",
 					Data: queryChangedData(pagePath, pagePath, queryBlocks),
 				})
@@ -2139,15 +2150,15 @@ func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 				return
 			}
 			if deps.Events != nil {
-				deps.Events.Publish(Event{
+				deps.Events.PublishToWorkspace(workspaceID, Event{
 					Type: "query-block.changed",
 					Data: queryBlockChangedData(pagePath, block),
 				})
-				deps.Events.Publish(Event{
+				deps.Events.PublishToWorkspace(workspaceID, Event{
 					Type: "derived.changed",
 					Data: map[string]any{"page": pagePath},
 				})
-				deps.Events.Publish(Event{
+				deps.Events.PublishToWorkspace(workspaceID, Event{
 					Type: "query.changed",
 					Data: queryChangedData(pagePath, pagePath, []index.QueryBlock{block}),
 				})
@@ -2185,6 +2196,8 @@ func collectBacklinkSourcePages(backlinks []index.BacklinkRecord) []string {
 }
 
 func patchPageFrontmatter(ctx context.Context, deps Dependencies, pagePath string, patch markdown.FrontmatterPatch) (index.PageRecord, error) {
+	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	vaultService := currentVault(ctx, deps)
 	pageRecord, err := deps.Index.GetPage(ctx, pagePath)
 	if err != nil {
 		return index.PageRecord{}, err
@@ -2196,7 +2209,7 @@ func patchPageFrontmatter(ctx context.Context, deps Dependencies, pagePath strin
 	}
 	previousPageSummary := &previousPageSummaryValue
 
-	rawMarkdown, err := deps.Vault.ReadPage(pagePath)
+	rawMarkdown, err := vaultService.ReadPage(pagePath)
 	if err != nil {
 		return index.PageRecord{}, err
 	}
@@ -2206,15 +2219,15 @@ func patchPageFrontmatter(ctx context.Context, deps Dependencies, pagePath strin
 		return index.PageRecord{}, err
 	}
 
-	if err := deps.Vault.WritePage(pagePath, []byte(updatedMarkdown)); err != nil {
+	if err := vaultService.WritePage(pagePath, []byte(updatedMarkdown)); err != nil {
 		return index.PageRecord{}, err
 	}
 	if deps.History != nil {
-		if _, err := deps.History.SaveRevision(pagePath, []byte(updatedMarkdown)); err != nil {
+		if _, err := deps.History.SaveRevisionForWorkspace(workspaceID, pagePath, []byte(updatedMarkdown)); err != nil {
 			return index.PageRecord{}, err
 		}
 	}
-	if err := deps.Index.ReindexPage(ctx, deps.Vault, pagePath); err != nil {
+	if err := deps.Index.ReindexPage(ctx, vaultService, pagePath); err != nil {
 		return index.PageRecord{}, err
 	}
 	if deps.Query != nil {

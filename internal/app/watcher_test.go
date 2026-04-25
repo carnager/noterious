@@ -12,6 +12,7 @@ import (
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/vault"
+	"github.com/carnager/noterious/internal/workspaces"
 )
 
 func TestVaultWatcherPollReindexesExternalEdit(t *testing.T) {
@@ -58,7 +59,7 @@ func TestVaultWatcherPollReindexesExternalEdit(t *testing.T) {
 	}
 
 	broker := httpapi.NewEventBroker()
-	watcher, err := NewVaultWatcher(context.Background(), vaultService, indexService, queryService, broker)
+	watcher, err := NewVaultWatcher(context.Background(), workspaces.Workspace{}, vaultService, indexService, queryService, broker)
 	if err != nil {
 		t.Fatalf("NewVaultWatcher() error = %v", err)
 	}
@@ -182,7 +183,7 @@ func TestVaultWatcherPollRemovesDeletedPage(t *testing.T) {
 	}
 
 	broker := httpapi.NewEventBroker()
-	watcher, err := NewVaultWatcher(context.Background(), vaultService, indexService, queryService, broker)
+	watcher, err := NewVaultWatcher(context.Background(), workspaces.Workspace{}, vaultService, indexService, queryService, broker)
 	if err != nil {
 		t.Fatalf("NewVaultWatcher() error = %v", err)
 	}

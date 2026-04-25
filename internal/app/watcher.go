@@ -14,19 +14,22 @@ import (
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/vault"
+	"github.com/carnager/noterious/internal/workspaces"
 )
 
 type VaultWatcher struct {
-	vault  *vault.Service
-	index  *index.Service
-	query  *query.Service
-	events *httpapi.EventBroker
+	workspace workspaces.Workspace
+	vault     *vault.Service
+	index     *index.Service
+	query     *query.Service
+	events    *httpapi.EventBroker
 
 	mu    sync.Mutex
 	known map[string]time.Time
 }
 
-func NewVaultWatcher(ctx context.Context, vaultService *vault.Service, indexService *index.Service, queryService *query.Service, eventBroker *httpapi.EventBroker) (*VaultWatcher, error) {
+func NewVaultWatcher(ctx context.Context, workspace workspaces.Workspace, vaultService *vault.Service, indexService *index.Service, queryService *query.Service, eventBroker *httpapi.EventBroker) (*VaultWatcher, error) {
+	ctx = withWatcherWorkspace(ctx, workspace)
 	pageFiles, err := vaultService.ScanMarkdownPages(ctx)
 	if err != nil {
 		return nil, err
@@ -38,11 +41,12 @@ func NewVaultWatcher(ctx context.Context, vaultService *vault.Service, indexServ
 	}
 
 	return &VaultWatcher{
-		vault:  vaultService,
-		index:  indexService,
-		query:  queryService,
-		events: eventBroker,
-		known:  known,
+		workspace: workspace,
+		vault:     vaultService,
+		index:     indexService,
+		query:     queryService,
+		events:    eventBroker,
+		known:     known,
 	}, nil
 }
 
@@ -86,6 +90,7 @@ func (w *VaultWatcher) Poll(ctx context.Context) error {
 	if w == nil {
 		return nil
 	}
+	ctx = withWatcherWorkspace(ctx, w.workspace)
 
 	pageFiles, err := w.vault.ScanMarkdownPages(ctx)
 	if err != nil {
@@ -183,6 +188,13 @@ func (w *VaultWatcher) Poll(ctx context.Context) error {
 	w.mu.Unlock()
 
 	return nil
+}
+
+func withWatcherWorkspace(ctx context.Context, workspace workspaces.Workspace) context.Context {
+	if workspace.ID <= 0 {
+		return ctx
+	}
+	return workspaces.WithWorkspace(ctx, workspace)
 }
 
 func pageFrontmatterStringList(value any) []string {
