@@ -33,6 +33,20 @@ export interface MarkdownTableRows {
   rows: string[][];
 }
 
+export interface MarkdownCodeFenceBlock {
+  startLineIndex: number;
+  endLineIndex: number;
+  fence: string;
+  info: string;
+  language: string;
+  content: string;
+  closed: boolean;
+}
+
+function escapePattern(value: string): string {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function splitFrontmatter(markdown: string): FrontmatterSplit {
   const source = String(markdown || "").replace(/\r\n/g, "\n");
   if (!source.startsWith("---\n")) {
@@ -379,6 +393,46 @@ export function markdownTableRowsForLine(lines: string[], lineNumber: number): M
     rows.push(splitMarkdownTableRow(String(lines[index] || "")));
   }
   return { header, rows };
+}
+
+export function markdownCodeFenceBlockAt(lines: string[], startLineIndex: number): MarkdownCodeFenceBlock | null {
+  if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex >= lines.length) {
+    return null;
+  }
+
+  const startLine = String(lines[startLineIndex] || "");
+  const match = startLine.trim().match(/^(```+)(.*)$/);
+  if (!match) {
+    return null;
+  }
+
+  const fence = String(match[1] || "```");
+  const info = String(match[2] || "").trim();
+  const language = String(info.split(/\s+/)[0] || "").trim();
+  const endPattern = new RegExp("^" + escapePattern(fence) + "\\s*$");
+  let endLineIndex = lines.length - 1;
+  let closed = false;
+
+  for (let index = startLineIndex + 1; index < lines.length; index += 1) {
+    if (endPattern.test(String(lines[index] || "").trim())) {
+      endLineIndex = index;
+      closed = true;
+      break;
+    }
+  }
+
+  const contentEnd = closed ? endLineIndex : lines.length;
+  const content = lines.slice(startLineIndex + 1, contentEnd).join("\n");
+
+  return {
+    startLineIndex,
+    endLineIndex,
+    fence,
+    info,
+    language,
+    content,
+    closed,
+  };
 }
 
 export function renderInline(value: string): string {

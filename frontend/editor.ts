@@ -14,7 +14,7 @@ import {sql} from "@codemirror/lang-sql";
 import {tags} from "@lezer/highlight";
 import { formatDateTimeValue, formatDateValue, normalizeDateTimeDisplayFormat, setDateTimeDisplayFormat } from "./datetime";
 import { pageTitleFromPath } from "./commands";
-import { markdownTableBlockAt } from "./markdown";
+import { markdownCodeFenceBlockAt, markdownTableBlockAt } from "./markdown";
 import type { NoteriousEditorApi, QueryBlockRender, TaskRender } from "./types";
 
 interface EditorTaskState {
@@ -203,25 +203,37 @@ class MarkdownLinkWidget extends WidgetType {
   }
 }
 
-class CodeCopyWidget extends WidgetType {
+class CodeToolbarWidget extends WidgetType {
   content: string;
+  language: string;
 
-  constructor(content: string) {
+  constructor(content: string, language: string) {
     super();
     this.content = content;
+    this.language = language;
   }
 
-  eq(other: CodeCopyWidget): boolean {
-    return other.content === this.content;
+  eq(other: CodeToolbarWidget): boolean {
+    return other.content === this.content && other.language === this.language;
   }
 
-  toDOM(): HTMLButtonElement {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "cm-md-code-copy";
-    button.setAttribute("data-code-copy", encodeURIComponent(this.content));
-    button.textContent = "Copy";
-    return button;
+  toDOM(): HTMLSpanElement {
+    const toolbar = document.createElement("span");
+    toolbar.className = "cm-md-code-toolbar";
+
+    const language = document.createElement("span");
+    language.className = "cm-md-code-language";
+    language.textContent = this.language || "plain text";
+    toolbar.appendChild(language);
+
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "cm-md-code-copy";
+    copyButton.setAttribute("data-code-copy", encodeURIComponent(this.content));
+    copyButton.textContent = "Copy";
+    toolbar.appendChild(copyButton);
+
+    return toolbar;
   }
 
   ignoreEvent() {
@@ -296,20 +308,38 @@ class TaskMetaWidget extends WidgetType {
 
 class QueryBlockWidget extends WidgetType {
   html: string;
+  editLineNumber: number;
 
-  constructor(html: string) {
+  constructor(html: string, editLineNumber: number) {
     super();
     this.html = html;
+    this.editLineNumber = editLineNumber;
   }
 
   eq(other: QueryBlockWidget): boolean {
-    return other.html === this.html;
+    return other.html === this.html && other.editLineNumber === this.editLineNumber;
   }
 
   toDOM(): HTMLDivElement {
     const wrapper = document.createElement("div");
     wrapper.className = "cm-md-query-block";
-    wrapper.innerHTML = this.html;
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "cm-md-query-toolbar";
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "cm-md-query-edit";
+    button.setAttribute("data-query-edit", String(this.editLineNumber));
+    button.textContent = "Edit Query";
+    toolbar.appendChild(button);
+
+    const content = document.createElement("div");
+    content.className = "cm-md-query-content";
+    content.innerHTML = this.html;
+
+    wrapper.appendChild(toolbar);
+    wrapper.appendChild(content);
     return wrapper;
   }
 
@@ -452,6 +482,69 @@ function clearSearchHitHighlight(view: EditorView): void {
   }
 }
 
+function codeBlockEndingAtLine(lines: string[], endLineIndex: number) {
+  for (let index = Math.max(0, endLineIndex); index >= 0; index -= 1) {
+    const block = markdownCodeFenceBlockAt(lines, index);
+    if (block && block.endLineIndex === endLineIndex) {
+      return block;
+    }
+  }
+  return null;
+}
+
+function revealRenderedCodeBlockByArrow(view: EditorView, key: string): boolean {
+  if (!view.state.field(renderModeField, false)) {
+    return false;
+  }
+
+  const selection = view.state.selection.main;
+  if (!selection.empty) {
+    return false;
+  }
+
+  const currentLine = view.state.doc.lineAt(selection.head);
+  const column = Math.max(0, selection.head - currentLine.from);
+  const lines = view.state.doc.toString().split("\n");
+
+  if (key === "ArrowDown") {
+    if (currentLine.number >= view.state.doc.lines) {
+      return false;
+    }
+    const block = markdownCodeFenceBlockAt(lines, currentLine.number);
+    if (!block) {
+      return false;
+    }
+    const targetLine = view.state.doc.line(block.startLineIndex + 1);
+    view.dispatch({
+      selection: {
+        anchor: Math.min(targetLine.from + column, targetLine.to),
+      },
+      scrollIntoView: true,
+    });
+    return true;
+  }
+
+  if (key === "ArrowUp") {
+    if (currentLine.number <= 1) {
+      return false;
+    }
+    const block = codeBlockEndingAtLine(lines, currentLine.number - 2);
+    if (!block) {
+      return false;
+    }
+    const targetLine = view.state.doc.line(block.endLineIndex + 1);
+    view.dispatch({
+      selection: {
+        anchor: Math.min(targetLine.from + column, targetLine.to),
+      },
+      scrollIntoView: true,
+    });
+    return true;
+  }
+
+  return false;
+}
+
 function buildRenderedDecorations(state: EditorState): DecorationSet {
   if (!state.field(renderModeField, false)) {
     return Decoration.none;
@@ -521,55 +614,55 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
         }
       }
       const endLine = state.doc.line(endLineNumber);
+      const editingQuery = selection.from <= endLine.to && selection.to >= line.from;
+      if (editingQuery) {
+        lineNumber = endLineNumber;
+        continue;
+      }
       const blockSource = state.doc.sliceString(line.from, endLine.to).replace(/\r\n/g, "\n").trim();
       const html = queryBlocks.get(blockSource) || '<div class="embedded-query embedded-query-empty"><small>No results.</small></div>';
+      const editLineNumber = endLineNumber > lineNumber + 1 ? lineNumber + 1 : lineNumber;
       builder.add(
         line.from,
         endLine.to,
         Decoration.replace({
           block: true,
-          widget: new QueryBlockWidget(html),
+          widget: new QueryBlockWidget(html, editLineNumber),
         })
       );
       lineNumber = endLineNumber;
       continue;
     }
 
-    if (/^```/.test(text.trim())) {
-      let endLineNumber = lineNumber;
-      while (endLineNumber < state.doc.lines) {
-        const candidate = state.doc.line(endLineNumber + 1);
-        endLineNumber += 1;
-        if (/^```/.test(candidate.text.trim())) {
-          break;
-        }
+    const codeBlock = markdownCodeFenceBlockAt(lines, lineNumber - 1);
+    if (codeBlock) {
+      const endLine = state.doc.line(codeBlock.endLineIndex + 1);
+      const editingCodeBlock = selection.from <= endLine.to && selection.to >= line.from;
+      if (editingCodeBlock) {
+        lineNumber = codeBlock.endLineIndex + 1;
+        continue;
       }
-      const codeContent = endLineNumber - lineNumber > 1
-        ? state.doc.sliceString(state.doc.line(lineNumber + 1).from, state.doc.line(endLineNumber - 1).to)
-        : "";
-      for (let codeLineNumber = lineNumber; codeLineNumber <= endLineNumber; codeLineNumber += 1) {
+      for (let codeLineNumber = lineNumber; codeLineNumber <= codeBlock.endLineIndex + 1; codeLineNumber += 1) {
         const codeLine = state.doc.line(codeLineNumber);
         const classNames = ["cm-md-code-block"];
+        let replaceDecoration: Decoration | null = null;
         if (codeLineNumber === lineNumber) {
-          classNames.push("cm-md-code-block-start", "cm-md-code-fence");
-        } else if (codeLineNumber === endLineNumber) {
-          classNames.push("cm-md-code-block-end", "cm-md-code-fence");
+          classNames.push("cm-md-code-block-start");
+          replaceDecoration = Decoration.replace({
+            widget: new CodeToolbarWidget(codeBlock.content, codeBlock.language),
+          });
+        } else if (codeLineNumber === codeBlock.endLineIndex + 1) {
+          classNames.push("cm-md-code-block-end", "cm-md-code-fence-hidden");
+          replaceDecoration = Decoration.replace({});
         } else {
           classNames.push("cm-md-code-block-body");
         }
         builder.add(codeLine.from, codeLine.from, Decoration.line({class: classNames.join(" ")}));
-        if (codeLineNumber === lineNumber) {
-          builder.add(
-            codeLine.to,
-            codeLine.to,
-            Decoration.widget({
-              side: 1,
-              widget: new CodeCopyWidget(codeContent),
-            })
-          );
+        if (replaceDecoration) {
+          builder.add(codeLine.from, codeLine.to, replaceDecoration);
         }
       }
-      lineNumber = endLineNumber;
+      lineNumber = codeBlock.endLineIndex + 1;
       continue;
     }
 
@@ -798,6 +891,23 @@ window.NoteriousCodeEditor = {
           return true;
         }
 
+        const queryEdit = target ? target.closest("[data-query-edit]") : null;
+        if (queryEdit) {
+          event.preventDefault();
+          const lineNumber = Number(queryEdit.getAttribute("data-query-edit") || "0");
+          if (lineNumber > 0 && lineNumber <= view.state.doc.lines) {
+            const targetLine = view.state.doc.line(lineNumber);
+            view.focus();
+            view.dispatch({
+              selection: {
+                anchor: targetLine.from,
+              },
+              scrollIntoView: true,
+            });
+          }
+          return true;
+        }
+
         const codeCopy = target ? target.closest("[data-code-copy]") : null;
         if (codeCopy) {
           event.preventDefault();
@@ -859,6 +969,12 @@ window.NoteriousCodeEditor = {
         return false;
       },
       keydown(event, view) {
+        if (!event.altKey && !event.ctrlKey && !event.metaKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+          if (revealRenderedCodeBlockByArrow(view, event.key)) {
+            event.preventDefault();
+            return true;
+          }
+        }
         if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
           clearSearchHitHighlight(view);
         }

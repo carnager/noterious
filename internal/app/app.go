@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/config"
 	"github.com/carnager/noterious/internal/documents"
 	"github.com/carnager/noterious/internal/history"
@@ -20,6 +21,7 @@ import (
 
 type App struct {
 	cfg      config.Config
+	auth     *auth.Service
 	index    *index.Service
 	store    *settings.Store
 	server   *http.Server
@@ -42,36 +44,56 @@ func New(cfg config.Config) (*App, error) {
 	}
 	settingsStore.SetAppliedRuntime(appliedSettings)
 
+	authService, err := auth.NewService(context.Background(), cfg.DataDir, cfg.AuthCookieName, cfg.AuthSessionTTL)
+	if err != nil {
+		return nil, fmt.Errorf("init auth store: %w", err)
+	}
+	bootstrap, err := authService.EnsureBootstrap(context.Background(), auth.BootstrapConfig{
+		Username: cfg.AuthBootstrapUsername,
+		Password: cfg.AuthBootstrapPassword,
+	})
+	if err != nil {
+		_ = authService.Close()
+		return nil, fmt.Errorf("bootstrap auth: %w", err)
+	}
+
 	vaultService := vault.NewService(cfg.VaultPath)
 	indexService := index.NewService(cfg.DataDir)
 	queryService := query.NewService()
 	documentService, err := documents.NewService(cfg.VaultPath)
 	if err != nil {
+		_ = authService.Close()
 		return nil, fmt.Errorf("init document store: %w", err)
 	}
 	historyService, err := history.NewService(cfg.DataDir)
 	if err != nil {
+		_ = authService.Close()
 		return nil, fmt.Errorf("init history store: %w", err)
 	}
 	eventBroker := httpapi.NewEventBroker()
 	notifier, err := notify.NewService(cfg.DataDir, indexService, cfg.NtfyTopicURL, cfg.NtfyToken)
 	if err != nil {
+		_ = authService.Close()
 		return nil, fmt.Errorf("init notifier: %w", err)
 	}
 
 	if err := indexService.Open(context.Background()); err != nil {
+		_ = authService.Close()
 		return nil, fmt.Errorf("open index: %w", err)
 	}
 	if err := indexService.RebuildFromVault(context.Background(), vaultService); err != nil {
+		_ = authService.Close()
 		_ = indexService.Close()
 		return nil, fmt.Errorf("rebuild index from vault: %w", err)
 	}
 	if err := queryService.RefreshAll(context.Background(), indexService); err != nil {
+		_ = authService.Close()
 		_ = indexService.Close()
 		return nil, fmt.Errorf("refresh query caches: %w", err)
 	}
 	watcher, err := NewVaultWatcher(context.Background(), vaultService, indexService, queryService, eventBroker)
 	if err != nil {
+		_ = authService.Close()
 		_ = indexService.Close()
 		return nil, fmt.Errorf("init vault watcher: %w", err)
 	}
@@ -85,12 +107,27 @@ func New(cfg config.Config) (*App, error) {
 		Index:         indexService,
 		Query:         queryService,
 		Events:        eventBroker,
+		Auth:          authService,
 		OnPageChanged: watcher.Acknowledge,
 	})
 	router = withHTTPLogging(router)
 
+	if bootstrap.Created {
+		if bootstrap.GeneratedPassword != "" {
+			slog.Info("bootstrapped auth admin user",
+				"username", bootstrap.Username,
+				"generated_password", bootstrap.GeneratedPassword,
+			)
+		} else {
+			slog.Info("bootstrapped auth admin user",
+				"username", bootstrap.Username,
+			)
+		}
+	}
+
 	return &App{
 		cfg:      cfg,
+		auth:     authService,
 		index:    indexService,
 		store:    settingsStore,
 		watcher:  watcher,
@@ -105,6 +142,7 @@ func New(cfg config.Config) (*App, error) {
 
 func (a *App) Run(ctx context.Context) error {
 	defer func() {
+		_ = a.auth.Close()
 		_ = a.index.Close()
 	}()
 	errCh := make(chan error, 1)

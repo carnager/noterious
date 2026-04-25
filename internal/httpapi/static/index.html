@@ -3,7 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#11131d">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Noterious">
     <title>Noterious</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/app.css">
   </head>
   <body>
@@ -21,6 +27,10 @@
         </div>
         <p class="topbar-path" id="detail-path">Select a page</p>
         <div class="topbar-actions topbar-actions-right">
+          <button type="button" id="open-home-page" class="topbar-toggle topbar-toggle-icon" aria-label="Home page" title="Home page">
+            <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><path d="M4.5 10.5 12 4l7.5 6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 9.5V19a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V9.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="sr-only">Home page</span>
+          </button>
           <button type="button" id="open-quick-switcher" class="topbar-toggle topbar-toggle-icon" aria-label="Open note" title="Open note">
             <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><path d="M5 4.5h8.5L19 10v9.5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1Zm8 1.5v4h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span class="sr-only">Open note</span>
@@ -39,9 +49,13 @@
               <span class="sr-only">Session menu</span>
             </button>
             <div id="session-menu-panel" class="session-menu-panel hidden" role="menu" aria-label="Session">
+              <div class="session-menu-summary">
+                <strong id="session-user">Sign In</strong>
+              </div>
               <button type="button" id="open-trash" class="session-menu-item" role="menuitem">Trash</button>
               <button type="button" id="open-settings" class="session-menu-item" role="menuitem">Settings</button>
               <button type="button" id="open-help" class="session-menu-item" role="menuitem">Help</button>
+              <button type="button" id="logout-session" class="session-menu-item" role="menuitem">Logout</button>
             </div>
           </div>
         </div>
@@ -200,7 +214,28 @@
       </main>
     </div>
 
+    <div class="auth-shell hidden" id="auth-shell">
+      <form class="auth-card" id="auth-form">
+        <p class="eyebrow">Auth Required</p>
+        <h2>Sign In To Noterious</h2>
+        <p class="auth-copy">The server now requires a session before loading notes, queries, documents, history, or live events.</p>
+        <label class="search">
+          <span>Username</span>
+          <input id="auth-username" type="text" autocomplete="username" autocorrect="off" autocapitalize="none" spellcheck="false">
+        </label>
+        <label class="search">
+          <span>Password</span>
+          <input id="auth-password" type="password" autocomplete="current-password">
+        </label>
+        <div class="auth-actions">
+          <button type="submit">Sign In</button>
+        </div>
+        <p class="auth-status" id="auth-status" aria-live="polite"></p>
+      </form>
+    </div>
+
     <p id="note-status" class="visually-hidden" aria-live="polite">Select a page to edit and preview markdown.</p>
+    <div id="tree-context-menu" class="tree-context-menu hidden" role="menu" aria-label="Tree item menu"></div>
 
     <div class="modal-shell hidden" id="search-modal-shell">
       <div class="modal-card search-modal-card">
@@ -279,19 +314,30 @@
     </div>
 
     <div class="modal-shell hidden" id="page-history-modal-shell">
-      <div class="modal-card search-modal-card">
-        <div class="section-head">
+      <div class="modal-card history-modal-card">
+        <div class="section-head history-modal-head">
           <div>
             <p class="eyebrow">Page History</p>
             <h2 id="page-history-title">Revision History</h2>
           </div>
-          <div class="hero-actions">
-            <button type="button" id="purge-page-history" aria-label="Purge page history">Purge</button>
+          <div class="hero-actions history-modal-actions">
+            <label class="history-toggle">
+              <span>Show changes</span>
+              <input id="page-history-show-changes" type="checkbox">
+            </label>
+            <button type="button" id="copy-page-history" aria-label="Copy page history preview">Copy</button>
+            <button type="button" id="restore-page-history" aria-label="Restore selected revision">Restore</button>
+            <button type="button" id="purge-page-history" class="secondary-danger" aria-label="Purge page history">Purge</button>
             <button type="button" id="close-page-history-modal" aria-label="Close page history">×</button>
           </div>
         </div>
-        <div class="search-results" id="page-history-results">
-          <div class="empty">No saved revisions for this page yet.</div>
+        <div class="history-modal-layout">
+          <div class="history-revision-list" id="page-history-results">
+            <div class="empty">No saved revisions for this page yet.</div>
+          </div>
+          <div class="history-preview">
+            <pre class="code-block raw history-preview-content" id="page-history-preview">Select a revision to preview it.</pre>
+          </div>
         </div>
       </div>
     </div>
@@ -430,6 +476,10 @@
           <label class="search">
             <span>Toggle Raw Mode</span>
             <input id="settings-hotkey-toggle-raw-mode" type="text" placeholder="Mod+E" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          </label>
+          <label class="search">
+            <span>Toggle Task Done</span>
+            <input id="settings-hotkey-toggle-task-done" type="text" placeholder="Mod+Enter" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
           </label>
         </div>
         <p id="settings-status" class="help-lead">Settings are stored in the server data directory.</p>

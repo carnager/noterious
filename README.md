@@ -90,6 +90,12 @@ Or override the listen port directly:
 ./noterious -port 9090
 ```
 
+The startup flags currently support:
+
+- `--listen-addr`
+- `--port`
+- `--data-dir`
+
 For local iteration you can also run the app directly without creating a binary first:
 
 ```bash
@@ -117,8 +123,25 @@ These can be overridden with:
 - `NOTERIOUS_NTFY_TOPIC_URL`
 - `NOTERIOUS_NTFY_TOKEN`
 - `NOTERIOUS_NTFY_INTERVAL`
+- `NOTERIOUS_AUTH_COOKIE_NAME`
+- `NOTERIOUS_AUTH_SESSION_TTL`
+- `NOTERIOUS_AUTH_BOOTSTRAP_USERNAME`
+- `NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD`
+
+CLI flags override the corresponding environment variables when both are set.
 
 If `NOTERIOUS_NTFY_TOPIC_URL` is set, the server will periodically scan open tasks and push ntfy notifications when a task reminder is due, or when the due date is reached if no explicit reminder is set. Due-only dates are delivered at 09:00 server-local time.
+
+Auth is now enabled for the server API. On first startup against an empty data directory, Noterious bootstraps one admin user:
+
+- If `NOTERIOUS_AUTH_BOOTSTRAP_USERNAME` and `NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD` are set, those credentials are used.
+- Otherwise the server creates `admin` with a generated password and logs it once at startup.
+
+The web UI now signs in through:
+
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
 
 ## Planned Principles
 

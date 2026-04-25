@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/config"
 	"github.com/carnager/noterious/internal/documents"
 	"github.com/carnager/noterious/internal/history"
@@ -32,6 +33,7 @@ type Dependencies struct {
 	Index         *index.Service
 	Query         *query.Service
 	Events        *EventBroker
+	Auth          *auth.Service
 	OnPageChanged func(pagePath string)
 }
 
@@ -42,6 +44,7 @@ func NewRouter(deps Dependencies) http.Handler {
 
 	mux := http.NewServeMux()
 	mountUI(mux)
+	mountAuthEndpoints(mux, deps.Auth)
 
 	mux.HandleFunc("/api/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -1609,7 +1612,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		})
 	})
 
-	return mux
+	return wrapWithAPIAuth(mux, deps.Auth)
 }
 
 func mapDocument(document documents.Document, service *documents.Service) map[string]any {

@@ -14,6 +14,12 @@
 - `GET /api/healthz`
 - `GET /api/meta`
 
+### Auth
+
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+
 ### Pages
 
 - `GET /api/pages`
@@ -153,6 +159,10 @@
 ### Events
 
 - `GET /api/events`
+
+When auth is enabled, every API endpoint except `GET /api/healthz`, `POST /api/auth/login`, `POST /api/auth/logout`, and `GET /api/auth/me` requires a valid session cookie. `GET /api/auth/me` returns `{"authenticated":false}` when no valid session is present, while protected endpoints return `401`.
+
+`POST /api/auth/login` accepts `{"username":"...","password":"..."}` and, on success, sets the session cookie and returns the authenticated user summary. `POST /api/auth/logout` clears the current session cookie. `GET /api/auth/me` returns the current session state plus the authenticated user payload when a session is active.
 
 Targeted query block refresh emits `query-block.changed` with the block `page`, stable `key`, optional `id`, and lightweight block snapshot fields including `rowCount`, `renderHint`, `updatedAt`, and `stale`, followed by the usual derived/query invalidation for that page.
 

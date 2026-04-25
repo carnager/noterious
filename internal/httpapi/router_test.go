@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/config"
 	"github.com/carnager/noterious/internal/documents"
 	"github.com/carnager/noterious/internal/history"
@@ -382,6 +383,42 @@ func TestUIServesStaticAssets(t *testing.T) {
 	}
 }
 
+func TestUIServesPWAFilesAtRoot(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	for _, tc := range []struct {
+		path        string
+		contentType string
+		contains    string
+	}{
+		{path: "/manifest.webmanifest", contentType: "application/manifest+json", contains: "\"start_url\": \"/\""},
+		{path: "/sw.js", contentType: "application/javascript", contains: "CACHE_NAME"},
+	} {
+		request := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, body = %s", tc.path, recorder.Code, recorder.Body.String())
+		}
+		if got := recorder.Header().Get("Cache-Control"); got != "no-store, max-age=0" {
+			t.Fatalf("%s Cache-Control = %q", tc.path, got)
+		}
+		if got := recorder.Header().Get("Content-Type"); !strings.Contains(got, tc.contentType) {
+			t.Fatalf("%s Content-Type = %q want contains %q", tc.path, got, tc.contentType)
+		}
+		if !strings.Contains(recorder.Body.String(), tc.contains) {
+			t.Fatalf("%s body = %s", tc.path, recorder.Body.String())
+		}
+	}
+}
+
 func TestMetaIncludesConfiguredHomePage(t *testing.T) {
 	t.Parallel()
 
@@ -414,6 +451,108 @@ func TestMetaIncludesConfiguredHomePage(t *testing.T) {
 	}
 	if payload.HomePage != "index" {
 		t.Fatalf("homePage = %q", payload.HomePage)
+	}
+}
+
+func TestAuthLoginMeLogoutFlow(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	authService := buildTestAuthService(t, dataDir, "admin", "secret-pass")
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Auth: authService,
+	})
+
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"username":"admin","password":"secret-pass"}`))
+	loginRequest.Header.Set("Content-Type", "application/json")
+	loginResponse := httptest.NewRecorder()
+	router.ServeHTTP(loginResponse, loginRequest)
+	if loginResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/auth/login status = %d body=%s", loginResponse.Code, loginResponse.Body.String())
+	}
+
+	cookies := loginResponse.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("login did not set session cookie")
+	}
+
+	meRequest := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	meRequest.AddCookie(cookies[0])
+	meResponse := httptest.NewRecorder()
+	router.ServeHTTP(meResponse, meRequest)
+	if meResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/auth/me status = %d body=%s", meResponse.Code, meResponse.Body.String())
+	}
+
+	var mePayload struct {
+		Authenticated bool `json:"authenticated"`
+		User          struct {
+			Username string `json:"username"`
+		} `json:"user"`
+	}
+	if err := json.NewDecoder(meResponse.Body).Decode(&mePayload); err != nil {
+		t.Fatalf("Decode(me) error = %v", err)
+	}
+	if !mePayload.Authenticated || mePayload.User.Username != "admin" {
+		t.Fatalf("me payload = %#v", mePayload)
+	}
+
+	logoutRequest := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	logoutRequest.AddCookie(cookies[0])
+	logoutResponse := httptest.NewRecorder()
+	router.ServeHTTP(logoutResponse, logoutRequest)
+	if logoutResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/auth/logout status = %d body=%s", logoutResponse.Code, logoutResponse.Body.String())
+	}
+
+	meAfterLogoutRequest := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	meAfterLogoutRequest.AddCookie(cookies[0])
+	meAfterLogoutResponse := httptest.NewRecorder()
+	router.ServeHTTP(meAfterLogoutResponse, meAfterLogoutRequest)
+	if meAfterLogoutResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/auth/me after logout status = %d body=%s", meAfterLogoutResponse.Code, meAfterLogoutResponse.Body.String())
+	}
+	if err := json.NewDecoder(meAfterLogoutResponse.Body).Decode(&mePayload); err != nil {
+		t.Fatalf("Decode(meAfterLogout) error = %v", err)
+	}
+	if mePayload.Authenticated {
+		t.Fatalf("me payload after logout = %#v", mePayload)
+	}
+}
+
+func TestProtectedAPIsRequireAuthWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	authService := buildTestAuthService(t, dataDir, "admin", "secret-pass")
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Auth: authService,
+	})
+
+	for _, path := range []string{
+		"/api/pages",
+		"/api/settings",
+		"/api/events",
+	} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("%s status = %d want %d body=%s", path, response.Code, http.StatusUnauthorized, response.Body.String())
+		}
+	}
+
+	publicRequest := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
+	publicResponse := httptest.NewRecorder()
+	router.ServeHTTP(publicResponse, publicRequest)
+	if publicResponse.Code != http.StatusOK {
+		t.Fatalf("/api/healthz status = %d want %d", publicResponse.Code, http.StatusOK)
 	}
 }
 
@@ -9361,6 +9500,25 @@ func buildTestRouterWithDeps(t *testing.T, vaultDir, dataDir string, deps Depend
 	}
 
 	return NewRouter(deps)
+}
+
+func buildTestAuthService(t *testing.T, dataDir string, username string, password string) *auth.Service {
+	t.Helper()
+
+	service, err := auth.NewService(context.Background(), dataDir, "test_session", time.Hour)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = service.Close()
+	})
+	if _, err := service.EnsureBootstrap(context.Background(), auth.BootstrapConfig{
+		Username: username,
+		Password: password,
+	}); err != nil {
+		t.Fatalf("EnsureBootstrap() error = %v", err)
+	}
+	return service
 }
 
 func readSSEEvent(reader *bufio.Reader) (string, string, error) {

@@ -146,6 +146,19 @@ export interface MetaResponse {
   restartRequired?: boolean;
 }
 
+export interface AuthenticatedUser {
+  id: number;
+  username: string;
+  role: string;
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
+export interface AuthSessionResponse {
+  authenticated: boolean;
+  user?: AuthenticatedUser;
+}
+
 export interface Hotkeys {
   quickSwitcher: string;
   globalSearch: string;
@@ -154,6 +167,7 @@ export interface Hotkeys {
   help: string;
   saveCurrentPage: string;
   toggleRawMode: string;
+  toggleTaskDone: string;
 }
 
 export interface Preferences {

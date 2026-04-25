@@ -343,17 +343,35 @@
   });
 
   // frontend/http.ts
-  async function fetchJSON(url, options) {
-    const response = await fetch(url, options);
+  function dispatchAuthRequired() {
+    window.dispatchEvent(new CustomEvent("noterious:auth-required"));
+  }
+  async function requireOK(response, suppressAuthEvent = false) {
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(text || "Request failed: " + response.status);
+      if (response.status === 401 && !suppressAuthEvent) {
+        dispatchAuthRequired();
+      }
+      throw new HTTPError(response.status, text || "Request failed: " + response.status);
     }
+    return response;
+  }
+  async function fetchJSON(url, options, suppressAuthEvent = false) {
+    const response = await fetch(url, options);
+    await requireOK(response, suppressAuthEvent);
     return response.json();
   }
+  var HTTPError;
   var init_http = __esm({
     "frontend/http.ts"() {
       "use strict";
+      HTTPError = class extends Error {
+        constructor(status, message) {
+          super(message);
+          this.name = "HTTPError";
+          this.status = status;
+        }
+      };
     }
   });
 
@@ -1601,17 +1619,7 @@
     });
     return root;
   }
-  function makeTreeActionIcon(pathData) {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 16 16");
-    svg.setAttribute("aria-hidden", "true");
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", pathData);
-    path.setAttribute("fill", "currentColor");
-    svg.appendChild(path);
-    return svg;
-  }
-  function renderPageTreeNode(node, depth, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onMovePage, onMoveFolder) {
+  function renderPageTreeNode(node, depth, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder) {
     const group = document.createElement("div");
     group.className = depth === 0 ? "page-tree-root" : "page-tree-children";
     Object.keys(node.folders).sort().forEach(function(name) {
@@ -1657,6 +1665,11 @@
       button.addEventListener("click", function() {
         onToggleFolder(folder.key);
       });
+      button.addEventListener("contextmenu", function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenContextMenu({ kind: "folder", path: folder.key, name: folder.name }, event.clientX, event.clientY);
+      });
       const chevron = document.createElement("span");
       chevron.className = "page-tree-chevron";
       chevron.textContent = expandedPageFolders[folder.key] ? "\u25BE" : "\u25B8";
@@ -1671,60 +1684,9 @@
       button.appendChild(icon);
       button.appendChild(label);
       row.appendChild(button);
-      const actions = document.createElement("div");
-      actions.className = "page-tree-actions";
-      const createNote = document.createElement("button");
-      createNote.type = "button";
-      createNote.className = "page-tree-action";
-      createNote.title = "New note";
-      createNote.setAttribute("aria-label", "New note in " + folder.name);
-      createNote.textContent = "+";
-      createNote.addEventListener("click", function(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onCreatePage(folder.key);
-      });
-      actions.appendChild(createNote);
-      const createFolder = document.createElement("button");
-      createFolder.type = "button";
-      createFolder.className = "page-tree-action";
-      createFolder.title = "New subfolder";
-      createFolder.setAttribute("aria-label", "New subfolder in " + folder.name);
-      createFolder.textContent = "\u229E";
-      createFolder.addEventListener("click", function(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onCreateSubfolder(folder.key);
-      });
-      actions.appendChild(createFolder);
-      const renameFolder = document.createElement("button");
-      renameFolder.type = "button";
-      renameFolder.className = "page-tree-action";
-      renameFolder.title = "Rename folder";
-      renameFolder.setAttribute("aria-label", "Rename folder " + folder.name);
-      renameFolder.appendChild(makeTreeActionIcon("M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z"));
-      renameFolder.addEventListener("click", function(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onRenameFolder(folder.key);
-      });
-      actions.appendChild(renameFolder);
-      const deleteFolder = document.createElement("button");
-      deleteFolder.type = "button";
-      deleteFolder.className = "page-tree-action page-tree-action-danger";
-      deleteFolder.title = "Delete folder";
-      deleteFolder.setAttribute("aria-label", "Delete folder " + folder.name);
-      deleteFolder.textContent = "\xD7";
-      deleteFolder.addEventListener("click", function(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onDeleteFolder(folder.key);
-      });
-      actions.appendChild(deleteFolder);
-      row.appendChild(actions);
       item.appendChild(row);
       if (expandedPageFolders[folder.key]) {
-        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onMovePage, onMoveFolder));
+        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
       }
       group.appendChild(item);
     });
@@ -1747,6 +1709,11 @@
       button.addEventListener("click", function() {
         onSelectPage(page.path);
       });
+      button.addEventListener("contextmenu", function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenContextMenu({ kind: "page", path: page.path, name: leafName }, event.clientX, event.clientY);
+      });
       const icon = document.createElement("span");
       icon.className = "page-tree-icon";
       icon.textContent = "\u2022";
@@ -1757,39 +1724,12 @@
       button.appendChild(icon);
       button.appendChild(label);
       row.appendChild(button);
-      const actions = document.createElement("div");
-      actions.className = "page-tree-actions";
-      const renamePage = document.createElement("button");
-      renamePage.type = "button";
-      renamePage.className = "page-tree-action";
-      renamePage.title = "Rename note";
-      renamePage.setAttribute("aria-label", "Rename note " + leafName);
-      renamePage.appendChild(makeTreeActionIcon("M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z"));
-      renamePage.addEventListener("click", function(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onRenamePage(page.path);
-      });
-      actions.appendChild(renamePage);
-      const deletePage = document.createElement("button");
-      deletePage.type = "button";
-      deletePage.className = "page-tree-action page-tree-action-danger";
-      deletePage.title = "Delete note";
-      deletePage.setAttribute("aria-label", "Delete note " + leafName);
-      deletePage.textContent = "\xD7";
-      deletePage.addEventListener("click", function(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onDeletePage(page.path);
-      });
-      actions.appendChild(deletePage);
-      row.appendChild(actions);
       item.appendChild(row);
       group.appendChild(item);
     });
     return group;
   }
-  function renderPagesTree(container, pages, selectedPage, expandedPageFolders, pageSearchQuery, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onMovePage, onMoveFolder) {
+  function renderPagesTree(container, pages, selectedPage, expandedPageFolders, pageSearchQuery, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder) {
     clearNode(container);
     if (!pages.length) {
       renderEmpty(container, "No indexed pages match the current search.");
@@ -1935,7 +1875,7 @@
       }
       onMoveFolder(payload.path, "");
     };
-    container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onMovePage, onMoveFolder));
+    container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
   }
   function renderPageTasks(container, tasks, onSelectTask) {
     clearNode(container);
@@ -3247,6 +3187,23 @@
       init_search();
       init_slashMenu();
       (function() {
+        let pwaRegistrationPromise = null;
+        function registerPWA() {
+          if (pwaRegistrationPromise) {
+            return pwaRegistrationPromise;
+          }
+          const localHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname === "[::1]";
+          if (!("serviceWorker" in navigator) || window.location.protocol !== "https:" && !localHost) {
+            pwaRegistrationPromise = Promise.resolve();
+            return pwaRegistrationPromise;
+          }
+          pwaRegistrationPromise = navigator.serviceWorker.register("/sw.js").then(function() {
+            return;
+          }).catch(function(error) {
+            console.warn("PWA registration failed", error);
+          });
+          return pwaRegistrationPromise;
+        }
         const state = {
           selectedPage: "",
           selectedSavedQuery: "",
@@ -3289,7 +3246,8 @@
                 quickNote: "",
                 help: "?",
                 saveCurrentPage: "Mod+S",
-                toggleRawMode: "Mod+E"
+                toggleRawMode: "Mod+E",
+                toggleTaskDone: "Mod+Enter"
               },
               ui: {
                 fontFamily: "mono",
@@ -3312,6 +3270,7 @@
             homePage: ""
           },
           settingsRestartRequired: false,
+          settingsLoaded: false,
           configHomePage: "",
           homePage: "",
           markdownEditorApi: null,
@@ -3327,9 +3286,19 @@
           renamingPageTitle: false,
           tableEditor: null,
           pageHistory: [],
-          trashPages: []
+          selectedHistoryRevisionId: "",
+          historyShowChanges: false,
+          trashPages: [],
+          authenticated: false,
+          currentUser: null
         };
         const els = {
+          appShell: optionalQuery(".shell"),
+          authShell: requiredElement("auth-shell"),
+          authForm: requiredElement("auth-form"),
+          authUsername: requiredElement("auth-username"),
+          authPassword: requiredElement("auth-password"),
+          authStatus: requiredElement("auth-status"),
           metaStrip: optionalElement("meta-strip"),
           pageSearch: requiredElement("page-search"),
           pageSearchShell: requiredElement("page-search-shell"),
@@ -3349,6 +3318,7 @@
           noteHeading: requiredElement("note-heading"),
           toggleSourceMode: requiredElement("toggle-source-mode"),
           noteStatus: requiredElement("note-status"),
+          treeContextMenu: requiredElement("tree-context-menu"),
           markdownEditor: requiredElement("markdown-editor"),
           structuredView: requiredElement("structured-view"),
           derivedView: requiredElement("derived-view"),
@@ -3373,15 +3343,18 @@
           toggleRail: requiredElement("toggle-rail"),
           historyBack: requiredElement("history-back"),
           historyForward: requiredElement("history-forward"),
+          openHomePage: requiredElement("open-home-page"),
           openQuickSwitcher: requiredElement("open-quick-switcher"),
           openDocuments: requiredElement("open-documents"),
           openSearch: requiredElement("open-search"),
           sessionMenu: requiredElement("session-menu"),
           sessionMenuPanel: requiredElement("session-menu-panel"),
           openSessionMenu: requiredElement("open-session-menu"),
+          sessionUser: requiredElement("session-user"),
           openTrash: requiredElement("open-trash"),
           openHelp: requiredElement("open-help"),
           openSettings: requiredElement("open-settings"),
+          logoutSession: requiredElement("logout-session"),
           reloadPages: optionalElement("reload-pages"),
           reloadQueries: optionalElement("reload-queries"),
           toggleDebug: optionalElement("toggle-debug"),
@@ -3412,6 +3385,10 @@
           closePageHistoryModal: requiredElement("close-page-history-modal"),
           pageHistoryTitle: requiredElement("page-history-title"),
           pageHistoryResults: requiredElement("page-history-results"),
+          pageHistoryPreview: requiredElement("page-history-preview"),
+          pageHistoryShowChanges: requiredElement("page-history-show-changes"),
+          copyPageHistory: requiredElement("copy-page-history"),
+          restorePageHistory: requiredElement("restore-page-history"),
           trashModalShell: requiredElement("trash-modal-shell"),
           emptyTrash: requiredElement("empty-trash"),
           closeTrashModal: requiredElement("close-trash-modal"),
@@ -3439,6 +3416,7 @@
           settingsHelp: requiredElement("settings-hotkey-help"),
           settingsSaveCurrentPage: requiredElement("settings-hotkey-save-current-page"),
           settingsToggleRawMode: requiredElement("settings-hotkey-toggle-raw-mode"),
+          settingsToggleTaskDone: requiredElement("settings-hotkey-toggle-task-done"),
           settingsStatus: requiredElement("settings-status"),
           slashMenu: requiredElement("slash-menu"),
           slashMenuResults: requiredElement("slash-menu-results")
@@ -3453,6 +3431,11 @@
           day: 0,
           hour: 9,
           minute: 0
+        };
+        const treeContextMenuState = {
+          target: null,
+          left: 0,
+          top: 0
         };
         function canonicalDate(year, month, day) {
           return [
@@ -4179,17 +4162,106 @@
           const normalized = normalizePageDraftPath(pagePath);
           state.homePage = normalized;
           state.settings.workspace.homePage = normalized;
+          renderHomeButton();
+          if (state.settingsLoaded) {
+            renderSettingsForm();
+          }
         }
         function clearHomePage() {
           state.homePage = "";
           state.settings.workspace.homePage = "";
+          renderHomeButton();
+          if (state.settingsLoaded) {
+            renderSettingsForm();
+          }
         }
         function currentHomePage() {
           return normalizePageDraftPath(state.homePage || state.settings.workspace.homePage || "");
         }
+        function renderHomeButton() {
+          const homePage = currentHomePage();
+          els.openHomePage.disabled = !homePage;
+          els.openHomePage.title = homePage ? "Open home page: " + homePage : "No home page configured";
+        }
         function setSessionMenuOpen(open) {
+          if (!state.authenticated) {
+            open = false;
+          }
           els.sessionMenuPanel.classList.toggle("hidden", !open);
           els.openSessionMenu.setAttribute("aria-expanded", open ? "true" : "false");
+        }
+        function renderSessionState() {
+          const username = state.currentUser && state.currentUser.username ? state.currentUser.username : "Sign In";
+          els.sessionUser.textContent = username;
+          els.logoutSession.classList.toggle("hidden", !state.authenticated);
+          els.openSessionMenu.title = state.authenticated ? "Session menu" : "Open sign in";
+          if (!state.authenticated) {
+            setSessionMenuOpen(false);
+          }
+        }
+        function setAuthSession(session) {
+          state.authenticated = Boolean(session.authenticated);
+          state.currentUser = state.authenticated && session.user ? session.user : null;
+          renderSessionState();
+        }
+        function setAuthGateOpen(open, status) {
+          els.authShell.classList.toggle("hidden", !open);
+          if (els.appShell) {
+            if (open) {
+              els.appShell.setAttribute("inert", "");
+            } else {
+              els.appShell.removeAttribute("inert");
+            }
+          }
+          if (typeof status === "string") {
+            els.authStatus.textContent = status;
+          } else if (!open) {
+            els.authStatus.textContent = "";
+          }
+          if (open) {
+            window.setTimeout(function() {
+              if (els.authUsername.value.trim()) {
+                els.authPassword.focus();
+                return;
+              }
+              els.authUsername.focus();
+            }, 0);
+          }
+        }
+        async function loadSession() {
+          return fetchJSON("/api/auth/me", void 0, true);
+        }
+        async function login() {
+          els.authStatus.textContent = "Signing in\u2026";
+          try {
+            const session = await fetchJSON("/api/auth/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                username: els.authUsername.value.trim(),
+                password: els.authPassword.value
+              })
+            }, true);
+            setAuthSession(session);
+            setAuthGateOpen(false);
+            els.authPassword.value = "";
+            window.location.reload();
+          } catch (error) {
+            els.authStatus.textContent = errorMessage(error);
+          }
+        }
+        async function logout() {
+          try {
+            await fetchJSON("/api/auth/logout", { method: "POST" }, true);
+          } catch (error) {
+            setNoteStatus("Logout failed: " + errorMessage(error));
+          }
+          window.location.reload();
+        }
+        async function loadAuthenticatedApp() {
+          await Promise.all([loadSettings(), loadMeta(), loadPages(), loadSavedQueryTree(), loadDocuments()]);
+          applyURLState2();
+          connectEvents();
         }
         function setPageSearchOpen(open) {
           const keepOpen = open || Boolean(els.pageSearch.value.trim());
@@ -4480,6 +4552,18 @@
           const lines = String(rawContext.value || "").replace(/\r\n/g, "\n").split("\n");
           const currentLineIndex = currentRawLineIndex(rawContext.value, rawContext.lineStart);
           return taskLineIndent(lines[currentLineIndex] || "") !== null;
+        }
+        function toggleTaskDoneAtSelection() {
+          const rawContext = currentRawLineContext(state, els);
+          const currentLineIndex = currentRawLineIndex(rawContext.value, rawContext.lineStart);
+          const task = findCurrentTaskByLine(currentLineIndex + 1);
+          if (!task) {
+            return false;
+          }
+          toggleTaskDone2(task).catch(function(error) {
+            setNoteStatus("Task toggle failed: " + errorMessage(error));
+          });
+          return true;
         }
         function applySlashSelection() {
           if (!state.slashOpen || !state.slashContext) {
@@ -4935,6 +5019,7 @@
             els.helpShortcutCore.appendChild(shortcutRow(entry[0], entry[1]));
           });
           [
+            ["Toggle Task Done", state.settings.preferences.hotkeys.toggleTaskDone],
             ["Slash Commands", "/"],
             ["Open Link Under Caret", "Shift+Enter"],
             ["Close Menus or Modals", "Esc"]
@@ -4943,6 +5028,36 @@
           });
         }
         function renderSettingsForm() {
+          const formFields = [
+            els.settingsVaultPath,
+            els.settingsHomePage,
+            els.settingsNtfyTopicUrl,
+            els.settingsNtfyToken,
+            els.settingsNtfyInterval,
+            els.settingsFontFamily,
+            els.settingsFontSize,
+            els.settingsDateTimeFormat,
+            els.settingsQuickSwitcher,
+            els.settingsGlobalSearch,
+            els.settingsCommandPalette,
+            els.settingsQuickNote,
+            els.settingsHelp,
+            els.settingsSaveCurrentPage,
+            els.settingsToggleRawMode,
+            els.settingsToggleTaskDone
+          ];
+          if (!state.settingsLoaded) {
+            formFields.forEach(function(field) {
+              field.disabled = true;
+            });
+            els.saveSettings.disabled = true;
+            els.settingsStatus.textContent = "Loading settings from the server\u2026";
+            return;
+          }
+          formFields.forEach(function(field) {
+            field.disabled = false;
+          });
+          els.saveSettings.disabled = false;
           els.settingsVaultPath.value = state.settings.workspace.vaultPath || "";
           els.settingsHomePage.value = state.settings.workspace.homePage || "";
           els.settingsNtfyTopicUrl.value = state.settings.notifications.ntfyTopicUrl || "";
@@ -4958,17 +5073,20 @@
           els.settingsHelp.value = state.settings.preferences.hotkeys.help || "";
           els.settingsSaveCurrentPage.value = state.settings.preferences.hotkeys.saveCurrentPage || "";
           els.settingsToggleRawMode.value = state.settings.preferences.hotkeys.toggleRawMode || "";
-          if (state.settingsRestartRequired) {
-            els.settingsStatus.textContent = "Server runtime settings changed. Restart the server to apply them.";
+          els.settingsToggleTaskDone.value = state.settings.preferences.hotkeys.toggleTaskDone || "";
+          if (state.settingsRestartRequired || state.settings.workspace.vaultPath !== state.appliedWorkspace.vaultPath || state.settings.workspace.homePage !== state.appliedWorkspace.homePage) {
+            els.settingsStatus.textContent = "Saved config differs from the running server. Current runtime vault: " + (state.appliedWorkspace.vaultPath || "(none)") + ". Restart the server to apply workspace changes.";
             return;
           }
-          els.settingsStatus.textContent = "Settings are stored in the server data directory.";
+          els.settingsStatus.textContent = "Settings are stored in the server data directory. Current runtime vault: " + (state.appliedWorkspace.vaultPath || "(none)") + ".";
         }
         function setSettingsSnapshot(snapshot) {
           state.settings = snapshot.settings;
           state.appliedWorkspace = snapshot.appliedWorkspace;
           state.settingsRestartRequired = snapshot.restartRequired;
+          state.settingsLoaded = true;
           state.homePage = normalizePageDraftPath(snapshot.settings.workspace.homePage || "");
+          renderHomeButton();
           renderHelpShortcuts();
           renderSettingsForm();
           applyUIPreferences();
@@ -5005,6 +5123,8 @@
             const snapshot = await fetchJSON("/api/settings");
             setSettingsSnapshot(snapshot);
           } catch (error) {
+            state.settingsLoaded = false;
+            renderSettingsForm();
             els.settingsStatus.textContent = errorMessage(error);
           }
         }
@@ -5116,6 +5236,9 @@
                 setNoteStatus("Delete page failed: " + errorMessage(error));
               });
             },
+            function(target, left, top) {
+              openTreeContextMenu(target, left, top);
+            },
             function(pagePath, folderKey) {
               movePageToFolder(pagePath, folderKey).catch(function(error) {
                 setNoteStatus("Move page failed: " + errorMessage(error));
@@ -5128,6 +5251,144 @@
             }
           );
           updatePageListScrollState();
+        }
+        function closeTreeContextMenu() {
+          treeContextMenuState.target = null;
+          els.treeContextMenu.classList.add("hidden");
+          clearNode(els.treeContextMenu);
+        }
+        function positionTreeContextMenu() {
+          const menu = els.treeContextMenu;
+          const width = menu.offsetWidth || 220;
+          const height = menu.offsetHeight || 200;
+          const maxLeft = Math.max(12, window.innerWidth - width - 12);
+          const maxTop = Math.max(12, window.innerHeight - height - 12);
+          menu.style.left = Math.max(12, Math.min(treeContextMenuState.left, maxLeft)) + "px";
+          menu.style.top = Math.max(12, Math.min(treeContextMenuState.top, maxTop)) + "px";
+        }
+        function openPageHistoryFor(pagePath) {
+          if (!pagePath) {
+            return;
+          }
+          closeTreeContextMenu();
+          navigateToPage(pagePath, false);
+          window.setTimeout(function() {
+            setPageHistoryOpen(true);
+            loadPageHistory().catch(function(error) {
+              setNoteStatus("History failed: " + errorMessage(error));
+            });
+          }, 0);
+        }
+        function appendTreeContextMenuItem(label, iconPath, onSelect, danger) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = danger ? "tree-context-menu-item danger" : "tree-context-menu-item";
+          button.setAttribute("role", "menuitem");
+          const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          icon.setAttribute("viewBox", "0 0 16 16");
+          icon.setAttribute("aria-hidden", "true");
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", iconPath);
+          path.setAttribute("fill", "currentColor");
+          icon.appendChild(path);
+          button.appendChild(icon);
+          const text = document.createElement("span");
+          text.textContent = label;
+          button.appendChild(text);
+          button.addEventListener("click", function() {
+            closeTreeContextMenu();
+            onSelect();
+          });
+          els.treeContextMenu.appendChild(button);
+        }
+        function appendTreeContextMenuDivider() {
+          const divider = document.createElement("div");
+          divider.className = "tree-context-menu-divider";
+          els.treeContextMenu.appendChild(divider);
+        }
+        function openTreeContextMenu(target, left, top) {
+          treeContextMenuState.target = target;
+          treeContextMenuState.left = left;
+          treeContextMenuState.top = top;
+          clearNode(els.treeContextMenu);
+          if (target.kind === "page") {
+            appendTreeContextMenuItem("Open note", "M3 2.5h5.7L13 6.8V13a1 1 0 0 1-1 1H3.9a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Zm5 .9v3.2h3.2", function() {
+              navigateToPage(target.path, false);
+            });
+            appendTreeContextMenuItem(
+              currentHomePage().toLowerCase() === target.path.toLowerCase() ? "Home Page Already Set" : "Set as Homepage",
+              "M8 1.8 14.2 7H13v6.2a1 1 0 0 1-1 1H9V10H7v4.2H4a1 1 0 0 1-1-1V7H1.8L8 1.8Z",
+              function() {
+                if (currentHomePage().toLowerCase() === target.path.toLowerCase()) {
+                  setNoteStatus("Home page already set to " + target.path + ".");
+                  return;
+                }
+                setHomePage(target.path);
+                setNoteStatus("Home page set to " + target.path + ".");
+              }
+            );
+            appendTreeContextMenuItem("Show version history", "M8 2.2a5.8 5.8 0 1 0 4.1 1.7l.9-.9v2.8H10l1.1-1.1A4.4 4.4 0 1 1 8 3.6v1.1l2.3 1.4-.7 1.1L7.4 6V2.2H8Z", function() {
+              openPageHistoryFor(target.path);
+            });
+            appendTreeContextMenuDivider();
+            appendTreeContextMenuItem("Rename\u2026", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function() {
+              const currentName = pageTitleFromPath(target.path);
+              const nextName = normalizePageDraftPath(window.prompt('Rename note "' + currentName + '"', currentName) || "");
+              if (!nextName || nextName === currentName) {
+                return;
+              }
+              renamePage(target.path, nextName).catch(function(error) {
+                setNoteStatus("Rename note failed: " + errorMessage(error));
+              });
+            });
+            appendTreeContextMenuItem("Delete", "M5.2 3h5.6l.4 1.2H14v1.2H2V4.2h2.8L5.2 3Zm-1 3.2h7.6l-.5 6.1a1 1 0 0 1-1 .9H5.7a1 1 0 0 1-1-.9L4.2 6.2Z", function() {
+              deletePage(target.path).catch(function(error) {
+                setNoteStatus("Delete page failed: " + errorMessage(error));
+              });
+            }, true);
+          } else {
+            appendTreeContextMenuItem("New note", "M8 2.5v11M2.5 8h11", function() {
+              const name = window.prompt('New note in "' + target.name + '"', "");
+              const normalizedName = normalizePageDraftPath(name || "");
+              if (!normalizedName) {
+                return;
+              }
+              createPage(target.path + "/" + normalizedName).catch(function(error) {
+                setNoteStatus("Create page failed: " + errorMessage(error));
+              });
+            });
+            appendTreeContextMenuItem("New subfolder", "M8 2.5v11M2.5 8h11", function() {
+              const subfolder = normalizePageDraftPath(window.prompt('New subfolder in "' + target.name + '"', "") || "");
+              if (!subfolder) {
+                return;
+              }
+              const initialNote = normalizePageDraftPath(window.prompt('Initial note inside "' + subfolder + '"', "index") || "");
+              if (!initialNote) {
+                return;
+              }
+              createPage(target.path + "/" + subfolder + "/" + initialNote).catch(function(error) {
+                setNoteStatus("Create folder failed: " + errorMessage(error));
+              });
+            });
+            appendTreeContextMenuDivider();
+            appendTreeContextMenuItem("Rename\u2026", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function() {
+              const currentName = pageTitleFromPath(target.path);
+              const nextName = normalizePageDraftPath(window.prompt('Rename folder "' + currentName + '"', currentName) || "");
+              if (!nextName || nextName === currentName) {
+                return;
+              }
+              renameFolder(target.path, nextName).catch(function(error) {
+                setNoteStatus("Rename folder failed: " + errorMessage(error));
+              });
+            });
+            appendTreeContextMenuItem("Delete", "M5.2 3h5.6l.4 1.2H14v1.2H2V4.2h2.8L5.2 3Zm-1 3.2h7.6l-.5 6.1a1 1 0 0 1-1 .9H5.7a1 1 0 0 1-1-.9L4.2 6.2Z", function() {
+              deleteFolder(target.path).catch(function(error) {
+                setNoteStatus("Delete folder failed: " + errorMessage(error));
+              });
+            }, true);
+          }
+          els.treeContextMenu.classList.remove("hidden");
+          window.requestAnimationFrame(positionTreeContextMenu);
         }
         async function loadSavedQueryTree() {
           const params = new URLSearchParams();
@@ -5186,9 +5447,18 @@
             return;
           }
           try {
+            setTaskDateApplySuppressed(true);
+            rememberNoteFocus();
             await toggleTaskDone(task);
-            await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
+            await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
+            restoreNoteFocus();
+            window.requestAnimationFrame(function() {
+              window.requestAnimationFrame(function() {
+                setTaskDateApplySuppressed(false);
+              });
+            });
           } catch (error) {
+            setTaskDateApplySuppressed(false);
             setNoteStatus("Task toggle failed: " + errorMessage(error));
           }
         }
@@ -5421,8 +5691,8 @@
           if (!state.selectedPage) {
             return;
           }
+          restoreEditorFocus(state, els, state.selectedPage);
           window.requestAnimationFrame(function() {
-            restoreEditorFocus(state, els, state.selectedPage);
             if (state.selectedPage && !state.restoreFocusSpec && !blockingOverlayOpen(els) && !inlineTableEditorOpen()) {
               focusMarkdownEditor(state, els, { preventScroll: true });
             }
@@ -5557,6 +5827,67 @@
           }
           return changes.slice(0, 2).join(" \xB7 ");
         }
+        function historyDiffContent(rawMarkdown, previousMarkdown) {
+          const currentLines = String(rawMarkdown || "").split(/\r?\n/);
+          const previousLines = String(previousMarkdown || "").split(/\r?\n/);
+          const result = [];
+          const limit = Math.max(currentLines.length, previousLines.length);
+          for (let index = 0; index < limit; index += 1) {
+            const currentLine = currentLines[index];
+            const previousLine = previousLines[index];
+            if (currentLine === previousLine) {
+              continue;
+            }
+            if (typeof previousLine === "string") {
+              result.push("- " + previousLine);
+            }
+            if (typeof currentLine === "string") {
+              result.push("+ " + currentLine);
+            }
+          }
+          return result.join("\n").trim() || "No changes.";
+        }
+        function selectedPageHistoryRevision() {
+          if (!state.pageHistory.length) {
+            return null;
+          }
+          return state.pageHistory.find(function(revision) {
+            return revision.id === state.selectedHistoryRevisionId;
+          }) || state.pageHistory[0] || null;
+        }
+        function renderPageHistoryPreview() {
+          const revision = selectedPageHistoryRevision();
+          if (!revision) {
+            els.pageHistoryPreview.textContent = "Select a revision to preview it.";
+            els.copyPageHistory.disabled = true;
+            els.restorePageHistory.disabled = true;
+            return;
+          }
+          const index = state.pageHistory.findIndex(function(entry) {
+            return entry.id === revision.id;
+          });
+          const previousMarkdown = index >= 0 && index + 1 < state.pageHistory.length ? state.pageHistory[index + 1].rawMarkdown : "";
+          els.pageHistoryPreview.textContent = state.historyShowChanges ? historyDiffContent(revision.rawMarkdown, previousMarkdown) : String(revision.rawMarkdown || "");
+          els.copyPageHistory.disabled = false;
+          els.restorePageHistory.disabled = false;
+        }
+        function restorePageHistoryRevision(revision) {
+          if (!state.selectedPage) {
+            return;
+          }
+          fetchJSON("/api/page-history/" + encodePath(state.selectedPage) + "/restore", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ revisionId: revision.id })
+          }).then(function() {
+            closePageHistoryModal();
+            return Promise.all([loadPages(), loadPageDetail(state.selectedPage, true)]);
+          }).then(function() {
+            setNoteStatus("Restored revision for " + state.selectedPage + ".");
+          }).catch(function(error) {
+            setNoteStatus("Restore failed: " + errorMessage(error));
+          });
+        }
         function setPageHistoryOpen(open) {
           if (open) {
             rememberNoteFocus();
@@ -5568,6 +5899,7 @@
             els.settingsModalShell.classList.add("hidden");
             els.trashModalShell.classList.add("hidden");
             els.pageHistoryModalShell.classList.remove("hidden");
+            els.pageHistoryShowChanges.checked = state.historyShowChanges;
             window.requestAnimationFrame(function() {
               focusWithoutScroll(els.closePageHistoryModal);
             });
@@ -5581,12 +5913,25 @@
         function renderPageHistory() {
           clearNode(els.pageHistoryResults);
           if (!state.pageHistory.length) {
+            state.selectedHistoryRevisionId = "";
             renderEmpty(els.pageHistoryResults, "No saved revisions for this page yet.");
+            renderPageHistoryPreview();
             return;
           }
+          if (!selectedPageHistoryRevision()) {
+            state.selectedHistoryRevisionId = state.pageHistory[0].id;
+          }
           state.pageHistory.forEach(function(revision, index) {
-            const item = document.createElement("div");
+            const item = document.createElement("button");
+            item.type = "button";
             item.className = "history-item";
+            if (revision.id === state.selectedHistoryRevisionId) {
+              item.classList.add("active");
+            }
+            item.addEventListener("click", function() {
+              state.selectedHistoryRevisionId = revision.id;
+              renderPageHistory();
+            });
             const meta = document.createElement("div");
             meta.className = "history-item-meta";
             meta.textContent = formatDateTimeValue(revision.savedAt);
@@ -5596,44 +5941,23 @@
               revision.rawMarkdown,
               index + 1 < state.pageHistory.length ? state.pageHistory[index + 1].rawMarkdown : ""
             );
-            const actions = document.createElement("div");
-            actions.className = "history-item-actions";
-            const restoreButton = document.createElement("button");
-            restoreButton.type = "button";
-            restoreButton.textContent = "Restore";
-            restoreButton.addEventListener("click", function() {
-              if (!state.selectedPage) {
-                return;
-              }
-              fetchJSON("/api/page-history/" + encodePath(state.selectedPage) + "/restore", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ revisionId: revision.id })
-              }).then(function() {
-                closePageHistoryModal();
-                return Promise.all([loadPages(), loadPageDetail(state.selectedPage, true)]);
-              }).then(function() {
-                setNoteStatus("Restored revision for " + state.selectedPage + ".");
-              }).catch(function(error) {
-                setNoteStatus("Restore failed: " + errorMessage(error));
-              });
-            });
-            actions.appendChild(restoreButton);
             item.appendChild(meta);
             item.appendChild(snippet);
-            item.appendChild(actions);
             els.pageHistoryResults.appendChild(item);
           });
+          renderPageHistoryPreview();
         }
         async function loadPageHistory() {
           if (!state.selectedPage) {
             state.pageHistory = [];
+            state.selectedHistoryRevisionId = "";
             renderPageHistory();
             return;
           }
           els.pageHistoryTitle.textContent = "Revision History \xB7 " + pageTitleFromPath(state.selectedPage);
           const payload = await fetchJSON("/api/page-history/" + encodePath(state.selectedPage));
           state.pageHistory = Array.isArray(payload.revisions) ? payload.revisions : [];
+          state.selectedHistoryRevisionId = state.pageHistory[0] ? state.pageHistory[0].id : "";
           renderPageHistory();
         }
         async function purgeCurrentPageHistory() {
@@ -5786,8 +6110,15 @@
             els.trashModalShell.classList.add("hidden");
             els.settingsModalShell.classList.remove("hidden");
             renderSettingsForm();
+            if (!state.settingsLoaded) {
+              loadSettings();
+            }
             window.requestAnimationFrame(function() {
-              focusWithoutScroll(els.settingsVaultPath);
+              if (state.settingsLoaded) {
+                focusWithoutScroll(els.settingsVaultPath);
+                return;
+              }
+              focusWithoutScroll(els.closeSettingsModal);
             });
             return;
           }
@@ -5820,12 +6151,17 @@
                 quickNote: String(els.settingsQuickNote.value || "").trim(),
                 help: String(els.settingsHelp.value || "").trim(),
                 saveCurrentPage: String(els.settingsSaveCurrentPage.value || "").trim(),
-                toggleRawMode: String(els.settingsToggleRawMode.value || "").trim()
+                toggleRawMode: String(els.settingsToggleRawMode.value || "").trim(),
+                toggleTaskDone: String(els.settingsToggleTaskDone.value || "").trim()
               }
             }
           };
         }
         async function persistSettings() {
+          if (!state.settingsLoaded) {
+            els.settingsStatus.textContent = "Settings are still loading. Try again in a moment.";
+            return;
+          }
           els.settingsStatus.textContent = "Saving settings\u2026";
           try {
             const snapshot = await fetchJSON("/api/settings", {
@@ -5838,7 +6174,7 @@
             if (state.selectedPage || state.selectedSavedQuery) {
               syncURLState(true);
             }
-            els.settingsStatus.textContent = snapshot.restartRequired ? "Saved. Restart the server to apply the new server runtime settings." : "Settings saved.";
+            els.settingsStatus.textContent = snapshot.restartRequired ? "Saved. Restart the server to apply the new runtime vault: " + (snapshot.settings.workspace.vaultPath || "(none)") + "." : "Settings saved. Runtime vault: " + (snapshot.appliedWorkspace.vaultPath || "(none)") + ".";
           } catch (error) {
             els.settingsStatus.textContent = errorMessage(error);
           }
@@ -6026,9 +6362,7 @@
             method: "POST",
             body: formData
           });
-          if (!response.ok) {
-            throw new Error(await response.text() || "Upload failed");
-          }
+          await requireOK(response);
           const document2 = await response.json();
           state.documents = [document2].concat(state.documents.filter(function(item) {
             return item.id !== document2.id;
@@ -6474,6 +6808,15 @@
           });
         }
         function wireEvents() {
+          on(window, "noterious:auth-required", function() {
+            if (state.authenticated) {
+              window.location.reload();
+            }
+          });
+          on(els.authForm, "submit", function(event) {
+            event.preventDefault();
+            login();
+          });
           function isTypingTarget(target) {
             const element = target instanceof Element ? target : null;
             if (!element) {
@@ -6498,8 +6841,16 @@
             setPageSearchOpen(els.pageSearchShell.classList.contains("hidden"));
           });
           on(els.openSessionMenu, "click", function() {
+            if (!state.authenticated) {
+              setAuthGateOpen(true, "Sign in to continue.");
+              return;
+            }
             const nextOpen = els.sessionMenuPanel.classList.contains("hidden");
             setSessionMenuOpen(nextOpen);
+          });
+          on(els.logoutSession, "click", function() {
+            setSessionMenuOpen(false);
+            logout();
           });
           on(els.openHelp, "click", function() {
             setSessionMenuOpen(false);
@@ -6520,6 +6871,15 @@
             setSessionMenuOpen(false);
             setQuickSwitcherOpen(true);
             renderQuickSwitcherResults2();
+          });
+          on(els.openHomePage, "click", function() {
+            setSessionMenuOpen(false);
+            const homePage = currentHomePage();
+            if (!homePage) {
+              setNoteStatus("No home page configured.");
+              return;
+            }
+            navigateToPage(homePage, false);
           });
           on(els.openDocuments, "click", function() {
             setSessionMenuOpen(false);
@@ -6574,6 +6934,32 @@
           on(els.closePageHistoryModal, "click", function() {
             closePageHistoryModal();
             restoreNoteFocus();
+          });
+          on(els.pageHistoryShowChanges, "change", function() {
+            state.historyShowChanges = Boolean(els.pageHistoryShowChanges.checked);
+            renderPageHistoryPreview();
+          });
+          on(els.copyPageHistory, "click", function() {
+            const revision = selectedPageHistoryRevision();
+            if (!revision) {
+              return;
+            }
+            const index = state.pageHistory.findIndex(function(entry) {
+              return entry.id === revision.id;
+            });
+            const previousMarkdown = index >= 0 && index + 1 < state.pageHistory.length ? state.pageHistory[index + 1].rawMarkdown : "";
+            copyCodeBlock(
+              state.historyShowChanges ? historyDiffContent(revision.rawMarkdown, previousMarkdown) : revision.rawMarkdown
+            ).catch(function(error) {
+              setNoteStatus("Copy history failed: " + errorMessage(error));
+            });
+          });
+          on(els.restorePageHistory, "click", function() {
+            const revision = selectedPageHistoryRevision();
+            if (!revision) {
+              return;
+            }
+            restorePageHistoryRevision(revision);
           });
           on(els.emptyTrash, "click", function() {
             emptyTrash().catch(function(error) {
@@ -6659,6 +7045,13 @@
           });
           const handleMarkdownEditorKeydown = function(rawEvent) {
             const event = rawEvent;
+            if (matchesHotkey(state.settings.preferences.hotkeys.toggleTaskDone, event) && selectionOnTaskLine()) {
+              event.preventDefault();
+              event.stopPropagation();
+              event.stopImmediatePropagation();
+              toggleTaskDoneAtSelection();
+              return;
+            }
             if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey) {
               if (event.key === "ArrowUp") {
                 if (selectionOnTaskLine()) {
@@ -6920,6 +7313,9 @@
             if (!target || !target.closest("#session-menu")) {
               setSessionMenuOpen(false);
             }
+            if (!target || !target.closest("#tree-context-menu")) {
+              closeTreeContextMenu();
+            }
             if (!target || !target.closest("#inline-task-picker") && !target.closest("[data-task-date-edit]")) {
               closeTaskPickers();
             }
@@ -6934,6 +7330,10 @@
             }
           });
           window.addEventListener("keydown", function(event) {
+            if (event.key === "Escape" && !els.treeContextMenu.classList.contains("hidden")) {
+              closeTreeContextMenu();
+              return;
+            }
             if (event.key === "Escape" && !els.sessionMenuPanel.classList.contains("hidden")) {
               setSessionMenuOpen(false);
               return;
@@ -7043,6 +7443,7 @@
           window.addEventListener("blur", function() {
             state.windowBlurred = true;
             captureEditorFocusSpec(state, els);
+            closeTreeContextMenu();
           });
           window.addEventListener("focus", function() {
             state.windowBlurred = false;
@@ -7066,10 +7467,16 @@
             restoreNoteFocus();
           });
           window.addEventListener("popstate", function() {
+            closeTreeContextMenu();
             applyURLState2();
           });
+          on(window, "resize", closeTreeContextMenu);
+          on(window, "scroll", closeTreeContextMenu);
         }
         async function boot() {
+          registerPWA();
+          renderSessionState();
+          renderHomeButton();
           renderPageHistoryButton();
           if (window.NoteriousCodeEditor && els.markdownEditor) {
             state.markdownEditorApi = window.NoteriousCodeEditor.create(els.markdownEditor);
@@ -7183,9 +7590,17 @@
           renderHelpShortcuts();
           renderSettingsForm();
           wireEvents();
-          await Promise.all([loadSettings(), loadMeta(), loadPages(), loadSavedQueryTree(), loadDocuments()]);
-          applyURLState2();
-          connectEvents();
+          try {
+            const session = await loadSession();
+            setAuthSession(session);
+            if (!session.authenticated) {
+              setAuthGateOpen(true, "Sign in to continue.");
+              return;
+            }
+            await loadAuthenticatedApp();
+          } catch (error) {
+            setAuthGateOpen(true, errorMessage(error));
+          }
         }
         boot();
       })();

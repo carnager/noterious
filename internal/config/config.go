@@ -8,14 +8,18 @@ import (
 )
 
 type Config struct {
-	ListenAddr    string
-	VaultPath     string
-	DataDir       string
-	HomePage      string
-	WatchInterval time.Duration
-	NtfyTopicURL  string
-	NtfyToken     string
-	NtfyInterval  time.Duration
+	ListenAddr            string
+	VaultPath             string
+	DataDir               string
+	HomePage              string
+	WatchInterval         time.Duration
+	NtfyTopicURL          string
+	NtfyToken             string
+	NtfyInterval          time.Duration
+	AuthCookieName        string
+	AuthSessionTTL        time.Duration
+	AuthBootstrapUsername string
+	AuthBootstrapPassword string
 }
 
 func LoadFromEnv() (Config, error) {
@@ -27,16 +31,24 @@ func LoadFromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	authSessionTTL, err := parseDurationEnv("NOTERIOUS_AUTH_SESSION_TTL", "720h")
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
-		ListenAddr:    envOrDefault("NOTERIOUS_LISTEN_ADDR", ":3000"),
-		VaultPath:     envOrDefault("NOTERIOUS_VAULT_PATH", "./vault"),
-		DataDir:       envOrDefault("NOTERIOUS_DATA_DIR", "./data"),
-		HomePage:      envOrDefault("NOTERIOUS_HOME_PAGE", ""),
-		WatchInterval: watchInterval,
-		NtfyTopicURL:  envOrDefault("NOTERIOUS_NTFY_TOPIC_URL", ""),
-		NtfyToken:     envOrDefault("NOTERIOUS_NTFY_TOKEN", ""),
-		NtfyInterval:  ntfyInterval,
+		ListenAddr:            envOrDefault("NOTERIOUS_LISTEN_ADDR", ":3000"),
+		VaultPath:             envOrDefault("NOTERIOUS_VAULT_PATH", "./vault"),
+		DataDir:               envOrDefault("NOTERIOUS_DATA_DIR", "./data"),
+		HomePage:              envOrDefault("NOTERIOUS_HOME_PAGE", ""),
+		WatchInterval:         watchInterval,
+		NtfyTopicURL:          envOrDefault("NOTERIOUS_NTFY_TOPIC_URL", ""),
+		NtfyToken:             envOrDefault("NOTERIOUS_NTFY_TOKEN", ""),
+		NtfyInterval:          ntfyInterval,
+		AuthCookieName:        envOrDefault("NOTERIOUS_AUTH_COOKIE_NAME", "noterious_session"),
+		AuthSessionTTL:        authSessionTTL,
+		AuthBootstrapUsername: envOrDefault("NOTERIOUS_AUTH_BOOTSTRAP_USERNAME", ""),
+		AuthBootstrapPassword: envOrDefault("NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD", ""),
 	}
 
 	if cfg.VaultPath == "" {
@@ -49,7 +61,7 @@ func LoadFromEnv() (Config, error) {
 	return cfg, nil
 }
 
-func ApplyCLIOverrides(cfg Config, listenAddr string, port int) (Config, error) {
+func ApplyCLIOverrides(cfg Config, listenAddr string, port int, dataDir string) (Config, error) {
 	if strings.TrimSpace(listenAddr) != "" {
 		cfg.ListenAddr = strings.TrimSpace(listenAddr)
 	}
@@ -58,6 +70,9 @@ func ApplyCLIOverrides(cfg Config, listenAddr string, port int) (Config, error) 
 			return Config{}, fmt.Errorf("port must be between 1 and 65535")
 		}
 		cfg.ListenAddr = fmt.Sprintf(":%d", port)
+	}
+	if strings.TrimSpace(dataDir) != "" {
+		cfg.DataDir = strings.TrimSpace(dataDir)
 	}
 	return cfg, nil
 }

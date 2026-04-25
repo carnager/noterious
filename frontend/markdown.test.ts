@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   bodyPositionFromRawOffset,
   inferMarkdownTitle,
+  markdownCodeFenceBlockAt,
   markdownTableBlockAt,
   parseFrontmatter,
   parseQueryFenceOptions,
@@ -86,5 +87,38 @@ describe("markdown helpers", function () {
     expect(block?.html).toContain("<th");
     expect(block?.html).toContain('data-table-cell="true"');
     expect(block?.html).toContain("[[notes/alpha]]");
+  });
+
+  it("extracts fenced code blocks without fence markup", function () {
+    const block = markdownCodeFenceBlockAt([
+      "```ts linenos",
+      "const alpha = 1;",
+      "console.log(alpha);",
+      "```",
+    ], 0);
+
+    expect(block).toEqual({
+      startLineIndex: 0,
+      endLineIndex: 3,
+      fence: "```",
+      info: "ts linenos",
+      language: "ts",
+      content: "const alpha = 1;\nconsole.log(alpha);",
+      closed: true,
+    });
+  });
+
+  it("keeps unclosed fenced code blocks open until the end", function () {
+    const block = markdownCodeFenceBlockAt([
+      "```go",
+      "func main() {",
+      "  println(\"hi\")",
+      "}",
+    ], 0);
+
+    expect(block?.language).toBe("go");
+    expect(block?.endLineIndex).toBe(3);
+    expect(block?.content).toBe("func main() {\n  println(\"hi\")\n}");
+    expect(block?.closed).toBe(false);
   });
 });

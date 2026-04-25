@@ -17,6 +17,24 @@ func mountUI(mux *http.ServeMux) {
 
 	fileServer := http.FileServer(http.FS(staticFS))
 	mux.Handle("/assets/", http.StripPrefix("/assets/", noCache(fileServer)))
+	mux.HandleFunc("/manifest.webmanifest", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/manifest.webmanifest" {
+			http.NotFound(w, r)
+			return
+		}
+		setNoCacheHeaders(w)
+		w.Header().Set("Content-Type", "application/manifest+json")
+		http.ServeFileFS(w, r, staticFS, "manifest.webmanifest")
+	})
+	mux.HandleFunc("/sw.js", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/sw.js" {
+			http.NotFound(w, r)
+			return
+		}
+		setNoCacheHeaders(w)
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		http.ServeFileFS(w, r, staticFS, "sw.js")
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)

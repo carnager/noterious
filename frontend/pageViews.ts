@@ -14,6 +14,10 @@ interface PageTreeRoot {
   pages: PageSummary[];
 }
 
+export type PageTreeMenuTarget =
+  | { kind: "page"; path: string; name: string }
+  | { kind: "folder"; path: string; name: string };
+
 type TreeDragItem =
   | { kind: "page"; path: string }
   | { kind: "folder"; path: string };
@@ -141,6 +145,7 @@ function renderPageTreeNode(
   onDeleteFolder: (folderKey: string) => void,
   onRenamePage: (pagePath: string) => void,
   onDeletePage: (pagePath: string) => void,
+  onOpenContextMenu: (target: PageTreeMenuTarget, left: number, top: number) => void,
   onMovePage: (pagePath: string, folderKey: string) => void,
   onMoveFolder: (folderKey: string, targetFolder: string) => void
 ): HTMLDivElement {
@@ -194,6 +199,11 @@ function renderPageTreeNode(
       button.addEventListener("click", function () {
         onToggleFolder(folder.key);
       });
+      button.addEventListener("contextmenu", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenContextMenu({ kind: "folder", path: folder.key, name: folder.name }, event.clientX, event.clientY);
+      });
 
       const chevron = document.createElement("span");
       chevron.className = "page-tree-chevron";
@@ -210,66 +220,10 @@ function renderPageTreeNode(
       button.appendChild(label);
       row.appendChild(button);
 
-      const actions = document.createElement("div");
-      actions.className = "page-tree-actions";
-
-      const createNote = document.createElement("button");
-      createNote.type = "button";
-      createNote.className = "page-tree-action";
-      createNote.title = "New note";
-      createNote.setAttribute("aria-label", "New note in " + folder.name);
-      createNote.textContent = "+";
-      createNote.addEventListener("click", function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onCreatePage(folder.key);
-      });
-      actions.appendChild(createNote);
-
-      const createFolder = document.createElement("button");
-      createFolder.type = "button";
-      createFolder.className = "page-tree-action";
-      createFolder.title = "New subfolder";
-      createFolder.setAttribute("aria-label", "New subfolder in " + folder.name);
-      createFolder.textContent = "⊞";
-      createFolder.addEventListener("click", function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onCreateSubfolder(folder.key);
-      });
-      actions.appendChild(createFolder);
-
-      const renameFolder = document.createElement("button");
-      renameFolder.type = "button";
-      renameFolder.className = "page-tree-action";
-      renameFolder.title = "Rename folder";
-      renameFolder.setAttribute("aria-label", "Rename folder " + folder.name);
-      renameFolder.appendChild(makeTreeActionIcon("M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z"));
-      renameFolder.addEventListener("click", function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onRenameFolder(folder.key);
-      });
-      actions.appendChild(renameFolder);
-
-      const deleteFolder = document.createElement("button");
-      deleteFolder.type = "button";
-      deleteFolder.className = "page-tree-action page-tree-action-danger";
-      deleteFolder.title = "Delete folder";
-      deleteFolder.setAttribute("aria-label", "Delete folder " + folder.name);
-      deleteFolder.textContent = "×";
-      deleteFolder.addEventListener("click", function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onDeleteFolder(folder.key);
-      });
-      actions.appendChild(deleteFolder);
-
-      row.appendChild(actions);
       item.appendChild(row);
 
       if (expandedPageFolders[folder.key]) {
-        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onMovePage, onMoveFolder));
+        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
       }
 
       group.appendChild(item);
@@ -299,6 +253,11 @@ function renderPageTreeNode(
       button.addEventListener("click", function () {
         onSelectPage(page.path);
       });
+      button.addEventListener("contextmenu", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenContextMenu({ kind: "page", path: page.path, name: leafName }, event.clientX, event.clientY);
+      });
 
       const icon = document.createElement("span");
       icon.className = "page-tree-icon";
@@ -311,35 +270,6 @@ function renderPageTreeNode(
       button.appendChild(label);
       row.appendChild(button);
 
-      const actions = document.createElement("div");
-      actions.className = "page-tree-actions";
-
-      const renamePage = document.createElement("button");
-      renamePage.type = "button";
-      renamePage.className = "page-tree-action";
-      renamePage.title = "Rename note";
-      renamePage.setAttribute("aria-label", "Rename note " + leafName);
-      renamePage.appendChild(makeTreeActionIcon("M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z"));
-      renamePage.addEventListener("click", function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onRenamePage(page.path);
-      });
-      actions.appendChild(renamePage);
-
-      const deletePage = document.createElement("button");
-      deletePage.type = "button";
-      deletePage.className = "page-tree-action page-tree-action-danger";
-      deletePage.title = "Delete note";
-      deletePage.setAttribute("aria-label", "Delete note " + leafName);
-      deletePage.textContent = "×";
-      deletePage.addEventListener("click", function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onDeletePage(page.path);
-      });
-      actions.appendChild(deletePage);
-      row.appendChild(actions);
       item.appendChild(row);
 
       group.appendChild(item);
@@ -362,6 +292,7 @@ export function renderPagesTree(
   onDeleteFolder: (folderKey: string) => void,
   onRenamePage: (pagePath: string) => void,
   onDeletePage: (pagePath: string) => void,
+  onOpenContextMenu: (target: PageTreeMenuTarget, left: number, top: number) => void,
   onMovePage: (pagePath: string, folderKey: string) => void,
   onMoveFolder: (folderKey: string, targetFolder: string) => void
 ): void {
@@ -519,7 +450,7 @@ export function renderPagesTree(
     onMoveFolder(payload.path, "");
   };
 
-  container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onMovePage, onMoveFolder));
+  container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
 }
 
 export function renderPageTasks(container: HTMLDivElement, tasks: TaskRecord[], onSelectTask: (task: TaskRecord) => void): void {

@@ -20,6 +20,7 @@ type Hotkeys struct {
 	Help           string `json:"help"`
 	SaveCurrent    string `json:"saveCurrentPage"`
 	ToggleRawMode  string `json:"toggleRawMode"`
+	ToggleTaskDone string `json:"toggleTaskDone"`
 }
 
 type Preferences struct {
@@ -76,6 +77,7 @@ func DefaultSettingsFromConfig(cfg config.Config) AppSettings {
 				Help:           "?",
 				SaveCurrent:    "Mod+S",
 				ToggleRawMode:  "Mod+E",
+				ToggleTaskDone: "Mod+Enter",
 			},
 			UI: UI{
 				FontFamily:     "mono",
@@ -225,6 +227,9 @@ func normalizeSettings(input AppSettings, defaults AppSettings) AppSettings {
 	}
 	if strings.TrimSpace(normalized.Preferences.Hotkeys.ToggleRawMode) == "" {
 		normalized.Preferences.Hotkeys.ToggleRawMode = defaults.Preferences.Hotkeys.ToggleRawMode
+	}
+	if strings.TrimSpace(normalized.Preferences.Hotkeys.ToggleTaskDone) == "" {
+		normalized.Preferences.Hotkeys.ToggleTaskDone = defaults.Preferences.Hotkeys.ToggleTaskDone
 	}
 	if strings.TrimSpace(normalized.Preferences.UI.FontFamily) == "" {
 		normalized.Preferences.UI.FontFamily = defaults.Preferences.UI.FontFamily

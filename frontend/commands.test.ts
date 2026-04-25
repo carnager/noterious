@@ -20,6 +20,7 @@ function paletteOptions(overrides: Partial<Parameters<typeof buildCommandPalette
         help: "?",
         saveCurrentPage: "Mod+S",
         toggleRawMode: "Mod+E",
+        toggleTaskDone: "Mod+Enter",
       },
       onToggleSource: function () {
         calls.push("toggle-source");

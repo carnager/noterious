@@ -27361,6 +27361,9 @@
   });
 
   // frontend/markdown.ts
+  function escapePattern(value) {
+    return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
   function escapeHTML(value) {
     return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -27435,6 +27438,40 @@
       endLineIndex,
       columnCount: headerCells.length,
       html: html2
+    };
+  }
+  function markdownCodeFenceBlockAt(lines, startLineIndex) {
+    if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex >= lines.length) {
+      return null;
+    }
+    const startLine = String(lines[startLineIndex] || "");
+    const match = startLine.trim().match(/^(```+)(.*)$/);
+    if (!match) {
+      return null;
+    }
+    const fence = String(match[1] || "```");
+    const info = String(match[2] || "").trim();
+    const language2 = String(info.split(/\s+/)[0] || "").trim();
+    const endPattern = new RegExp("^" + escapePattern(fence) + "\\s*$");
+    let endLineIndex = lines.length - 1;
+    let closed = false;
+    for (let index = startLineIndex + 1; index < lines.length; index += 1) {
+      if (endPattern.test(String(lines[index] || "").trim())) {
+        endLineIndex = index;
+        closed = true;
+        break;
+      }
+    }
+    const contentEnd = closed ? endLineIndex : lines.length;
+    const content2 = lines.slice(startLineIndex + 1, contentEnd).join("\n");
+    return {
+      startLineIndex,
+      endLineIndex,
+      fence,
+      info,
+      language: language2,
+      content: content2,
+      closed
     };
   }
   var init_markdown = __esm({
@@ -27610,21 +27647,29 @@
           return false;
         }
       };
-      var CodeCopyWidget = class extends WidgetType {
-        constructor(content2) {
+      var CodeToolbarWidget = class extends WidgetType {
+        constructor(content2, language2) {
           super();
           this.content = content2;
+          this.language = language2;
         }
         eq(other) {
-          return other.content === this.content;
+          return other.content === this.content && other.language === this.language;
         }
         toDOM() {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "cm-md-code-copy";
-          button.setAttribute("data-code-copy", encodeURIComponent(this.content));
-          button.textContent = "Copy";
-          return button;
+          const toolbar = document.createElement("span");
+          toolbar.className = "cm-md-code-toolbar";
+          const language2 = document.createElement("span");
+          language2.className = "cm-md-code-language";
+          language2.textContent = this.language || "plain text";
+          toolbar.appendChild(language2);
+          const copyButton = document.createElement("button");
+          copyButton.type = "button";
+          copyButton.className = "cm-md-code-copy";
+          copyButton.setAttribute("data-code-copy", encodeURIComponent(this.content));
+          copyButton.textContent = "Copy";
+          toolbar.appendChild(copyButton);
+          return toolbar;
         }
         ignoreEvent() {
           return false;
@@ -27681,17 +27726,30 @@
         }
       };
       var QueryBlockWidget = class extends WidgetType {
-        constructor(html2) {
+        constructor(html2, editLineNumber) {
           super();
           this.html = html2;
+          this.editLineNumber = editLineNumber;
         }
         eq(other) {
-          return other.html === this.html;
+          return other.html === this.html && other.editLineNumber === this.editLineNumber;
         }
         toDOM() {
           const wrapper = document.createElement("div");
           wrapper.className = "cm-md-query-block";
-          wrapper.innerHTML = this.html;
+          const toolbar = document.createElement("div");
+          toolbar.className = "cm-md-query-toolbar";
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "cm-md-query-edit";
+          button.setAttribute("data-query-edit", String(this.editLineNumber));
+          button.textContent = "Edit Query";
+          toolbar.appendChild(button);
+          const content2 = document.createElement("div");
+          content2.className = "cm-md-query-content";
+          content2.innerHTML = this.html;
+          wrapper.appendChild(toolbar);
+          wrapper.appendChild(content2);
           return wrapper;
         }
         ignoreEvent() {
@@ -27821,6 +27879,62 @@
           });
         }
       }
+      function codeBlockEndingAtLine(lines, endLineIndex) {
+        for (let index = Math.max(0, endLineIndex); index >= 0; index -= 1) {
+          const block = markdownCodeFenceBlockAt(lines, index);
+          if (block && block.endLineIndex === endLineIndex) {
+            return block;
+          }
+        }
+        return null;
+      }
+      function revealRenderedCodeBlockByArrow(view, key) {
+        if (!view.state.field(renderModeField, false)) {
+          return false;
+        }
+        const selection = view.state.selection.main;
+        if (!selection.empty) {
+          return false;
+        }
+        const currentLine = view.state.doc.lineAt(selection.head);
+        const column = Math.max(0, selection.head - currentLine.from);
+        const lines = view.state.doc.toString().split("\n");
+        if (key === "ArrowDown") {
+          if (currentLine.number >= view.state.doc.lines) {
+            return false;
+          }
+          const block = markdownCodeFenceBlockAt(lines, currentLine.number);
+          if (!block) {
+            return false;
+          }
+          const targetLine = view.state.doc.line(block.startLineIndex + 1);
+          view.dispatch({
+            selection: {
+              anchor: Math.min(targetLine.from + column, targetLine.to)
+            },
+            scrollIntoView: true
+          });
+          return true;
+        }
+        if (key === "ArrowUp") {
+          if (currentLine.number <= 1) {
+            return false;
+          }
+          const block = codeBlockEndingAtLine(lines, currentLine.number - 2);
+          if (!block) {
+            return false;
+          }
+          const targetLine = view.state.doc.line(block.endLineIndex + 1);
+          view.dispatch({
+            selection: {
+              anchor: Math.min(targetLine.from + column, targetLine.to)
+            },
+            scrollIntoView: true
+          });
+          return true;
+        }
+        return false;
+      }
       function buildRenderedDecorations(state) {
         if (!state.field(renderModeField, false)) {
           return Decoration.none;
@@ -27886,52 +28000,54 @@
               }
             }
             const endLine = state.doc.line(endLineNumber);
+            const editingQuery = selection.from <= endLine.to && selection.to >= line.from;
+            if (editingQuery) {
+              lineNumber = endLineNumber;
+              continue;
+            }
             const blockSource = state.doc.sliceString(line.from, endLine.to).replace(/\r\n/g, "\n").trim();
             const html2 = queryBlocks.get(blockSource) || '<div class="embedded-query embedded-query-empty"><small>No results.</small></div>';
+            const editLineNumber = endLineNumber > lineNumber + 1 ? lineNumber + 1 : lineNumber;
             builder.add(
               line.from,
               endLine.to,
               Decoration.replace({
                 block: true,
-                widget: new QueryBlockWidget(html2)
+                widget: new QueryBlockWidget(html2, editLineNumber)
               })
             );
             lineNumber = endLineNumber;
             continue;
           }
-          if (/^```/.test(text.trim())) {
-            let endLineNumber = lineNumber;
-            while (endLineNumber < state.doc.lines) {
-              const candidate = state.doc.line(endLineNumber + 1);
-              endLineNumber += 1;
-              if (/^```/.test(candidate.text.trim())) {
-                break;
-              }
+          const codeBlock = markdownCodeFenceBlockAt(lines, lineNumber - 1);
+          if (codeBlock) {
+            const endLine = state.doc.line(codeBlock.endLineIndex + 1);
+            const editingCodeBlock = selection.from <= endLine.to && selection.to >= line.from;
+            if (editingCodeBlock) {
+              lineNumber = codeBlock.endLineIndex + 1;
+              continue;
             }
-            const codeContent = endLineNumber - lineNumber > 1 ? state.doc.sliceString(state.doc.line(lineNumber + 1).from, state.doc.line(endLineNumber - 1).to) : "";
-            for (let codeLineNumber = lineNumber; codeLineNumber <= endLineNumber; codeLineNumber += 1) {
+            for (let codeLineNumber = lineNumber; codeLineNumber <= codeBlock.endLineIndex + 1; codeLineNumber += 1) {
               const codeLine = state.doc.line(codeLineNumber);
               const classNames = ["cm-md-code-block"];
+              let replaceDecoration = null;
               if (codeLineNumber === lineNumber) {
-                classNames.push("cm-md-code-block-start", "cm-md-code-fence");
-              } else if (codeLineNumber === endLineNumber) {
-                classNames.push("cm-md-code-block-end", "cm-md-code-fence");
+                classNames.push("cm-md-code-block-start");
+                replaceDecoration = Decoration.replace({
+                  widget: new CodeToolbarWidget(codeBlock.content, codeBlock.language)
+                });
+              } else if (codeLineNumber === codeBlock.endLineIndex + 1) {
+                classNames.push("cm-md-code-block-end", "cm-md-code-fence-hidden");
+                replaceDecoration = Decoration.replace({});
               } else {
                 classNames.push("cm-md-code-block-body");
               }
               builder.add(codeLine.from, codeLine.from, Decoration.line({ class: classNames.join(" ") }));
-              if (codeLineNumber === lineNumber) {
-                builder.add(
-                  codeLine.to,
-                  codeLine.to,
-                  Decoration.widget({
-                    side: 1,
-                    widget: new CodeCopyWidget(codeContent)
-                  })
-                );
+              if (replaceDecoration) {
+                builder.add(codeLine.from, codeLine.to, replaceDecoration);
               }
             }
-            lineNumber = endLineNumber;
+            lineNumber = codeBlock.endLineIndex + 1;
             continue;
           }
           let match = text.match(/^(#{1,6})(\s+)/);
@@ -28145,6 +28261,22 @@
                 }));
                 return true;
               }
+              const queryEdit = target ? target.closest("[data-query-edit]") : null;
+              if (queryEdit) {
+                event.preventDefault();
+                const lineNumber = Number(queryEdit.getAttribute("data-query-edit") || "0");
+                if (lineNumber > 0 && lineNumber <= view2.state.doc.lines) {
+                  const targetLine = view2.state.doc.line(lineNumber);
+                  view2.focus();
+                  view2.dispatch({
+                    selection: {
+                      anchor: targetLine.from
+                    },
+                    scrollIntoView: true
+                  });
+                }
+                return true;
+              }
               const codeCopy = target ? target.closest("[data-code-copy]") : null;
               if (codeCopy) {
                 event.preventDefault();
@@ -28202,6 +28334,12 @@
               return false;
             },
             keydown(event, view2) {
+              if (!event.altKey && !event.ctrlKey && !event.metaKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                if (revealRenderedCodeBlockByArrow(view2, event.key)) {
+                  event.preventDefault();
+                  return true;
+                }
+              }
               if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
                 clearSearchHitHighlight(view2);
               }

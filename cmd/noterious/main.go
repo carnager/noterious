@@ -20,13 +20,14 @@ func main() {
 
 	listenAddr := flag.String("listen-addr", "", "listen address override, e.g. :9090 or 127.0.0.1:9090")
 	port := flag.Int("port", 0, "port override, e.g. 9090")
+	dataDir := flag.String("data-dir", "", "data directory override, e.g. ./data or /var/lib/noterious")
 	flag.Parse()
 
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
-	cfg, err = config.ApplyCLIOverrides(cfg, *listenAddr, *port)
+	cfg, err = config.ApplyCLIOverrides(cfg, *listenAddr, *port, *dataDir)
 	if err != nil {
 		log.Fatalf("apply cli overrides: %v", err)
 	}
