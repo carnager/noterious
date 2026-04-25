@@ -86,6 +86,7 @@ import { closeSlashMenu, documentCommandsForText, maybeOpenSlashMenu, moveSlashS
 import type {
   AppSettings as SettingsModel,
   AuthSessionResponse,
+  AuthVaultsResponse,
   AuthenticatedUser,
   BacklinkRecord,
   DocumentListResponse,
@@ -116,7 +117,8 @@ import type {
   TrashListResponse,
   TrashPageRecord,
   UserSettingsResponse,
-  WorkspaceSettings,
+  VaultRecord,
+  VaultSettings,
 } from "./types";
 import type { PropertyRow } from "./properties";
 
@@ -230,12 +232,13 @@ interface AppState {
   railTab: string;
   sourceOpen: boolean;
   settings: SettingsModel;
-  appliedWorkspace: WorkspaceSettings;
+  appliedVault: VaultSettings;
   settingsRestartRequired: boolean;
   settingsLoaded: boolean;
   userSettingsLoaded: boolean;
   configHomePage: string;
   homePage: string;
+  topLevelFoldersAsVaults: boolean;
   markdownEditorApi: NoteriousEditorApi | null;
   windowBlurred: boolean;
   restoreFocusSpec: FocusRestoreSpec | null;
@@ -254,11 +257,15 @@ interface AppState {
   trashPages: TrashPageRecord[];
   authenticated: boolean;
   currentUser: AuthenticatedUser | null;
+  currentVault: VaultRecord | null;
+  availableVaults: VaultRecord[];
+  vaultSwitchPending: boolean;
+  vaultSwitcherOpen: boolean;
   mustChangePassword: boolean;
   setupRequired: boolean;
   authGateMode: "login" | "setup" | "changePassword";
   settingsModalMode: "user" | "admin";
-  settingsSection: "appearance" | "notifications" | "workspace";
+  settingsSection: "appearance" | "notifications" | "vault";
 }
 
 interface TaskPickerState {
@@ -298,6 +305,9 @@ function defaultClientPreferences(): ClientPreferences {
       fontSize: "16",
       dateTimeFormat: "browser",
     },
+    vaults: {
+      topLevelFoldersAsVaults: false,
+    },
   };
 }
 
@@ -321,6 +331,9 @@ function defaultClientPreferences(): ClientPreferences {
         fontSize: input.ui.fontSize,
         dateTimeFormat: input.ui.dateTimeFormat,
       },
+      vaults: {
+        topLevelFoldersAsVaults: Boolean(input.vaults.topLevelFoldersAsVaults),
+      },
     };
   }
 
@@ -332,6 +345,9 @@ function defaultClientPreferences(): ClientPreferences {
       : {};
     const uiSource = source.ui && typeof source.ui === "object"
       ? source.ui as Record<string, unknown>
+      : {};
+    const vaultsSource = source.vaults && typeof source.vaults === "object"
+      ? source.vaults as Record<string, unknown>
       : {};
 
     const fontFamily = String(uiSource.fontFamily ?? defaults.ui.fontFamily).trim();
@@ -353,6 +369,9 @@ function defaultClientPreferences(): ClientPreferences {
         fontFamily: fontFamily === "sans" || fontFamily === "serif" ? fontFamily : "mono",
         fontSize: ["14", "15", "16", "17", "18", "19", "20"].includes(fontSize) ? fontSize : defaults.ui.fontSize,
         dateTimeFormat: dateTimeFormat === "iso" || dateTimeFormat === "de" ? dateTimeFormat : "browser",
+      },
+      vaults: {
+        topLevelFoldersAsVaults: Boolean(vaultsSource.topLevelFoldersAsVaults),
       },
     };
   }
@@ -432,7 +451,7 @@ function defaultClientPreferences(): ClientPreferences {
     sourceOpen: false,
     settings: {
       preferences: cloneClientPreferences(defaultClientPreferences()),
-      workspace: {
+      vault: {
         vaultPath: "./vault",
         homePage: "",
       },
@@ -444,7 +463,7 @@ function defaultClientPreferences(): ClientPreferences {
         ntfyToken: "",
       },
     },
-    appliedWorkspace: {
+    appliedVault: {
       vaultPath: "./vault",
       homePage: "",
     },
@@ -453,6 +472,7 @@ function defaultClientPreferences(): ClientPreferences {
     userSettingsLoaded: false,
     configHomePage: "",
     homePage: "",
+    topLevelFoldersAsVaults: false,
     markdownEditorApi: null,
     windowBlurred: false,
     restoreFocusSpec: null,
@@ -471,6 +491,10 @@ function defaultClientPreferences(): ClientPreferences {
     trashPages: [],
     authenticated: false,
     currentUser: null,
+    currentVault: null,
+    availableVaults: [],
+    vaultSwitchPending: false,
+    vaultSwitcherOpen: false,
     mustChangePassword: false,
     setupRequired: false,
     authGateMode: "login",
@@ -529,7 +553,7 @@ function defaultClientPreferences(): ClientPreferences {
     queryOutput: requiredElement<HTMLElement>("query-output"),
     eventStatus: requiredElement<HTMLElement>("event-status"),
     eventLog: requiredElement<HTMLDivElement>("event-log"),
-    workspace: optionalQuery<HTMLElement>(".workspace"),
+    appLayout: optionalQuery<HTMLElement>(".app-layout"),
     rail: requiredElement<HTMLElement>("rail"),
     railTabFiles: requiredElement<HTMLButtonElement>("rail-tab-files"),
     railTabContext: requiredElement<HTMLButtonElement>("rail-tab-context"),
@@ -558,6 +582,11 @@ function defaultClientPreferences(): ClientPreferences {
     openSettings: requiredElement<HTMLButtonElement>("open-settings"),
     openAdminSettings: requiredElement<HTMLButtonElement>("open-admin-settings"),
     logoutSession: requiredElement<HTMLButtonElement>("logout-session"),
+    vaultSwitcher: requiredElement<HTMLElement>("vault-switcher"),
+    openVaultSwitcher: requiredElement<HTMLButtonElement>("open-vault-switcher"),
+    currentVaultName: requiredElement<HTMLElement>("current-vault-name"),
+    vaultSwitcherPanel: requiredElement<HTMLElement>("vault-switcher-panel"),
+    vaultSwitcherList: requiredElement<HTMLDivElement>("vault-switcher-list"),
     reloadPages: optionalElement<HTMLButtonElement>("reload-pages"),
     reloadQueries: optionalElement<HTMLButtonElement>("reload-queries"),
     toggleDebug: optionalElement<HTMLButtonElement>("toggle-debug"),
@@ -606,7 +635,7 @@ function defaultClientPreferences(): ClientPreferences {
     settingsTitle: requiredElement<HTMLElement>("settings-title"),
     settingsNavAppearance: requiredElement<HTMLButtonElement>("settings-nav-appearance"),
     settingsNavNotifications: requiredElement<HTMLButtonElement>("settings-nav-notifications"),
-    settingsNavWorkspace: requiredElement<HTMLButtonElement>("settings-nav-workspace"),
+    settingsNavVault: requiredElement<HTMLButtonElement>("settings-nav-vault"),
     settingsGroupServer: requiredElement<HTMLElement>("settings-group-server"),
     settingsGroupSession: requiredElement<HTMLElement>("settings-group-session"),
     settingsGroupUserNotifications: requiredElement<HTMLElement>("settings-group-user-notifications"),
@@ -616,6 +645,7 @@ function defaultClientPreferences(): ClientPreferences {
     settingsNtfyInterval: requiredElement<HTMLInputElement>("settings-ntfy-interval"),
     settingsUserNtfyTopicUrl: requiredElement<HTMLInputElement>("settings-user-ntfy-topic-url"),
     settingsUserNtfyToken: requiredElement<HTMLInputElement>("settings-user-ntfy-token"),
+    settingsUserTopLevelVaults: requiredElement<HTMLInputElement>("settings-user-top-level-vaults"),
     settingsFontFamily: requiredElement<HTMLSelectElement>("settings-ui-font-family"),
     settingsFontSize: requiredElement<HTMLSelectElement>("settings-ui-font-size"),
     settingsDateTimeFormat: requiredElement<HTMLSelectElement>("settings-ui-date-time-format"),
@@ -1504,6 +1534,7 @@ function defaultClientPreferences(): ClientPreferences {
       ? state.currentUser.username
       : "Sign In";
     els.sessionUser.textContent = username;
+    renderVaultSwitcher();
     els.openAdminSettings.classList.toggle("hidden", !(state.authenticated && currentUserIsAdmin()));
     els.logoutSession.classList.toggle("hidden", !state.authenticated);
     els.openSessionMenu.title = state.authenticated
@@ -1512,6 +1543,69 @@ function defaultClientPreferences(): ClientPreferences {
     if (!state.authenticated) {
       setSessionMenuOpen(false);
     }
+  }
+
+  function renderVaultSwitcher(): void {
+    const hasCurrentVault = state.authenticated && Boolean(state.currentVault);
+    const canSwitchVault = hasCurrentVault && state.availableVaults.some(function (vault) {
+      return !state.currentVault || vault.id !== state.currentVault.id;
+    });
+
+    els.vaultSwitcher.classList.toggle("hidden", !hasCurrentVault);
+    els.currentVaultName.textContent = state.currentVault && state.currentVault.name
+      ? state.currentVault.name
+      : "Vault";
+    els.openVaultSwitcher.disabled = !canSwitchVault || state.vaultSwitchPending;
+    clearNode(els.vaultSwitcherList);
+
+    if (!hasCurrentVault) {
+      setVaultSwitcherOpen(false);
+      return;
+    }
+
+    if (!canSwitchVault) {
+      setVaultSwitcherOpen(false);
+      return;
+    }
+
+    state.availableVaults.forEach(function (vault) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "vault-switcher-item";
+      if (state.currentVault && vault.id === state.currentVault.id) {
+        button.classList.add("active");
+      }
+      button.disabled = state.vaultSwitchPending;
+      button.addEventListener("click", function () {
+        switchVault(vault.id).catch(function (error) {
+          setNoteStatus("Vault switch failed: " + errorMessage(error));
+        });
+      });
+
+      const title = document.createElement("strong");
+      title.textContent = vault.name || vault.key || ("Vault " + String(vault.id));
+      button.appendChild(title);
+
+      if (state.currentVault && vault.id === state.currentVault.id) {
+        const meta = document.createElement("span");
+        meta.textContent = "Current";
+        button.appendChild(meta);
+      }
+
+      els.vaultSwitcherList.appendChild(button);
+    });
+
+    els.vaultSwitcherPanel.classList.toggle("hidden", !state.vaultSwitcherOpen);
+    els.openVaultSwitcher.setAttribute("aria-expanded", state.vaultSwitcherOpen ? "true" : "false");
+  }
+
+  function setVaultSwitcherOpen(open: boolean): void {
+    const canSwitchVault = state.authenticated && state.availableVaults.some(function (vault) {
+      return !state.currentVault || vault.id !== state.currentVault.id;
+    });
+    state.vaultSwitcherOpen = canSwitchVault && open;
+    els.vaultSwitcherPanel.classList.toggle("hidden", !state.vaultSwitcherOpen);
+    els.openVaultSwitcher.setAttribute("aria-expanded", state.vaultSwitcherOpen ? "true" : "false");
   }
 
   function renderAuthGate(): void {
@@ -1553,6 +1647,13 @@ function defaultClientPreferences(): ClientPreferences {
     state.currentUser = state.authenticated && session.user
       ? session.user
       : null;
+    state.currentVault = state.authenticated && session.vault
+      ? session.vault
+      : null;
+    if (!state.authenticated) {
+      state.availableVaults = [];
+      state.vaultSwitchPending = false;
+    }
     state.mustChangePassword = Boolean(state.currentUser && state.currentUser.mustChangePassword);
     state.setupRequired = Boolean(!state.authenticated && session.setupRequired);
     state.authGateMode = state.mustChangePassword
@@ -1726,6 +1827,9 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   async function loadAuthenticatedApp() {
+    await loadAuthVaults().catch(function (error) {
+      setNoteStatus("Vault list failed: " + errorMessage(error));
+    });
     await Promise.all([
       loadSettings(),
       loadUserSettings().catch(function (error) {
@@ -1738,6 +1842,85 @@ function defaultClientPreferences(): ClientPreferences {
     ]);
     applyURLState();
     connectEvents();
+  }
+
+  function setVisibleVaultState(availableVaults: VaultRecord[], currentVault: VaultRecord | null): void {
+    state.availableVaults = Array.isArray(availableVaults) ? availableVaults.slice() : [];
+    if (currentVault) {
+      state.currentVault = currentVault;
+    } else if (!state.availableVaults.some(function (vaultRecord) {
+      return Boolean(state.currentVault && vaultRecord.id === state.currentVault.id);
+    })) {
+      state.currentVault = state.availableVaults[0] || null;
+    }
+    state.vaultSwitchPending = false;
+    state.vaultSwitcherOpen = false;
+    renderSessionState();
+  }
+
+  async function selectCurrentVault(vaultID: number): Promise<AuthSessionResponse> {
+    return fetchJSON<AuthSessionResponse>("/api/auth/vault", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vaultId: vaultID }),
+    }, true);
+  }
+
+  async function loadAuthVaults(): Promise<void> {
+    const snapshot = await fetchJSON<AuthVaultsResponse>("/api/auth/vaults");
+    const rootVault = snapshot.rootVault || null;
+    const discoveredVaults = Array.isArray(snapshot.vaults) ? snapshot.vaults.slice() : [];
+    const currentVault = snapshot.currentVault || rootVault;
+    if (!state.topLevelFoldersAsVaults) {
+      if (rootVault && currentVault && currentVault.id !== rootVault.id) {
+        const session = await selectCurrentVault(rootVault.id);
+        setAuthSession(session);
+        setVisibleVaultState([rootVault], session.vault || rootVault);
+        return;
+      }
+      setVisibleVaultState(rootVault ? [rootVault] : [], currentVault);
+      return;
+    }
+
+    const desiredVault = discoveredVaults.length === 0
+      ? rootVault
+      : discoveredVaults.find(function (vault) {
+        return Boolean(currentVault && vault.id === currentVault.id);
+      }) || discoveredVaults[0];
+    const visibleVaults = discoveredVaults.length > 0
+      ? discoveredVaults
+      : (rootVault ? [rootVault] : []);
+
+    if (desiredVault && (!currentVault || currentVault.id !== desiredVault.id)) {
+      const session = await selectCurrentVault(desiredVault.id);
+      setAuthSession(session);
+      setVisibleVaultState(visibleVaults, session.vault || desiredVault);
+      return;
+    }
+
+    setVisibleVaultState(visibleVaults, desiredVault || currentVault);
+  }
+
+  async function switchVault(vaultID: number): Promise<void> {
+    if (!Number.isFinite(vaultID) || vaultID <= 0) {
+      return;
+    }
+    if (state.currentVault && vaultID === state.currentVault.id) {
+      return;
+    }
+    state.vaultSwitchPending = true;
+    renderSessionState();
+    try {
+      const session = await selectCurrentVault(vaultID);
+      setAuthSession(session);
+      setVaultSwitcherOpen(false);
+      setSessionMenuOpen(false);
+      window.location.reload();
+    } catch (error) {
+      state.vaultSwitchPending = false;
+      renderSessionState();
+      setNoteStatus("Vault switch failed: " + errorMessage(error));
+    }
   }
 
   function setPageSearchOpen(open: boolean): void {
@@ -2593,13 +2776,13 @@ function defaultClientPreferences(): ClientPreferences {
     });
   }
 
-  function defaultSettingsSectionForMode(mode: "user" | "admin"): "appearance" | "notifications" | "workspace" {
-    return mode === "admin" ? "workspace" : "appearance";
+  function defaultSettingsSectionForMode(mode: "user" | "admin"): "appearance" | "notifications" | "vault" {
+    return mode === "admin" ? "vault" : "appearance";
   }
 
-  function availableSettingsSections(): Array<"appearance" | "notifications" | "workspace"> {
+  function availableSettingsSections(): Array<"appearance" | "notifications" | "vault"> {
     return state.settingsModalMode === "admin"
-      ? ["workspace"]
+      ? ["vault"]
       : ["appearance", "notifications"];
   }
 
@@ -2617,10 +2800,10 @@ function defaultClientPreferences(): ClientPreferences {
     els.settingsTitle.textContent = "Settings";
 
     const activeSection = state.settingsSection;
-    const navButtons: Array<{ button: HTMLButtonElement; section: "appearance" | "notifications" | "workspace" }> = [
+    const navButtons: Array<{ button: HTMLButtonElement; section: "appearance" | "notifications" | "vault" }> = [
       { button: els.settingsNavAppearance, section: "appearance" },
       { button: els.settingsNavNotifications, section: "notifications" },
-      { button: els.settingsNavWorkspace, section: "workspace" },
+      { button: els.settingsNavVault, section: "vault" },
     ];
 
     navButtons.forEach(function (entry) {
@@ -2632,7 +2815,8 @@ function defaultClientPreferences(): ClientPreferences {
 
     els.settingsGroupSession.classList.toggle("hidden", activeSection !== "appearance");
     els.settingsGroupUserNotifications.classList.toggle("hidden", activeSection !== "notifications");
-    els.settingsGroupServer.classList.toggle("hidden", activeSection !== "workspace");
+    els.settingsGroupServer.classList.toggle("hidden", activeSection !== "vault");
+    els.saveSettings.classList.remove("hidden");
     els.saveSettings.textContent = adminMode ? "Save Admin Settings" : "Save User Settings";
   }
 
@@ -2646,6 +2830,7 @@ function defaultClientPreferences(): ClientPreferences {
     const userFields: Array<HTMLInputElement | HTMLSelectElement> = [
       els.settingsUserNtfyTopicUrl,
       els.settingsUserNtfyToken,
+      els.settingsUserTopLevelVaults,
       els.settingsFontFamily,
       els.settingsFontSize,
       els.settingsDateTimeFormat,
@@ -2673,10 +2858,11 @@ function defaultClientPreferences(): ClientPreferences {
     }
 
     els.saveSettings.disabled = false;
-    els.settingsVaultPath.value = state.settings.workspace.vaultPath || "";
+    els.settingsVaultPath.value = state.settings.vault.vaultPath || "";
     els.settingsNtfyInterval.value = state.settings.notifications.ntfyInterval || "1m";
     els.settingsUserNtfyTopicUrl.value = state.settings.userNotifications.ntfyTopicUrl || "";
     els.settingsUserNtfyToken.value = state.settings.userNotifications.ntfyToken || "";
+    els.settingsUserTopLevelVaults.checked = state.topLevelFoldersAsVaults;
     els.settingsFontFamily.value = state.settings.preferences.ui.fontFamily || "mono";
     els.settingsFontSize.value = state.settings.preferences.ui.fontSize || "16";
     els.settingsDateTimeFormat.value = state.settings.preferences.ui.dateTimeFormat || "browser";
@@ -2696,24 +2882,24 @@ function defaultClientPreferences(): ClientPreferences {
     }
     if (
       state.settingsRestartRequired
-      || state.settings.workspace.vaultPath !== state.appliedWorkspace.vaultPath
+      || state.settings.vault.vaultPath !== state.appliedVault.vaultPath
     ) {
       els.settingsStatus.textContent =
-        "Server runtime changes are saved but not yet applied. Current runtime vault: "
-        + (state.appliedWorkspace.vaultPath || "(none)")
-        + ". Restart the server to apply workspace settings. Client experience settings still apply immediately.";
+        "Server runtime changes are saved but not yet applied. Current runtime vault root: "
+        + (state.appliedVault.vaultPath || "(none)")
+        + ". Restart the server to apply vault root changes. Client experience settings still apply immediately.";
       return;
     }
     els.settingsStatus.textContent =
-      "Server runtime settings save to this server. Personal ntfy targets live per user. Current runtime vault: "
-      + (state.appliedWorkspace.vaultPath || "(none)")
+      "Server runtime settings save to this server. Personal ntfy targets live per user. Current runtime vault root: "
+      + (state.appliedVault.vaultPath || "(none)")
       + ".";
   }
 
   function setSettingsSnapshot(snapshot: SettingsResponse): void {
-    state.settings.workspace = snapshot.settings.workspace;
+    state.settings.vault = snapshot.settings.vault;
     state.settings.notifications = snapshot.settings.notifications;
-    state.appliedWorkspace = snapshot.appliedWorkspace;
+    state.appliedVault = snapshot.appliedVault;
     state.settingsRestartRequired = snapshot.restartRequired;
     state.settingsLoaded = true;
     renderHomeButton();
@@ -2786,12 +2972,18 @@ function defaultClientPreferences(): ClientPreferences {
   async function loadMeta() {
     try {
       const meta = await fetchJSON<MetaResponse>("/api/meta");
+      const runtimeVaultPath = meta.runtimeVault && meta.runtimeVault.vaultPath
+        ? meta.runtimeVault.vaultPath
+        : "(none)";
       const pills = [
         "Listening " + meta.listenAddr,
-        "Vault " + meta.vaultPath,
+        "Runtime vault " + runtimeVaultPath,
         "DB " + meta.database,
         "Time " + formatDateTimeValue(meta.serverTime),
       ];
+      if (meta.currentVault && meta.currentVault.vaultPath && meta.currentVault.vaultPath !== runtimeVaultPath) {
+        pills.splice(2, 0, "Current vault " + meta.currentVault.vaultPath);
+      }
       if (meta.restartRequired) {
         pills.splice(2, 0, "Restart required");
       }
@@ -3888,7 +4080,7 @@ function defaultClientPreferences(): ClientPreferences {
         loadSettings();
       }
       window.requestAnimationFrame(function () {
-        if (state.settingsSection === "workspace" && state.settingsLoaded) {
+        if (state.settingsSection === "vault" && state.settingsLoaded) {
           focusWithoutScroll(els.settingsVaultPath);
           return;
         }
@@ -3913,9 +4105,9 @@ function defaultClientPreferences(): ClientPreferences {
 
   function collectServerSettingsForm(): ServerSettings {
     return {
-      workspace: {
+      vault: {
         vaultPath: String(els.settingsVaultPath.value || "").trim(),
-        homePage: state.settings.workspace.homePage || "",
+        homePage: state.settings.vault.homePage || "",
       },
       notifications: {
         ntfyInterval: String(els.settingsNtfyInterval.value || "1m").trim(),
@@ -3971,6 +4163,9 @@ function defaultClientPreferences(): ClientPreferences {
         fontSize: String(els.settingsFontSize.value || "16").trim(),
         dateTimeFormat: String(els.settingsDateTimeFormat.value || "browser").trim(),
       },
+      vaults: {
+        topLevelFoldersAsVaults: Boolean(els.settingsUserTopLevelVaults.checked),
+      },
       hotkeys: {
         quickSwitcher: String(els.settingsQuickSwitcher.value || "").trim(),
         globalSearch: String(els.settingsGlobalSearch.value || "").trim(),
@@ -3986,6 +4181,7 @@ function defaultClientPreferences(): ClientPreferences {
 
   function applyClientPreferences(preferences: ClientPreferences): void {
     state.settings.preferences = cloneClientPreferences(preferences);
+    state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
     saveStoredClientPreferences(state.settings.preferences);
     renderHelpShortcuts();
     renderSettingsForm();
@@ -4006,6 +4202,7 @@ function defaultClientPreferences(): ClientPreferences {
       return;
     }
     if (state.settingsModalMode !== "admin") {
+      const previousTopLevelFoldersAsVaults = state.topLevelFoldersAsVaults;
       applyClientPreferences(collectClientPreferencesForm());
       els.settingsStatus.textContent = "Saving user settings…";
       try {
@@ -4015,6 +4212,11 @@ function defaultClientPreferences(): ClientPreferences {
           body: JSON.stringify(collectUserSettingsForm()),
         });
         setUserSettingsSnapshot(snapshot);
+        if (previousTopLevelFoldersAsVaults !== state.topLevelFoldersAsVaults) {
+          window.location.reload();
+          return;
+        }
+        await loadAuthVaults();
         closeSettingsModal();
         restoreNoteFocus();
         setNoteStatus("User settings saved.");
@@ -4622,8 +4824,8 @@ function defaultClientPreferences(): ClientPreferences {
     if (els.rail) {
       els.rail.classList.toggle("open", state.railOpen);
     }
-    if (els.workspace) {
-      els.workspace.classList.toggle("rail-collapsed", !mobileLayout && !state.railOpen);
+    if (els.appLayout) {
+      els.appLayout.classList.toggle("rail-collapsed", !mobileLayout && !state.railOpen);
     }
     if (els.toggleRail) {
       els.toggleRail.classList.toggle("active", state.railOpen);
@@ -4786,6 +4988,12 @@ function defaultClientPreferences(): ClientPreferences {
       const nextOpen = els.sessionMenuPanel.classList.contains("hidden");
       setSessionMenuOpen(nextOpen);
     });
+    on(els.openVaultSwitcher, "click", function () {
+      if (els.openVaultSwitcher.disabled) {
+        return;
+      }
+      setVaultSwitcherOpen(!state.vaultSwitcherOpen);
+    });
     on(els.logoutSession, "click", function () {
       setSessionMenuOpen(false);
       logout();
@@ -4817,8 +5025,8 @@ function defaultClientPreferences(): ClientPreferences {
       state.settingsSection = "notifications";
       renderSettingsForm();
     });
-    on(els.settingsNavWorkspace, "click", function () {
-      state.settingsSection = "workspace";
+    on(els.settingsNavVault, "click", function () {
+      state.settingsSection = "vault";
       renderSettingsForm();
     });
     on(els.openQuickSwitcher, "click", function () {
@@ -5271,6 +5479,9 @@ function defaultClientPreferences(): ClientPreferences {
       if (!target || !target.closest("#session-menu")) {
         setSessionMenuOpen(false);
       }
+      if (!target || !target.closest("#vault-switcher")) {
+        setVaultSwitcherOpen(false);
+      }
       if (!target || !target.closest("#tree-context-menu")) {
         closeTreeContextMenu();
       }
@@ -5294,6 +5505,10 @@ function defaultClientPreferences(): ClientPreferences {
       }
       if (event.key === "Escape" && !els.sessionMenuPanel.classList.contains("hidden")) {
         setSessionMenuOpen(false);
+        return;
+      }
+      if (event.key === "Escape" && state.vaultSwitcherOpen) {
+        setVaultSwitcherOpen(false);
         return;
       }
       if (!event.ctrlKey && !event.metaKey && !event.shiftKey && event.altKey && event.key === "ArrowLeft") {
@@ -5544,6 +5759,7 @@ function defaultClientPreferences(): ClientPreferences {
     setPageSearchOpen(false);
     setSourceOpen(false);
     state.settings.preferences = loadStoredClientPreferences();
+    state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
     applyUIPreferences();
     renderNoteStudio();
     renderPageTasks([]);

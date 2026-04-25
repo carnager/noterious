@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/vault"
-	"github.com/carnager/noterious/internal/workspaces"
+	"github.com/carnager/noterious/internal/vaults"
 )
 
 func TestReindexPageUpdatesOnePageAndPreservesOthers(t *testing.T) {
@@ -83,7 +84,7 @@ func TestReindexPageUpdatesOnePageAndPreservesOthers(t *testing.T) {
 	}
 }
 
-func TestWorkspaceStoresAreIsolated(t *testing.T) {
+func TestVaultStoresAreIsolated(t *testing.T) {
 	t.Parallel()
 
 	rootDir := t.TempDir()
@@ -112,8 +113,8 @@ func TestWorkspaceStoresAreIsolated(t *testing.T) {
 		_ = indexService.Close()
 	}()
 
-	workspaceOne := workspaces.WithWorkspace(context.Background(), workspaces.Workspace{ID: 1, VaultPath: vaultOneDir})
-	workspaceTwo := workspaces.WithWorkspace(context.Background(), workspaces.Workspace{ID: 2, VaultPath: vaultTwoDir})
+	workspaceOne := vaults.WithVault(context.Background(), vaults.Vault{ID: 1, VaultPath: vaultOneDir})
+	workspaceTwo := vaults.WithVault(context.Background(), vaults.Vault{ID: 2, VaultPath: vaultTwoDir})
 
 	if err := indexService.RebuildFromVault(workspaceOne, vault.NewService(vaultOneDir)); err != nil {
 		t.Fatalf("RebuildFromVault(workspaceOne) error = %v", err)
@@ -145,7 +146,39 @@ func TestWorkspaceStoresAreIsolated(t *testing.T) {
 		t.Fatalf("GetSavedQuery(workspaceTwo) error = %v, want %v", err, ErrSavedQueryNotFound)
 	}
 
-	if got := indexService.DatabasePathForWorkspace(1); got == indexService.DatabasePathForWorkspace(2) {
-		t.Fatalf("workspace database paths should differ: %q", got)
+	if got := indexService.DatabasePathForVault(1); got == indexService.DatabasePathForVault(2) {
+		t.Fatalf("vault database paths should differ: %q", got)
+	}
+}
+
+func TestVaultStoreUsesDedicatedDefaultIndexDatabase(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	dataDir := filepath.Join(rootDir, "data")
+
+	authService, err := auth.NewService(context.Background(), dataDir, "", 0)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = authService.Close()
+	})
+
+	indexService := NewService(dataDir)
+	if err := indexService.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = indexService.Close()
+	})
+
+	workspaceCtx := vaults.WithVault(context.Background(), vaults.Vault{ID: 42})
+	pages, err := indexService.ListPages(workspaceCtx)
+	if err != nil {
+		t.Fatalf("ListPages() error = %v", err)
+	}
+	if len(pages) != 0 {
+		t.Fatalf("pages = %#v, want empty list", pages)
 	}
 }

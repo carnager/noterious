@@ -24,6 +24,8 @@ const (
 	defaultSessionTTL        = 30 * 24 * time.Hour
 	sessionHeartbeatInterval = 5 * time.Minute
 	bootstrapSecretFileName  = "bootstrap-admin.txt"
+	roleAdmin                = "admin"
+	roleUser                 = "user"
 )
 
 var (
@@ -209,6 +211,49 @@ func (s *Service) CreateInitialAdmin(ctx context.Context, username string, passw
 	return user, nil
 }
 
+func (s *Service) CreateUser(ctx context.Context, username string, password string, role string) (User, error) {
+	if s == nil {
+		return User{}, fmt.Errorf("auth service unavailable")
+	}
+	return s.createUser(ctx, username, password, role, false)
+}
+
+func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
+	if s == nil {
+		return nil, fmt.Errorf("auth service unavailable")
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, username, role, created_at, last_login_at, must_change_password
+		FROM users
+		ORDER BY username ASC;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	defer rows.Close()
+
+	users := make([]User, 0)
+	for rows.Next() {
+		var user User
+		var createdAtMillis int64
+		var lastLoginMillis sql.NullInt64
+		if err := rows.Scan(&user.ID, &user.Username, &user.Role, &createdAtMillis, &lastLoginMillis, &user.MustChangePassword); err != nil {
+			return nil, fmt.Errorf("scan user: %w", err)
+		}
+		user.CreatedAt = time.UnixMilli(createdAtMillis).UTC()
+		if lastLoginMillis.Valid {
+			lastLogin := time.UnixMilli(lastLoginMillis.Int64).UTC()
+			user.LastLoginAt = &lastLogin
+		}
+		users = append(users, user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate users: %w", err)
+	}
+	return users, nil
+}
+
 func (s *Service) Login(ctx context.Context, username string, password string) (Session, error) {
 	if s == nil {
 		return Session{}, fmt.Errorf("auth service unavailable")
@@ -268,8 +313,8 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 		return Session{}, fmt.Errorf("cleanup expired sessions: %w", err)
 	}
 	if _, err = tx.ExecContext(ctx, `
-		INSERT INTO sessions(token_hash, user_id, created_at, expires_at, last_seen_at)
-		VALUES(?, ?, ?, ?, ?);
+		INSERT INTO sessions(token_hash, user_id, created_at, expires_at, last_seen_at, current_vault_id)
+		VALUES(?, ?, ?, ?, ?, NULL);
 	`, hashToken(token), user.ID, now.UnixMilli(), expiresAt.UnixMilli(), now.UnixMilli()); err != nil {
 		return Session{}, fmt.Errorf("create session: %w", err)
 	}
@@ -302,6 +347,65 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?;`, hashToken(trimmed)); err != nil {
 		return fmt.Errorf("delete session: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) CurrentVaultIDByToken(ctx context.Context, token string) (int64, error) {
+	if s == nil {
+		return 0, ErrAuthenticationRequired
+	}
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		return 0, ErrAuthenticationRequired
+	}
+
+	row := s.db.QueryRowContext(ctx, `
+		SELECT current_vault_id
+		FROM sessions
+		WHERE token_hash = ?;
+	`, hashToken(trimmed))
+
+	var currentVaultID sql.NullInt64
+	if err := row.Scan(&currentVaultID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrAuthenticationRequired
+		}
+		return 0, fmt.Errorf("load current vault id: %w", err)
+	}
+	if !currentVaultID.Valid || currentVaultID.Int64 <= 0 {
+		return 0, nil
+	}
+	return currentVaultID.Int64, nil
+}
+
+func (s *Service) SetCurrentVaultID(ctx context.Context, token string, vaultID int64) error {
+	if s == nil {
+		return ErrAuthenticationRequired
+	}
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		return ErrAuthenticationRequired
+	}
+
+	var value any
+	if vaultID > 0 {
+		value = vaultID
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE sessions
+		SET current_vault_id = ?, last_seen_at = ?
+		WHERE token_hash = ?;
+	`, value, time.Now().UTC().UnixMilli(), hashToken(trimmed))
+	if err != nil {
+		return fmt.Errorf("set current vault id: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read updated session rows: %w", err)
+	}
+	if rowsAffected == 0 {
+		return ErrAuthenticationRequired
 	}
 	return nil
 }
@@ -577,6 +681,10 @@ func (s *Service) createUser(ctx context.Context, username string, password stri
 	if strings.TrimSpace(password) == "" {
 		return User{}, fmt.Errorf("password is required")
 	}
+	normalizedRole, ok := normalizeUserRole(role)
+	if !ok {
+		return User{}, fmt.Errorf("invalid role %q", strings.TrimSpace(role))
+	}
 
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -587,8 +695,11 @@ func (s *Service) createUser(ctx context.Context, username string, password stri
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO users(username, password_hash, role, created_at, updated_at, must_change_password)
 		VALUES(?, ?, ?, ?, ?, ?);
-	`, normalized, string(passwordHash), strings.TrimSpace(role), now.UnixMilli(), now.UnixMilli(), mustChangePassword)
+	`, normalized, string(passwordHash), normalizedRole, now.UnixMilli(), now.UnixMilli(), mustChangePassword)
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed: users.username") {
+			return User{}, fmt.Errorf("username already exists")
+		}
 		return User{}, fmt.Errorf("create user: %w", err)
 	}
 	id, err := result.LastInsertId()
@@ -599,7 +710,7 @@ func (s *Service) createUser(ctx context.Context, username string, password stri
 	return User{
 		ID:                 id,
 		Username:           normalized,
-		Role:               strings.TrimSpace(role),
+		Role:               normalizedRole,
 		CreatedAt:          now,
 		MustChangePassword: mustChangePassword,
 	}, nil
@@ -629,6 +740,7 @@ func (s *Service) migrate(ctx context.Context) error {
 			created_at INTEGER NOT NULL,
 			expires_at INTEGER NOT NULL,
 			last_seen_at INTEGER NOT NULL,
+			current_vault_id INTEGER,
 			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);`,
@@ -646,6 +758,9 @@ func (s *Service) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := s.ensureUsersHomePageColumn(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureSessionsCurrentVaultColumn(ctx); err != nil {
 		return err
 	}
 	return nil
@@ -724,6 +839,46 @@ func (s *Service) userColumnSet(ctx context.Context) (map[string]struct{}, error
 	return columns, nil
 }
 
+func (s *Service) ensureSessionsCurrentVaultColumn(ctx context.Context) error {
+	columns, err := s.sessionColumnSet(ctx)
+	if err != nil {
+		return err
+	}
+	if _, ok := columns["current_vault_id"]; ok {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE sessions ADD COLUMN current_vault_id INTEGER;`); err != nil {
+		return fmt.Errorf("add sessions.current_vault_id column: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) sessionColumnSet(ctx context.Context) (map[string]struct{}, error) {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(sessions);`)
+	if err != nil {
+		return nil, fmt.Errorf("inspect sessions schema: %w", err)
+	}
+	defer rows.Close()
+
+	columns := make(map[string]struct{})
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue sql.NullString
+		var primaryKey int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return nil, fmt.Errorf("scan sessions schema: %w", err)
+		}
+		columns[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sessions schema: %w", err)
+	}
+	return columns, nil
+}
+
 func (s *Service) clearBootstrapCredentials() error {
 	path := s.BootstrapCredentialsPath()
 	if path == "" {
@@ -737,6 +892,17 @@ func (s *Service) clearBootstrapCredentials() error {
 
 func normalizeUsername(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func normalizeUserRole(value string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", roleUser:
+		return roleUser, true
+	case roleAdmin:
+		return roleAdmin, true
+	default:
+		return "", false
+	}
 }
 
 func normalizeUserSettings(input UserSettings) UserSettings {

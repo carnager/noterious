@@ -16,20 +16,20 @@ type Notifications struct {
 	NtfyInterval string `json:"ntfyInterval"`
 }
 
-type Workspace struct {
+type Vault struct {
 	VaultPath string `json:"vaultPath"`
 	HomePage  string `json:"homePage"`
 }
 
 type AppSettings struct {
-	Workspace     Workspace     `json:"workspace"`
+	Vault         Vault         `json:"vault"`
 	Notifications Notifications `json:"notifications"`
 }
 
 type Snapshot struct {
-	Settings         AppSettings `json:"settings"`
-	AppliedWorkspace Workspace   `json:"appliedWorkspace"`
-	RestartRequired  bool        `json:"restartRequired"`
+	Settings        AppSettings `json:"settings"`
+	AppliedVault    Vault       `json:"appliedVault"`
+	RestartRequired bool        `json:"restartRequired"`
 }
 
 type Store struct {
@@ -37,13 +37,13 @@ type Store struct {
 	path                 string
 	settings             AppSettings
 	defaultSettings      AppSettings
-	appliedWorkspace     Workspace
+	appliedVault         Vault
 	appliedNotifications Notifications
 }
 
 func DefaultSettingsFromConfig(cfg config.Config) AppSettings {
 	return AppSettings{
-		Workspace: Workspace{
+		Vault: Vault{
 			VaultPath: strings.TrimSpace(cfg.VaultPath),
 			HomePage:  strings.TrimSpace(cfg.HomePage),
 		},
@@ -71,9 +71,9 @@ func NewStore(dataDir string, defaults AppSettings) (*Store, error) {
 		return nil, err
 	}
 	store.settings = loaded
-	store.appliedWorkspace = Workspace{
-		VaultPath: loaded.Workspace.VaultPath,
-		HomePage:  loaded.Workspace.HomePage,
+	store.appliedVault = Vault{
+		VaultPath: loaded.Vault.VaultPath,
+		HomePage:  loaded.Vault.HomePage,
 	}
 	store.appliedNotifications = Notifications{
 		NtfyInterval: loaded.Notifications.NtfyInterval,
@@ -88,7 +88,7 @@ func (s *Store) Path() string {
 func (s *Store) Snapshot() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return snapshotForApplied(s.settings, s.appliedWorkspace, s.appliedNotifications)
+	return snapshotForApplied(s.settings, s.appliedVault, s.appliedNotifications)
 }
 
 func (s *Store) Settings() AppSettings {
@@ -109,14 +109,14 @@ func (s *Store) Update(next AppSettings) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	s.settings = normalized
-	return snapshotForApplied(s.settings, s.appliedWorkspace, s.appliedNotifications), nil
+	return snapshotForApplied(s.settings, s.appliedVault, s.appliedNotifications), nil
 }
 
 func (s *Store) SetAppliedRuntime(settings AppSettings) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.appliedWorkspace.VaultPath = strings.TrimSpace(settings.Workspace.VaultPath)
-	s.appliedWorkspace.HomePage = strings.TrimSpace(s.settings.Workspace.HomePage)
+	s.appliedVault.VaultPath = strings.TrimSpace(settings.Vault.VaultPath)
+	s.appliedVault.HomePage = strings.TrimSpace(s.settings.Vault.HomePage)
 	s.appliedNotifications.NtfyInterval = strings.TrimSpace(settings.Notifications.NtfyInterval)
 }
 
@@ -147,11 +147,11 @@ func (s *Store) load() (AppSettings, error) {
 func normalizeSettings(input AppSettings, defaults AppSettings) AppSettings {
 	normalized := input
 
-	if strings.TrimSpace(normalized.Workspace.VaultPath) == "" {
-		normalized.Workspace.VaultPath = defaults.Workspace.VaultPath
+	if strings.TrimSpace(normalized.Vault.VaultPath) == "" {
+		normalized.Vault.VaultPath = defaults.Vault.VaultPath
 	}
-	normalized.Workspace.VaultPath = strings.TrimSpace(normalized.Workspace.VaultPath)
-	normalized.Workspace.HomePage = strings.TrimSpace(normalized.Workspace.HomePage)
+	normalized.Vault.VaultPath = strings.TrimSpace(normalized.Vault.VaultPath)
+	normalized.Vault.HomePage = strings.TrimSpace(normalized.Vault.HomePage)
 	if strings.TrimSpace(normalized.Notifications.NtfyInterval) == "" {
 		normalized.Notifications.NtfyInterval = defaults.Notifications.NtfyInterval
 	}
@@ -161,7 +161,7 @@ func normalizeSettings(input AppSettings, defaults AppSettings) AppSettings {
 }
 
 func validateSettings(settings AppSettings) error {
-	if strings.TrimSpace(settings.Workspace.VaultPath) == "" {
+	if strings.TrimSpace(settings.Vault.VaultPath) == "" {
 		return fmt.Errorf("vault path must not be empty")
 	}
 	if _, err := time.ParseDuration(strings.TrimSpace(settings.Notifications.NtfyInterval)); err != nil {
@@ -170,23 +170,23 @@ func validateSettings(settings AppSettings) error {
 	return nil
 }
 
-func snapshotFor(settings AppSettings, applied Workspace) Snapshot {
+func snapshotFor(settings AppSettings, applied Vault) Snapshot {
 	return snapshotForApplied(settings, applied, Notifications{})
 }
 
-func snapshotForApplied(settings AppSettings, applied Workspace, appliedNotifications Notifications) Snapshot {
-	effectiveApplied := Workspace{
+func snapshotForApplied(settings AppSettings, applied Vault, appliedNotifications Notifications) Snapshot {
+	effectiveApplied := Vault{
 		VaultPath: strings.TrimSpace(applied.VaultPath),
-		HomePage:  strings.TrimSpace(settings.Workspace.HomePage),
+		HomePage:  strings.TrimSpace(settings.Vault.HomePage),
 	}
-	restartRequired := !strings.EqualFold(strings.TrimSpace(settings.Workspace.VaultPath), strings.TrimSpace(applied.VaultPath))
+	restartRequired := !strings.EqualFold(strings.TrimSpace(settings.Vault.VaultPath), strings.TrimSpace(applied.VaultPath))
 	if !restartRequired {
 		restartRequired = strings.TrimSpace(settings.Notifications.NtfyInterval) != strings.TrimSpace(appliedNotifications.NtfyInterval)
 	}
 	return Snapshot{
-		Settings:         settings,
-		AppliedWorkspace: effectiveApplied,
-		RestartRequired:  restartRequired,
+		Settings:        settings,
+		AppliedVault:    effectiveApplied,
+		RestartRequired: restartRequired,
 	}
 }
 

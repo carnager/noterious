@@ -14,7 +14,7 @@
 - `GET /api/healthz`
 - `GET /api/meta`
 
-`GET /api/meta` returns basic runtime metadata for the current server process, including the runtime-applied `vaultPath`, `dataDir`, `homePage`, database path, server time, and `restartRequired`. Phase 2 now also exposes the current default `workspace` object in that response. It also includes `vaultHealth` with:
+`GET /api/meta` returns basic runtime metadata for the current server process, including the runtime-applied `runtimeVault` object (`vaultPath`, `homePage`), `dataDir`, database path, server time, and `restartRequired`. It also exposes the current resolved request/session `currentVault` object separately in that response. It also includes `vaultHealth` with:
 
 - `healthy`: whether the current runtime vault path is readable
 - `reason`: `ok`, `missing`, `unavailable`, or `invalid`
@@ -25,6 +25,8 @@
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
+- `GET /api/auth/vaults`
+- `PUT /api/auth/vault`
 
 ### Pages
 
@@ -168,7 +170,11 @@
 
 When auth is enabled, every API endpoint except `GET /api/healthz`, `POST /api/auth/login`, `POST /api/auth/logout`, and `GET /api/auth/me` requires a valid session cookie. `GET /api/auth/me` returns `{"authenticated":false}` when no valid session is present, while protected endpoints return `401`.
 
-`POST /api/auth/login` accepts `{"username":"...","password":"..."}` and, on success, sets the session cookie and returns the authenticated user summary plus the current default `workspace`. `POST /api/auth/logout` clears the current session cookie. `GET /api/auth/me` returns the current session state plus the authenticated user payload and current default `workspace` when a session is active.
+`POST /api/auth/login` accepts `{"username":"...","password":"..."}` and, on success, sets the session cookie and returns the authenticated user summary plus the current resolved `vault`. `POST /api/auth/logout` clears the current session cookie. `GET /api/auth/me` returns the current session state plus the authenticated user payload and current resolved `vault` when a session is active.
+
+`GET /api/auth/vaults` returns the auth-side vault-selection snapshot for the signed-in user: `rootVault`, discovered child `vaults`, `count`, and the currently resolved `currentVault`. The server does not own the user's top-level-folders preference; clients use this single snapshot to decide whether to keep the personal root active or switch into one of the discovered child vaults.
+
+`PUT /api/auth/vault` accepts `{"vaultId":123}` and persists the current session vault selection for subsequent protected API requests.
 
 Targeted query block refresh emits `query-block.changed` with the block `page`, stable `key`, optional `id`, and lightweight block snapshot fields including `rowCount`, `renderHint`, `updatedAt`, and `stale`, followed by the usual derived/query invalidation for that page.
 

@@ -1,6 +1,6 @@
 # Noterious
 
-Noterious is a server-first, markdown-backed knowledge base designed for fast clients, structured queries, and companion/mobile integrations.
+Noterious is a server-first, markdown-backed knowledge base with markdown files on disk as the source of truth.
 
 ## Goals
 
@@ -13,7 +13,9 @@ Noterious is a server-first, markdown-backed knowledge base designed for fast cl
 ## Product Shape
 
 - Go server
-- Vault on disk
+- One configured vault root on disk
+- One user root folder below that vault root per user
+- Optional child-vault switching across top-level folders inside the user root
 - SQLite-backed derived index
 - HTTP API for web and companion clients
 - SSE for live invalidation
@@ -95,6 +97,7 @@ The startup flags currently support:
 - `--listen-addr`
 - `--port`
 - `--data-dir`
+- `--vault-dir`
 
 For local iteration you can also run the app directly without creating a binary first:
 
@@ -109,7 +112,7 @@ The repository also includes CI that rebuilds the embedded frontend assets and f
 
 By default the app uses:
 
-- vault: `./vault`
+- vault root: `./vault`
 - data dir: `./data`
 - listen address: `:3000`
 
@@ -127,9 +130,45 @@ These can be overridden with:
 
 CLI flags override the corresponding environment variables when both are set.
 
+## Vault Layout
+
+The configured `vault root` is the server-level root directory.
+
+With auth enabled, each user gets one personal root directly below that folder:
+
+- `<vault-root>/<username>`
+
+That user root is always a valid markdown vault on its own.
+
+Users may also keep separate child vaults as direct folders below their personal root:
+
+- `<vault-root>/<username>/<child-vault>`
+
+The web UI has a per-user preference for whether those top-level child folders should be treated as switchable vaults or whether the whole user root should remain the active vault. Different users can choose differently against the same server.
+
+## Runtime Model
+
+At runtime, Noterious keeps two different vault concepts separate:
+
+- `configured runtime vault root`: the server-applied vault root from settings and process startup
+- `current vault`: the vault resolved for the current authenticated request or session
+
+That means:
+
+- `/api/meta` exposes both `runtimeVault` and `currentVault`
+- `/api/auth/vaults` exposes the signed-in user's personal root, discovered child vaults, and current session vault
+- page, task, link, and query routes run against the resolved current vault for that request
+
+Background services are intentionally tied to the configured runtime vault root, not the per-session current vault:
+
+- the filesystem watcher polls the configured runtime vault root path
+- the ntfy notifier polls the configured runtime vault root index when that index exists
+
+Those background services do not currently fan out across every discovered personal or child vault.
+
 The repository includes a user-level systemd unit template at [contrib/systemd/noterious.service](/home/carnager/Code/noterious/contrib/systemd/noterious.service). Copy it to `~/.config/systemd/user/noterious.service`, adjust the paths, then run `systemctl --user daemon-reload` and `systemctl --user enable --now noterious`.
 
-Auth is now enabled for the server API. On first startup against an empty data directory, Noterious bootstraps one admin user:
+Auth is enabled for the server API. On first startup against an empty data directory, Noterious bootstraps one admin user:
 
 - If `NOTERIOUS_AUTH_BOOTSTRAP_USERNAME` and `NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD` are set, those credentials are used.
 - Otherwise the server starts in first-run setup mode and the web UI lets you create the initial admin account.
@@ -139,6 +178,11 @@ The web UI now signs in through:
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
+- `GET /api/auth/vaults`
+- `PUT /api/auth/vault`
+- `GET /api/user/vaults`
+
+`GET /api/auth/vaults` returns the signed-in user's root vault, discovered child vaults, and current session vault in one snapshot so the frontend can apply its per-user top-level-folders preference without stitching together multiple APIs.
 
 ## Planned Principles
 
@@ -147,14 +191,6 @@ The web UI now signs in through:
 3. Expensive derived state is computed once on the server.
 4. Clients render cached or server-provided state, not full vault queries.
 5. Structured edits compile back to minimal markdown patches.
-
-## Next Steps
-
-1. Implement vault scanning and page loading.
-2. Define the SQLite schema for pages, links, tasks, and frontmatter.
-3. Add a first page API returning raw source plus derived metadata.
-4. Add query block parsing and execution against the server index.
-5. Add SSE invalidation for page and query results.
 
 ## Exploratory UI
 

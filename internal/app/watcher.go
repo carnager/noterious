@@ -14,22 +14,22 @@ import (
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/vault"
-	"github.com/carnager/noterious/internal/workspaces"
+	"github.com/carnager/noterious/internal/vaults"
 )
 
 type VaultWatcher struct {
-	workspace workspaces.Workspace
-	vault     *vault.Service
-	index     *index.Service
-	query     *query.Service
-	events    *httpapi.EventBroker
+	vaultRecord vaults.Vault
+	vault       *vault.Service
+	index       *index.Service
+	query       *query.Service
+	events      *httpapi.EventBroker
 
 	mu    sync.Mutex
 	known map[string]time.Time
 }
 
-func NewVaultWatcher(ctx context.Context, workspace workspaces.Workspace, vaultService *vault.Service, indexService *index.Service, queryService *query.Service, eventBroker *httpapi.EventBroker) (*VaultWatcher, error) {
-	ctx = withWatcherWorkspace(ctx, workspace)
+func NewVaultWatcher(ctx context.Context, currentVault vaults.Vault, vaultService *vault.Service, indexService *index.Service, queryService *query.Service, eventBroker *httpapi.EventBroker) (*VaultWatcher, error) {
+	ctx = withWatcherVault(ctx, currentVault)
 	pageFiles, err := vaultService.ScanMarkdownPages(ctx)
 	if err != nil {
 		return nil, err
@@ -41,12 +41,12 @@ func NewVaultWatcher(ctx context.Context, workspace workspaces.Workspace, vaultS
 	}
 
 	return &VaultWatcher{
-		workspace: workspace,
-		vault:     vaultService,
-		index:     indexService,
-		query:     queryService,
-		events:    eventBroker,
-		known:     known,
+		vaultRecord: currentVault,
+		vault:       vaultService,
+		index:       indexService,
+		query:       queryService,
+		events:      eventBroker,
+		known:       known,
 	}, nil
 }
 
@@ -90,7 +90,7 @@ func (w *VaultWatcher) Poll(ctx context.Context) error {
 	if w == nil {
 		return nil
 	}
-	ctx = withWatcherWorkspace(ctx, w.workspace)
+	ctx = withWatcherVault(ctx, w.vaultRecord)
 
 	pageFiles, err := w.vault.ScanMarkdownPages(ctx)
 	if err != nil {
@@ -190,11 +190,11 @@ func (w *VaultWatcher) Poll(ctx context.Context) error {
 	return nil
 }
 
-func withWatcherWorkspace(ctx context.Context, workspace workspaces.Workspace) context.Context {
-	if workspace.ID <= 0 {
+func withWatcherVault(ctx context.Context, currentVault vaults.Vault) context.Context {
+	if currentVault.ID <= 0 {
 		return ctx
 	}
-	return workspaces.WithWorkspace(ctx, workspace)
+	return vaults.WithVault(ctx, currentVault)
 }
 
 func pageFrontmatterStringList(value any) []string {

@@ -9,7 +9,7 @@ import (
 
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
-	"github.com/carnager/noterious/internal/workspaces"
+	"github.com/carnager/noterious/internal/vaults"
 )
 
 type Event struct {
@@ -30,17 +30,17 @@ func NewEventBroker() *EventBroker {
 }
 
 func (b *EventBroker) Publish(event Event) {
-	b.PublishToWorkspace(workspaces.LegacyWorkspaceID, event)
+	b.PublishToVault(vaults.ConfiguredVaultID, event)
 }
 
-func (b *EventBroker) PublishToWorkspace(workspaceID int64, event Event) {
+func (b *EventBroker) PublishToVault(vaultID int64, event Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
 		return
 	}
 
-	subscribers := b.subscribers[workspaceID]
+	subscribers := b.subscribers[vaultID]
 	for subscriber := range subscribers {
 		select {
 		case subscriber <- event:
@@ -50,10 +50,10 @@ func (b *EventBroker) PublishToWorkspace(workspaceID int64, event Event) {
 }
 
 func (b *EventBroker) Subscribe() (<-chan Event, func()) {
-	return b.SubscribeWorkspace(workspaces.LegacyWorkspaceID)
+	return b.SubscribeVault(vaults.ConfiguredVaultID)
 }
 
-func (b *EventBroker) SubscribeWorkspace(workspaceID int64) (<-chan Event, func()) {
+func (b *EventBroker) SubscribeVault(vaultID int64) (<-chan Event, func()) {
 	ch := make(chan Event, 16)
 
 	b.mu.Lock()
@@ -62,20 +62,20 @@ func (b *EventBroker) SubscribeWorkspace(workspaceID int64) (<-chan Event, func(
 		b.mu.Unlock()
 		return ch, func() {}
 	}
-	if b.subscribers[workspaceID] == nil {
-		b.subscribers[workspaceID] = make(map[chan Event]struct{})
+	if b.subscribers[vaultID] == nil {
+		b.subscribers[vaultID] = make(map[chan Event]struct{})
 	}
-	b.subscribers[workspaceID][ch] = struct{}{}
+	b.subscribers[vaultID][ch] = struct{}{}
 	b.mu.Unlock()
 
 	cancel := func() {
 		b.mu.Lock()
-		if subscribers := b.subscribers[workspaceID]; subscribers != nil {
+		if subscribers := b.subscribers[vaultID]; subscribers != nil {
 			if _, ok := subscribers[ch]; ok {
 				delete(subscribers, ch)
 			}
 			if len(subscribers) == 0 {
-				delete(b.subscribers, workspaceID)
+				delete(b.subscribers, vaultID)
 			}
 			close(ch)
 		}
@@ -97,11 +97,11 @@ func (b *EventBroker) Close() {
 	}
 	b.closed = true
 
-	subscribersByWorkspace := b.subscribers
+	subscribersByVault := b.subscribers
 	b.subscribers = make(map[int64]map[chan Event]struct{})
 	b.mu.Unlock()
 
-	for _, subscribers := range subscribersByWorkspace {
+	for _, subscribers := range subscribersByVault {
 		for subscriber := range subscribers {
 			close(subscriber)
 		}
@@ -119,7 +119,7 @@ func serveEvents(w http.ResponseWriter, r *http.Request, broker *EventBroker) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	events, unsubscribe := broker.SubscribeWorkspace(workspaces.WorkspaceIDFromContext(r.Context()))
+	events, unsubscribe := broker.SubscribeVault(vaults.VaultIDFromContext(r.Context()))
 	defer unsubscribe()
 
 	if _, err := fmt.Fprint(w, ": connected\n\n"); err != nil {
@@ -162,12 +162,12 @@ func PublishInvalidationEvents(ctx context.Context, broker *EventBroker, indexSe
 	if broker == nil {
 		return
 	}
-	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
-	broker.PublishToWorkspace(workspaceID, Event{
+	vaultID := vaults.VaultIDFromContext(ctx)
+	broker.PublishToVault(vaultID, Event{
 		Type: "page.changed",
 		Data: map[string]any{"page": pagePath},
 	})
-	broker.PublishToWorkspace(workspaceID, Event{
+	broker.PublishToVault(vaultID, Event{
 		Type: "derived.changed",
 		Data: map[string]any{"page": pagePath},
 	})
@@ -198,20 +198,20 @@ func PublishInvalidationEvents(ctx context.Context, broker *EventBroker, indexSe
 
 	for _, candidate := range candidates {
 		for _, block := range candidate.Blocks {
-			broker.PublishToWorkspace(workspaceID, Event{
+			broker.PublishToVault(vaultID, Event{
 				Type: "query-block.changed",
 				Data: queryBlockChangedData(candidate.Page, block),
 			})
 		}
 
 		if candidate.Page != pagePath {
-			broker.PublishToWorkspace(workspaceID, Event{
+			broker.PublishToVault(vaultID, Event{
 				Type: "derived.changed",
 				Data: map[string]any{"page": candidate.Page},
 			})
 		}
 
-		broker.PublishToWorkspace(workspaceID, Event{
+		broker.PublishToVault(vaultID, Event{
 			Type: "query.changed",
 			Data: queryChangedData(candidate.Page, pagePath, candidate.Blocks),
 		})
@@ -222,9 +222,9 @@ func PublishDeletionEvents(ctx context.Context, broker *EventBroker, indexServic
 	if broker == nil {
 		return
 	}
-	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	vaultID := vaults.VaultIDFromContext(ctx)
 
-	broker.PublishToWorkspace(workspaceID, Event{
+	broker.PublishToVault(vaultID, Event{
 		Type: "page.deleted",
 		Data: map[string]any{"page": pagePath},
 	})
@@ -243,7 +243,7 @@ func PublishDeletionEvents(ctx context.Context, broker *EventBroker, indexServic
 		}
 		seen[dependentPage] = struct{}{}
 
-		broker.PublishToWorkspace(workspaceID, Event{
+		broker.PublishToVault(vaultID, Event{
 			Type: "derived.changed",
 			Data: map[string]any{"page": dependentPage},
 		})
@@ -271,7 +271,7 @@ func PublishDeletionEvents(ctx context.Context, broker *EventBroker, indexServic
 
 	for _, dependentPage := range candidates {
 		for _, block := range dependentPage.Blocks {
-			broker.PublishToWorkspace(workspaceID, Event{
+			broker.PublishToVault(vaultID, Event{
 				Type: "query-block.changed",
 				Data: queryBlockChangedData(dependentPage.Page, block),
 			})
@@ -279,13 +279,13 @@ func PublishDeletionEvents(ctx context.Context, broker *EventBroker, indexServic
 
 		if _, ok := seen[dependentPage.Page]; !ok {
 			seen[dependentPage.Page] = struct{}{}
-			broker.PublishToWorkspace(workspaceID, Event{
+			broker.PublishToVault(vaultID, Event{
 				Type: "derived.changed",
 				Data: map[string]any{"page": dependentPage.Page},
 			})
 		}
 
-		broker.PublishToWorkspace(workspaceID, Event{
+		broker.PublishToVault(vaultID, Event{
 			Type: "query.changed",
 			Data: queryChangedData(dependentPage.Page, pagePath, dependentPage.Blocks),
 		})

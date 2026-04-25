@@ -200,7 +200,7 @@ func TestServiceEmptyTrashRemovesHistory(t *testing.T) {
 	}
 }
 
-func TestWorkspaceHistoryIsolated(t *testing.T) {
+func TestVaultHistoryIsolated(t *testing.T) {
 	t.Parallel()
 
 	service, err := NewService(t.TempDir())
@@ -208,40 +208,40 @@ func TestWorkspaceHistoryIsolated(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	if _, err := service.SaveRevisionForWorkspace(1, "notes/alpha", []byte("workspace-one")); err != nil {
-		t.Fatalf("SaveRevisionForWorkspace(1) error = %v", err)
+	if _, err := service.SaveRevisionForVault(1, "notes/alpha", []byte("vault-one")); err != nil {
+		t.Fatalf("SaveRevisionForVault(1) error = %v", err)
 	}
-	if _, err := service.SaveRevisionForWorkspace(2, "notes/alpha", []byte("workspace-two")); err != nil {
-		t.Fatalf("SaveRevisionForWorkspace(2) error = %v", err)
+	if _, err := service.SaveRevisionForVault(2, "notes/alpha", []byte("vault-two")); err != nil {
+		t.Fatalf("SaveRevisionForVault(2) error = %v", err)
 	}
 
-	revisionsOne, err := service.ListRevisionsForWorkspace(1, "notes/alpha")
+	revisionsOne, err := service.ListRevisionsForVault(1, "notes/alpha")
 	if err != nil {
-		t.Fatalf("ListRevisionsForWorkspace(1) error = %v", err)
+		t.Fatalf("ListRevisionsForVault(1) error = %v", err)
 	}
-	revisionsTwo, err := service.ListRevisionsForWorkspace(2, "notes/alpha")
+	revisionsTwo, err := service.ListRevisionsForVault(2, "notes/alpha")
 	if err != nil {
-		t.Fatalf("ListRevisionsForWorkspace(2) error = %v", err)
+		t.Fatalf("ListRevisionsForVault(2) error = %v", err)
 	}
-	if len(revisionsOne) != 1 || revisionsOne[0].RawMarkdown != "workspace-one" {
+	if len(revisionsOne) != 1 || revisionsOne[0].RawMarkdown != "vault-one" {
 		t.Fatalf("revisionsOne = %#v", revisionsOne)
 	}
-	if len(revisionsTwo) != 1 || revisionsTwo[0].RawMarkdown != "workspace-two" {
+	if len(revisionsTwo) != 1 || revisionsTwo[0].RawMarkdown != "vault-two" {
 		t.Fatalf("revisionsTwo = %#v", revisionsTwo)
 	}
 
-	if err := service.MoveToTrashForWorkspace(1, "notes/alpha", []byte("workspace-one")); err != nil {
-		t.Fatalf("MoveToTrashForWorkspace(1) error = %v", err)
+	if err := service.MoveToTrashForVault(1, "notes/alpha", []byte("vault-one")); err != nil {
+		t.Fatalf("MoveToTrashForVault(1) error = %v", err)
 	}
-	trashOne, err := service.ListTrashForWorkspace(1)
+	trashOne, err := service.ListTrashForVault(1)
 	if err != nil {
-		t.Fatalf("ListTrashForWorkspace(1) error = %v", err)
+		t.Fatalf("ListTrashForVault(1) error = %v", err)
 	}
-	trashTwo, err := service.ListTrashForWorkspace(2)
+	trashTwo, err := service.ListTrashForVault(2)
 	if err != nil {
-		t.Fatalf("ListTrashForWorkspace(2) error = %v", err)
+		t.Fatalf("ListTrashForVault(2) error = %v", err)
 	}
-	if len(trashOne) != 1 || trashOne[0].RawMarkdown != "workspace-one" {
+	if len(trashOne) != 1 || trashOne[0].RawMarkdown != "vault-one" {
 		t.Fatalf("trashOne = %#v", trashOne)
 	}
 	if len(trashTwo) != 0 {

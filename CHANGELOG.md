@@ -24,13 +24,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Session-cookie authentication with bootstrap admin creation, login/logout/session endpoints, and API protection for non-public routes.
-- A default workspace wrapper around the existing single-vault runtime, exposed through auth and meta responses.
+- A runtime vault-selection layer around the existing single-vault runtime, exposed through auth and meta responses.
 - Vault health detection in backend metadata so missing or unreadable vault paths are surfaced explicitly.
 - Structured server logging for startup, shutdown, watcher/notifier lifecycle, ntfy deliveries, and noteworthy HTTP requests.
 
 ### Changed
-- Backend internals are now workspace-aware: index, query refresh, history/trash, watcher invalidation, and SSE all resolve within the active workspace boundary.
-- Workspace-scoped backend storage now keeps the filesystem model intact: one workspace still maps to one real vault directory with real markdown pages and attachments.
+- Backend internals are now vault-aware: index, query refresh, history/trash, watcher invalidation, and SSE all resolve within the active vault boundary.
+- Vault-scoped backend storage now keeps the filesystem model intact: one vault still maps to one real vault directory with real markdown pages and attachments.
 - `/due` and `/remind` now open the inline picker immediately after insertion instead of only inserting text.
 - Quote rendering now uses clearer indentation, spacing, italics, and a proper left rule.
 
@@ -38,7 +38,7 @@ All notable changes to this project will be documented in this file.
 - Due/remind picker apply no longer visibly snaps the editor to line 1 before focus is restored.
 - Task-date picker interactions now participate in the same note-focus restore flow as the rest of the UI.
 - Firefox quote styling now respects the intended spacing instead of collapsing against the text.
-- Default-workspace indexing/history state now migrates cleanly into workspace-scoped storage instead of being stranded in legacy global paths.
+- Default-vault indexing/history state now migrates cleanly into vault-scoped storage instead of being stranded in legacy global paths.
 
 ## [v0.1.4] - 2026-04-24
 
@@ -92,7 +92,7 @@ All notable changes to this project will be documented in this file.
 ## [v0.1.1] - 2026-04-24
 
 ### Added
-- Persistent settings API and settings UI for workspace path, home page, hotkeys, and basic UI preferences.
+- Persistent settings API and settings UI for vault path, home page, hotkeys, and basic UI preferences.
 - Built-in help modal with discoverable shortcuts and command-surface explanations.
 - Quick switcher, command palette, full search, and document picker as separate browser-safe surfaces.
 - Vault-native document attachments with upload, picker, slash command support, and relative markdown links.

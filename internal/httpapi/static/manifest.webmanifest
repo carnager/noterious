@@ -1,7 +1,7 @@
 {
   "name": "Noterious",
   "short_name": "Noterious",
-  "description": "Markdown notes, queries, tasks, and history in a local-first workspace.",
+  "description": "Markdown notes, queries, tasks, and history in a local-first vault.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

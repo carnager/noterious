@@ -38,6 +38,15 @@ The client is responsible for:
 
 The SQLite index is disposable and rebuildable from the markdown vault.
 
+Vault-scoped derived state is separated by resolved vault identity. The configured runtime vault root and user-selected current vaults are not the same concept.
+
+Background services currently stay scoped to the configured runtime vault root:
+
+- the filesystem watcher polls that configured vault path directly
+- the ntfy notifier polls that configured vault's derived index when it exists
+
+Request-time API handling resolves the current vault separately from auth/session state.
+
 ## Rendering Model
 
 There are three layers:

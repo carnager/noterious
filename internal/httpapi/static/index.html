@@ -67,7 +67,7 @@
         <span id="vault-health-message"></span>
       </div>
 
-      <main class="workspace">
+      <main class="app-layout">
         <aside class="panel rail" id="rail">
           <div class="rail-tabs">
             <button type="button" id="rail-tab-files" class="rail-tab active">Files</button>
@@ -82,6 +82,16 @@
               <button type="button" id="toggle-page-search" class="rail-section-action" aria-label="Search files" aria-expanded="false">
                 <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><circle cx="11" cy="11" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 15.5 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
               </button>
+            </div>
+            <div class="vault-switcher hidden" id="vault-switcher">
+              <button type="button" class="vault-switcher-trigger" id="open-vault-switcher" aria-expanded="false">
+                <span class="vault-switcher-label">Vault</span>
+                <strong id="current-vault-name">Vault</strong>
+                <span class="vault-switcher-caret" aria-hidden="true">▾</span>
+              </button>
+              <div class="vault-switcher-panel hidden" id="vault-switcher-panel">
+                <div class="vault-switcher-list" id="vault-switcher-list"></div>
+              </div>
             </div>
             <label class="search rail-search hidden" id="page-search-shell">
               <span>Search pages</span>
@@ -428,16 +438,16 @@
           <aside class="settings-sidebar" aria-label="Settings sections">
             <button type="button" class="settings-nav-button active" id="settings-nav-appearance">Appearance &amp; Hotkeys</button>
             <button type="button" class="settings-nav-button" id="settings-nav-notifications">Notifications</button>
-            <button type="button" class="settings-nav-button hidden" id="settings-nav-workspace">Workspace &amp; Polling</button>
+            <button type="button" class="settings-nav-button hidden" id="settings-nav-vault">Vault Root &amp; Polling</button>
           </aside>
           <div class="settings-main">
           <section class="settings-group-card settings-group-server hidden" id="settings-group-server">
             <div class="settings-group-head">
-              <h3>Workspace &amp; Polling</h3>
+              <h3>Vault Root &amp; Polling</h3>
             </div>
             <div class="modal-fields settings-group-fields">
               <label class="search modal-field-wide">
-                <span>Vault Path</span>
+                <span>Vault Root</span>
                 <input id="settings-vault-path" type="text" placeholder="./vault" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
               <label class="search">
@@ -468,6 +478,10 @@
               <h3>Appearance &amp; Hotkeys</h3>
             </div>
             <div class="modal-fields settings-group-fields">
+              <label class="settings-toggle-row modal-field-wide">
+                <input id="settings-user-top-level-vaults" type="checkbox">
+                <span>Use top-level folders as vaults</span>
+              </label>
               <label class="search">
                 <span>Font</span>
                 <select id="settings-ui-font-family">
