@@ -389,6 +389,9 @@ interface TreeContextMenuState {
     authUsername: requiredElement<HTMLInputElement>("auth-username"),
     authPassword: requiredElement<HTMLInputElement>("auth-password"),
     authStatus: requiredElement<HTMLElement>("auth-status"),
+    vaultHealthBanner: requiredElement<HTMLElement>("vault-health-banner"),
+    vaultHealthTitle: requiredElement<HTMLElement>("vault-health-title"),
+    vaultHealthMessage: requiredElement<HTMLElement>("vault-health-message"),
     metaStrip: optionalElement<HTMLDivElement>("meta-strip"),
     pageSearch: requiredElement<HTMLInputElement>("page-search"),
     pageSearchShell: requiredElement<HTMLElement>("page-search-shell"),
@@ -1269,6 +1272,21 @@ interface TreeContextMenuState {
       pill.textContent = value;
       metaStrip.appendChild(pill);
     });
+  }
+
+  function renderVaultHealth(meta: MetaResponse | null): void {
+    if (!meta || !meta.vaultHealth || meta.vaultHealth.healthy) {
+      els.vaultHealthBanner.classList.add("hidden");
+      els.vaultHealthTitle.textContent = "Vault Warning";
+      els.vaultHealthMessage.textContent = "";
+      return;
+    }
+
+    const reason = String(meta.vaultHealth.reason || "").toLowerCase();
+    els.vaultHealthTitle.textContent = reason === "missing" ? "Vault Missing" : "Vault Unavailable";
+    els.vaultHealthMessage.textContent = (meta.vaultHealth.message || "The configured vault is currently unavailable.")
+      + " The app may only be showing previously indexed data until the vault becomes readable again.";
+    els.vaultHealthBanner.classList.remove("hidden");
   }
 
   function nextDailyNotePath(): string {
@@ -2433,8 +2451,10 @@ interface TreeContextMenuState {
         pills.splice(2, 0, "Restart required");
       }
       setMetaPills(pills);
+      renderVaultHealth(meta);
     } catch (error) {
       setMetaPills(["Meta error", errorMessage(error)]);
+      renderVaultHealth(null);
     }
   }
 

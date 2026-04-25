@@ -3299,6 +3299,9 @@
           authUsername: requiredElement("auth-username"),
           authPassword: requiredElement("auth-password"),
           authStatus: requiredElement("auth-status"),
+          vaultHealthBanner: requiredElement("vault-health-banner"),
+          vaultHealthTitle: requiredElement("vault-health-title"),
+          vaultHealthMessage: requiredElement("vault-health-message"),
           metaStrip: optionalElement("meta-strip"),
           pageSearch: requiredElement("page-search"),
           pageSearchShell: requiredElement("page-search-shell"),
@@ -4111,6 +4114,18 @@
             pill.textContent = value;
             metaStrip.appendChild(pill);
           });
+        }
+        function renderVaultHealth(meta) {
+          if (!meta || !meta.vaultHealth || meta.vaultHealth.healthy) {
+            els.vaultHealthBanner.classList.add("hidden");
+            els.vaultHealthTitle.textContent = "Vault Warning";
+            els.vaultHealthMessage.textContent = "";
+            return;
+          }
+          const reason = String(meta.vaultHealth.reason || "").toLowerCase();
+          els.vaultHealthTitle.textContent = reason === "missing" ? "Vault Missing" : "Vault Unavailable";
+          els.vaultHealthMessage.textContent = (meta.vaultHealth.message || "The configured vault is currently unavailable.") + " The app may only be showing previously indexed data until the vault becomes readable again.";
+          els.vaultHealthBanner.classList.remove("hidden");
         }
         function nextDailyNotePath() {
           const now = /* @__PURE__ */ new Date();
@@ -5141,8 +5156,10 @@
               pills.splice(2, 0, "Restart required");
             }
             setMetaPills(pills);
+            renderVaultHealth(meta);
           } catch (error) {
             setMetaPills(["Meta error", errorMessage(error)]);
+            renderVaultHealth(null);
           }
         }
         async function loadPages() {

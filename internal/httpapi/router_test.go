@@ -25,6 +25,7 @@ import (
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/settings"
 	"github.com/carnager/noterious/internal/vault"
+	"github.com/carnager/noterious/internal/workspaces"
 )
 
 func TestGetPageReturnsIndexedContent(t *testing.T) {
@@ -444,13 +445,84 @@ func TestMetaIncludesConfiguredHomePage(t *testing.T) {
 	}
 
 	var payload struct {
-		HomePage string `json:"homePage"`
+		HomePage  string `json:"homePage"`
+		Workspace struct {
+			ID        int64  `json:"id"`
+			Key       string `json:"key"`
+			VaultPath string `json:"vaultPath"`
+			HomePage  string `json:"homePage"`
+		} `json:"workspace"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
 	if payload.HomePage != "index" {
 		t.Fatalf("homePage = %q", payload.HomePage)
+	}
+	if payload.Workspace.ID == 0 {
+		t.Fatal("workspace.id = 0")
+	}
+	if payload.Workspace.Key != "default" {
+		t.Fatalf("workspace.key = %q", payload.Workspace.Key)
+	}
+	if payload.Workspace.VaultPath != vaultDir {
+		t.Fatalf("workspace.vaultPath = %q want %q", payload.Workspace.VaultPath, vaultDir)
+	}
+	if payload.Workspace.HomePage != "index" {
+		t.Fatalf("workspace.homePage = %q", payload.Workspace.HomePage)
+	}
+}
+
+func TestMetaIncludesVaultHealthWhenVaultIsMissing(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Config: config.Config{
+			ListenAddr: ":8080",
+			VaultPath:  vaultDir,
+			DataDir:    dataDir,
+			HomePage:   "index",
+		},
+	})
+
+	if err := os.RemoveAll(vaultDir); err != nil {
+		t.Fatalf("RemoveAll() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/meta", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var payload struct {
+		VaultPath   string `json:"vaultPath"`
+		VaultHealth struct {
+			Healthy bool   `json:"healthy"`
+			Reason  string `json:"reason"`
+			Message string `json:"message"`
+		} `json:"vaultHealth"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if payload.VaultPath != vaultDir {
+		t.Fatalf("vaultPath = %q want %q", payload.VaultPath, vaultDir)
+	}
+	if payload.VaultHealth.Healthy {
+		t.Fatal("vaultHealth.Healthy = true, want false")
+	}
+	if payload.VaultHealth.Reason != "missing" {
+		t.Fatalf("vaultHealth.Reason = %q want %q", payload.VaultHealth.Reason, "missing")
+	}
+	if payload.VaultHealth.Message == "" {
+		t.Fatal("vaultHealth.Message = empty, want non-empty")
 	}
 }
 
@@ -492,12 +564,19 @@ func TestAuthLoginMeLogoutFlow(t *testing.T) {
 		User          struct {
 			Username string `json:"username"`
 		} `json:"user"`
+		Workspace struct {
+			ID  int64  `json:"id"`
+			Key string `json:"key"`
+		} `json:"workspace"`
 	}
 	if err := json.NewDecoder(meResponse.Body).Decode(&mePayload); err != nil {
 		t.Fatalf("Decode(me) error = %v", err)
 	}
 	if !mePayload.Authenticated || mePayload.User.Username != "admin" {
 		t.Fatalf("me payload = %#v", mePayload)
+	}
+	if mePayload.Workspace.ID == 0 || mePayload.Workspace.Key != "default" {
+		t.Fatalf("workspace payload = %#v", mePayload.Workspace)
 	}
 
 	logoutRequest := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
@@ -9497,6 +9576,26 @@ func buildTestRouterWithDeps(t *testing.T, vaultDir, dataDir string, deps Depend
 	}
 	if deps.Events == nil {
 		deps.Events = NewEventBroker()
+	}
+	if deps.Workspaces == nil {
+		workspaceService, err := workspaces.NewService(context.Background(), dataDir)
+		if err != nil {
+			t.Fatalf("workspaces.NewService() error = %v", err)
+		}
+		t.Cleanup(func() {
+			_ = workspaceService.Close()
+		})
+		workspaceHomePage := deps.Config.HomePage
+		if workspaceHomePage == "" {
+			workspaceHomePage = "index"
+		}
+		if _, err := workspaceService.EnsureDefault(context.Background(), workspaces.DefaultConfig{
+			VaultPath: deps.Config.VaultPath,
+			HomePage:  workspaceHomePage,
+		}); err != nil {
+			t.Fatalf("EnsureDefault() error = %v", err)
+		}
+		deps.Workspaces = workspaceService
 	}
 
 	return NewRouter(deps)

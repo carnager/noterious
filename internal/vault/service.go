@@ -15,12 +15,63 @@ type Service struct {
 	rootPath string
 }
 
+type Health struct {
+	Healthy bool   `json:"healthy"`
+	Reason  string `json:"reason,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
 func NewService(rootPath string) *Service {
 	return &Service{rootPath: filepath.Clean(rootPath)}
 }
 
 func (s *Service) RootPath() string {
 	return s.rootPath
+}
+
+func (s *Service) Health() Health {
+	if strings.TrimSpace(s.rootPath) == "" {
+		return Health{
+			Healthy: false,
+			Reason:  "invalid",
+			Message: "Configured vault path is empty.",
+		}
+	}
+
+	info, err := os.Stat(s.rootPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return Health{
+				Healthy: false,
+				Reason:  "missing",
+				Message: "Configured vault path does not exist.",
+			}
+		}
+		return Health{
+			Healthy: false,
+			Reason:  "unavailable",
+			Message: fmt.Sprintf("Configured vault path is unavailable: %v", err),
+		}
+	}
+	if !info.IsDir() {
+		return Health{
+			Healthy: false,
+			Reason:  "unavailable",
+			Message: "Configured vault path is not a directory.",
+		}
+	}
+	if _, err := os.ReadDir(s.rootPath); err != nil {
+		return Health{
+			Healthy: false,
+			Reason:  "unavailable",
+			Message: fmt.Sprintf("Configured vault path is not readable: %v", err),
+		}
+	}
+
+	return Health{
+		Healthy: true,
+		Reason:  "ok",
+	}
 }
 
 type PageFile struct {

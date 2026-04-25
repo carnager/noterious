@@ -22,6 +22,7 @@ import (
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/settings"
 	"github.com/carnager/noterious/internal/vault"
+	"github.com/carnager/noterious/internal/workspaces"
 )
 
 type Dependencies struct {
@@ -29,6 +30,7 @@ type Dependencies struct {
 	Settings      *settings.Store
 	Documents     *documents.Service
 	History       *history.Service
+	Workspaces    *workspaces.Service
 	Vault         *vault.Service
 	Index         *index.Service
 	Query         *query.Service
@@ -44,7 +46,7 @@ func NewRouter(deps Dependencies) http.Handler {
 
 	mux := http.NewServeMux()
 	mountUI(mux)
-	mountAuthEndpoints(mux, deps.Auth)
+	mountAuthEndpoints(mux, deps.Auth, deps.Workspaces)
 
 	mux.HandleFunc("/api/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -57,16 +59,30 @@ func NewRouter(deps Dependencies) http.Handler {
 			VaultPath: deps.Config.VaultPath,
 			HomePage:  deps.Config.HomePage,
 		}
+		var currentWorkspace *workspaces.Workspace
 		restartRequired := false
 		if deps.Settings != nil {
 			snapshot := deps.Settings.Snapshot()
-			workspace = snapshot.Settings.Workspace
+			workspace = snapshot.AppliedWorkspace
 			restartRequired = snapshot.RestartRequired
+		}
+		if deps.Workspaces != nil {
+			if loadedWorkspace, err := deps.Workspaces.Default(context.Background()); err == nil {
+				currentWorkspace = &loadedWorkspace
+				workspace.VaultPath = loadedWorkspace.VaultPath
+				workspace.HomePage = loadedWorkspace.HomePage
+			}
+		}
+		vaultHealth := vault.Health{Healthy: true, Reason: "ok"}
+		if deps.Vault != nil {
+			vaultHealth = deps.Vault.Health()
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"name":            "noterious",
 			"listenAddr":      deps.Config.ListenAddr,
+			"workspace":       currentWorkspace,
 			"vaultPath":       workspace.VaultPath,
+			"vaultHealth":     vaultHealth,
 			"dataDir":         deps.Config.DataDir,
 			"homePage":        workspace.HomePage,
 			"database":        deps.Index.DatabasePath(),

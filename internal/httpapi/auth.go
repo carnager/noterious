@@ -7,14 +7,16 @@ import (
 	"strings"
 
 	"github.com/carnager/noterious/internal/auth"
+	"github.com/carnager/noterious/internal/workspaces"
 )
 
 type authSessionResponse struct {
 	Authenticated bool       `json:"authenticated"`
 	User          *auth.User `json:"user,omitempty"`
+	Workspace     *workspaces.Workspace `json:"workspace,omitempty"`
 }
 
-func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service) {
+func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, workspaceService *workspaces.Service) {
 	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, http.MethodPost)
@@ -44,10 +46,18 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service) {
 			return
 		}
 
+		var currentWorkspace *workspaces.Workspace
+		if workspaceService != nil {
+			if workspace, err := workspaceService.Default(r.Context()); err == nil {
+				currentWorkspace = &workspace
+			}
+		}
+
 		authService.SetSessionCookie(w, r, session)
 		writeJSON(w, http.StatusOK, authSessionResponse{
 			Authenticated: true,
 			User:          &session.User,
+			Workspace:     currentWorkspace,
 		})
 	})
 
@@ -94,9 +104,17 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service) {
 			return
 		}
 
+		var currentWorkspace *workspaces.Workspace
+		if workspaceService != nil {
+			if workspace, err := workspaceService.Default(r.Context()); err == nil {
+				currentWorkspace = &workspace
+			}
+		}
+
 		writeJSON(w, http.StatusOK, authSessionResponse{
 			Authenticated: true,
 			User:          &user,
+			Workspace:     currentWorkspace,
 		})
 	})
 }

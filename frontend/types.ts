@@ -134,10 +134,28 @@ export interface SavedQueryTreeFolder {
   queries: SavedQueryRecord[];
 }
 
+export interface VaultHealth {
+  healthy: boolean;
+  reason?: string;
+  message?: string;
+}
+
+export interface WorkspaceRecord {
+  id: number;
+  key: string;
+  name: string;
+  vaultPath: string;
+  homePage: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MetaResponse {
   name: string;
   listenAddr: string;
+  workspace?: WorkspaceRecord;
   vaultPath: string;
+  vaultHealth: VaultHealth;
   dataDir: string;
   homePage: string;
   database: string;
@@ -157,6 +175,7 @@ export interface AuthenticatedUser {
 export interface AuthSessionResponse {
   authenticated: boolean;
   user?: AuthenticatedUser;
+  workspace?: WorkspaceRecord;
 }
 
 export interface Hotkeys {

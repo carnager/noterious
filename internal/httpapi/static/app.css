@@ -248,6 +248,35 @@ select {
   gap: 0.4rem;
 }
 
+.vault-health-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  margin: 0 0 0.4rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(247, 118, 142, 0.28);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(247, 118, 142, 0.08), rgba(247, 118, 142, 0.04)),
+    rgba(36, 19, 28, 0.76);
+  color: rgba(247, 224, 230, 0.96);
+  box-shadow: var(--shadow);
+}
+
+.vault-health-banner strong {
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #ffb6c2;
+}
+
+.vault-health-banner span {
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: rgba(247, 224, 230, 0.92);
+}
+
 .workspace.rail-collapsed {
   grid-template-columns: minmax(0, 1fr);
 }

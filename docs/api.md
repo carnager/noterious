@@ -14,6 +14,12 @@
 - `GET /api/healthz`
 - `GET /api/meta`
 
+`GET /api/meta` returns basic runtime metadata for the current server process, including the runtime-applied `vaultPath`, `dataDir`, `homePage`, database path, server time, and `restartRequired`. Phase 2 now also exposes the current default `workspace` object in that response. It also includes `vaultHealth` with:
+
+- `healthy`: whether the current runtime vault path is readable
+- `reason`: `ok`, `missing`, `unavailable`, or `invalid`
+- `message`: a user-facing explanation when the vault is not healthy
+
 ### Auth
 
 - `POST /api/auth/login`
@@ -162,7 +168,7 @@
 
 When auth is enabled, every API endpoint except `GET /api/healthz`, `POST /api/auth/login`, `POST /api/auth/logout`, and `GET /api/auth/me` requires a valid session cookie. `GET /api/auth/me` returns `{"authenticated":false}` when no valid session is present, while protected endpoints return `401`.
 
-`POST /api/auth/login` accepts `{"username":"...","password":"..."}` and, on success, sets the session cookie and returns the authenticated user summary. `POST /api/auth/logout` clears the current session cookie. `GET /api/auth/me` returns the current session state plus the authenticated user payload when a session is active.
+`POST /api/auth/login` accepts `{"username":"...","password":"..."}` and, on success, sets the session cookie and returns the authenticated user summary plus the current default `workspace`. `POST /api/auth/logout` clears the current session cookie. `GET /api/auth/me` returns the current session state plus the authenticated user payload and current default `workspace` when a session is active.
 
 Targeted query block refresh emits `query-block.changed` with the block `page`, stable `key`, optional `id`, and lightweight block snapshot fields including `rowCount`, `renderHint`, `updatedAt`, and `stale`, followed by the usual derived/query invalidation for that page.
 
