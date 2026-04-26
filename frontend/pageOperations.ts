@@ -174,9 +174,14 @@ export async function renamePage(
   if (!fromPath || !nextLeaf) {
     return;
   }
-  const slash = fromPath.lastIndexOf("/");
-  const parent = slash >= 0 ? fromPath.slice(0, slash) : "";
-  const targetPath = parent ? (parent + "/" + nextLeaf) : nextLeaf;
+  let targetPath: string;
+  if (nextLeaf.indexOf("/") >= 0) {
+    targetPath = nextLeaf;
+  } else {
+    const slash = fromPath.lastIndexOf("/");
+    const parent = slash >= 0 ? fromPath.slice(0, slash) : "";
+    targetPath = parent ? (parent + "/" + nextLeaf) : nextLeaf;
+  }
   await movePage(fromPath, targetPath, callbacks);
 }
 
@@ -245,9 +250,18 @@ export async function renameFolder(
   if (!sourceFolder || !nextLeaf) {
     return;
   }
-  const slash = sourceFolder.lastIndexOf("/");
-  const parentFolder = slash >= 0 ? sourceFolder.slice(0, slash) : "";
-  const destinationFolder = parentFolder ? (parentFolder + "/" + nextLeaf) : nextLeaf;
+  let parentFolder: string;
+  let folderName: string;
+  if (nextLeaf.indexOf("/") >= 0) {
+    const lastSlash = nextLeaf.lastIndexOf("/");
+    parentFolder = nextLeaf.slice(0, lastSlash);
+    folderName = nextLeaf.slice(lastSlash + 1);
+  } else {
+    const slash = sourceFolder.lastIndexOf("/");
+    parentFolder = slash >= 0 ? sourceFolder.slice(0, slash) : "";
+    folderName = nextLeaf;
+  }
+  const destinationFolder = parentFolder ? (parentFolder + "/" + folderName) : folderName;
   if (destinationFolder === sourceFolder || destinationFolder.startsWith(sourceFolder + "/")) {
     return;
   }
@@ -255,7 +269,7 @@ export async function renameFolder(
   const payload = await callbacks.fetchJSON<{ folder?: string }>("/api/folders/" + callbacks.encodePath(sourceFolder) + "/move", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ targetFolder: parentFolder, name: nextLeaf }),
+    body: JSON.stringify({ targetFolder: parentFolder, name: folderName }),
   });
   const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
   const movedSelectedPage = context.selectedPage ? remapPathPrefix(context.selectedPage, sourceFolder, movedFolder) : "";

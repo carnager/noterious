@@ -671,7 +671,7 @@
     }
     const renderCell = function(cell, rowIndex, index, tag) {
       const alignment = alignments[index] || "left";
-      return "<" + tag + ' class="markdown-table-cell" style="text-align:' + alignment + ';" data-table-cell="true" data-table-start-line="' + String(startLineIndex + 1) + '" data-table-row="' + String(rowIndex) + '" data-table-col="' + String(index) + '">' + escapeHTML(cell) + "</" + tag + ">";
+      return "<" + tag + ' class="markdown-table-cell" style="text-align:' + alignment + ';" data-table-cell="true" data-table-start-line="' + String(startLineIndex + 1) + '" data-table-row="' + String(rowIndex) + '" data-table-col="' + String(index) + '">' + renderInline(cell) + "</" + tag + ">";
     };
     const html = '<div class="markdown-table-block" data-table-start-line="' + String(startLineIndex + 1) + '"><table><thead><tr>' + headerCells.map(function(cell, index) {
       return renderCell(cell, 0, index, "th");
@@ -708,6 +708,40 @@
       rows.push(splitMarkdownTableRow(String(lines[index] || "")));
     }
     return { header, rows };
+  }
+  function renderInline(value) {
+    const source = String(value || "");
+    const inlinePattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
+    let result = "";
+    let cursor = 0;
+    let match = null;
+    while ((match = inlinePattern.exec(source)) !== null) {
+      result += escapeHTML(source.slice(cursor, match.index));
+      if (match[1] !== void 0) {
+        const target = String(match[1] || "").trim();
+        const label = String(match[2] || match[1] || "").trim();
+        result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
+      } else if (match[3] !== void 0) {
+        const label = String(match[3] || "").trim();
+        const href = String(match[4] || "").trim();
+        if (/^[a-z]+:/i.test(href)) {
+          result += '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+        } else {
+          result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(href) + '">' + escapeHTML(label) + "</button>";
+        }
+      } else if (match[5] !== void 0) {
+        result += "<code>" + escapeHTML(match[5]) + "</code>";
+      } else if (match[6] !== void 0 || match[7] !== void 0) {
+        result += "<strong>" + escapeHTML(match[6] || match[7]) + "</strong>";
+      } else if (match[8] !== void 0 || match[9] !== void 0) {
+        result += "<em>" + escapeHTML(match[8] || match[9]) + "</em>";
+      } else if (match[10] !== void 0) {
+        result += "<del>" + escapeHTML(match[10]) + "</del>";
+      }
+      cursor = match.index + match[0].length;
+    }
+    result += escapeHTML(source.slice(cursor));
+    return result;
   }
   function wikiLinkAtCaret(line, caret) {
     const source = String(line || "");
@@ -2662,9 +2696,14 @@
     if (!fromPath || !nextLeaf) {
       return;
     }
-    const slash = fromPath.lastIndexOf("/");
-    const parent = slash >= 0 ? fromPath.slice(0, slash) : "";
-    const targetPath = parent ? parent + "/" + nextLeaf : nextLeaf;
+    let targetPath;
+    if (nextLeaf.indexOf("/") >= 0) {
+      targetPath = nextLeaf;
+    } else {
+      const slash = fromPath.lastIndexOf("/");
+      const parent = slash >= 0 ? fromPath.slice(0, slash) : "";
+      targetPath = parent ? parent + "/" + nextLeaf : nextLeaf;
+    }
     await movePage(fromPath, targetPath, callbacks);
   }
   async function movePageToFolder(pagePath, folderKey, callbacks) {
@@ -2713,16 +2752,25 @@
     if (!sourceFolder || !nextLeaf) {
       return;
     }
-    const slash = sourceFolder.lastIndexOf("/");
-    const parentFolder = slash >= 0 ? sourceFolder.slice(0, slash) : "";
-    const destinationFolder = parentFolder ? parentFolder + "/" + nextLeaf : nextLeaf;
+    let parentFolder;
+    let folderName;
+    if (nextLeaf.indexOf("/") >= 0) {
+      const lastSlash = nextLeaf.lastIndexOf("/");
+      parentFolder = nextLeaf.slice(0, lastSlash);
+      folderName = nextLeaf.slice(lastSlash + 1);
+    } else {
+      const slash = sourceFolder.lastIndexOf("/");
+      parentFolder = slash >= 0 ? sourceFolder.slice(0, slash) : "";
+      folderName = nextLeaf;
+    }
+    const destinationFolder = parentFolder ? parentFolder + "/" + folderName : folderName;
     if (destinationFolder === sourceFolder || destinationFolder.startsWith(sourceFolder + "/")) {
       return;
     }
     const payload = await callbacks.fetchJSON("/api/folders/" + callbacks.encodePath(sourceFolder) + "/move", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetFolder: parentFolder, name: nextLeaf })
+      body: JSON.stringify({ targetFolder: parentFolder, name: folderName })
     });
     const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
     const movedSelectedPage = context.selectedPage ? remapPathPrefix(context.selectedPage, sourceFolder, movedFolder) : "";
@@ -3488,27 +3536,63 @@
     };
     container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
   }
-  function renderPageTasks(container, tasks, onSelectTask) {
-    clearNode(container);
+  function filterTasks(tasks, filter) {
     if (!tasks || !tasks.length) {
-      renderEmpty(container, "No indexed tasks on this page.");
+      return [];
+    }
+    switch (filter) {
+      case "not-done":
+        return tasks.filter(function(task) {
+          return !task.done;
+        });
+      case "has-due":
+        return tasks.filter(function(task) {
+          return Boolean(task.due);
+        });
+      case "has-reminder":
+        return tasks.filter(function(task) {
+          return Boolean(task.remind);
+        });
+      default:
+        return tasks;
+    }
+  }
+  function renderPageTasks(container, tasks, onSelectTask, onToggleTask, filter) {
+    clearNode(container);
+    const filtered = filterTasks(tasks, filter || "not-done");
+    if (!filtered.length) {
+      const label = filter === "all" ? "No tasks on this page." : "No matching tasks.";
+      renderEmpty(container, tasks.length ? label : "No indexed tasks on this page.");
       return;
     }
-    tasks.forEach(function(task) {
+    filtered.forEach(function(task) {
       const item = document.createElement("div");
       item.className = "page-task-item";
+      if (task.done) {
+        item.classList.add("page-task-done");
+      }
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "page-task-checkbox";
+      checkbox.checked = task.done;
+      checkbox.title = task.done ? "Mark as not done" : "Mark as done";
+      checkbox.addEventListener("click", function(event) {
+        event.stopPropagation();
+        onToggleTask(task);
+      });
+      item.appendChild(checkbox);
       const button = document.createElement("button");
       button.type = "button";
       button.addEventListener("click", function() {
         onSelectTask(task);
       });
-      const title = document.createElement("strong");
-      title.textContent = task.text || task.ref;
+      const title = document.createElement("span");
+      title.className = "page-task-title";
+      title.innerHTML = renderInline(task.text || task.ref);
       button.appendChild(title);
       const meta = document.createElement("div");
       meta.className = "page-task-meta";
       [
-        task.done ? "done" : "open",
         task.due ? "due " + formatDateValue(task.due) : "no due",
         task.remind ? "remind " + formatDateTimeValue(task.remind) : "",
         task.who && task.who.length ? task.who.join(", ") : ""
@@ -3586,6 +3670,7 @@
       "use strict";
       init_dom();
       init_datetime();
+      init_markdown();
       activeDragItem = null;
     }
   });
@@ -6026,6 +6111,7 @@
           pendingPageLineFocus: null,
           pendingPageTaskRef: "",
           renamingPageTitle: false,
+          taskFilter: "not-done",
           tableEditor: null,
           pageHistory: [],
           selectedHistoryRevisionId: "",
@@ -6071,6 +6157,7 @@
           togglePageSearch: requiredElement("toggle-page-search"),
           pageList: requiredElement("page-list"),
           pageTaskList: requiredElement("page-task-list"),
+          taskFilters: requiredElement("task-filters"),
           pageTags: requiredElement("page-tags"),
           pageContext: requiredElement("page-context"),
           pageProperties: requiredElement("page-properties"),
@@ -7024,9 +7111,14 @@
             setNoteHeadingValue(normalizedTitle, true);
             return;
           }
-          const slash = currentPath.lastIndexOf("/");
-          const parentFolder = slash >= 0 ? currentPath.slice(0, slash) : "";
-          const targetPath = parentFolder ? parentFolder + "/" + normalizedTitle : normalizedTitle;
+          let targetPath;
+          if (normalizedTitle.indexOf("/") >= 0) {
+            targetPath = normalizedTitle;
+          } else {
+            const slash = currentPath.lastIndexOf("/");
+            const parentFolder = slash >= 0 ? currentPath.slice(0, slash) : "";
+            targetPath = parentFolder ? parentFolder + "/" + normalizedTitle : normalizedTitle;
+          }
           state.renamingPageTitle = true;
           try {
             if (hasUnsavedPageChanges()) {
@@ -7169,7 +7261,11 @@
               return;
             }
             navigateToPageAtTask(task.page, task.ref || "", task.line || 0, false);
-          });
+          }, function(task) {
+            toggleTaskDone2(task).catch(function(error) {
+              setNoteStatus("Task toggle failed: " + errorMessage(error));
+            });
+          }, state.taskFilter);
         }
         function renderPageContext2() {
           renderPageContext(els.pageContext, state.currentPage, state.currentDerived);
@@ -8976,6 +9072,19 @@
           });
           on(els.railTabTags, "click", function() {
             setRailTab("tags");
+          });
+          on(els.taskFilters, "click", function(rawEvent) {
+            const target = rawEvent.target instanceof HTMLElement ? rawEvent.target : null;
+            const button = target ? target.closest("[data-task-filter]") : null;
+            if (!button) {
+              return;
+            }
+            const filter = button.getAttribute("data-task-filter") || "not-done";
+            state.taskFilter = filter;
+            els.taskFilters.querySelectorAll(".task-filter").forEach(function(btn) {
+              btn.classList.toggle("active", btn.getAttribute("data-task-filter") === filter);
+            });
+            renderPageTasks2(state.currentPage ? state.currentPage.tasks || [] : []);
           });
           on(els.toggleDebug, "click", function() {
             setDebugOpen(!state.debugOpen);

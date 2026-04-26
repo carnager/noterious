@@ -1,6 +1,6 @@
 import {EditorState, StateEffect, StateField, RangeSetBuilder} from "@codemirror/state";
 import {EditorView, keymap, drawSelection, highlightActiveLine, Decoration, type DecorationSet, WidgetType} from "@codemirror/view";
-import {defaultKeymap, history, historyKeymap} from "@codemirror/commands";
+import {defaultKeymap, indentWithTab, history, historyKeymap} from "@codemirror/commands";
 import {markdown} from "@codemirror/lang-markdown";
 import {LanguageDescription, HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {javascript} from "@codemirror/lang-javascript";
@@ -194,6 +194,35 @@ class MarkdownLinkWidget extends WidgetType {
     link.type = "button";
     link.className = "cm-md-link";
     link.setAttribute("data-document-download", this.href);
+    link.textContent = this.label;
+    return link;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+class ExternalLinkWidget extends WidgetType {
+  href: string;
+  label: string;
+
+  constructor(href: string, label: string) {
+    super();
+    this.href = href;
+    this.label = label;
+  }
+
+  eq(other: ExternalLinkWidget): boolean {
+    return other.href === this.href && other.label === this.label;
+  }
+
+  toDOM(): HTMLAnchorElement {
+    const link = document.createElement("a");
+    link.className = "cm-md-link";
+    link.href = this.href;
+    link.target = "_blank";
+    link.rel = "noopener";
     link.textContent = this.label;
     return link;
   }
@@ -601,6 +630,97 @@ function handleRenderedTableArrowUp(view: EditorView): boolean {
   return false;
 }
 
+interface InlineDeco {
+  from: number;
+  to: number;
+  deco: Decoration;
+}
+
+function addInlineDecorations(
+  builder: RangeSetBuilder<Decoration>,
+  lineFrom: number,
+  text: string,
+  startOffset: number,
+  editingLine: boolean,
+  selection: { from: number; to: number },
+  currentPagePath: string,
+  extraDecos: InlineDeco[]
+): void {
+  const decos: InlineDeco[] = extraDecos.slice();
+  const body = text.slice(startOffset);
+  const bodyFrom = lineFrom + startOffset;
+  const pattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|(?<![(\[])https?:\/\/[^\s)\]>]+|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
+
+  let m: RegExpExecArray | null = null;
+  while ((m = pattern.exec(body)) !== null) {
+    const mFrom = bodyFrom + m.index;
+    const mEnd = mFrom + m[0].length;
+
+    if (m[1] !== undefined) {
+      const target = String(m[1]).trim();
+      const label = String(m[2] || "").trim() || pageTitleFromPath(target);
+      const editing = selection.from <= mEnd && selection.to >= mFrom;
+      if (editing) {
+        decos.push({from: mFrom, to: mEnd, deco: Decoration.mark({class: "cm-md-link-raw"})});
+      } else {
+        decos.push({from: mFrom, to: mEnd, deco: Decoration.replace({widget: new WikiLinkWidget(target, label)})});
+      }
+    } else if (m[3] !== undefined) {
+      const label = String(m[3]).trim();
+      const target = String(m[4] || "").trim();
+      const editing = selection.from <= mEnd && selection.to >= mFrom;
+      if (/^[a-z]+:/i.test(target)) {
+        if (editing) {
+          decos.push({from: mFrom, to: mEnd, deco: Decoration.mark({class: "cm-md-link-raw"})});
+        } else {
+          decos.push({from: mFrom, to: mEnd, deco: Decoration.replace({widget: new ExternalLinkWidget(target, label || target)})});
+        }
+      } else {
+        const resolvedPath = resolveRelativeTarget(currentPagePath, target);
+        if (!resolvedPath || /\.md$/i.test(resolvedPath) || target.startsWith("#")) {
+          continue;
+        }
+        const href = "/api/documents/download?path=" + encodeURIComponent(resolvedPath);
+        if (editing) {
+          decos.push({from: mFrom, to: mEnd, deco: Decoration.mark({class: "cm-md-link-raw"})});
+        } else {
+          decos.push({from: mFrom, to: mEnd, deco: Decoration.replace({widget: new MarkdownLinkWidget(href, label || href)})});
+        }
+      }
+    } else if (m[0][0] === "h" && /^https?:\/\//.test(m[0])) {
+      const editing = selection.from <= mEnd && selection.to >= mFrom;
+      if (editing) {
+        decos.push({from: mFrom, to: mEnd, deco: Decoration.mark({class: "cm-md-link-raw"})});
+      } else if (!editingLine) {
+        decos.push({from: mFrom, to: mEnd, deco: Decoration.replace({widget: new ExternalLinkWidget(m[0], m[0])})});
+      }
+    } else if (!editingLine) {
+      if (m[5] !== undefined) {
+        decos.push({from: mFrom, to: mFrom + 1, deco: Decoration.replace({})});
+        decos.push({from: mFrom + 1, to: mEnd - 1, deco: Decoration.mark({class: "cm-md-inline-code"})});
+        decos.push({from: mEnd - 1, to: mEnd, deco: Decoration.replace({})});
+      } else if (m[6] !== undefined || m[7] !== undefined) {
+        decos.push({from: mFrom, to: mFrom + 2, deco: Decoration.replace({})});
+        decos.push({from: mFrom + 2, to: mEnd - 2, deco: Decoration.mark({class: "cm-md-bold"})});
+        decos.push({from: mEnd - 2, to: mEnd, deco: Decoration.replace({})});
+      } else if (m[8] !== undefined || m[9] !== undefined) {
+        decos.push({from: mFrom, to: mFrom + 1, deco: Decoration.replace({})});
+        decos.push({from: mFrom + 1, to: mEnd - 1, deco: Decoration.mark({class: "cm-md-italic"})});
+        decos.push({from: mEnd - 1, to: mEnd, deco: Decoration.replace({})});
+      } else if (m[10] !== undefined) {
+        decos.push({from: mFrom, to: mFrom + 2, deco: Decoration.replace({})});
+        decos.push({from: mFrom + 2, to: mEnd - 2, deco: Decoration.mark({class: "cm-md-strikethrough"})});
+        decos.push({from: mEnd - 2, to: mEnd, deco: Decoration.replace({})});
+      }
+    }
+  }
+
+  decos.sort(function (a, b) { return a.from - b.from || a.to - b.to; });
+  for (let i = 0; i < decos.length; i += 1) {
+    builder.add(decos[i].from, decos[i].to, decos[i].deco);
+  }
+}
+
 function buildRenderedDecorations(state: EditorState): DecorationSet {
   if (!state.field(renderModeField, false)) {
     return Decoration.none;
@@ -722,19 +842,18 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
       continue;
     }
 
+    let inlineStart = 0;
+    const inlineExtraDecos: InlineDeco[] = [];
+    let taskMetaWidget: WidgetType | null = null;
+
     let match = text.match(/^(#{1,6})(\s+)/);
     if (match) {
       builder.add(from, from, Decoration.line({class: "cm-md-heading cm-md-heading-" + String(match[1].length)}));
       if (editingLine) {
-        builder.add(
-          from,
-          from + match[0].length,
-          Decoration.mark({
-            class: "cm-md-heading-raw",
-          })
-        );
+        builder.add(from, from + match[0].length, Decoration.mark({class: "cm-md-heading-raw"}));
       } else {
         builder.add(from, from + match[0].length, Decoration.replace({}));
+        inlineStart = match[0].length;
       }
     }
 
@@ -742,6 +861,9 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
     if (match) {
       builder.add(from, from, Decoration.line({class: "cm-md-quote"}));
       builder.add(from, from + match[1].length, Decoration.replace({}));
+      if (match[1].length > inlineStart) {
+        inlineStart = match[1].length;
+      }
     }
 
     match = text.match(/^(\s*)-\s+\[([ xX])\]\s+/);
@@ -758,102 +880,37 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
       const prefixLength = match[0].length;
       const bodyText = text.slice(prefixLength);
       builder.add(from, from, Decoration.line({class: "cm-md-task-line" + (task.done ? " cm-md-task-done" : "")}));
-      builder.add(
-        from,
-        from + prefixLength,
-        Decoration.replace({
-          widget: new TaskCheckboxWidget(task.done, task.ref, indentLength),
-        })
-      );
+      builder.add(from, from + prefixLength, Decoration.replace({widget: new TaskCheckboxWidget(task.done, task.ref, indentLength)}));
+      inlineStart = prefixLength;
+
       let dateMatch: RegExpExecArray | null = null;
       while ((dateMatch = taskInlineDatePattern.exec(bodyText)) !== null) {
         const field = String(dateMatch[1] || "");
         const start = from + prefixLength + dateMatch.index;
         const end = start + dateMatch[0].length;
-        builder.add(
-          start,
-          end,
-          Decoration.mark({
+        inlineExtraDecos.push({
+          from: start,
+          to: end,
+          deco: Decoration.mark({
             class: "cm-md-task-inline-date",
             attributes: {
               "data-task-date-edit": field,
               "data-task-ref": task.ref || "",
             },
-          })
-        );
+          }),
+        });
       }
       taskInlineDatePattern.lastIndex = 0;
+
       if (task.text && bodyText.startsWith(task.text) && task.who && task.who.length) {
-        builder.add(
-          line.to,
-          line.to,
-          Decoration.widget({
-            widget: new TaskMetaWidget(task),
-            side: 1,
-          })
-        );
+        taskMetaWidget = new TaskMetaWidget(task);
       }
-      continue;
     }
 
-    const wikiPattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
-    let wikiMatch: RegExpExecArray | null = null;
-    while ((wikiMatch = wikiPattern.exec(text)) !== null) {
-      const target = String(wikiMatch[1] || "").trim();
-      const explicitLabel = String(wikiMatch[2] || "").trim();
-      const label = explicitLabel || pageTitleFromPath(target);
-      const start = from + wikiMatch.index;
-      const end = start + wikiMatch[0].length;
-      const editingLink = selection.from <= end && selection.to >= start;
-      if (editingLink) {
-        builder.add(
-          start,
-          end,
-          Decoration.mark({
-            class: "cm-md-link-raw",
-          })
-        );
-        continue;
-      }
-      builder.add(
-        start,
-        end,
-        Decoration.replace({
-          widget: new WikiLinkWidget(target, label),
-        })
-      );
-    }
+    addInlineDecorations(builder, from, text, inlineStart, editingLine, selection, currentPagePath, inlineExtraDecos);
 
-    const markdownLinkPattern = /\[([^\]]+)\]\(([^)\s]+)\)/g;
-    let markdownLinkMatch: RegExpExecArray | null = null;
-    while ((markdownLinkMatch = markdownLinkPattern.exec(text)) !== null) {
-      const label = String(markdownLinkMatch[1] || "").trim();
-      const target = String(markdownLinkMatch[2] || "").trim();
-      const resolvedPath = resolveRelativeTarget(currentPagePath, target);
-      if (!resolvedPath || /\.md$/i.test(resolvedPath) || /^[a-z]+:/i.test(target) || target.startsWith("#")) {
-        continue;
-      }
-      const href = "/api/documents/download?path=" + encodeURIComponent(resolvedPath);
-      const start = from + markdownLinkMatch.index;
-      const end = start + markdownLinkMatch[0].length;
-      const editingLink = selection.from <= end && selection.to >= start;
-      if (editingLink) {
-        builder.add(
-          start,
-          end,
-          Decoration.mark({
-            class: "cm-md-link-raw",
-          })
-        );
-        continue;
-      }
-      builder.add(
-        start,
-        end,
-        Decoration.replace({
-          widget: new MarkdownLinkWidget(href, label || href),
-        })
-      );
+    if (taskMetaWidget) {
+      builder.add(line.to, line.to, Decoration.widget({widget: taskMetaWidget, side: 1}));
     }
   }
 
@@ -918,6 +975,24 @@ window.NoteriousCodeEditor = {
     let suppressInput = false;
 
     const eventHandlers = EditorView.domEventHandlers({
+      paste(event, view) {
+        const text = event.clipboardData ? event.clipboardData.getData("text/plain") : "";
+        if (!text || !/^https?:\/\/\S+$/i.test(text.trim())) {
+          return false;
+        }
+        const url = text.trim();
+        const selection = view.state.selection.main;
+        const hasSelection = !selection.empty;
+        const label = hasSelection ? view.state.sliceDoc(selection.from, selection.to) : url;
+        const insert = "[" + label + "](" + url + ")";
+        event.preventDefault();
+        view.dispatch({
+          changes: { from: selection.from, to: selection.to, insert },
+          selection: { anchor: selection.from + insert.length },
+        });
+        syncTextareaValue(textarea, view.state.doc.toString());
+        return true;
+      },
       mousedown(event, view) {
         clearSearchHitHighlight(view);
         const target = event.target instanceof Element ? event.target : null;
@@ -1034,6 +1109,27 @@ window.NoteriousCodeEditor = {
         if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
           clearSearchHitHighlight(view);
         }
+        // Auto-convert bare URLs to markdown link syntax on Space or Enter
+        if (event.key === " " || event.key === "Enter") {
+          const cursor = view.state.selection.main.head;
+          const line = view.state.doc.lineAt(cursor);
+          const textBefore = line.text.slice(0, cursor - line.from);
+          const urlMatch = textBefore.match(/(https?:\/\/[^\s)\]>]+)$/);
+          if (urlMatch) {
+            const url = urlMatch[1];
+            // Don't convert if already inside a markdown link
+            const prefix = textBefore.slice(0, textBefore.length - url.length);
+            if (!prefix.endsWith("](") && !prefix.endsWith("(")) {
+              const from = cursor - url.length;
+              const mdLink = "[" + url + "](" + url + ")";
+              view.dispatch({
+                changes: { from, to: cursor, insert: mdLink },
+                selection: { anchor: from + mdLink.length },
+              });
+              syncTextareaValue(textarea, view.state.doc.toString());
+            }
+          }
+        }
         return false;
       },
     });
@@ -1052,6 +1148,7 @@ window.NoteriousCodeEditor = {
                 return handleRenderedTableArrowUp(view);
               },
             },
+            indentWithTab,
             ...defaultKeymap,
             ...historyKeymap,
           ]),

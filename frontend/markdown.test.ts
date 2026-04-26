@@ -86,7 +86,7 @@ describe("markdown helpers", function () {
     expect(block?.html).toContain("<table>");
     expect(block?.html).toContain("<th");
     expect(block?.html).toContain('data-table-cell="true"');
-    expect(block?.html).toContain("[[notes/alpha]]");
+    expect(block?.html).toContain('data-page-link="notes/alpha"');
   });
 
   it("extracts fenced code blocks without fence markup", function () {

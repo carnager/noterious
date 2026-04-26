@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.9] - 2026-04-26
+
+### Added
+- Pasting a URL into the editor auto-creates markdown link syntax; when text is selected the selection becomes the link label.
+- Typing a bare URL and pressing Space or Enter auto-converts it to `[url](url)` markdown link syntax.
+- Inline markdown rendering (bold, italic, code, strikethrough, wiki links, markdown links) now works inside table cells, list items, and the sidebar task list.
+- Task filter buttons (Not Done, Has Due, Reminders, All) in the sidebar tasks panel.
+- Checkboxes on sidebar task items to toggle done/not-done directly without navigating to the task.
+- Bare URLs in the editor are rendered as clickable external links.
+
+### Fixed
+- Tab key now works in the editor for indentation.
+- Rename now supports full folder paths (e.g. `folder/subfolder/name`).
+- Sidebar font-size increase no longer cuts off the page tree; rail panels scroll within their fixed viewport.
+- Task panel items now use theme-aware colors instead of hard-coded backgrounds.
+
 ## [v0.1.8] - 2026-04-26
 
 ### Added

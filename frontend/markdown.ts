@@ -346,7 +346,7 @@ export function markdownTableBlockAt(lines: string[], startLineIndex: number): M
   const renderCell = function (cell: string, rowIndex: number, index: number, tag: "th" | "td"): string {
     const alignment = alignments[index] || "left";
     return "<" + tag + ' class="markdown-table-cell" style="text-align:' + alignment + ';" data-table-cell="true" data-table-start-line="' + String(startLineIndex + 1) + '" data-table-row="' + String(rowIndex) + '" data-table-col="' + String(index) + '">' +
-      escapeHTML(cell) +
+      renderInline(cell) +
       "</" + tag + ">";
   };
 
@@ -437,18 +437,37 @@ export function markdownCodeFenceBlockAt(lines: string[], startLineIndex: number
 
 export function renderInline(value: string): string {
   const source = String(value || "");
-  const wikiPattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+  const inlinePattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
   let result = "";
   let cursor = 0;
   let match: RegExpExecArray | null = null;
 
-  while ((match = wikiPattern.exec(source)) !== null) {
-    const [fullMatch, rawTarget, rawLabel] = match;
+  while ((match = inlinePattern.exec(source)) !== null) {
     result += escapeHTML(source.slice(cursor, match.index));
-    const target = String(rawTarget || "").trim();
-    const label = String(rawLabel || rawTarget || "").trim();
-    result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
-    cursor = match.index + fullMatch.length;
+
+    if (match[1] !== undefined) {
+      const target = String(match[1] || "").trim();
+      const label = String(match[2] || match[1] || "").trim();
+      result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
+    } else if (match[3] !== undefined) {
+      const label = String(match[3] || "").trim();
+      const href = String(match[4] || "").trim();
+      if (/^[a-z]+:/i.test(href)) {
+        result += '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+      } else {
+        result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(href) + '">' + escapeHTML(label) + "</button>";
+      }
+    } else if (match[5] !== undefined) {
+      result += "<code>" + escapeHTML(match[5]) + "</code>";
+    } else if (match[6] !== undefined || match[7] !== undefined) {
+      result += "<strong>" + escapeHTML(match[6] || match[7]) + "</strong>";
+    } else if (match[8] !== undefined || match[9] !== undefined) {
+      result += "<em>" + escapeHTML(match[8] || match[9]) + "</em>";
+    } else if (match[10] !== undefined) {
+      result += "<del>" + escapeHTML(match[10]) + "</del>";
+    }
+
+    cursor = match.index + match[0].length;
   }
 
   result += escapeHTML(source.slice(cursor));

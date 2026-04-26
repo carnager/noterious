@@ -124,6 +124,7 @@ import {
   renderPageContext as renderPageContextUI,
   renderPageTags as renderPageTagsUI,
   renderPageTasks as renderPageTasksUI,
+  type TaskFilter,
 } from "./pageViews";
 import {
   closeTreeContextMenu as closeTreeContextMenuUI,
@@ -328,6 +329,7 @@ interface AppState {
   pendingPageLineFocus: number | null;
   pendingPageTaskRef: string;
   renamingPageTitle: boolean;
+  taskFilter: TaskFilter;
   tableEditor: TableEditorState | null;
   pageHistory: PageRevisionRecord[];
   selectedHistoryRevisionId: string;
@@ -447,6 +449,7 @@ interface TreeContextMenuState {
     pendingPageLineFocus: null,
     pendingPageTaskRef: "",
     renamingPageTitle: false,
+    taskFilter: "not-done" as TaskFilter,
     tableEditor: null,
     pageHistory: [],
     selectedHistoryRevisionId: "",
@@ -493,6 +496,7 @@ interface TreeContextMenuState {
     togglePageSearch: requiredElement<HTMLButtonElement>("toggle-page-search"),
     pageList: requiredElement<HTMLDivElement>("page-list"),
     pageTaskList: requiredElement<HTMLDivElement>("page-task-list"),
+    taskFilters: requiredElement<HTMLDivElement>("task-filters"),
     pageTags: requiredElement<HTMLDivElement>("page-tags"),
     pageContext: requiredElement<HTMLDivElement>("page-context"),
     pageProperties: requiredElement<HTMLDivElement>("page-properties"),
@@ -1545,9 +1549,14 @@ interface TreeContextMenuState {
       return;
     }
 
-    const slash = currentPath.lastIndexOf("/");
-    const parentFolder = slash >= 0 ? currentPath.slice(0, slash) : "";
-    const targetPath = parentFolder ? (parentFolder + "/" + normalizedTitle) : normalizedTitle;
+    let targetPath: string;
+    if (normalizedTitle.indexOf("/") >= 0) {
+      targetPath = normalizedTitle;
+    } else {
+      const slash = currentPath.lastIndexOf("/");
+      const parentFolder = slash >= 0 ? currentPath.slice(0, slash) : "";
+      targetPath = parentFolder ? (parentFolder + "/" + normalizedTitle) : normalizedTitle;
+    }
 
     state.renamingPageTitle = true;
     try {
@@ -1709,7 +1718,11 @@ interface TreeContextMenuState {
         return;
       }
       navigateToPageAtTask(task.page, task.ref || "", task.line || 0, false);
-    });
+    }, function (task) {
+      toggleTaskDone(task).catch(function (error) {
+        setNoteStatus("Task toggle failed: " + errorMessage(error));
+      });
+    }, state.taskFilter);
   }
 
   function renderPageContext() {
@@ -3687,6 +3700,19 @@ interface TreeContextMenuState {
     });
     on(els.railTabTags, "click", function () {
       setRailTab("tags");
+    });
+    on(els.taskFilters, "click", function (rawEvent) {
+      const target = (rawEvent as Event).target instanceof HTMLElement ? (rawEvent as Event).target as HTMLElement : null;
+      const button = target ? target.closest("[data-task-filter]") : null;
+      if (!button) {
+        return;
+      }
+      const filter = (button.getAttribute("data-task-filter") || "not-done") as TaskFilter;
+      state.taskFilter = filter;
+      els.taskFilters.querySelectorAll(".task-filter").forEach(function (btn) {
+        btn.classList.toggle("active", btn.getAttribute("data-task-filter") === filter);
+      });
+      renderPageTasks(state.currentPage ? state.currentPage.tasks || [] : []);
     });
     on(els.toggleDebug, "click", function () {
       setDebugOpen(!state.debugOpen);

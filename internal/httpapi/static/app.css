@@ -1079,7 +1079,13 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   flex: 0 0 auto;
   padding: 0.42rem 0.48rem;
   gap: 0.28rem;
-  background: rgba(32, 34, 47, 0.88);
+  background: color-mix(in srgb, var(--panel-strong) 88%, transparent);
+}
+
+.rail-panel .compact-card {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .rail-panel .context-list,
@@ -1088,6 +1094,8 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   display: flex;
   flex-direction: column;
   gap: 0.22rem;
+  overflow: auto;
+  min-height: 0;
 }
 
 .rail-panel .empty {
@@ -1614,6 +1622,34 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   padding-top: 0.7rem;
 }
 
+.task-filters {
+  display: flex;
+  gap: 0.22rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.2rem;
+}
+
+.task-filter {
+  padding: 0.18rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.66rem;
+  cursor: pointer;
+}
+
+.task-filter:hover {
+  border-color: var(--focus-ring);
+  color: var(--ink);
+}
+
+.task-filter.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+  color: var(--accent);
+}
+
 .page-task-list {
   display: flex;
   flex-direction: column;
@@ -1621,23 +1657,55 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 }
 
 .page-task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.3rem;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(26, 27, 38, 0.58);
-}
-
-.page-task-item button {
-  width: 100%;
-  text-align: left;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
+  background: color-mix(in srgb, var(--surface-soft) 58%, transparent);
   padding: 0.35rem 0.45rem;
 }
 
-.page-task-item strong {
+.page-task-item.page-task-done {
+  opacity: 0.55;
+}
+
+.page-task-checkbox {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin: 0.15rem 0 0 0;
+  accent-color: var(--accent, #4f8cc9);
+  cursor: pointer;
+}
+
+.page-task-item button {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.page-task-title {
   font-size: 0.72rem;
   font-weight: 500;
+}
+
+.page-task-title strong {
+  font-weight: 700;
+}
+
+.page-task-title .wiki-link {
+  color: var(--accent, #4f8cc9);
+  text-decoration: underline;
+  cursor: pointer;
+  background: none;
+  border: none;
+  font: inherit;
+  padding: 0;
 }
 
 .page-task-meta {
@@ -1883,6 +1951,26 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 .markdown-editor-host.render-mode .cm-md-heading-raw {
   color: var(--muted);
   opacity: 0.8;
+}
+
+.markdown-editor-host.render-mode .cm-md-bold {
+  font-weight: 700;
+}
+
+.markdown-editor-host.render-mode .cm-md-italic {
+  font-style: italic;
+}
+
+.markdown-editor-host.render-mode .cm-md-strikethrough {
+  text-decoration: line-through;
+}
+
+.markdown-editor-host.render-mode .cm-md-inline-code {
+  background: var(--accent-soft);
+  padding: 0.08em 0.32em;
+  border-radius: 5px;
+  font-family: var(--code-font-family);
+  font-size: 0.92em;
 }
 
 .markdown-editor-host.render-mode .cm-activeLine .cm-md-heading-raw,

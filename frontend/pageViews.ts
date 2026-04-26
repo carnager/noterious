@@ -1,5 +1,6 @@
 import { clearNode, renderEmpty } from "./dom";
 import { formatDateTimeValue, formatDateValue } from "./datetime";
+import { renderInline } from "./markdown";
 import type { BacklinkRecord, DerivedPage, FrontmatterMap, PageRecord, PageSummary, TaskRecord } from "./types";
 
 interface PageTreeFolder {
@@ -459,17 +460,51 @@ export function renderPagesTree(
   container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
 }
 
-export function renderPageTasks(container: HTMLDivElement, tasks: TaskRecord[], onSelectTask: (task: TaskRecord) => void): void {
+export type TaskFilter = "not-done" | "has-due" | "has-reminder" | "all";
+
+export function filterTasks(tasks: TaskRecord[], filter: TaskFilter): TaskRecord[] {
+  if (!tasks || !tasks.length) {
+    return [];
+  }
+  switch (filter) {
+    case "not-done":
+      return tasks.filter(function (task) { return !task.done; });
+    case "has-due":
+      return tasks.filter(function (task) { return Boolean(task.due); });
+    case "has-reminder":
+      return tasks.filter(function (task) { return Boolean(task.remind); });
+    default:
+      return tasks;
+  }
+}
+
+export function renderPageTasks(container: HTMLDivElement, tasks: TaskRecord[], onSelectTask: (task: TaskRecord) => void, onToggleTask: (task: TaskRecord) => void, filter?: TaskFilter): void {
   clearNode(container);
 
-  if (!tasks || !tasks.length) {
-    renderEmpty(container, "No indexed tasks on this page.");
+  const filtered = filterTasks(tasks, filter || "not-done");
+  if (!filtered.length) {
+    const label = filter === "all" ? "No tasks on this page." : "No matching tasks.";
+    renderEmpty(container, tasks.length ? label : "No indexed tasks on this page.");
     return;
   }
 
-  tasks.forEach(function (task) {
+  filtered.forEach(function (task) {
     const item = document.createElement("div");
     item.className = "page-task-item";
+    if (task.done) {
+      item.classList.add("page-task-done");
+    }
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "page-task-checkbox";
+    checkbox.checked = task.done;
+    checkbox.title = task.done ? "Mark as not done" : "Mark as done";
+    checkbox.addEventListener("click", function (event) {
+      event.stopPropagation();
+      onToggleTask(task);
+    });
+    item.appendChild(checkbox);
 
     const button = document.createElement("button");
     button.type = "button";
@@ -477,14 +512,14 @@ export function renderPageTasks(container: HTMLDivElement, tasks: TaskRecord[], 
       onSelectTask(task);
     });
 
-    const title = document.createElement("strong");
-    title.textContent = task.text || task.ref;
+    const title = document.createElement("span");
+    title.className = "page-task-title";
+    title.innerHTML = renderInline(task.text || task.ref);
     button.appendChild(title);
 
     const meta = document.createElement("div");
     meta.className = "page-task-meta";
     [
-      task.done ? "done" : "open",
       task.due ? "due " + formatDateValue(task.due) : "no due",
       task.remind ? "remind " + formatDateTimeValue(task.remind) : "",
       task.who && task.who.length ? task.who.join(", ") : "",
