@@ -22,6 +22,8 @@ export function defaultClientPreferences(): ClientPreferences {
     },
     vaults: {
       topLevelFoldersAsVaults: false,
+      rootHomePage: "",
+      scopeHomePages: {},
     },
   };
 }
@@ -46,6 +48,14 @@ export function cloneClientPreferences(input: ClientPreferences): ClientPreferen
     },
     vaults: {
       topLevelFoldersAsVaults: Boolean(input.vaults.topLevelFoldersAsVaults),
+      rootHomePage: String(input.vaults.rootHomePage || "").trim(),
+      scopeHomePages: Object.fromEntries(
+        Object.entries(input.vaults.scopeHomePages || {}).map(function ([key, value]) {
+          return [String(key || "").trim(), String(value || "").trim()];
+        }).filter(function ([key, value]) {
+          return Boolean(key || value);
+        })
+      ),
     },
   };
 }
@@ -61,6 +71,9 @@ export function normalizeClientPreferences(input: unknown): ClientPreferences {
     : {};
   const vaultsSource = source.vaults && typeof source.vaults === "object"
     ? source.vaults as Record<string, unknown>
+    : {};
+  const scopeHomePagesSource = vaultsSource.scopeHomePages && typeof vaultsSource.scopeHomePages === "object"
+    ? vaultsSource.scopeHomePages as Record<string, unknown>
     : {};
 
   const fontFamily = String(uiSource.fontFamily ?? defaults.ui.fontFamily).trim();
@@ -87,6 +100,14 @@ export function normalizeClientPreferences(input: unknown): ClientPreferences {
     },
     vaults: {
       topLevelFoldersAsVaults: Boolean(vaultsSource.topLevelFoldersAsVaults),
+      rootHomePage: typeof vaultsSource.rootHomePage === "string" ? vaultsSource.rootHomePage.trim() : "",
+      scopeHomePages: Object.fromEntries(
+        Object.entries(scopeHomePagesSource).map(function ([key, value]) {
+          return [String(key || "").trim(), String(value || "").trim()];
+        }).filter(function ([key, value]) {
+          return Boolean(key || value);
+        })
+      ),
     },
   };
 }

@@ -67,9 +67,9 @@ function todayDate(): string {
   ].join("-");
 }
 
-function currentDateTime(): string {
+function currentTime(): string {
   const now = new Date();
-  return todayDate() + " " + [
+  return [
     String(now.getHours()).padStart(2, "0"),
     String(now.getMinutes()).padStart(2, "0"),
   ].join(":");
@@ -198,11 +198,11 @@ function slashCommandCatalog(): SlashCommand[] {
     {
       id: "remind",
       title: "Insert reminder",
-      description: "Append a remind field with the current date and time.",
+      description: "Append a remind field with the current time.",
       keywords: "task remind reminder notify notification",
       hint: "/remind",
       apply: function (lineText: string) {
-        return appendField(lineText, "remind", "[remind: " + currentDateTime() + "]");
+        return appendField(lineText, "remind", "[remind: " + currentTime() + "]");
       },
     },
   ];

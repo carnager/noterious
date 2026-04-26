@@ -50,7 +50,6 @@ type NotificationSettings struct {
 }
 
 type UserSettings struct {
-	HomePage      string               `json:"homePage"`
 	Notifications NotificationSettings `json:"notifications"`
 }
 
@@ -431,13 +430,13 @@ func (s *Service) UserSettings(ctx context.Context, userID int64) (UserSettings,
 	}
 
 	row := s.db.QueryRowContext(ctx, `
-		SELECT home_page, ntfy_topic_url, ntfy_token
+		SELECT ntfy_topic_url, ntfy_token
 		FROM users
 		WHERE id = ?;
 	`, userID)
 
 	var settings UserSettings
-	if err := row.Scan(&settings.HomePage, &settings.Notifications.NtfyTopicURL, &settings.Notifications.NtfyToken); err != nil {
+	if err := row.Scan(&settings.Notifications.NtfyTopicURL, &settings.Notifications.NtfyToken); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return UserSettings{}, ErrAuthenticationRequired
 		}
@@ -457,9 +456,9 @@ func (s *Service) UpdateUserSettings(ctx context.Context, userID int64, next Use
 	normalized := normalizeUserSettings(next)
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE users
-		SET home_page = ?, ntfy_topic_url = ?, ntfy_token = ?, updated_at = ?
+		SET ntfy_topic_url = ?, ntfy_token = ?, updated_at = ?
 		WHERE id = ?;
-	`, normalized.HomePage, normalized.Notifications.NtfyTopicURL, normalized.Notifications.NtfyToken, time.Now().UTC().UnixMilli(), userID)
+	`, normalized.Notifications.NtfyTopicURL, normalized.Notifications.NtfyToken, time.Now().UTC().UnixMilli(), userID)
 	if err != nil {
 		return UserSettings{}, fmt.Errorf("update user settings: %w", err)
 	}
@@ -621,7 +620,6 @@ func (s *Service) migrate(ctx context.Context) error {
 			updated_at INTEGER NOT NULL,
 			must_change_password INTEGER NOT NULL DEFAULT 0,
 			last_login_at INTEGER,
-			home_page TEXT NOT NULL DEFAULT '',
 			ntfy_topic_url TEXT NOT NULL DEFAULT '',
 			ntfy_token TEXT NOT NULL DEFAULT ''
 		);`,
@@ -646,9 +644,6 @@ func (s *Service) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := s.ensureUsersNotificationSettingsColumns(ctx); err != nil {
-		return err
-	}
-	if err := s.ensureUsersHomePageColumn(ctx); err != nil {
 		return err
 	}
 	return nil
@@ -683,20 +678,6 @@ func (s *Service) ensureUsersNotificationSettingsColumns(ctx context.Context) er
 		if _, err := s.db.ExecContext(ctx, `ALTER TABLE users ADD COLUMN ntfy_token TEXT NOT NULL DEFAULT '';`); err != nil {
 			return fmt.Errorf("add users.ntfy_token column: %w", err)
 		}
-	}
-	return nil
-}
-
-func (s *Service) ensureUsersHomePageColumn(ctx context.Context) error {
-	columns, err := s.userColumnSet(ctx)
-	if err != nil {
-		return err
-	}
-	if _, ok := columns["home_page"]; ok {
-		return nil
-	}
-	if _, err := s.db.ExecContext(ctx, `ALTER TABLE users ADD COLUMN home_page TEXT NOT NULL DEFAULT '';`); err != nil {
-		return fmt.Errorf("add users.home_page column: %w", err)
 	}
 	return nil
 }
@@ -744,7 +725,6 @@ func normalizeUsername(value string) string {
 
 func normalizeUserSettings(input UserSettings) UserSettings {
 	return UserSettings{
-		HomePage: strings.TrimSpace(input.HomePage),
 		Notifications: NotificationSettings{
 			NtfyTopicURL: strings.TrimSpace(input.Notifications.NtfyTopicURL),
 			NtfyToken:    strings.TrimSpace(input.Notifications.NtfyToken),

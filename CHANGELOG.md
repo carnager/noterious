@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.11] - 2026-04-27
+
+### Added
+- A broader built-in theme pack including GitHub, Gruvbox, Rosé Pine, Ayu, Everforest, Tokyo Night, Kanagawa, and One Dark variants.
+- A packaged user-level systemd service template and an Arch Linux `PKGBUILD`.
+
+### Changed
+- `due` and `remind` now follow a date-plus-time model: `due` stays date-only, while `remind` is treated as a time-of-day refinement for notifications.
+- Home page selection is now fully client-side, including the root/unscoped case; the remaining server-side homepage config and API fields were removed.
+- The settings theme picker now merges the frontend built-in theme library with server-provided custom themes, so newly shipped built-ins appear without waiting on backend theme metadata.
+- The desktop sidebar now uses a flatter docked pane layout and stays fixed from top to bottom instead of floating with page scroll.
+
+### Fixed
+- Scoped query results and derived query blocks no longer leak task data from a previously selected scope.
+- Remote-change toasts no longer fire for the current browser tab’s own edits and now only surface real external page changes.
+- Scope switching no longer leaves a stale page from the previous scope open when the new scope has no remembered page.
+- Help modal styling and related shortcut/keycap surfaces now follow the active theme instead of keeping hard-coded dark colors.
+- Renaming a note now updates scoped relative wiki links consistently, including repeated renames of the same page.
+
 ## [v0.1.10] - 2026-04-26
 
 ### Added

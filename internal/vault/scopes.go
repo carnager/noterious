@@ -53,7 +53,6 @@ func DiscoverTopLevel(vaultRoot string) ([]Vault, error) {
 			Key:       topLevelVaultKey(name),
 			Name:      name,
 			VaultPath: filepath.Clean(vaultPath),
-			HomePage:  "",
 			CreatedAt: modTime,
 			UpdatedAt: modTime,
 		})
@@ -70,7 +69,7 @@ func DiscoverTopLevel(vaultRoot string) ([]Vault, error) {
 	return discovered, nil
 }
 
-func CreateTopLevel(vaultRoot string, name string, homePage string) (Vault, error) {
+func CreateTopLevel(vaultRoot string, name string) (Vault, error) {
 	normalizedName, _, err := normalizeTopLevelVaultIdentity(name)
 	if err != nil {
 		return Vault{}, err
@@ -99,7 +98,6 @@ func CreateTopLevel(vaultRoot string, name string, homePage string) (Vault, erro
 		Key:       topLevelVaultKey(normalizedName),
 		Name:      normalizedName,
 		VaultPath: filepath.Clean(vaultPath),
-		HomePage:  strings.TrimSpace(homePage),
 		CreatedAt: now,
 		UpdatedAt: now,
 	}, nil

@@ -338,6 +338,13 @@
     </div>
 
     <p id="note-status" class="visually-hidden" aria-live="polite">Select a page to edit and preview markdown.</p>
+    <div id="remote-change-toast" class="remote-change-toast hidden" role="status" aria-live="polite">
+      <p id="remote-change-message">This page changed on another device.</p>
+      <div class="remote-change-actions">
+        <button type="button" id="remote-change-reload">Reload</button>
+        <button type="button" id="remote-change-dismiss" class="ghost">Dismiss</button>
+      </div>
+    </div>
     <div id="tree-context-menu" class="tree-context-menu hidden" role="menu" aria-label="Tree item menu"></div>
 
     <div class="modal-shell hidden" id="search-modal-shell">

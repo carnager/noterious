@@ -18,7 +18,6 @@ type Notifications struct {
 
 type Vault struct {
 	VaultPath string `json:"vaultPath"`
-	HomePage  string `json:"homePage"`
 }
 
 type AppSettings struct {
@@ -45,7 +44,6 @@ func DefaultSettingsFromConfig(cfg config.Config) AppSettings {
 	return AppSettings{
 		Vault: Vault{
 			VaultPath: strings.TrimSpace(cfg.VaultPath),
-			HomePage:  strings.TrimSpace(cfg.HomePage),
 		},
 		Notifications: Notifications{
 			NtfyInterval: strings.TrimSpace(cfg.NtfyInterval.String()),
@@ -73,7 +71,6 @@ func NewStore(dataDir string, defaults AppSettings) (*Store, error) {
 	store.settings = loaded
 	store.appliedVault = Vault{
 		VaultPath: loaded.Vault.VaultPath,
-		HomePage:  loaded.Vault.HomePage,
 	}
 	store.appliedNotifications = Notifications{
 		NtfyInterval: loaded.Notifications.NtfyInterval,
@@ -116,7 +113,6 @@ func (s *Store) SetAppliedRuntime(settings AppSettings) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.appliedVault.VaultPath = strings.TrimSpace(settings.Vault.VaultPath)
-	s.appliedVault.HomePage = strings.TrimSpace(s.settings.Vault.HomePage)
 	s.appliedNotifications.NtfyInterval = strings.TrimSpace(settings.Notifications.NtfyInterval)
 }
 
@@ -151,7 +147,6 @@ func normalizeSettings(input AppSettings, defaults AppSettings) AppSettings {
 		normalized.Vault.VaultPath = defaults.Vault.VaultPath
 	}
 	normalized.Vault.VaultPath = strings.TrimSpace(normalized.Vault.VaultPath)
-	normalized.Vault.HomePage = strings.TrimSpace(normalized.Vault.HomePage)
 	if strings.TrimSpace(normalized.Notifications.NtfyInterval) == "" {
 		normalized.Notifications.NtfyInterval = defaults.Notifications.NtfyInterval
 	}
@@ -177,7 +172,6 @@ func snapshotFor(settings AppSettings, applied Vault) Snapshot {
 func snapshotForApplied(settings AppSettings, applied Vault, appliedNotifications Notifications) Snapshot {
 	effectiveApplied := Vault{
 		VaultPath: strings.TrimSpace(applied.VaultPath),
-		HomePage:  strings.TrimSpace(settings.Vault.HomePage),
 	}
 	restartRequired := !strings.EqualFold(strings.TrimSpace(settings.Vault.VaultPath), strings.TrimSpace(applied.VaultPath))
 	if !restartRequired {

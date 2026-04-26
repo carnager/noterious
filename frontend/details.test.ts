@@ -31,7 +31,7 @@ describe("detail helpers", function () {
       "  Follow up  ",
       "done",
       " 2026-04-23 ",
-      "2026-04-23 10:30",
+      "10:30",
       " alice, bob ,, ",
       function (value: string) {
         return value.trim();
@@ -43,7 +43,7 @@ describe("detail helpers", function () {
       text: "Follow up",
       state: "done",
       due: "2026-04-23",
-      remind: "2026-04-23 10:30",
+      remind: "10:30",
       who: ["alice", "bob"],
     });
   });

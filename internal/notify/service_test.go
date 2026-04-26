@@ -36,7 +36,122 @@ func TestParseNotificationTime(t *testing.T) {
 	}
 }
 
-func TestPollSendsAndDeduplicatesDueNotifications(t *testing.T) {
+func TestParseReminderNotificationTimeCombinesDueDateAndReminderClock(t *testing.T) {
+	loc := time.FixedZone("CEST", 2*60*60)
+
+	at, raw, ok := parseReminderNotificationTime("13:45", "2026-04-24", loc)
+	if !ok {
+		t.Fatal("parseReminderNotificationTime(clock) = false")
+	}
+	if raw != "2026-04-24 13:45" {
+		t.Fatalf("raw = %q", raw)
+	}
+	if at.Year() != 2026 || at.Month() != time.April || at.Day() != 24 || at.Hour() != 13 || at.Minute() != 45 {
+		t.Fatalf("at = %v", at)
+	}
+}
+
+func TestParseReminderNotificationTimeKeepsLegacyDateTimeReminders(t *testing.T) {
+	loc := time.FixedZone("CEST", 2*60*60)
+
+	at, raw, ok := parseReminderNotificationTime("2026-04-24 13:45", "", loc)
+	if !ok {
+		t.Fatal("parseReminderNotificationTime(datetime) = false")
+	}
+	if raw != "2026-04-24 13:45" {
+		t.Fatalf("raw = %q", raw)
+	}
+	if at.Hour() != 13 || at.Minute() != 45 {
+		t.Fatalf("at = %v", at)
+	}
+}
+
+func TestPollSendsAndDeduplicatesReminderNotifications(t *testing.T) {
+	tempDir := t.TempDir()
+	vaultDir := filepath.Join(tempDir, "vault")
+	indexDataDir := filepath.Join(tempDir, "index-data")
+	authDataDir := filepath.Join(tempDir, "auth-data")
+	notifyDataDir := filepath.Join(tempDir, "notify-data")
+	if err := os.MkdirAll(filepath.Join(vaultDir, "daily"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	raw := "# Today\n\n- [ ] Follow up with team due:: 2026-04-24 remind:: 09:30 who:: [Ralf]\n"
+	pageFile := filepath.Join(vaultDir, "daily", "today.md")
+	if err := os.WriteFile(pageFile, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	indexService := index.NewService(indexDataDir)
+	if err := indexService.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer func() {
+		_ = indexService.Close()
+	}()
+	vaultService := vault.NewService(vaultDir)
+	if err := indexService.RebuildFromVault(context.Background(), vaultService); err != nil {
+		t.Fatalf("RebuildFromVault() error = %v", err)
+	}
+	authService, err := auth.NewService(context.Background(), authDataDir, "test_session", time.Hour)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	defer func() {
+		_ = authService.Close()
+	}()
+	user, err := authService.CreateInitialAccount(context.Background(), "ralf", "secret-pass")
+	if err != nil {
+		t.Fatalf("CreateInitialAccount() error = %v", err)
+	}
+
+	requests := 0
+	var lastBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		body, _ := io.ReadAll(r.Body)
+		lastBody = string(body)
+		if got := r.Header.Get("Title"); got != "Task reminder" {
+			t.Fatalf("Title header = %q", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	if _, err := authService.UpdateUserSettings(context.Background(), user.ID, auth.UserSettings{
+		Notifications: auth.NotificationSettings{
+			NtfyTopicURL: server.URL,
+		},
+	}); err != nil {
+		t.Fatalf("UpdateUserSettings() error = %v", err)
+	}
+
+	service, err := NewService(notifyDataDir, indexService, authService)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	service.now = func() time.Time {
+		return time.Date(2026, time.April, 24, 10, 0, 0, 0, time.Local)
+	}
+
+	if err := service.Poll(context.Background()); err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
+	}
+	if !strings.Contains(lastBody, "Follow up with team") || !strings.Contains(lastBody, "Reminder: 2026-04-24 09:30") {
+		t.Fatalf("lastBody = %q", lastBody)
+	}
+
+	if err := service.Poll(context.Background()); err != nil {
+		t.Fatalf("second Poll() error = %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests after second poll = %d, want 1", requests)
+	}
+}
+
+func TestPollSkipsDueOnlyTasksWithoutReminderTime(t *testing.T) {
 	tempDir := t.TempDir()
 	vaultDir := filepath.Join(tempDir, "vault")
 	indexDataDir := filepath.Join(tempDir, "index-data")
@@ -75,14 +190,8 @@ func TestPollSendsAndDeduplicatesDueNotifications(t *testing.T) {
 	}
 
 	requests := 0
-	var lastBody string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
-		body, _ := io.ReadAll(r.Body)
-		lastBody = string(body)
-		if got := r.Header.Get("Title"); got != "Task due" {
-			t.Fatalf("Title header = %q", got)
-		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -106,18 +215,8 @@ func TestPollSendsAndDeduplicatesDueNotifications(t *testing.T) {
 	if err := service.Poll(context.Background()); err != nil {
 		t.Fatalf("Poll() error = %v", err)
 	}
-	if requests != 1 {
-		t.Fatalf("requests = %d, want 1", requests)
-	}
-	if !strings.Contains(lastBody, "Follow up with team") || !strings.Contains(lastBody, "Due: 2026-04-24") {
-		t.Fatalf("lastBody = %q", lastBody)
-	}
-
-	if err := service.Poll(context.Background()); err != nil {
-		t.Fatalf("second Poll() error = %v", err)
-	}
-	if requests != 1 {
-		t.Fatalf("requests after second poll = %d, want 1", requests)
+	if requests != 0 {
+		t.Fatalf("requests = %d, want 0", requests)
 	}
 }
 

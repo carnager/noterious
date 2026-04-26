@@ -266,7 +266,7 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, settingsS
 			return
 		}
 
-		createdVault, err := vault.CreateTopLevel(vaultRoot, request.Name, "")
+		createdVault, err := vault.CreateTopLevel(vaultRoot, request.Name)
 		if err != nil {
 			http.Error(w, err.Error(), statusForVaultError(err))
 			return

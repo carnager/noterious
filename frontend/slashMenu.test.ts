@@ -72,7 +72,7 @@ describe("slash menu", function () {
     expect(due).toBeTruthy();
     expect(remind).toBeTruthy();
     expect(due?.apply("- [ ] follow up /due")).toMatch(/^- \[ \] follow up \[due: \d{4}-\d{2}-\d{2}\]$/);
-    expect(remind?.apply("- [ ] follow up /remind")).toMatch(/^- \[ \] follow up \[remind: \d{4}-\d{2}-\d{2} \d{2}:\d{2}\]$/);
+    expect(remind?.apply("- [ ] follow up /remind")).toMatch(/^- \[ \] follow up \[remind: \d{2}:\d{2}\]$/);
   });
 
   it("inserts a markdown table template", function () {

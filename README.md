@@ -136,9 +136,26 @@ The UI is served through Go `embed`, so after rebuilding the frontend you must r
 
 ## Service Setup
 
-The repository includes a user-level systemd unit template at [contrib/systemd/noterious.service](/home/carnager/Code/noterious/contrib/systemd/noterious.service:1). Copy it to `~/.config/systemd/user/noterious.service`, adjust the paths, then run:
+The repository includes a user-level systemd unit at [contrib/systemd/noterious.service](/home/carnager/Code/noterious/contrib/systemd/noterious.service:1).
+
+For packaged installs, enable it directly:
 
 ```bash
 systemctl --user daemon-reload
 systemctl --user enable --now noterious
 ```
+
+For source installs, copy it to `~/.config/systemd/user/noterious.service`, adjust `ExecStart` and the path environment variables, then run:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now noterious
+```
+
+## Arch Linux
+
+A release-oriented [PKGBUILD](/home/carnager/Code/noterious/PKGBUILD:1) is included at the repository root.
+
+- it builds the embedded-server binary with Go
+- it installs the user unit to `/usr/lib/systemd/user/noterious.service`
+- it expects the release tarball to already include the generated frontend assets

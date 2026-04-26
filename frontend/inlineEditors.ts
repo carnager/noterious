@@ -1,8 +1,9 @@
 import {
-  formatEditableDateTimeValue,
   formatEditableDateValue,
-  parseEditableDateTimeValue,
+  formatEditableTimeValue,
   parseEditableDateValue,
+  parseEditableDateTimeValue,
+  parseEditableTimeValue,
 } from "./datetime";
 import { clearNode } from "./dom";
 import {
@@ -97,22 +98,51 @@ function canonicalDateTime(year: number, month: number, day: number, hour: numbe
   }).join(":");
 }
 
-export function taskPickerPartsFromValue(mode: "due" | "remind", rawValue: string): { year: number; month: number; day: number; hour: number; minute: number } {
+function canonicalTime(hour: number, minute: number): string {
+  return [hour, minute].map(function (value) {
+    return String(value).padStart(2, "0");
+  }).join(":");
+}
+
+export function taskPickerPartsFromValue(mode: "due" | "remind", rawValue: string, dueValue: string): { year: number; month: number; day: number; hour: number; minute: number } {
   const fallback = new Date();
   try {
-    const canonical = mode === "due" ? parseEditableDateValue(rawValue) : parseEditableDateTimeValue(rawValue);
+    if (mode === "remind") {
+      const timeCanonical = parseEditableTimeValue(rawValue);
+      const baseDate = parseEditableDateValue(dueValue) || canonicalDate(fallback.getFullYear(), fallback.getMonth() + 1, fallback.getDate());
+      const [year, month, day] = baseDate.split("-").map(Number);
+      const [hour, minute] = timeCanonical.split(":").map(Number);
+      if (![year, month, day, hour, minute].every(Number.isFinite)) {
+        throw new Error("invalid");
+      }
+      return { year, month, day, hour, minute };
+    }
+    const canonical = parseEditableDateValue(rawValue);
     if (!canonical) {
       throw new Error("empty");
     }
     const datePart = canonical.slice(0, 10);
-    const timePart = canonical.slice(11, 16);
     const [year, month, day] = datePart.split("-").map(Number);
-    const [hour, minute] = timePart ? timePart.split(":").map(Number) : [9, 0];
+    const [hour, minute] = [9, 0];
     if (![year, month, day, hour, minute].every(Number.isFinite)) {
       throw new Error("invalid");
     }
     return { year, month, day, hour, minute };
   } catch (_error) {
+    if (mode === "remind") {
+      try {
+        const canonical = parseEditableDateTimeValue(rawValue);
+        const datePart = canonical.slice(0, 10);
+        const timePart = canonical.slice(11, 16);
+        const [year, month, day] = datePart.split("-").map(Number);
+        const [hour, minute] = timePart.split(":").map(Number);
+        if ([year, month, day, hour, minute].every(Number.isFinite)) {
+          return { year, month, day, hour, minute };
+        }
+      } catch (_nestedError) {
+        // Fall through to the default selection below.
+      }
+    }
     return {
       year: fallback.getFullYear(),
       month: fallback.getMonth() + 1,
@@ -673,50 +703,60 @@ export function renderTaskPicker(taskPickerState: TaskPickerState, els: InlineEd
 
   const mode = taskPickerState.mode;
   const target = els.inlineTaskPicker;
+  const task = callbacks.currentPickerTask();
   clearNode(target);
-
-  const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
-  const firstWeekday = (monthStart.getDay() + 6) % 7;
-  const gridStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1 - firstWeekday);
-  const monthLabel = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(monthStart);
 
   const head = document.createElement("div");
   head.className = "task-picker-head";
 
   const title = document.createElement("strong");
-  title.textContent = monthLabel;
+  if (mode === "due") {
+    const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
+    title.textContent = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(monthStart);
+  } else {
+    title.textContent = "Reminder time";
+  }
   head.appendChild(title);
 
-  const nav = document.createElement("div");
-  nav.className = "task-picker-nav";
+  if (mode === "due") {
+    const nav = document.createElement("div");
+    nav.className = "task-picker-nav";
 
-  const prev = document.createElement("button");
-  prev.type = "button";
-  prev.textContent = "<";
-  prev.addEventListener("click", function () {
-    taskPickerState.month -= 1;
-    if (taskPickerState.month < 1) {
-      taskPickerState.month = 12;
-      taskPickerState.year -= 1;
-    }
-    renderTaskPicker(taskPickerState, els, callbacks);
-  });
-  nav.appendChild(prev);
+    const prev = document.createElement("button");
+    prev.type = "button";
+    prev.textContent = "<";
+    prev.addEventListener("click", function () {
+      taskPickerState.month -= 1;
+      if (taskPickerState.month < 1) {
+        taskPickerState.month = 12;
+        taskPickerState.year -= 1;
+      }
+      renderTaskPicker(taskPickerState, els, callbacks);
+    });
+    nav.appendChild(prev);
 
-  const next = document.createElement("button");
-  next.type = "button";
-  next.textContent = ">";
-  next.addEventListener("click", function () {
-    taskPickerState.month += 1;
-    if (taskPickerState.month > 12) {
-      taskPickerState.month = 1;
-      taskPickerState.year += 1;
-    }
-    renderTaskPicker(taskPickerState, els, callbacks);
-  });
-  nav.appendChild(next);
+    const next = document.createElement("button");
+    next.type = "button";
+    next.textContent = ">";
+    next.addEventListener("click", function () {
+      taskPickerState.month += 1;
+      if (taskPickerState.month > 12) {
+        taskPickerState.month = 1;
+        taskPickerState.year += 1;
+      }
+      renderTaskPicker(taskPickerState, els, callbacks);
+    });
+    nav.appendChild(next);
 
-  head.appendChild(nav);
+    head.appendChild(nav);
+  } else {
+    const summary = document.createElement("span");
+    summary.className = "task-picker-summary";
+    summary.textContent = task && task.due
+      ? "Applies on " + formatEditableDateValue(task.due)
+      : "Applies when a due date is set";
+    head.appendChild(summary);
+  }
   target.appendChild(head);
 
   if (mode === "remind") {
@@ -754,21 +794,15 @@ export function renderTaskPicker(taskPickerState: TaskPickerState, els: InlineEd
     apply.className = "task-picker-apply";
     apply.textContent = "Apply";
     apply.addEventListener("click", function () {
-      const task = callbacks.currentPickerTask();
-      if (!task) {
+      const currentTask = callbacks.currentPickerTask();
+      if (!currentTask) {
         callbacks.closeTaskPickers();
         return;
       }
       callbacks.saveTaskDateField(
-        task,
+        currentTask,
         "remind",
-        canonicalDateTime(
-          taskPickerState.year,
-          taskPickerState.month,
-          taskPickerState.day,
-          taskPickerState.hour,
-          taskPickerState.minute
-        )
+        canonicalTime(taskPickerState.hour, taskPickerState.minute)
       ).catch(function (error) {
         callbacks.setNoteStatus("Reminder update failed: " + callbacks.errorMessage(error));
       });
@@ -778,55 +812,56 @@ export function renderTaskPicker(taskPickerState: TaskPickerState, els: InlineEd
     target.appendChild(timeRow);
   }
 
-  const weekdays = document.createElement("div");
-  weekdays.className = "task-picker-weekdays";
-  ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].forEach(function (label) {
-    const cell = document.createElement("span");
-    cell.textContent = label;
-    weekdays.appendChild(cell);
-  });
-  target.appendChild(weekdays);
+  if (mode === "due") {
+    const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
+    const firstWeekday = (monthStart.getDay() + 6) % 7;
+    const gridStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1 - firstWeekday);
+    const weekdays = document.createElement("div");
+    weekdays.className = "task-picker-weekdays";
+    ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].forEach(function (label) {
+      const cell = document.createElement("span");
+      cell.textContent = label;
+      weekdays.appendChild(cell);
+    });
+    target.appendChild(weekdays);
 
-  const grid = document.createElement("div");
-  grid.className = "task-picker-grid";
-  for (let index = 0; index < 42; index += 1) {
-    const current = new Date(gridStart);
-    current.setDate(gridStart.getDate() + index);
+    const grid = document.createElement("div");
+    grid.className = "task-picker-grid";
+    for (let index = 0; index < 42; index += 1) {
+      const current = new Date(gridStart);
+      current.setDate(gridStart.getDate() + index);
 
-    const dayButton = document.createElement("button");
-    dayButton.type = "button";
-    dayButton.className = "task-picker-day";
-    if (current.getMonth() !== taskPickerState.month - 1) {
-      dayButton.classList.add("is-faded");
-    }
-    if (
-      current.getFullYear() === taskPickerState.year &&
-      current.getMonth() === taskPickerState.month - 1 &&
-      current.getDate() === taskPickerState.day
-    ) {
-      dayButton.classList.add("is-selected");
-    }
-    dayButton.textContent = String(current.getDate());
-    dayButton.addEventListener("click", function () {
-      taskPickerState.year = current.getFullYear();
-      taskPickerState.month = current.getMonth() + 1;
-      taskPickerState.day = current.getDate();
-      if (mode === "due") {
-        const task = callbacks.currentPickerTask();
-        if (!task) {
+      const dayButton = document.createElement("button");
+      dayButton.type = "button";
+      dayButton.className = "task-picker-day";
+      if (current.getMonth() !== taskPickerState.month - 1) {
+        dayButton.classList.add("is-faded");
+      }
+      if (
+        current.getFullYear() === taskPickerState.year &&
+        current.getMonth() === taskPickerState.month - 1 &&
+        current.getDate() === taskPickerState.day
+      ) {
+        dayButton.classList.add("is-selected");
+      }
+      dayButton.textContent = String(current.getDate());
+      dayButton.addEventListener("click", function () {
+        taskPickerState.year = current.getFullYear();
+        taskPickerState.month = current.getMonth() + 1;
+        taskPickerState.day = current.getDate();
+        const currentTask = callbacks.currentPickerTask();
+        if (!currentTask) {
           callbacks.closeTaskPickers();
           return;
         }
-        callbacks.saveTaskDateField(task, "due", canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day)).catch(function (error) {
+        callbacks.saveTaskDateField(currentTask, "due", canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day)).catch(function (error) {
           callbacks.setNoteStatus("Due date update failed: " + callbacks.errorMessage(error));
         });
-        return;
-      }
-      renderTaskPicker(taskPickerState, els, callbacks);
-    });
-    grid.appendChild(dayButton);
+      });
+      grid.appendChild(dayButton);
+    }
+    target.appendChild(grid);
   }
-  target.appendChild(grid);
 
   const footer = document.createElement("div");
   footer.className = "task-picker-footer";
@@ -834,13 +869,7 @@ export function renderTaskPicker(taskPickerState: TaskPickerState, els: InlineEd
   const status = document.createElement("span");
   status.textContent = mode === "due"
     ? formatEditableDateValue(canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day))
-    : formatEditableDateTimeValue(canonicalDateTime(
-      taskPickerState.year,
-      taskPickerState.month,
-      taskPickerState.day,
-      taskPickerState.hour,
-      taskPickerState.minute
-    ));
+    : formatEditableTimeValue(canonicalTime(taskPickerState.hour, taskPickerState.minute));
   footer.appendChild(status);
 
   const actions = document.createElement("div");
@@ -893,7 +922,11 @@ export function openInlineTaskPicker(taskPickerState: TaskPickerState, options: 
     return;
   }
   options.rememberNoteFocus();
-  const parts = taskPickerPartsFromValue(options.mode, options.mode === "due" ? (options.task.due || "") : (options.task.remind || ""));
+  const parts = taskPickerPartsFromValue(
+    options.mode,
+    options.mode === "due" ? (options.task.due || "") : (options.task.remind || ""),
+    options.task.due || ""
+  );
   taskPickerState.mode = options.mode;
   taskPickerState.ref = options.ref;
   taskPickerState.left = options.left;

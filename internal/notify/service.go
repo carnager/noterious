@@ -173,21 +173,14 @@ type candidateNotification struct {
 }
 
 func notificationCandidate(task index.Task, loc *time.Location) (candidateNotification, bool) {
-	if task.Remind != nil && strings.TrimSpace(*task.Remind) != "" {
-		at, ok := parseNotificationTime(*task.Remind, 9, loc)
-		if !ok {
-			return candidateNotification{}, false
-		}
-		return buildCandidate(task, "remind", *task.Remind, at), true
+	if task.Remind == nil || strings.TrimSpace(*task.Remind) == "" {
+		return candidateNotification{}, false
 	}
-	if task.Due != nil && strings.TrimSpace(*task.Due) != "" {
-		at, ok := parseNotificationTime(*task.Due, 9, loc)
-		if !ok {
-			return candidateNotification{}, false
-		}
-		return buildCandidate(task, "due", *task.Due, at), true
+	at, raw, ok := parseReminderNotificationTime(*task.Remind, derefTaskValue(task.Due), loc)
+	if !ok {
+		return candidateNotification{}, false
 	}
-	return candidateNotification{}, false
+	return buildCandidate(task, "remind", raw, at), true
 }
 
 func buildCandidate(task index.Task, kind string, raw string, at time.Time) candidateNotification {
@@ -214,7 +207,7 @@ func buildCandidate(task index.Task, kind string, raw string, at time.Time) cand
 		parts = append(parts, "Who: "+strings.Join(task.Who, ", "))
 	}
 	return candidateNotification{
-		Key:      fmt.Sprintf("%s|%s|%s", task.Ref, kind, raw),
+		Key:      fmt.Sprintf("%s|%s|%s", task.Ref, kind, at.UTC().Format(time.RFC3339)),
 		Kind:     kind,
 		Task:     task,
 		At:       at,
@@ -244,6 +237,67 @@ func parseNotificationTime(raw string, dateOnlyHour int, loc *time.Location) (ti
 		return parsed, true
 	}
 	return time.Time{}, false
+}
+
+func parseReminderNotificationTime(remindRaw string, dueRaw string, loc *time.Location) (time.Time, string, bool) {
+	remindText := strings.TrimSpace(remindRaw)
+	if remindText == "" {
+		return time.Time{}, "", false
+	}
+	if hour, minute, ok := parseClockTime(remindText); ok {
+		dueDate, ok := parseNotificationDate(dueRaw, loc)
+		if !ok {
+			return time.Time{}, "", false
+		}
+		at := time.Date(dueDate.Year(), dueDate.Month(), dueDate.Day(), hour, minute, 0, 0, loc)
+		return at, at.Format("2006-01-02 15:04"), true
+	}
+	at, ok := parseNotificationTime(remindText, 9, loc)
+	if !ok {
+		return time.Time{}, "", false
+	}
+	return at, remindText, true
+}
+
+func parseClockTime(raw string) (int, int, bool) {
+	var hour int
+	var minute int
+	if _, err := fmt.Sscanf(strings.TrimSpace(raw), "%02d:%02d", &hour, &minute); err != nil {
+		return 0, 0, false
+	}
+	if hour < 0 || hour > 23 || minute < 0 || minute > 59 {
+		return 0, 0, false
+	}
+	return hour, minute, true
+}
+
+func parseNotificationDate(raw string, loc *time.Location) (time.Time, bool) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return time.Time{}, false
+	}
+	if parsed, err := time.ParseInLocation("2006-01-02", text, loc); err == nil {
+		return parsed, true
+	}
+	if parsed, err := time.ParseInLocation("2006-01-02 15:04", text, loc); err == nil {
+		return time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, loc), true
+	}
+	if parsed, err := time.Parse(time.RFC3339, text); err == nil {
+		local := parsed.In(loc)
+		return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc), true
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, text); err == nil {
+		local := parsed.In(loc)
+		return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc), true
+	}
+	return time.Time{}, false
+}
+
+func derefTaskValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (s *Service) send(ctx context.Context, target auth.NotificationTarget, candidate candidateNotification) error {

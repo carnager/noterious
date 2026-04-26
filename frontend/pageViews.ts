@@ -1,5 +1,5 @@
 import { clearNode, renderEmpty } from "./dom";
-import { formatDateTimeValue, formatDateValue } from "./datetime";
+import { formatDateTimeValue, formatDateValue, formatTimeValue } from "./datetime";
 import { renderInline } from "./markdown";
 import type { BacklinkRecord, DerivedPage, FrontmatterMap, PageRecord, PageSummary, TaskRecord } from "./types";
 
@@ -24,6 +24,17 @@ type TreeDragItem =
   | { kind: "folder"; path: string };
 
 let activeDragItem: TreeDragItem | null = null;
+
+function formatReminderLabel(value: string): string {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  if (/^\d{2}:\d{2}(?::\d{2})?$/.test(text)) {
+    return formatTimeValue(text);
+  }
+  return formatDateTimeValue(text);
+}
 
 function setDragPayload(event: DragEvent, payload: TreeDragItem): void {
   if (!event.dataTransfer) {
@@ -551,7 +562,7 @@ export function renderPageTasks(
     meta.className = "page-task-meta";
     [
       task.due ? "due " + formatDateValue(task.due) : "no due",
-      task.remind ? "remind " + formatDateTimeValue(task.remind) : "",
+      task.remind ? "remind " + formatReminderLabel(task.remind) : "",
       task.who && task.who.length ? task.who.join(", ") : "",
     ]
       .filter(Boolean)

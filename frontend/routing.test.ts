@@ -39,7 +39,7 @@ describe("routing helpers", function () {
     applyURLState({
       href: "https://example.test/?page=notes/alpha",
       currentHomePage: "",
-      pages: [],
+      pages: [samplePage("notes/alpha")],
       onNavigateToPage,
       onSelectSavedQuery,
       onRenderIdle,
@@ -47,6 +47,19 @@ describe("routing helpers", function () {
     expect(onNavigateToPage).toHaveBeenCalledWith("notes/alpha", true);
 
     onNavigateToPage.mockReset();
+    onRenderIdle.mockReset();
+    applyURLState({
+      href: "https://example.test/?page=notes/private-only",
+      currentHomePage: "",
+      pages: [samplePage("notes/work-home")],
+      onNavigateToPage,
+      onSelectSavedQuery,
+      onRenderIdle,
+    });
+    expect(onNavigateToPage).not.toHaveBeenCalled();
+    expect(onRenderIdle).toHaveBeenCalled();
+
+    onRenderIdle.mockReset();
     applyURLState({
       href: "https://example.test/?query=recent",
       currentHomePage: "",

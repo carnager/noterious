@@ -16,7 +16,6 @@ func TestStorePersistsAndMarksRestartRequiredForRuntimeSettings(t *testing.T) {
 	cfg := config.Config{
 		DataDir:   filepath.Join(rootDir, "data"),
 		VaultPath: filepath.Join(rootDir, "vault-a"),
-		HomePage:  "notes/home",
 	}
 
 	store, err := NewStore(cfg.DataDir, DefaultSettingsFromConfig(cfg))
@@ -32,7 +31,6 @@ func TestStorePersistsAndMarksRestartRequiredForRuntimeSettings(t *testing.T) {
 	updated, err := store.Update(AppSettings{
 		Vault: Vault{
 			VaultPath: filepath.Join(rootDir, "vault-b"),
-			HomePage:  "notes/start",
 		},
 		Notifications: Notifications{
 			NtfyInterval: "2m",
@@ -44,9 +42,6 @@ func TestStorePersistsAndMarksRestartRequiredForRuntimeSettings(t *testing.T) {
 	if !updated.RestartRequired {
 		t.Fatalf("updated snapshot should require restart after vault path change")
 	}
-	if updated.AppliedVault.HomePage != "notes/start" {
-		t.Fatalf("applied home page mismatch: got %q", updated.AppliedVault.HomePage)
-	}
 
 	reloaded, err := NewStore(cfg.DataDir, DefaultSettingsFromConfig(cfg))
 	if err != nil {
@@ -55,9 +50,6 @@ func TestStorePersistsAndMarksRestartRequiredForRuntimeSettings(t *testing.T) {
 	snapshot := reloaded.Snapshot()
 	if snapshot.Settings.Vault.VaultPath != filepath.Join(rootDir, "vault-b") {
 		t.Fatalf("vault path not persisted: got %q", snapshot.Settings.Vault.VaultPath)
-	}
-	if snapshot.Settings.Vault.HomePage != "notes/start" {
-		t.Fatalf("home page not persisted: got %q", snapshot.Settings.Vault.HomePage)
 	}
 	if snapshot.Settings.Notifications.NtfyInterval != "2m" {
 		t.Fatalf("notification settings not persisted: %#v", snapshot.Settings.Notifications)

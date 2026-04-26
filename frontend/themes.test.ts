@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { defaultClientPreferences } from "./clientPreferences";
-import { applyTheme, builtinThemeLibrary, defaultThemeId, resolveTheme } from "./themes";
+import { applyTheme, builtinThemeLibrary, defaultThemeId, mergedThemeLibrary, resolveTheme } from "./themes";
 import type { ThemeRecord } from "./types";
 
 describe("themes", function () {
@@ -34,6 +34,38 @@ describe("themes", function () {
     });
     expect(resolved.id).toBe("my-custom");
     expect(resolved.source).toBe("custom");
+  });
+
+  it("merges server custom themes with frontend built-ins", function () {
+    const merged = mergedThemeLibrary([
+      {
+        version: 1,
+        id: "soft-paper",
+        name: "Soft Paper",
+        source: "custom",
+        kind: "light",
+        description: "custom",
+        tokens: builtinThemeLibrary()[0].tokens,
+      },
+      {
+        version: 1,
+        id: "paper",
+        name: "Paper",
+        source: "builtin",
+        kind: "light",
+        description: "stale server builtin",
+        tokens: builtinThemeLibrary()[0].tokens,
+      },
+    ]);
+    expect(merged.some(function (theme) {
+      return theme.id === "github-light";
+    })).toBe(true);
+    expect(merged.filter(function (theme) {
+      return theme.id === "paper";
+    })).toHaveLength(1);
+    expect(merged.some(function (theme) {
+      return theme.id === "soft-paper" && theme.source === "custom";
+    })).toBe(true);
   });
 
   it("falls back to noterious-night when a theme cannot be resolved", function () {

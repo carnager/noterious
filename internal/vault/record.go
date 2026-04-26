@@ -23,7 +23,6 @@ type Vault struct {
 	Key       string    `json:"key"`
 	Name      string    `json:"name"`
 	VaultPath string    `json:"vaultPath"`
-	HomePage  string    `json:"homePage"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }

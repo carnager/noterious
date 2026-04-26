@@ -144,7 +144,6 @@ func TestSettingsAPIStoresRuntimeSettingsOnly(t *testing.T) {
 		ListenAddr: ":8080",
 		VaultPath:  vaultDir,
 		DataDir:    dataDir,
-		HomePage:   "index",
 	}
 	settingsStore, err := settings.NewStore(dataDir, settings.DefaultSettingsFromConfig(cfg))
 	if err != nil {
@@ -172,8 +171,7 @@ func TestSettingsAPIStoresRuntimeSettingsOnly(t *testing.T) {
 
 	body := bytes.NewBufferString(`{
 	  "vault": {
-	    "vaultPath": "` + filepath.ToSlash(filepath.Join(rootDir, "other-vault")) + `",
-	    "homePage": "notes/start"
+	    "vaultPath": "` + filepath.ToSlash(filepath.Join(rootDir, "other-vault")) + `"
 	  },
 	  "notifications": {
 	    "ntfyInterval": "2m"
@@ -407,7 +405,7 @@ func TestUIServesPWAFilesAtRoot(t *testing.T) {
 	}
 }
 
-func TestMetaIncludesConfiguredHomePage(t *testing.T) {
+func TestMetaIncludesConfiguredVaultPath(t *testing.T) {
 	t.Parallel()
 
 	rootDir := t.TempDir()
@@ -419,7 +417,6 @@ func TestMetaIncludesConfiguredHomePage(t *testing.T) {
 			ListenAddr: ":8080",
 			VaultPath:  vaultDir,
 			DataDir:    dataDir,
-			HomePage:   "index",
 		},
 	})
 
@@ -434,20 +431,15 @@ func TestMetaIncludesConfiguredHomePage(t *testing.T) {
 	var payload struct {
 		RuntimeVault struct {
 			VaultPath string `json:"vaultPath"`
-			HomePage  string `json:"homePage"`
 		} `json:"runtimeVault"`
 		CurrentVault struct {
 			ID        int64  `json:"id"`
 			Key       string `json:"key"`
 			VaultPath string `json:"vaultPath"`
-			HomePage  string `json:"homePage"`
 		} `json:"currentVault"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
-	}
-	if payload.RuntimeVault.HomePage != "index" {
-		t.Fatalf("runtimeVault.homePage = %q", payload.RuntimeVault.HomePage)
 	}
 	if payload.RuntimeVault.VaultPath != vaultDir {
 		t.Fatalf("runtimeVault.vaultPath = %q want %q", payload.RuntimeVault.VaultPath, vaultDir)
@@ -457,9 +449,6 @@ func TestMetaIncludesConfiguredHomePage(t *testing.T) {
 	}
 	if payload.CurrentVault.VaultPath != vaultDir {
 		t.Fatalf("currentVault.vaultPath = %q want %q", payload.CurrentVault.VaultPath, vaultDir)
-	}
-	if payload.CurrentVault.HomePage != "index" {
-		t.Fatalf("currentVault.homePage = %q", payload.CurrentVault.HomePage)
 	}
 }
 
@@ -475,7 +464,6 @@ func TestMetaIncludesVaultHealthWhenVaultIsMissing(t *testing.T) {
 			ListenAddr: ":8080",
 			VaultPath:  vaultDir,
 			DataDir:    dataDir,
-			HomePage:   "index",
 		},
 	})
 
@@ -605,11 +593,11 @@ func TestAuthVaultSelectionListsSwitchesAndScopesRequests(t *testing.T) {
 	}
 
 	authService := buildTestAuthService(t, dataDir, "alex", "secret-pass")
-	mainVault, err := vault.CreateTopLevel(vaultRoot, "Main", "notes/main")
+	mainVault, err := vault.CreateTopLevel(vaultRoot, "Main")
 	if err != nil {
 		t.Fatalf("CreateTopLevel(main) error = %v", err)
 	}
-	workVault, err := vault.CreateTopLevel(vaultRoot, "Work", "notes/work")
+	workVault, err := vault.CreateTopLevel(vaultRoot, "Work")
 	if err != nil {
 		t.Fatalf("CreateTopLevel(work) error = %v", err)
 	}
@@ -777,7 +765,7 @@ func TestCurrentVaultFallsBackToConfiguredRootWhenSelectedChildVaultDisappears(t
 		Name:      "Configured Vault",
 		VaultPath: vaultRoot,
 	}
-	workVault, err := vault.CreateTopLevel(vaultRoot, "Work", "")
+	workVault, err := vault.CreateTopLevel(vaultRoot, "Work")
 	if err != nil {
 		t.Fatalf("CreateTopLevel(work) error = %v", err)
 	}
@@ -864,7 +852,7 @@ func TestFirstIndexedRequestBuildsDatabaseForNewlySelectedVault(t *testing.T) {
 	dataDir := filepath.Join(rootDir, "data")
 
 	authService := buildTestAuthService(t, dataDir, "alex", "secret-pass")
-	workVault, err := vault.CreateTopLevel(vaultRoot, "Work", "")
+	workVault, err := vault.CreateTopLevel(vaultRoot, "Work")
 	if err != nil {
 		t.Fatalf("CreateTopLevel(work) error = %v", err)
 	}
@@ -1007,7 +995,7 @@ func TestUserVaultsAPICreatesVaultUnderVaultRoot(t *testing.T) {
 		t.Fatalf("Decode(created vault) error = %v", err)
 	}
 	expectedVaultPath := filepath.Join(vaultRoot, "work")
-	if created.Name != "Work" || created.VaultPath != expectedVaultPath || created.HomePage != "" {
+	if created.Name != "Work" || created.VaultPath != expectedVaultPath {
 		t.Fatalf("created vault = %#v", created)
 	}
 	if _, err := os.Stat(expectedVaultPath); err != nil {
@@ -1251,6 +1239,148 @@ func TestTopLevelFoldersAsVaultsDiscoverAndSwitch(t *testing.T) {
 	}
 	if metaAfterSwitchPayload.CurrentVault == nil || metaAfterSwitchPayload.CurrentVault.VaultPath != workPath {
 		t.Fatalf("meta after switch currentVault = %#v want path %q", metaAfterSwitchPayload.CurrentVault, workPath)
+	}
+}
+
+func TestQueryExecuteRespectsScopedTasksDataset(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultRoot := filepath.Join(rootDir, "vault-root")
+	dataDir := filepath.Join(rootDir, "data")
+	if err := os.MkdirAll(filepath.Join(vaultRoot, "Work"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(Work) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(vaultRoot, "Private"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(Private) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultRoot, "Work", "tasks.md"), []byte("# Work\n\n- [ ] Work task due:: 2026-05-01\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(Work) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultRoot, "Private", "tasks.md"), []byte("# Private\n\n- [ ] Private task due:: 2026-05-02\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(Private) error = %v", err)
+	}
+
+	router := buildTestRouterWithDeps(t, vaultRoot, dataDir, Dependencies{
+		Config: config.Config{
+			ListenAddr: ":8080",
+			VaultPath:  vaultRoot,
+			DataDir:    dataDir,
+		},
+	})
+
+	body := []byte(`{"query":"from tasks\nwhere done = false\norder by due, page\nselect text as task, due, page"}`)
+
+	workRequest := httptest.NewRequest(http.MethodPost, "/api/query/execute", bytes.NewReader(body))
+	workRequest.Header.Set("Content-Type", "application/json")
+	workRequest.Header.Set(requestScopeHeader, "Work")
+	workResponse := httptest.NewRecorder()
+	router.ServeHTTP(workResponse, workRequest)
+	if workResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/query/execute(Work) status = %d body=%s", workResponse.Code, workResponse.Body.String())
+	}
+
+	privateRequest := httptest.NewRequest(http.MethodPost, "/api/query/execute", bytes.NewReader(body))
+	privateRequest.Header.Set("Content-Type", "application/json")
+	privateRequest.Header.Set(requestScopeHeader, "Private")
+	privateResponse := httptest.NewRecorder()
+	router.ServeHTTP(privateResponse, privateRequest)
+	if privateResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/query/execute(Private) status = %d body=%s", privateResponse.Code, privateResponse.Body.String())
+	}
+
+	var workPayload struct {
+		Rows []map[string]any `json:"rows"`
+	}
+	if err := json.NewDecoder(workResponse.Body).Decode(&workPayload); err != nil {
+		t.Fatalf("Decode(work payload) error = %v", err)
+	}
+	if len(workPayload.Rows) != 1 {
+		t.Fatalf("work rows = %#v", workPayload.Rows)
+	}
+	if workPayload.Rows[0]["page"] != "Work/tasks" || workPayload.Rows[0]["task"] != "Work task" {
+		t.Fatalf("work row = %#v", workPayload.Rows[0])
+	}
+
+	var privatePayload struct {
+		Rows []map[string]any `json:"rows"`
+	}
+	if err := json.NewDecoder(privateResponse.Body).Decode(&privatePayload); err != nil {
+		t.Fatalf("Decode(private payload) error = %v", err)
+	}
+	if len(privatePayload.Rows) != 1 {
+		t.Fatalf("private rows = %#v", privatePayload.Rows)
+	}
+	if privatePayload.Rows[0]["page"] != "Private/tasks" || privatePayload.Rows[0]["task"] != "Private task" {
+		t.Fatalf("private row = %#v", privatePayload.Rows[0])
+	}
+}
+
+func TestDerivedQueryBlocksDoNotLeakAcrossScopes(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultRoot := filepath.Join(rootDir, "vault-root")
+	dataDir := filepath.Join(rootDir, "data")
+	if err := os.MkdirAll(filepath.Join(vaultRoot, "Work"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(Work) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(vaultRoot, "Private"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(Private) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(vaultRoot, "dashboards"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(dashboards) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultRoot, "Work", "tasks.md"), []byte("# Work\n\n- [ ] Work task\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(Work) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultRoot, "Private", "tasks.md"), []byte("# Private\n\n- [ ] Private task\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(Private) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultRoot, "dashboards", "tasks.md"), []byte("# Tasks\n\n```query\nfrom tasks\nwhere done = false\norder by page\nselect text as task, page\n```\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(dashboard) error = %v", err)
+	}
+
+	router := buildTestRouterWithDeps(t, vaultRoot, dataDir, Dependencies{
+		Config: config.Config{
+			ListenAddr: ":8080",
+			VaultPath:  vaultRoot,
+			DataDir:    dataDir,
+		},
+	})
+
+	loadDerived := func(scope string) []map[string]any {
+		request := httptest.NewRequest(http.MethodGet, "/api/pages/dashboards/tasks/derived", nil)
+		request.Header.Set(requestScopeHeader, scope)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET /api/pages/.../derived(%s) status = %d body=%s", scope, response.Code, response.Body.String())
+		}
+		var payload struct {
+			QueryBlocks []struct {
+				Result struct {
+					Rows []map[string]any `json:"rows"`
+				} `json:"result"`
+			} `json:"queryBlocks"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode(derived payload %s) error = %v", scope, err)
+		}
+		if len(payload.QueryBlocks) != 1 {
+			t.Fatalf("queryBlocks(%s) = %#v", scope, payload.QueryBlocks)
+		}
+		return payload.QueryBlocks[0].Result.Rows
+	}
+
+	privateRows := loadDerived("Private")
+	if len(privateRows) != 1 || privateRows[0]["page"] != "Private/tasks" || privateRows[0]["task"] != "Private task" {
+		t.Fatalf("private rows = %#v", privateRows)
+	}
+
+	workRows := loadDerived("Work")
+	if len(workRows) != 1 || workRows[0]["page"] != "Work/tasks" || workRows[0]["task"] != "Work task" {
+		t.Fatalf("work rows = %#v", workRows)
 	}
 }
 
@@ -1533,7 +1663,6 @@ func TestUserSettingsAPIStoresPersonalNotificationTargets(t *testing.T) {
 
 	putRequest := httptest.NewRequest(http.MethodPut, "/api/user/settings", strings.NewReader(`{
 	  "settings": {
-	    "homePage": "notes/home",
 	    "notifications": {
 	      "ntfyTopicUrl": "https://ntfy.sh/ralf",
 	      "ntfyToken": "secret-token"
@@ -1558,7 +1687,6 @@ func TestUserSettingsAPIStoresPersonalNotificationTargets(t *testing.T) {
 
 	var payload struct {
 		Settings struct {
-			HomePage      string `json:"homePage"`
 			Notifications struct {
 				NtfyTopicURL string `json:"ntfyTopicUrl"`
 				NtfyToken    string `json:"ntfyToken"`
@@ -1568,8 +1696,7 @@ func TestUserSettingsAPIStoresPersonalNotificationTargets(t *testing.T) {
 	if err := json.NewDecoder(getResponse.Body).Decode(&payload); err != nil {
 		t.Fatalf("Decode(user settings) error = %v", err)
 	}
-	if payload.Settings.HomePage != "notes/home" ||
-		payload.Settings.Notifications.NtfyTopicURL != "https://ntfy.sh/ralf" ||
+	if payload.Settings.Notifications.NtfyTopicURL != "https://ntfy.sh/ralf" ||
 		payload.Settings.Notifications.NtfyToken != "secret-token" {
 		t.Fatalf("user settings payload = %#v", payload)
 	}
@@ -1653,7 +1780,6 @@ func TestVaultSettingsRequireAuthenticatedSession(t *testing.T) {
 		ListenAddr: ":8080",
 		VaultPath:  vaultDir,
 		DataDir:    dataDir,
-		HomePage:   "index",
 	}
 	settingsStore, err := settings.NewStore(dataDir, settings.DefaultSettingsFromConfig(cfg))
 	if err != nil {
@@ -1667,7 +1793,7 @@ func TestVaultSettingsRequireAuthenticatedSession(t *testing.T) {
 	})
 
 	putRequest := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{
-	  "vault": {"vaultPath":"`+filepath.ToSlash(vaultDir)+`","homePage":"index"},
+	  "vault": {"vaultPath":"`+filepath.ToSlash(vaultDir)+`"},
 	  "notifications": {"ntfyInterval":"2m"}
 	}`))
 	putRequest.Header.Set("Content-Type", "application/json")
@@ -2612,6 +2738,9 @@ func TestMovePageRenamesMarkdownAndReindexes(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(vaultDir, "notes"), 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(vaultDir, "daily"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
 	raw := "---\n" +
 		"title: Alpha\n" +
 		"tags:\n" +
@@ -2620,6 +2749,10 @@ func TestMovePageRenamesMarkdownAndReindexes(t *testing.T) {
 		"# Alpha\n\n" +
 		"See [[notes/beta]].\n"
 	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "alpha.md"), []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	backlinkRaw := "# Today\n\nSee [[notes/alpha|Alpha]] and [Alpha Ref](../notes/alpha.md#overview).\n"
+	if err := os.WriteFile(filepath.Join(vaultDir, "daily", "today.md"), []byte(backlinkRaw), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -2645,6 +2778,14 @@ func TestMovePageRenamesMarkdownAndReindexes(t *testing.T) {
 	if string(updated) != raw {
 		t.Fatalf("updated markdown = %q, want %q", string(updated), raw)
 	}
+	updatedBacklink, err := os.ReadFile(filepath.Join(vaultDir, "daily", "today.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	expectedBacklink := "# Today\n\nSee [[projects/alpha-renamed|Alpha]] and [Alpha Ref](../projects/alpha-renamed.md#overview).\n"
+	if string(updatedBacklink) != expectedBacklink {
+		t.Fatalf("updated backlink markdown = %q, want %q", string(updatedBacklink), expectedBacklink)
+	}
 
 	var payload struct {
 		Page  string `json:"page"`
@@ -2669,6 +2810,64 @@ func TestMovePageRenamesMarkdownAndReindexes(t *testing.T) {
 	router.ServeHTTP(newRecorder, newRequest)
 	if newRecorder.Code != http.StatusOK {
 		t.Fatalf("new status = %d, body = %s", newRecorder.Code, newRecorder.Body.String())
+	}
+
+	secondBody := []byte(`{"targetPage":"archive/alpha-final"}`)
+	secondRequest := httptest.NewRequest(http.MethodPost, "/api/pages/projects/alpha-renamed/move", bytes.NewReader(secondBody))
+	secondRequest.Header.Set("Content-Type", "application/json")
+	secondRecorder := httptest.NewRecorder()
+	router.ServeHTTP(secondRecorder, secondRequest)
+	if secondRecorder.Code != http.StatusOK {
+		t.Fatalf("second status = %d, body = %s", secondRecorder.Code, secondRecorder.Body.String())
+	}
+
+	secondBacklink, err := os.ReadFile(filepath.Join(vaultDir, "daily", "today.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() second backlink error = %v", err)
+	}
+	secondExpectedBacklink := "# Today\n\nSee [[archive/alpha-final|Alpha]] and [Alpha Ref](../archive/alpha-final.md#overview).\n"
+	if string(secondBacklink) != secondExpectedBacklink {
+		t.Fatalf("second updated backlink markdown = %q, want %q", string(secondBacklink), secondExpectedBacklink)
+	}
+}
+
+func TestMovePageRewritesScopeRelativeWikiLinks(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "Private", "Aruntha"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "Private", "Aruntha", "Geschenkideen.md"), []byte("# Ideen\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	rawIndex := "# Private\n\n## Aruntha\n- [[Aruntha/Geschenkideen]]\n"
+	if err := os.WriteFile(filepath.Join(vaultDir, "Private", "index.md"), []byte(rawIndex), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	body := []byte(`{"targetPage":"Private/Aruntha/test"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/pages/Private/Aruntha/Geschenkideen/move", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	updatedIndex, err := os.ReadFile(filepath.Join(vaultDir, "Private", "index.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	expectedIndex := "# Private\n\n## Aruntha\n- [[Aruntha/test]]\n"
+	if string(updatedIndex) != expectedIndex {
+		t.Fatalf("updated index = %q, want %q", string(updatedIndex), expectedIndex)
 	}
 }
 
@@ -10887,16 +11086,11 @@ func buildTestRouterWithDeps(t *testing.T, vaultDir, dataDir string, deps Depend
 	if deps.Events == nil {
 		deps.Events = NewEventBroker()
 	}
-	configuredVaultHomePage := deps.Config.HomePage
-	if configuredVaultHomePage == "" {
-		configuredVaultHomePage = "index"
-	}
 	configuredVault := vault.Vault{
 		ID:        vault.ConfiguredVaultID,
 		Key:       "default",
 		Name:      "Configured Vault",
 		VaultPath: deps.Config.VaultPath,
-		HomePage:  configuredVaultHomePage,
 	}
 	configuredVaultCtx := vault.WithVault(context.Background(), configuredVault)
 	if err := deps.Index.RebuildFromVault(configuredVaultCtx, deps.Vault); err != nil {

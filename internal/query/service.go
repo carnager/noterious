@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/carnager/noterious/internal/index"
+	"github.com/carnager/noterious/internal/vault"
 )
 
 var ErrQueryBlockNotFound = fmt.Errorf("query block not found")
@@ -740,11 +741,12 @@ func (s *Service) RefreshPageCache(ctx context.Context, indexService *index.Serv
 		return err
 	}
 	matches, ok := matchExistingQueryBlocks(blocks, existing, false)
+	preserveCachedResults := vault.ScopePrefixFromContext(ctx) == ""
 	cached := make([]index.QueryBlock, 0, len(blocks))
 	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	for idx, block := range blocks {
 		parsed, parseErr := Parse(block.Source)
-		if ok {
+		if ok && preserveCachedResults {
 			if existingBlock, found := matches[idx]; found && existingBlock.Source == block.Source {
 				preserved := existingBlock
 				preserved.Source = block.Source
@@ -802,6 +804,7 @@ func (s *Service) RefreshPageBlock(ctx context.Context, indexService *index.Serv
 	}
 
 	matches, ok := matchExistingQueryBlocks(blocks, existing, false)
+	preserveCachedResults := vault.ScopePrefixFromContext(ctx) == ""
 	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	updatedBlocks := make([]index.QueryBlock, 0, len(blocks))
 	var (
@@ -819,7 +822,7 @@ func (s *Service) RefreshPageBlock(ctx context.Context, indexService *index.Serv
 			continue
 		}
 
-		if ok {
+		if ok && preserveCachedResults {
 			if existingBlock, matched := matches[idx]; matched && existingBlock.Source == block.Source {
 				preserved := existingBlock
 				preserved.Source = block.Source
@@ -1035,6 +1038,7 @@ func (s *Service) refreshPageBlocks(ctx context.Context, indexService *index.Ser
 
 	blocks := ExtractBlocks(page.RawMarkdown)
 	matches, ok := matchExistingQueryBlocks(blocks, existing, true)
+	preserveCachedResults := vault.ScopePrefixFromContext(ctx) == ""
 	if !ok {
 		if err := s.RefreshPageCache(ctx, indexService, pagePath); err != nil {
 			return nil, false, err
@@ -1066,6 +1070,14 @@ func (s *Service) refreshPageBlocks(ctx context.Context, indexService *index.Ser
 		parsed, parseErr := Parse(block.Source)
 		if parseErr == nil && shouldRefresh(parsed) {
 			result, err := executeQuery(ctx, s, indexService, block.Source)
+			refreshedBlock := buildCachedQueryBlock(block, parsed, updatedAt, result, err)
+			updatedBlocks = append(updatedBlocks, refreshedBlock)
+			refreshedBlocks = append(refreshedBlocks, refreshedBlock)
+			refreshed = true
+			continue
+		}
+		if !preserveCachedResults {
+			result, err := executeQuery(ctx, s, indexService, block.Source, parseErr)
 			refreshedBlock := buildCachedQueryBlock(block, parsed, updatedAt, result, err)
 			updatedBlocks = append(updatedBlocks, refreshedBlock)
 			refreshedBlocks = append(refreshedBlocks, refreshedBlock)

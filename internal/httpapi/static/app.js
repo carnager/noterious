@@ -362,7 +362,9 @@
         themeId: "noterious-night"
       },
       vaults: {
-        topLevelFoldersAsVaults: false
+        topLevelFoldersAsVaults: false,
+        rootHomePage: "",
+        scopeHomePages: {}
       }
     };
   }
@@ -385,7 +387,15 @@
         themeId: input.ui.themeId
       },
       vaults: {
-        topLevelFoldersAsVaults: Boolean(input.vaults.topLevelFoldersAsVaults)
+        topLevelFoldersAsVaults: Boolean(input.vaults.topLevelFoldersAsVaults),
+        rootHomePage: String(input.vaults.rootHomePage || "").trim(),
+        scopeHomePages: Object.fromEntries(
+          Object.entries(input.vaults.scopeHomePages || {}).map(function([key, value]) {
+            return [String(key || "").trim(), String(value || "").trim()];
+          }).filter(function([key, value]) {
+            return Boolean(key || value);
+          })
+        )
       }
     };
   }
@@ -395,6 +405,7 @@
     const hotkeysSource = source.hotkeys && typeof source.hotkeys === "object" ? source.hotkeys : {};
     const uiSource = source.ui && typeof source.ui === "object" ? source.ui : {};
     const vaultsSource = source.vaults && typeof source.vaults === "object" ? source.vaults : {};
+    const scopeHomePagesSource = vaultsSource.scopeHomePages && typeof vaultsSource.scopeHomePages === "object" ? vaultsSource.scopeHomePages : {};
     const fontFamily = String(uiSource.fontFamily ?? defaults.ui.fontFamily).trim();
     const fontSize = String(uiSource.fontSize ?? defaults.ui.fontSize).trim();
     const dateTimeFormat = String(uiSource.dateTimeFormat ?? defaults.ui.dateTimeFormat).trim();
@@ -417,7 +428,15 @@
         themeId: themeId || defaults.ui.themeId
       },
       vaults: {
-        topLevelFoldersAsVaults: Boolean(vaultsSource.topLevelFoldersAsVaults)
+        topLevelFoldersAsVaults: Boolean(vaultsSource.topLevelFoldersAsVaults),
+        rootHomePage: typeof vaultsSource.rootHomePage === "string" ? vaultsSource.rootHomePage.trim() : "",
+        scopeHomePages: Object.fromEntries(
+          Object.entries(scopeHomePagesSource).map(function([key, value]) {
+            return [String(key || "").trim(), String(value || "").trim()];
+          }).filter(function([key, value]) {
+            return Boolean(key || value);
+          })
+        )
       }
     };
   }
@@ -471,9 +490,6 @@
   }
   function setActiveScopePrefix(prefix) {
     activeScopePrefix = normalizeScopePrefix(prefix);
-  }
-  function currentActiveScopePrefix() {
-    return activeScopePrefix;
   }
   function scopedRequestInit(options) {
     return {
@@ -1061,6 +1077,21 @@
     }
     return null;
   }
+  function parseStructuredEditableTimeValue(raw) {
+    const text = String(raw || "").trim();
+    if (!text) {
+      return null;
+    }
+    const match = text.match(timeOnlyPattern);
+    if (!match) {
+      return null;
+    }
+    return {
+      hour: Number(match[1]),
+      minute: Number(match[2]),
+      second: Number(match[3] || "0")
+    };
+  }
   function formatDateValue(value) {
     if (value instanceof Date) {
       return formatStructuredDate(structuredDateFromDate(value));
@@ -1097,9 +1128,20 @@
     }
     return formatStructuredEditableDateTime(structured);
   }
+  function formatEditableTimeValue(value) {
+    const parsed = parseStructuredEditableTimeValue(value);
+    if (!parsed) {
+      return String(value || "");
+    }
+    return [pad(parsed.hour), pad(parsed.minute)].join(":");
+  }
   function formatTimeValue(value) {
     if (value instanceof Date) {
       return formatStructuredTime(structuredDateFromDate(value));
+    }
+    const parsedTime = parseStructuredEditableTimeValue(String(value || ""));
+    if (parsedTime) {
+      return [pad(parsedTime.hour), pad(parsedTime.minute)].join(":");
     }
     const structured = parseStructuredDateValue(value);
     if (!structured) {
@@ -1133,6 +1175,17 @@
       [pad(structured.hour), pad(structured.minute)].join(":")
     ].join(" ");
   }
+  function parseEditableTimeValue(value) {
+    const text = String(value || "").trim();
+    if (!text) {
+      return "";
+    }
+    const structured = parseStructuredEditableTimeValue(text);
+    if (!structured) {
+      throw new Error('Invalid time. Use "HH:MM".');
+    }
+    return [pad(structured.hour), pad(structured.minute)].join(":");
+  }
   function editableDatePlaceholder() {
     return currentDisplayFormat === "de" ? "30.04.2026" : "2026-04-30";
   }
@@ -1148,6 +1201,12 @@
     if (!text.trim() || !isDateLikeColumn(column)) {
       return text;
     }
+    if (String(column || "").trim().toLowerCase() === "remind") {
+      const parsedTime = parseStructuredEditableTimeValue(text);
+      if (parsedTime) {
+        return [pad(parsedTime.hour), pad(parsedTime.minute)].join(":");
+      }
+    }
     const structured = parseStructuredDateValue(text);
     if (structured) {
       return structured.hasTime ? formatStructuredDateTime(structured) : formatStructuredDate(structured);
@@ -1158,13 +1217,14 @@
     }
     return formatStructuredDateTime(structuredDateFromDate(parsed));
   }
-  var currentDisplayFormat, dateOnlyPattern, dateTimePattern;
+  var currentDisplayFormat, dateOnlyPattern, dateTimePattern, timeOnlyPattern;
   var init_datetime = __esm({
     "frontend/datetime.ts"() {
       "use strict";
       currentDisplayFormat = "browser";
       dateOnlyPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
       dateTimePattern = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/;
+      timeOnlyPattern = /^(\d{2}):(\d{2})(?::(\d{2}))?$/;
     }
   });
 
@@ -1338,27 +1398,49 @@
       String(day).padStart(2, "0")
     ].join("-");
   }
-  function canonicalDateTime(year, month, day, hour, minute) {
-    return canonicalDate(year, month, day) + " " + [hour, minute].map(function(value) {
+  function canonicalTime(hour, minute) {
+    return [hour, minute].map(function(value) {
       return String(value).padStart(2, "0");
     }).join(":");
   }
-  function taskPickerPartsFromValue(mode, rawValue) {
+  function taskPickerPartsFromValue(mode, rawValue, dueValue) {
     const fallback = /* @__PURE__ */ new Date();
     try {
-      const canonical = mode === "due" ? parseEditableDateValue(rawValue) : parseEditableDateTimeValue(rawValue);
+      if (mode === "remind") {
+        const timeCanonical = parseEditableTimeValue(rawValue);
+        const baseDate = parseEditableDateValue(dueValue) || canonicalDate(fallback.getFullYear(), fallback.getMonth() + 1, fallback.getDate());
+        const [year2, month2, day2] = baseDate.split("-").map(Number);
+        const [hour2, minute2] = timeCanonical.split(":").map(Number);
+        if (![year2, month2, day2, hour2, minute2].every(Number.isFinite)) {
+          throw new Error("invalid");
+        }
+        return { year: year2, month: month2, day: day2, hour: hour2, minute: minute2 };
+      }
+      const canonical = parseEditableDateValue(rawValue);
       if (!canonical) {
         throw new Error("empty");
       }
       const datePart = canonical.slice(0, 10);
-      const timePart = canonical.slice(11, 16);
       const [year, month, day] = datePart.split("-").map(Number);
-      const [hour, minute] = timePart ? timePart.split(":").map(Number) : [9, 0];
+      const [hour, minute] = [9, 0];
       if (![year, month, day, hour, minute].every(Number.isFinite)) {
         throw new Error("invalid");
       }
       return { year, month, day, hour, minute };
     } catch (_error) {
+      if (mode === "remind") {
+        try {
+          const canonical = parseEditableDateTimeValue(rawValue);
+          const datePart = canonical.slice(0, 10);
+          const timePart = canonical.slice(11, 16);
+          const [year, month, day] = datePart.split("-").map(Number);
+          const [hour, minute] = timePart.split(":").map(Number);
+          if ([year, month, day, hour, minute].every(Number.isFinite)) {
+            return { year, month, day, hour, minute };
+          }
+        } catch (_nestedError) {
+        }
+      }
       return {
         year: fallback.getFullYear(),
         month: fallback.getMonth() + 1,
@@ -1850,43 +1932,52 @@
     }
     const mode = taskPickerState.mode;
     const target = els.inlineTaskPicker;
+    const task = callbacks.currentPickerTask();
     clearNode(target);
-    const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
-    const firstWeekday = (monthStart.getDay() + 6) % 7;
-    const gridStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1 - firstWeekday);
-    const monthLabel = new Intl.DateTimeFormat(void 0, { month: "long", year: "numeric" }).format(monthStart);
     const head = document.createElement("div");
     head.className = "task-picker-head";
     const title = document.createElement("strong");
-    title.textContent = monthLabel;
+    if (mode === "due") {
+      const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
+      title.textContent = new Intl.DateTimeFormat(void 0, { month: "long", year: "numeric" }).format(monthStart);
+    } else {
+      title.textContent = "Reminder time";
+    }
     head.appendChild(title);
-    const nav = document.createElement("div");
-    nav.className = "task-picker-nav";
-    const prev = document.createElement("button");
-    prev.type = "button";
-    prev.textContent = "<";
-    prev.addEventListener("click", function() {
-      taskPickerState.month -= 1;
-      if (taskPickerState.month < 1) {
-        taskPickerState.month = 12;
-        taskPickerState.year -= 1;
-      }
-      renderTaskPicker(taskPickerState, els, callbacks);
-    });
-    nav.appendChild(prev);
-    const next = document.createElement("button");
-    next.type = "button";
-    next.textContent = ">";
-    next.addEventListener("click", function() {
-      taskPickerState.month += 1;
-      if (taskPickerState.month > 12) {
-        taskPickerState.month = 1;
-        taskPickerState.year += 1;
-      }
-      renderTaskPicker(taskPickerState, els, callbacks);
-    });
-    nav.appendChild(next);
-    head.appendChild(nav);
+    if (mode === "due") {
+      const nav = document.createElement("div");
+      nav.className = "task-picker-nav";
+      const prev = document.createElement("button");
+      prev.type = "button";
+      prev.textContent = "<";
+      prev.addEventListener("click", function() {
+        taskPickerState.month -= 1;
+        if (taskPickerState.month < 1) {
+          taskPickerState.month = 12;
+          taskPickerState.year -= 1;
+        }
+        renderTaskPicker(taskPickerState, els, callbacks);
+      });
+      nav.appendChild(prev);
+      const next = document.createElement("button");
+      next.type = "button";
+      next.textContent = ">";
+      next.addEventListener("click", function() {
+        taskPickerState.month += 1;
+        if (taskPickerState.month > 12) {
+          taskPickerState.month = 1;
+          taskPickerState.year += 1;
+        }
+        renderTaskPicker(taskPickerState, els, callbacks);
+      });
+      nav.appendChild(next);
+      head.appendChild(nav);
+    } else {
+      const summary = document.createElement("span");
+      summary.className = "task-picker-summary";
+      summary.textContent = task && task.due ? "Applies on " + formatEditableDateValue(task.due) : "Applies when a due date is set";
+      head.appendChild(summary);
+    }
     target.appendChild(head);
     if (mode === "remind") {
       const timeRow = document.createElement("div");
@@ -1920,21 +2011,15 @@
       apply.className = "task-picker-apply";
       apply.textContent = "Apply";
       apply.addEventListener("click", function() {
-        const task = callbacks.currentPickerTask();
-        if (!task) {
+        const currentTask = callbacks.currentPickerTask();
+        if (!currentTask) {
           callbacks.closeTaskPickers();
           return;
         }
         callbacks.saveTaskDateField(
-          task,
+          currentTask,
           "remind",
-          canonicalDateTime(
-            taskPickerState.year,
-            taskPickerState.month,
-            taskPickerState.day,
-            taskPickerState.hour,
-            taskPickerState.minute
-          )
+          canonicalTime(taskPickerState.hour, taskPickerState.minute)
         ).catch(function(error) {
           callbacks.setNoteStatus("Reminder update failed: " + callbacks.errorMessage(error));
         });
@@ -1942,59 +2027,54 @@
       timeRow.appendChild(apply);
       target.appendChild(timeRow);
     }
-    const weekdays = document.createElement("div");
-    weekdays.className = "task-picker-weekdays";
-    ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].forEach(function(label) {
-      const cell = document.createElement("span");
-      cell.textContent = label;
-      weekdays.appendChild(cell);
-    });
-    target.appendChild(weekdays);
-    const grid = document.createElement("div");
-    grid.className = "task-picker-grid";
-    for (let index = 0; index < 42; index += 1) {
-      const current = new Date(gridStart);
-      current.setDate(gridStart.getDate() + index);
-      const dayButton = document.createElement("button");
-      dayButton.type = "button";
-      dayButton.className = "task-picker-day";
-      if (current.getMonth() !== taskPickerState.month - 1) {
-        dayButton.classList.add("is-faded");
-      }
-      if (current.getFullYear() === taskPickerState.year && current.getMonth() === taskPickerState.month - 1 && current.getDate() === taskPickerState.day) {
-        dayButton.classList.add("is-selected");
-      }
-      dayButton.textContent = String(current.getDate());
-      dayButton.addEventListener("click", function() {
-        taskPickerState.year = current.getFullYear();
-        taskPickerState.month = current.getMonth() + 1;
-        taskPickerState.day = current.getDate();
-        if (mode === "due") {
-          const task = callbacks.currentPickerTask();
-          if (!task) {
+    if (mode === "due") {
+      const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
+      const firstWeekday = (monthStart.getDay() + 6) % 7;
+      const gridStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1 - firstWeekday);
+      const weekdays = document.createElement("div");
+      weekdays.className = "task-picker-weekdays";
+      ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].forEach(function(label) {
+        const cell = document.createElement("span");
+        cell.textContent = label;
+        weekdays.appendChild(cell);
+      });
+      target.appendChild(weekdays);
+      const grid = document.createElement("div");
+      grid.className = "task-picker-grid";
+      for (let index = 0; index < 42; index += 1) {
+        const current = new Date(gridStart);
+        current.setDate(gridStart.getDate() + index);
+        const dayButton = document.createElement("button");
+        dayButton.type = "button";
+        dayButton.className = "task-picker-day";
+        if (current.getMonth() !== taskPickerState.month - 1) {
+          dayButton.classList.add("is-faded");
+        }
+        if (current.getFullYear() === taskPickerState.year && current.getMonth() === taskPickerState.month - 1 && current.getDate() === taskPickerState.day) {
+          dayButton.classList.add("is-selected");
+        }
+        dayButton.textContent = String(current.getDate());
+        dayButton.addEventListener("click", function() {
+          taskPickerState.year = current.getFullYear();
+          taskPickerState.month = current.getMonth() + 1;
+          taskPickerState.day = current.getDate();
+          const currentTask = callbacks.currentPickerTask();
+          if (!currentTask) {
             callbacks.closeTaskPickers();
             return;
           }
-          callbacks.saveTaskDateField(task, "due", canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day)).catch(function(error) {
+          callbacks.saveTaskDateField(currentTask, "due", canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day)).catch(function(error) {
             callbacks.setNoteStatus("Due date update failed: " + callbacks.errorMessage(error));
           });
-          return;
-        }
-        renderTaskPicker(taskPickerState, els, callbacks);
-      });
-      grid.appendChild(dayButton);
+        });
+        grid.appendChild(dayButton);
+      }
+      target.appendChild(grid);
     }
-    target.appendChild(grid);
     const footer = document.createElement("div");
     footer.className = "task-picker-footer";
     const status = document.createElement("span");
-    status.textContent = mode === "due" ? formatEditableDateValue(canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day)) : formatEditableDateTimeValue(canonicalDateTime(
-      taskPickerState.year,
-      taskPickerState.month,
-      taskPickerState.day,
-      taskPickerState.hour,
-      taskPickerState.minute
-    ));
+    status.textContent = mode === "due" ? formatEditableDateValue(canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day)) : formatEditableTimeValue(canonicalTime(taskPickerState.hour, taskPickerState.minute));
     footer.appendChild(status);
     const actions = document.createElement("div");
     actions.className = "task-picker-footer-actions";
@@ -2002,12 +2082,12 @@
     clear.type = "button";
     clear.textContent = "Clear";
     clear.addEventListener("click", function() {
-      const task = callbacks.currentPickerTask();
-      if (!task) {
+      const task2 = callbacks.currentPickerTask();
+      if (!task2) {
         callbacks.closeTaskPickers();
         return;
       }
-      callbacks.saveTaskDateField(task, mode, "").catch(function(error) {
+      callbacks.saveTaskDateField(task2, mode, "").catch(function(error) {
         callbacks.setNoteStatus("Date update failed: " + callbacks.errorMessage(error));
       });
     });
@@ -2033,7 +2113,11 @@
       return;
     }
     options.rememberNoteFocus();
-    const parts = taskPickerPartsFromValue(options.mode, options.mode === "due" ? options.task.due || "" : options.task.remind || "");
+    const parts = taskPickerPartsFromValue(
+      options.mode,
+      options.mode === "due" ? options.task.due || "" : options.task.remind || "",
+      options.task.due || ""
+    );
     taskPickerState.mode = options.mode;
     taskPickerState.ref = options.ref;
     taskPickerState.left = options.left;
@@ -3230,6 +3314,16 @@
   });
 
   // frontend/pageViews.ts
+  function formatReminderLabel(value) {
+    const text = String(value || "").trim();
+    if (!text) {
+      return "";
+    }
+    if (/^\d{2}:\d{2}(?::\d{2})?$/.test(text)) {
+      return formatTimeValue(text);
+    }
+    return formatDateTimeValue(text);
+  }
   function setDragPayload(event, payload) {
     if (!event.dataTransfer) {
       return;
@@ -3649,7 +3743,7 @@
       meta.className = "page-task-meta";
       [
         task.due ? "due " + formatDateValue(task.due) : "no due",
-        task.remind ? "remind " + formatDateTimeValue(task.remind) : "",
+        task.remind ? "remind " + formatReminderLabel(task.remind) : "",
         task.who && task.who.length ? task.who.join(", ") : ""
       ].filter(Boolean).forEach(function(part) {
         const token = document.createElement("span");
@@ -4607,7 +4701,9 @@
   }
   function applyURLState(options) {
     const urlState = parseURLState(options.href);
-    if (urlState.page) {
+    if (urlState.page && options.pages.some(function(page) {
+      return String(page.path || "").toLowerCase() === urlState.page.toLowerCase();
+    })) {
       options.onNavigateToPage(urlState.page, true);
       return;
     }
@@ -4964,9 +5060,9 @@
       String(now.getDate()).padStart(2, "0")
     ].join("-");
   }
-  function currentDateTime() {
+  function currentTime() {
     const now = /* @__PURE__ */ new Date();
-    return todayDate() + " " + [
+    return [
       String(now.getHours()).padStart(2, "0"),
       String(now.getMinutes()).padStart(2, "0")
     ].join(":");
@@ -5093,11 +5189,11 @@
       {
         id: "remind",
         title: "Insert reminder",
-        description: "Append a remind field with the current date and time.",
+        description: "Append a remind field with the current time.",
         keywords: "task remind reminder notify notification",
         hint: "/remind",
         apply: function(lineText) {
-          return appendField(lineText, "remind", "[remind: " + currentDateTime() + "]");
+          return appendField(lineText, "remind", "[remind: " + currentTime() + "]");
         }
       }
     ];
@@ -5458,6 +5554,22 @@
     const result = builtinThemeMap();
     (Array.isArray(themes) ? themes : []).forEach(function(theme) {
       result[theme.id] = cloneThemeRecord(theme);
+    });
+    return result;
+  }
+  function mergedThemeLibrary(themes) {
+    const result = builtinThemeLibrary();
+    const seen = new Set(
+      result.map(function(theme) {
+        return theme.id;
+      })
+    );
+    (Array.isArray(themes) ? themes : []).forEach(function(theme) {
+      if (theme.source === "builtin" && seen.has(theme.id)) {
+        return;
+      }
+      result.push(cloneThemeRecord(theme));
+      seen.add(theme.id);
     });
     return result;
   }
@@ -6051,6 +6163,857 @@
             shadow: "0 16px 40px rgba(0, 0, 0, 0.34)",
             themeColor: "#191b20"
           }
+        },
+        {
+          version: 1,
+          id: "github-light",
+          name: "GitHub Light",
+          source: "builtin",
+          kind: "light",
+          description: "The familiar GitHub light palette.",
+          tokens: {
+            bg: "#f6f8fa",
+            bgGradientStart: "#ffffff",
+            bgGradientEnd: "#edf1f5",
+            bgGlowA: "rgba(9, 105, 218, 0.06)",
+            bgGlowB: "rgba(31, 136, 61, 0.04)",
+            sidebar: "rgba(234, 239, 244, 0.98)",
+            sidebarSoft: "rgba(241, 244, 248, 0.97)",
+            panel: "rgba(255, 255, 255, 0.95)",
+            panelStrong: "#d8dee4",
+            surface: "#d0d7de",
+            surfaceSoft: "#f6f8fa",
+            overlay: "rgba(255, 255, 255, 0.99)",
+            overlaySoft: "rgba(246, 248, 250, 0.96)",
+            table: "rgba(246, 248, 250, 0.95)",
+            tableHeader: "rgba(9, 105, 218, 0.06)",
+            editorOverlay: "rgba(248, 250, 252, 0.98)",
+            ink: "#1f2328",
+            muted: "#57606a",
+            accent: "#0969da",
+            accentSoft: "rgba(9, 105, 218, 0.14)",
+            warn: "#cf222e",
+            line: "rgba(9, 105, 218, 0.12)",
+            lineStrong: "rgba(9, 105, 218, 0.22)",
+            focusRing: "rgba(9, 105, 218, 0.3)",
+            selection: "rgba(9, 105, 218, 0.14)",
+            shadow: "0 16px 36px rgba(31, 35, 40, 0.12)",
+            themeColor: "#f6f8fa"
+          }
+        },
+        {
+          version: 1,
+          id: "github-dark",
+          name: "GitHub Dark",
+          source: "builtin",
+          kind: "dark",
+          description: "The standard GitHub dark theme.",
+          tokens: {
+            bg: "#0d1117",
+            bgGradientStart: "#0d1117",
+            bgGradientEnd: "#090c10",
+            bgGlowA: "rgba(47, 129, 247, 0.08)",
+            bgGlowB: "rgba(63, 185, 80, 0.04)",
+            sidebar: "rgba(13, 17, 23, 0.98)",
+            sidebarSoft: "rgba(18, 24, 31, 0.94)",
+            panel: "rgba(22, 27, 34, 0.92)",
+            panelStrong: "#161b22",
+            surface: "#21262d",
+            surfaceSoft: "#161b22",
+            overlay: "rgba(22, 27, 34, 0.99)",
+            overlaySoft: "rgba(27, 34, 43, 0.96)",
+            table: "rgba(27, 34, 43, 0.93)",
+            tableHeader: "rgba(47, 129, 247, 0.1)",
+            editorOverlay: "rgba(22, 27, 34, 0.98)",
+            ink: "#c9d1d9",
+            muted: "#8b949e",
+            accent: "#2f81f7",
+            accentSoft: "rgba(47, 129, 247, 0.16)",
+            warn: "#ff7b72",
+            line: "rgba(47, 129, 247, 0.14)",
+            lineStrong: "rgba(47, 129, 247, 0.26)",
+            focusRing: "rgba(47, 129, 247, 0.34)",
+            selection: "rgba(47, 129, 247, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.38)",
+            themeColor: "#0d1117"
+          }
+        },
+        {
+          version: 1,
+          id: "github-dark-dimmed",
+          name: "GitHub Dark Dimmed",
+          source: "builtin",
+          kind: "dark",
+          description: "The softer dark-dimmed GitHub variant.",
+          tokens: {
+            bg: "#22272e",
+            bgGradientStart: "#22272e",
+            bgGradientEnd: "#1b1f24",
+            bgGlowA: "rgba(83, 155, 245, 0.08)",
+            bgGlowB: "rgba(87, 171, 90, 0.04)",
+            sidebar: "rgba(34, 39, 46, 0.98)",
+            sidebarSoft: "rgba(41, 47, 56, 0.94)",
+            panel: "rgba(44, 49, 58, 0.92)",
+            panelStrong: "#2d333b",
+            surface: "#373e47",
+            surfaceSoft: "#2d333b",
+            overlay: "rgba(45, 51, 59, 0.99)",
+            overlaySoft: "rgba(52, 59, 68, 0.96)",
+            table: "rgba(52, 59, 68, 0.93)",
+            tableHeader: "rgba(83, 155, 245, 0.1)",
+            editorOverlay: "rgba(45, 51, 59, 0.98)",
+            ink: "#adbac7",
+            muted: "#768390",
+            accent: "#539bf5",
+            accentSoft: "rgba(83, 155, 245, 0.16)",
+            warn: "#f47067",
+            line: "rgba(83, 155, 245, 0.14)",
+            lineStrong: "rgba(83, 155, 245, 0.26)",
+            focusRing: "rgba(83, 155, 245, 0.34)",
+            selection: "rgba(83, 155, 245, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.34)",
+            themeColor: "#22272e"
+          }
+        },
+        {
+          version: 1,
+          id: "gruvbox-light",
+          name: "Gruvbox Light",
+          source: "builtin",
+          kind: "light",
+          description: "Warm parchment-like Gruvbox light tones.",
+          tokens: {
+            bg: "#fbf1c7",
+            bgGradientStart: "#fdf4cf",
+            bgGradientEnd: "#ebdbb2",
+            bgGlowA: "rgba(214, 93, 14, 0.08)",
+            bgGlowB: "rgba(152, 151, 26, 0.05)",
+            sidebar: "rgba(242, 229, 188, 0.98)",
+            sidebarSoft: "rgba(249, 240, 203, 0.96)",
+            panel: "rgba(253, 246, 227, 0.95)",
+            panelStrong: "#ebdbb2",
+            surface: "#e2cca9",
+            surfaceSoft: "#f2e5bc",
+            overlay: "rgba(253, 246, 227, 0.99)",
+            overlaySoft: "rgba(247, 236, 197, 0.96)",
+            table: "rgba(244, 232, 192, 0.95)",
+            tableHeader: "rgba(214, 93, 14, 0.08)",
+            editorOverlay: "rgba(249, 240, 203, 0.98)",
+            ink: "#3c3836",
+            muted: "#7c6f64",
+            accent: "#d65d0e",
+            accentSoft: "rgba(214, 93, 14, 0.14)",
+            warn: "#cc241d",
+            line: "rgba(214, 93, 14, 0.13)",
+            lineStrong: "rgba(214, 93, 14, 0.24)",
+            focusRing: "rgba(214, 93, 14, 0.32)",
+            selection: "rgba(214, 93, 14, 0.16)",
+            shadow: "0 16px 36px rgba(96, 72, 41, 0.14)",
+            themeColor: "#f2e5bc"
+          }
+        },
+        {
+          version: 1,
+          id: "gruvbox-dark",
+          name: "Gruvbox Dark",
+          source: "builtin",
+          kind: "dark",
+          description: "The beloved warm Gruvbox dark palette.",
+          tokens: {
+            bg: "#282828",
+            bgGradientStart: "#282828",
+            bgGradientEnd: "#1f1f1f",
+            bgGlowA: "rgba(250, 189, 47, 0.08)",
+            bgGlowB: "rgba(184, 187, 38, 0.05)",
+            sidebar: "rgba(40, 40, 40, 0.98)",
+            sidebarSoft: "rgba(50, 48, 47, 0.93)",
+            panel: "rgba(60, 56, 54, 0.92)",
+            panelStrong: "#3c3836",
+            surface: "#504945",
+            surfaceSoft: "#3c3836",
+            overlay: "rgba(60, 56, 54, 0.99)",
+            overlaySoft: "rgba(73, 69, 67, 0.95)",
+            table: "rgba(73, 69, 67, 0.92)",
+            tableHeader: "rgba(250, 189, 47, 0.1)",
+            editorOverlay: "rgba(73, 69, 67, 0.98)",
+            ink: "#ebdbb2",
+            muted: "#a89984",
+            accent: "#fabd2f",
+            accentSoft: "rgba(250, 189, 47, 0.16)",
+            warn: "#fb4934",
+            line: "rgba(250, 189, 47, 0.14)",
+            lineStrong: "rgba(250, 189, 47, 0.28)",
+            focusRing: "rgba(250, 189, 47, 0.34)",
+            selection: "rgba(250, 189, 47, 0.2)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.36)",
+            themeColor: "#282828"
+          }
+        },
+        {
+          version: 1,
+          id: "catppuccin-frappe",
+          name: "Catppuccin Frappe",
+          source: "builtin",
+          kind: "dark",
+          description: "The cooler mid-contrast Catppuccin Frappe variant.",
+          tokens: {
+            bg: "#303446",
+            bgGradientStart: "#303446",
+            bgGradientEnd: "#292c3c",
+            bgGlowA: "rgba(140, 170, 238, 0.08)",
+            bgGlowB: "rgba(202, 158, 230, 0.06)",
+            sidebar: "rgba(35, 38, 52, 0.98)",
+            sidebarSoft: "rgba(48, 52, 70, 0.93)",
+            panel: "rgba(65, 69, 89, 0.92)",
+            panelStrong: "#414559",
+            surface: "#51576d",
+            surfaceSoft: "#303446",
+            overlay: "rgba(65, 69, 89, 0.99)",
+            overlaySoft: "rgba(73, 78, 100, 0.95)",
+            table: "rgba(73, 78, 100, 0.92)",
+            tableHeader: "rgba(140, 170, 238, 0.1)",
+            editorOverlay: "rgba(73, 78, 100, 0.98)",
+            ink: "#c6d0f5",
+            muted: "#a5adce",
+            accent: "#8caaee",
+            accentSoft: "rgba(140, 170, 238, 0.16)",
+            warn: "#e78284",
+            line: "rgba(140, 170, 238, 0.14)",
+            lineStrong: "rgba(140, 170, 238, 0.28)",
+            focusRing: "rgba(140, 170, 238, 0.36)",
+            selection: "rgba(140, 170, 238, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.34)",
+            themeColor: "#303446"
+          }
+        },
+        {
+          version: 1,
+          id: "catppuccin-macchiato",
+          name: "Catppuccin Macchiato",
+          source: "builtin",
+          kind: "dark",
+          description: "The balanced Catppuccin Macchiato palette.",
+          tokens: {
+            bg: "#24273a",
+            bgGradientStart: "#24273a",
+            bgGradientEnd: "#1e2030",
+            bgGlowA: "rgba(138, 173, 244, 0.08)",
+            bgGlowB: "rgba(198, 160, 246, 0.06)",
+            sidebar: "rgba(30, 32, 48, 0.98)",
+            sidebarSoft: "rgba(36, 39, 58, 0.93)",
+            panel: "rgba(54, 58, 79, 0.92)",
+            panelStrong: "#363a4f",
+            surface: "#494d64",
+            surfaceSoft: "#24273a",
+            overlay: "rgba(54, 58, 79, 0.99)",
+            overlaySoft: "rgba(62, 67, 90, 0.95)",
+            table: "rgba(62, 67, 90, 0.92)",
+            tableHeader: "rgba(138, 173, 244, 0.1)",
+            editorOverlay: "rgba(62, 67, 90, 0.98)",
+            ink: "#cad3f5",
+            muted: "#a5adcb",
+            accent: "#8aadf4",
+            accentSoft: "rgba(138, 173, 244, 0.16)",
+            warn: "#ed8796",
+            line: "rgba(138, 173, 244, 0.14)",
+            lineStrong: "rgba(138, 173, 244, 0.28)",
+            focusRing: "rgba(138, 173, 244, 0.36)",
+            selection: "rgba(138, 173, 244, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.36)",
+            themeColor: "#24273a"
+          }
+        },
+        {
+          version: 1,
+          id: "rose-pine-dawn",
+          name: "Ros\xE9 Pine Dawn",
+          source: "builtin",
+          kind: "light",
+          description: "The soft and beloved Ros\xE9 Pine light variant.",
+          tokens: {
+            bg: "#faf4ed",
+            bgGradientStart: "#fff9f2",
+            bgGradientEnd: "#f2e9e1",
+            bgGlowA: "rgba(144, 122, 169, 0.08)",
+            bgGlowB: "rgba(215, 130, 126, 0.05)",
+            sidebar: "rgba(245, 237, 228, 0.98)",
+            sidebarSoft: "rgba(250, 244, 237, 0.96)",
+            panel: "rgba(255, 251, 246, 0.95)",
+            panelStrong: "#f2e9e1",
+            surface: "#e9ddd4",
+            surfaceSoft: "#faf4ed",
+            overlay: "rgba(255, 251, 246, 0.99)",
+            overlaySoft: "rgba(250, 244, 237, 0.96)",
+            table: "rgba(246, 238, 230, 0.95)",
+            tableHeader: "rgba(144, 122, 169, 0.08)",
+            editorOverlay: "rgba(250, 244, 237, 0.98)",
+            ink: "#575279",
+            muted: "#797593",
+            accent: "#907aa9",
+            accentSoft: "rgba(144, 122, 169, 0.14)",
+            warn: "#b4637a",
+            line: "rgba(144, 122, 169, 0.12)",
+            lineStrong: "rgba(144, 122, 169, 0.22)",
+            focusRing: "rgba(144, 122, 169, 0.3)",
+            selection: "rgba(144, 122, 169, 0.15)",
+            shadow: "0 16px 36px rgba(87, 82, 121, 0.14)",
+            themeColor: "#faf4ed"
+          }
+        },
+        {
+          version: 1,
+          id: "rose-pine-moon",
+          name: "Ros\xE9 Pine Moon",
+          source: "builtin",
+          kind: "dark",
+          description: "Muted lavender and pine tones from Ros\xE9 Pine Moon.",
+          tokens: {
+            bg: "#232136",
+            bgGradientStart: "#232136",
+            bgGradientEnd: "#1d1b2b",
+            bgGlowA: "rgba(196, 167, 231, 0.08)",
+            bgGlowB: "rgba(235, 188, 186, 0.05)",
+            sidebar: "rgba(35, 33, 54, 0.98)",
+            sidebarSoft: "rgba(42, 39, 63, 0.93)",
+            panel: "rgba(57, 53, 82, 0.92)",
+            panelStrong: "#393552",
+            surface: "#44415a",
+            surfaceSoft: "#2a273f",
+            overlay: "rgba(57, 53, 82, 0.99)",
+            overlaySoft: "rgba(66, 62, 93, 0.95)",
+            table: "rgba(66, 62, 93, 0.92)",
+            tableHeader: "rgba(196, 167, 231, 0.1)",
+            editorOverlay: "rgba(66, 62, 93, 0.98)",
+            ink: "#e0def4",
+            muted: "#908caa",
+            accent: "#c4a7e7",
+            accentSoft: "rgba(196, 167, 231, 0.16)",
+            warn: "#eb6f92",
+            line: "rgba(196, 167, 231, 0.14)",
+            lineStrong: "rgba(196, 167, 231, 0.28)",
+            focusRing: "rgba(196, 167, 231, 0.36)",
+            selection: "rgba(196, 167, 231, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.36)",
+            themeColor: "#232136"
+          }
+        },
+        {
+          version: 1,
+          id: "rose-pine",
+          name: "Ros\xE9 Pine",
+          source: "builtin",
+          kind: "dark",
+          description: "The original Ros\xE9 Pine palette.",
+          tokens: {
+            bg: "#191724",
+            bgGradientStart: "#191724",
+            bgGradientEnd: "#14121d",
+            bgGlowA: "rgba(196, 167, 231, 0.08)",
+            bgGlowB: "rgba(235, 188, 186, 0.05)",
+            sidebar: "rgba(25, 23, 36, 0.98)",
+            sidebarSoft: "rgba(31, 29, 45, 0.93)",
+            panel: "rgba(38, 35, 58, 0.92)",
+            panelStrong: "#26233a",
+            surface: "#403d52",
+            surfaceSoft: "#26233a",
+            overlay: "rgba(38, 35, 58, 0.99)",
+            overlaySoft: "rgba(47, 43, 70, 0.95)",
+            table: "rgba(47, 43, 70, 0.92)",
+            tableHeader: "rgba(196, 167, 231, 0.1)",
+            editorOverlay: "rgba(47, 43, 70, 0.98)",
+            ink: "#e0def4",
+            muted: "#908caa",
+            accent: "#c4a7e7",
+            accentSoft: "rgba(196, 167, 231, 0.16)",
+            warn: "#eb6f92",
+            line: "rgba(196, 167, 231, 0.14)",
+            lineStrong: "rgba(196, 167, 231, 0.28)",
+            focusRing: "rgba(196, 167, 231, 0.36)",
+            selection: "rgba(196, 167, 231, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.36)",
+            themeColor: "#191724"
+          }
+        },
+        {
+          version: 1,
+          id: "ayu-light",
+          name: "Ayu Light",
+          source: "builtin",
+          kind: "light",
+          description: "Bright Ayu Light with orange emphasis.",
+          tokens: {
+            bg: "#fafafa",
+            bgGradientStart: "#ffffff",
+            bgGradientEnd: "#eceff3",
+            bgGlowA: "rgba(250, 111, 66, 0.07)",
+            bgGlowB: "rgba(58, 169, 159, 0.04)",
+            sidebar: "rgba(239, 243, 247, 0.98)",
+            sidebarSoft: "rgba(246, 248, 251, 0.97)",
+            panel: "rgba(255, 255, 255, 0.95)",
+            panelStrong: "#e6eaf0",
+            surface: "#dfe5ed",
+            surfaceSoft: "#f3f5f7",
+            overlay: "rgba(255, 255, 255, 0.99)",
+            overlaySoft: "rgba(246, 248, 251, 0.96)",
+            table: "rgba(244, 246, 249, 0.95)",
+            tableHeader: "rgba(250, 111, 66, 0.08)",
+            editorOverlay: "rgba(246, 248, 251, 0.98)",
+            ink: "#5c6773",
+            muted: "#8a9199",
+            accent: "#fa6f42",
+            accentSoft: "rgba(250, 111, 66, 0.14)",
+            warn: "#f51818",
+            line: "rgba(250, 111, 66, 0.12)",
+            lineStrong: "rgba(250, 111, 66, 0.22)",
+            focusRing: "rgba(250, 111, 66, 0.3)",
+            selection: "rgba(250, 111, 66, 0.14)",
+            shadow: "0 16px 36px rgba(92, 103, 115, 0.12)",
+            themeColor: "#fafafa"
+          }
+        },
+        {
+          version: 1,
+          id: "ayu-mirage",
+          name: "Ayu Mirage",
+          source: "builtin",
+          kind: "dark",
+          description: "Ayu Mirage's muted desert night palette.",
+          tokens: {
+            bg: "#1f2430",
+            bgGradientStart: "#1f2430",
+            bgGradientEnd: "#191d27",
+            bgGlowA: "rgba(255, 173, 82, 0.08)",
+            bgGlowB: "rgba(90, 182, 180, 0.05)",
+            sidebar: "rgba(25, 30, 40, 0.98)",
+            sidebarSoft: "rgba(31, 36, 48, 0.93)",
+            panel: "rgba(36, 42, 56, 0.92)",
+            panelStrong: "#242a38",
+            surface: "#323b50",
+            surfaceSoft: "#1f2430",
+            overlay: "rgba(36, 42, 56, 0.99)",
+            overlaySoft: "rgba(43, 49, 65, 0.95)",
+            table: "rgba(43, 49, 65, 0.92)",
+            tableHeader: "rgba(255, 173, 82, 0.1)",
+            editorOverlay: "rgba(43, 49, 65, 0.98)",
+            ink: "#cccac2",
+            muted: "#8a9199",
+            accent: "#ffad52",
+            accentSoft: "rgba(255, 173, 82, 0.16)",
+            warn: "#f28779",
+            line: "rgba(255, 173, 82, 0.14)",
+            lineStrong: "rgba(255, 173, 82, 0.28)",
+            focusRing: "rgba(255, 173, 82, 0.36)",
+            selection: "rgba(255, 173, 82, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.36)",
+            themeColor: "#1f2430"
+          }
+        },
+        {
+          version: 1,
+          id: "ayu-dark",
+          name: "Ayu Dark",
+          source: "builtin",
+          kind: "dark",
+          description: "The darker high-contrast Ayu palette.",
+          tokens: {
+            bg: "#0a0e14",
+            bgGradientStart: "#0a0e14",
+            bgGradientEnd: "#07090e",
+            bgGlowA: "rgba(255, 184, 108, 0.08)",
+            bgGlowB: "rgba(149, 230, 203, 0.05)",
+            sidebar: "rgba(10, 14, 20, 0.98)",
+            sidebarSoft: "rgba(14, 19, 27, 0.93)",
+            panel: "rgba(15, 20, 28, 0.92)",
+            panelStrong: "#0f141c",
+            surface: "#1a2230",
+            surfaceSoft: "#0f141c",
+            overlay: "rgba(15, 20, 28, 0.99)",
+            overlaySoft: "rgba(21, 28, 38, 0.95)",
+            table: "rgba(21, 28, 38, 0.92)",
+            tableHeader: "rgba(255, 184, 108, 0.1)",
+            editorOverlay: "rgba(21, 28, 38, 0.98)",
+            ink: "#b3b1ad",
+            muted: "#6c7986",
+            accent: "#ffb454",
+            accentSoft: "rgba(255, 180, 84, 0.16)",
+            warn: "#f07178",
+            line: "rgba(255, 180, 84, 0.14)",
+            lineStrong: "rgba(255, 180, 84, 0.28)",
+            focusRing: "rgba(255, 180, 84, 0.36)",
+            selection: "rgba(255, 180, 84, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.4)",
+            themeColor: "#0a0e14"
+          }
+        },
+        {
+          version: 1,
+          id: "everforest-light",
+          name: "Everforest Light",
+          source: "builtin",
+          kind: "light",
+          description: "Soft green-tinted Everforest light tones.",
+          tokens: {
+            bg: "#fdf6e3",
+            bgGradientStart: "#fff9ea",
+            bgGradientEnd: "#efe7d3",
+            bgGlowA: "rgba(143, 151, 74, 0.08)",
+            bgGlowB: "rgba(213, 126, 93, 0.05)",
+            sidebar: "rgba(241, 235, 215, 0.98)",
+            sidebarSoft: "rgba(249, 244, 228, 0.97)",
+            panel: "rgba(255, 250, 236, 0.95)",
+            panelStrong: "#ede6d3",
+            surface: "#e7dcc4",
+            surfaceSoft: "#f6efdb",
+            overlay: "rgba(255, 250, 236, 0.99)",
+            overlaySoft: "rgba(246, 239, 219, 0.96)",
+            table: "rgba(243, 235, 214, 0.95)",
+            tableHeader: "rgba(143, 151, 74, 0.08)",
+            editorOverlay: "rgba(246, 239, 219, 0.98)",
+            ink: "#5c6a72",
+            muted: "#829181",
+            accent: "#8f974a",
+            accentSoft: "rgba(143, 151, 74, 0.14)",
+            warn: "#d75f5f",
+            line: "rgba(143, 151, 74, 0.12)",
+            lineStrong: "rgba(143, 151, 74, 0.22)",
+            focusRing: "rgba(143, 151, 74, 0.3)",
+            selection: "rgba(143, 151, 74, 0.15)",
+            shadow: "0 16px 36px rgba(92, 106, 114, 0.12)",
+            themeColor: "#f6efdb"
+          }
+        },
+        {
+          version: 1,
+          id: "everforest-dark",
+          name: "Everforest Dark",
+          source: "builtin",
+          kind: "dark",
+          description: "The calming forest-inspired dark Everforest palette.",
+          tokens: {
+            bg: "#2b3339",
+            bgGradientStart: "#2b3339",
+            bgGradientEnd: "#232a2f",
+            bgGlowA: "rgba(163, 190, 140, 0.08)",
+            bgGlowB: "rgba(230, 126, 128, 0.05)",
+            sidebar: "rgba(35, 42, 47, 0.98)",
+            sidebarSoft: "rgba(43, 51, 57, 0.93)",
+            panel: "rgba(55, 63, 69, 0.92)",
+            panelStrong: "#374145",
+            surface: "#4f5b58",
+            surfaceSoft: "#2b3339",
+            overlay: "rgba(55, 63, 69, 0.99)",
+            overlaySoft: "rgba(64, 73, 78, 0.95)",
+            table: "rgba(64, 73, 78, 0.92)",
+            tableHeader: "rgba(163, 190, 140, 0.1)",
+            editorOverlay: "rgba(64, 73, 78, 0.98)",
+            ink: "#d3c6aa",
+            muted: "#9da9a0",
+            accent: "#a7c080",
+            accentSoft: "rgba(167, 192, 128, 0.16)",
+            warn: "#e67e80",
+            line: "rgba(167, 192, 128, 0.14)",
+            lineStrong: "rgba(167, 192, 128, 0.28)",
+            focusRing: "rgba(167, 192, 128, 0.36)",
+            selection: "rgba(167, 192, 128, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.34)",
+            themeColor: "#2b3339"
+          }
+        },
+        {
+          version: 1,
+          id: "tokyo-night-storm",
+          name: "Tokyo Night Storm",
+          source: "builtin",
+          kind: "dark",
+          description: "The popular Tokyo Night Storm palette.",
+          tokens: {
+            bg: "#24283b",
+            bgGradientStart: "#24283b",
+            bgGradientEnd: "#1e2132",
+            bgGlowA: "rgba(122, 162, 247, 0.08)",
+            bgGlowB: "rgba(187, 154, 247, 0.06)",
+            sidebar: "rgba(26, 27, 38, 0.98)",
+            sidebarSoft: "rgba(36, 40, 59, 0.93)",
+            panel: "rgba(41, 46, 66, 0.92)",
+            panelStrong: "#292e42",
+            surface: "#414868",
+            surfaceSoft: "#24283b",
+            overlay: "rgba(41, 46, 66, 0.99)",
+            overlaySoft: "rgba(49, 55, 77, 0.95)",
+            table: "rgba(49, 55, 77, 0.92)",
+            tableHeader: "rgba(122, 162, 247, 0.1)",
+            editorOverlay: "rgba(49, 55, 77, 0.98)",
+            ink: "#c0caf5",
+            muted: "#9aa5ce",
+            accent: "#7aa2f7",
+            accentSoft: "rgba(122, 162, 247, 0.16)",
+            warn: "#f7768e",
+            line: "rgba(122, 162, 247, 0.14)",
+            lineStrong: "rgba(122, 162, 247, 0.28)",
+            focusRing: "rgba(122, 162, 247, 0.36)",
+            selection: "rgba(122, 162, 247, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.36)",
+            themeColor: "#24283b"
+          }
+        },
+        {
+          version: 1,
+          id: "tokyo-night",
+          name: "Tokyo Night",
+          source: "builtin",
+          kind: "dark",
+          description: "A slightly deeper Tokyo Night variant.",
+          tokens: {
+            bg: "#1a1b26",
+            bgGradientStart: "#1a1b26",
+            bgGradientEnd: "#151621",
+            bgGlowA: "rgba(122, 162, 247, 0.08)",
+            bgGlowB: "rgba(187, 154, 247, 0.06)",
+            sidebar: "rgba(22, 23, 34, 0.98)",
+            sidebarSoft: "rgba(26, 27, 38, 0.93)",
+            panel: "rgba(31, 35, 53, 0.92)",
+            panelStrong: "#1f2335",
+            surface: "#2f354f",
+            surfaceSoft: "#1a1b26",
+            overlay: "rgba(31, 35, 53, 0.99)",
+            overlaySoft: "rgba(38, 42, 63, 0.95)",
+            table: "rgba(38, 42, 63, 0.92)",
+            tableHeader: "rgba(122, 162, 247, 0.1)",
+            editorOverlay: "rgba(38, 42, 63, 0.98)",
+            ink: "#c0caf5",
+            muted: "#7a83a8",
+            accent: "#7aa2f7",
+            accentSoft: "rgba(122, 162, 247, 0.16)",
+            warn: "#f7768e",
+            line: "rgba(122, 162, 247, 0.14)",
+            lineStrong: "rgba(122, 162, 247, 0.28)",
+            focusRing: "rgba(122, 162, 247, 0.36)",
+            selection: "rgba(122, 162, 247, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.36)",
+            themeColor: "#1a1b26"
+          }
+        },
+        {
+          version: 1,
+          id: "tokyo-night-moon",
+          name: "Tokyo Night Moon",
+          source: "builtin",
+          kind: "dark",
+          description: "Tokyo Night Moon with more cyan and depth.",
+          tokens: {
+            bg: "#222436",
+            bgGradientStart: "#222436",
+            bgGradientEnd: "#1c1e2e",
+            bgGlowA: "rgba(130, 170, 255, 0.08)",
+            bgGlowB: "rgba(134, 246, 255, 0.05)",
+            sidebar: "rgba(27, 29, 44, 0.98)",
+            sidebarSoft: "rgba(34, 36, 54, 0.93)",
+            panel: "rgba(41, 44, 66, 0.92)",
+            panelStrong: "#2a2e45",
+            surface: "#3b4261",
+            surfaceSoft: "#222436",
+            overlay: "rgba(41, 44, 66, 0.99)",
+            overlaySoft: "rgba(48, 52, 76, 0.95)",
+            table: "rgba(48, 52, 76, 0.92)",
+            tableHeader: "rgba(130, 170, 255, 0.1)",
+            editorOverlay: "rgba(48, 52, 76, 0.98)",
+            ink: "#c8d3f5",
+            muted: "#828bb8",
+            accent: "#82aaff",
+            accentSoft: "rgba(130, 170, 255, 0.16)",
+            warn: "#ff757f",
+            line: "rgba(130, 170, 255, 0.14)",
+            lineStrong: "rgba(130, 170, 255, 0.28)",
+            focusRing: "rgba(130, 170, 255, 0.36)",
+            selection: "rgba(130, 170, 255, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.36)",
+            themeColor: "#222436"
+          }
+        },
+        {
+          version: 1,
+          id: "tokyo-night-light",
+          name: "Tokyo Night Light",
+          source: "builtin",
+          kind: "light",
+          description: "The light counterpart to Tokyo Night.",
+          tokens: {
+            bg: "#d5d6db",
+            bgGradientStart: "#e6e7eb",
+            bgGradientEnd: "#c9cbd1",
+            bgGlowA: "rgba(52, 84, 138, 0.08)",
+            bgGlowB: "rgba(86, 109, 174, 0.05)",
+            sidebar: "rgba(206, 209, 218, 0.98)",
+            sidebarSoft: "rgba(222, 224, 230, 0.97)",
+            panel: "rgba(247, 247, 249, 0.95)",
+            panelStrong: "#d5d6db",
+            surface: "#c4c8da",
+            surfaceSoft: "#e6e7eb",
+            overlay: "rgba(247, 247, 249, 0.99)",
+            overlaySoft: "rgba(230, 231, 235, 0.96)",
+            table: "rgba(230, 231, 235, 0.95)",
+            tableHeader: "rgba(52, 84, 138, 0.08)",
+            editorOverlay: "rgba(230, 231, 235, 0.98)",
+            ink: "#343b58",
+            muted: "#6172b0",
+            accent: "#34548a",
+            accentSoft: "rgba(52, 84, 138, 0.14)",
+            warn: "#8c4351",
+            line: "rgba(52, 84, 138, 0.12)",
+            lineStrong: "rgba(52, 84, 138, 0.22)",
+            focusRing: "rgba(52, 84, 138, 0.3)",
+            selection: "rgba(52, 84, 138, 0.14)",
+            shadow: "0 16px 36px rgba(52, 59, 88, 0.12)",
+            themeColor: "#d5d6db"
+          }
+        },
+        {
+          version: 1,
+          id: "kanagawa-lotus",
+          name: "Kanagawa Lotus",
+          source: "builtin",
+          kind: "light",
+          description: "Kanagawa's elegant parchment-like light palette.",
+          tokens: {
+            bg: "#f2ecbc",
+            bgGradientStart: "#f8f3ce",
+            bgGradientEnd: "#e4dba8",
+            bgGlowA: "rgba(147, 115, 48, 0.08)",
+            bgGlowB: "rgba(102, 127, 116, 0.05)",
+            sidebar: "rgba(233, 226, 186, 0.98)",
+            sidebarSoft: "rgba(245, 239, 203, 0.97)",
+            panel: "rgba(255, 249, 221, 0.95)",
+            panelStrong: "#e5ddb0",
+            surface: "#dcd2a1",
+            surfaceSoft: "#f2ecbc",
+            overlay: "rgba(255, 249, 221, 0.99)",
+            overlaySoft: "rgba(242, 236, 188, 0.96)",
+            table: "rgba(243, 236, 197, 0.95)",
+            tableHeader: "rgba(147, 115, 48, 0.08)",
+            editorOverlay: "rgba(242, 236, 188, 0.98)",
+            ink: "#545464",
+            muted: "#716e61",
+            accent: "#4d699b",
+            accentSoft: "rgba(77, 105, 155, 0.14)",
+            warn: "#c84053",
+            line: "rgba(77, 105, 155, 0.12)",
+            lineStrong: "rgba(77, 105, 155, 0.22)",
+            focusRing: "rgba(77, 105, 155, 0.3)",
+            selection: "rgba(77, 105, 155, 0.15)",
+            shadow: "0 16px 36px rgba(84, 84, 100, 0.12)",
+            themeColor: "#f2ecbc"
+          }
+        },
+        {
+          version: 1,
+          id: "kanagawa-wave",
+          name: "Kanagawa Wave",
+          source: "builtin",
+          kind: "dark",
+          description: "Kanagawa Wave's ink-and-indigo atmosphere.",
+          tokens: {
+            bg: "#1f1f28",
+            bgGradientStart: "#1f1f28",
+            bgGradientEnd: "#17171f",
+            bgGlowA: "rgba(125, 157, 176, 0.08)",
+            bgGlowB: "rgba(149, 110, 167, 0.05)",
+            sidebar: "rgba(22, 22, 29, 0.98)",
+            sidebarSoft: "rgba(31, 31, 40, 0.93)",
+            panel: "rgba(34, 34, 46, 0.92)",
+            panelStrong: "#2a2a37",
+            surface: "#363646",
+            surfaceSoft: "#1f1f28",
+            overlay: "rgba(34, 34, 46, 0.99)",
+            overlaySoft: "rgba(42, 42, 55, 0.95)",
+            table: "rgba(42, 42, 55, 0.92)",
+            tableHeader: "rgba(125, 157, 176, 0.1)",
+            editorOverlay: "rgba(42, 42, 55, 0.98)",
+            ink: "#dcd7ba",
+            muted: "#938056",
+            accent: "#7e9cd8",
+            accentSoft: "rgba(126, 156, 216, 0.16)",
+            warn: "#e46876",
+            line: "rgba(126, 156, 216, 0.14)",
+            lineStrong: "rgba(126, 156, 216, 0.28)",
+            focusRing: "rgba(126, 156, 216, 0.36)",
+            selection: "rgba(126, 156, 216, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.36)",
+            themeColor: "#1f1f28"
+          }
+        },
+        {
+          version: 1,
+          id: "kanagawa-dragon",
+          name: "Kanagawa Dragon",
+          source: "builtin",
+          kind: "dark",
+          description: "Kanagawa Dragon with warmer shadows and highlights.",
+          tokens: {
+            bg: "#181616",
+            bgGradientStart: "#181616",
+            bgGradientEnd: "#121111",
+            bgGlowA: "rgba(200, 148, 90, 0.08)",
+            bgGlowB: "rgba(140, 170, 130, 0.05)",
+            sidebar: "rgba(24, 22, 22, 0.98)",
+            sidebarSoft: "rgba(32, 29, 29, 0.93)",
+            panel: "rgba(40, 36, 36, 0.92)",
+            panelStrong: "#282727",
+            surface: "#393030",
+            surfaceSoft: "#181616",
+            overlay: "rgba(40, 36, 36, 0.99)",
+            overlaySoft: "rgba(49, 43, 43, 0.95)",
+            table: "rgba(49, 43, 43, 0.92)",
+            tableHeader: "rgba(200, 148, 90, 0.1)",
+            editorOverlay: "rgba(49, 43, 43, 0.98)",
+            ink: "#c5c9c5",
+            muted: "#a6a69c",
+            accent: "#c4b28a",
+            accentSoft: "rgba(196, 178, 138, 0.16)",
+            warn: "#c4746e",
+            line: "rgba(196, 178, 138, 0.14)",
+            lineStrong: "rgba(196, 178, 138, 0.28)",
+            focusRing: "rgba(196, 178, 138, 0.36)",
+            selection: "rgba(196, 178, 138, 0.2)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.38)",
+            themeColor: "#181616"
+          }
+        },
+        {
+          version: 1,
+          id: "one-dark",
+          name: "One Dark",
+          source: "builtin",
+          kind: "dark",
+          description: "The classic Atom/VS Code One Dark palette.",
+          tokens: {
+            bg: "#282c34",
+            bgGradientStart: "#282c34",
+            bgGradientEnd: "#21252b",
+            bgGlowA: "rgba(97, 175, 239, 0.08)",
+            bgGlowB: "rgba(198, 120, 221, 0.05)",
+            sidebar: "rgba(33, 37, 43, 0.98)",
+            sidebarSoft: "rgba(40, 44, 52, 0.93)",
+            panel: "rgba(46, 52, 64, 0.92)",
+            panelStrong: "#2c313c",
+            surface: "#3e4451",
+            surfaceSoft: "#282c34",
+            overlay: "rgba(46, 52, 64, 0.99)",
+            overlaySoft: "rgba(56, 62, 76, 0.95)",
+            table: "rgba(56, 62, 76, 0.92)",
+            tableHeader: "rgba(97, 175, 239, 0.1)",
+            editorOverlay: "rgba(56, 62, 76, 0.98)",
+            ink: "#abb2bf",
+            muted: "#7f848e",
+            accent: "#61afef",
+            accentSoft: "rgba(97, 175, 239, 0.16)",
+            warn: "#e06c75",
+            line: "rgba(97, 175, 239, 0.14)",
+            lineStrong: "rgba(97, 175, 239, 0.28)",
+            focusRing: "rgba(97, 175, 239, 0.36)",
+            selection: "rgba(97, 175, 239, 0.22)",
+            shadow: "0 16px 40px rgba(0, 0, 0, 0.36)",
+            themeColor: "#282c34"
+          }
         }
       ];
       tokenKeys = [
@@ -6197,8 +7160,7 @@
           settings: {
             preferences: cloneClientPreferences(defaultClientPreferences()),
             vault: {
-              vaultPath: "./vault",
-              homePage: ""
+              vaultPath: "./vault"
             },
             notifications: {
               ntfyInterval: "1m"
@@ -6209,13 +7171,11 @@
             }
           },
           appliedVault: {
-            vaultPath: "./vault",
-            homePage: ""
+            vaultPath: "./vault"
           },
           settingsRestartRequired: false,
           settingsLoaded: false,
           userSettingsLoaded: false,
-          configHomePage: "",
           homePage: "",
           topLevelFoldersAsVaults: false,
           themeLibraryLoaded: false,
@@ -6255,7 +7215,12 @@
           mustChangePassword: false,
           setupRequired: false,
           authGateMode: "login",
-          settingsSection: "appearance"
+          settingsSection: "appearance",
+          remoteChangePage: "",
+          remoteChangeHasLocalEdits: false,
+          expectedLocalChangePage: "",
+          expectedLocalChangeCount: 0,
+          expectedLocalChangeUntil: 0
         };
         const els = {
           appShell: optionalQuery(".shell"),
@@ -6300,6 +7265,10 @@
           noteHeading: requiredElement("note-heading"),
           toggleSourceMode: requiredElement("toggle-source-mode"),
           noteStatus: requiredElement("note-status"),
+          remoteChangeToast: requiredElement("remote-change-toast"),
+          remoteChangeMessage: requiredElement("remote-change-message"),
+          remoteChangeReload: requiredElement("remote-change-reload"),
+          remoteChangeDismiss: requiredElement("remote-change-dismiss"),
           treeContextMenu: requiredElement("tree-context-menu"),
           markdownEditor: requiredElement("markdown-editor"),
           structuredView: requiredElement("structured-view"),
@@ -6435,6 +7404,7 @@
         }
         async function saveTaskDateField(task, field, value) {
           setTaskDateApplySuppressed2(true);
+          noteLocalPageChange(task.page || state.selectedPage || "");
           await saveTask(task.ref, {
             text: task.text || "",
             state: task.done ? "done" : "todo",
@@ -6459,6 +7429,7 @@
           if (!window.confirm('Delete task "' + (task.text || task.ref) + '"?')) {
             return;
           }
+          noteLocalPageChange(task.page || state.selectedPage || "");
           await deleteTask(ref);
           closeTaskPickers2();
           await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
@@ -6580,6 +7551,66 @@
             }
           }, 250);
         }
+        function clearRemoteChangeToast() {
+          state.remoteChangePage = "";
+          state.remoteChangeHasLocalEdits = false;
+          els.remoteChangeToast.classList.add("hidden");
+        }
+        function noteLocalPageChange(pagePath) {
+          if (!pagePath) {
+            return;
+          }
+          if (state.expectedLocalChangePage !== pagePath || Date.now() > state.expectedLocalChangeUntil) {
+            state.expectedLocalChangePage = pagePath;
+            state.expectedLocalChangeCount = 0;
+          }
+          state.expectedLocalChangeCount += 1;
+          state.expectedLocalChangeUntil = Date.now() + 5e3;
+        }
+        function consumeExpectedLocalPageChange(pagePath) {
+          if (!pagePath || state.expectedLocalChangePage !== pagePath || Date.now() > state.expectedLocalChangeUntil) {
+            return false;
+          }
+          if (state.expectedLocalChangeCount <= 0) {
+            return false;
+          }
+          state.expectedLocalChangeCount -= 1;
+          if (state.expectedLocalChangeCount <= 0) {
+            state.expectedLocalChangePage = "";
+            state.expectedLocalChangeUntil = 0;
+          }
+          return true;
+        }
+        function showRemoteChangeToast(pagePath) {
+          state.remoteChangePage = pagePath;
+          state.remoteChangeHasLocalEdits = hasUnsavedPageChanges();
+          els.remoteChangeMessage.textContent = state.remoteChangeHasLocalEdits ? pagePath + " changed on another device. Reload will discard local edits." : pagePath + " changed on another device.";
+          els.remoteChangeToast.classList.remove("hidden");
+          setNoteStatus("Remote change detected for " + pagePath + ".");
+        }
+        function reloadRemoteChangedPage() {
+          const pagePath = state.remoteChangePage || state.selectedPage;
+          clearRemoteChangeToast();
+          loadPages();
+          loadTasks();
+          loadSavedQueryTree();
+          if (pagePath && state.selectedPage === pagePath) {
+            refreshCurrentDetail(true);
+          }
+        }
+        function shouldPromptForRemoteReload(eventName, payload) {
+          if (eventName !== "page.changed" || !state.selectedPage) {
+            return false;
+          }
+          const eventPage = typeof payload.page === "string" ? payload.page : "";
+          if (!eventPage || eventPage !== state.selectedPage) {
+            return false;
+          }
+          if (consumeExpectedLocalPageChange(eventPage)) {
+            return false;
+          }
+          return markdownEditorHasFocus(state, els) || inlineTableEditorHasFocus2() || inlineTableEditorOpen2();
+        }
         function clearAutosaveTimer() {
           if (!state.autosaveTimer) {
             return;
@@ -6598,23 +7629,43 @@
         }
         function setHomePage(pagePath) {
           const normalized = normalizePageDraftPath(pagePath);
+          const scopePrefix = currentScopePrefix();
           state.homePage = normalized;
+          if (scopePrefix) {
+            state.settings.preferences.vaults.scopeHomePages[scopePrefix] = normalized;
+          } else {
+            state.settings.preferences.vaults.rootHomePage = normalized;
+          }
+          saveStoredClientPreferences(state.settings.preferences);
           renderHomeButton();
           if (!els.settingsModalShell.classList.contains("hidden")) {
             renderSettingsForm2();
           }
-          persistUserHomePage(true);
         }
         function clearHomePage() {
+          const scopePrefix = currentScopePrefix();
           state.homePage = "";
+          if (scopePrefix) {
+            delete state.settings.preferences.vaults.scopeHomePages[scopePrefix];
+          } else {
+            state.settings.preferences.vaults.rootHomePage = "";
+          }
+          saveStoredClientPreferences(state.settings.preferences);
           renderHomeButton();
           if (!els.settingsModalShell.classList.contains("hidden")) {
             renderSettingsForm2();
           }
-          persistUserHomePage(true);
         }
         function currentHomePage() {
           return normalizePageDraftPath(state.homePage || "");
+        }
+        function syncHomePageForCurrentScope() {
+          const scopePrefix = currentScopePrefix();
+          if (scopePrefix) {
+            state.homePage = normalizePageDraftPath(state.settings.preferences.vaults.scopeHomePages[scopePrefix] || "");
+            return;
+          }
+          state.homePage = normalizePageDraftPath(state.settings.preferences.vaults.rootHomePage || "");
         }
         function renderHomeButton() {
           const homePage = currentHomePage();
@@ -6788,9 +7839,14 @@
             state.currentVault = state.availableVaults[0] || null;
           }
           setActiveScopePrefix(currentScopePrefix());
+          syncHomePageForCurrentScope();
           state.vaultSwitchPending = false;
           state.vaultSwitcherOpen = false;
           renderSessionState2();
+          renderHomeButton();
+          if (!els.settingsModalShell.classList.contains("hidden")) {
+            renderSettingsForm2();
+          }
         }
         const scopeStorageKey = "noterious.scope-prefix";
         function loadStoredScopePrefix() {
@@ -6894,8 +7950,11 @@
               loadSavedQueryDetail(name);
             },
             onRenderIdle: function() {
+              state.selectedPage = "";
+              state.selectedSavedQuery = "";
               renderPages();
               renderSavedQueryTree2();
+              syncURLState(true);
             }
           });
         }
@@ -6911,6 +7970,7 @@
               state.pendingPageTaskRef = taskRef;
             },
             onSelectPage: function(path) {
+              clearRemoteChangeToast();
               state.selectedPage = path;
               state.selectedSavedQuery = "";
             },
@@ -6948,10 +8008,6 @@
         function currentScopePrefix() {
           if (!state.topLevelFoldersAsVaults || !state.rootVault || !state.currentVault) {
             return "";
-          }
-          const requestScopePrefix = currentActiveScopePrefix();
-          if (requestScopePrefix) {
-            return requestScopePrefix;
           }
           const rootPath = normalizeVaultPath(state.rootVault.vaultPath || "");
           const currentPath = normalizeVaultPath(state.currentVault.vaultPath || "");
@@ -7005,6 +8061,7 @@
               state.pendingPageTaskRef = taskRef;
             },
             onSelectPage: function(path) {
+              clearRemoteChangeToast();
               state.selectedPage = path;
               state.selectedSavedQuery = "";
             },
@@ -7030,6 +8087,7 @@
               state.pendingPageTaskRef = nextTaskRef;
             },
             onSelectPage: function(path) {
+              clearRemoteChangeToast();
               state.selectedPage = path;
               state.selectedSavedQuery = "";
             },
@@ -7523,6 +8581,7 @@
           if (!state.selectedPage || !state.currentPage) {
             return;
           }
+          noteLocalPageChange(state.selectedPage);
           await fetchJSON("/api/pages/" + encodePath(state.selectedPage), {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -7666,13 +8725,11 @@
           }
         }
         function setUserSettingsSnapshot(snapshot) {
-          state.homePage = normalizePageDraftPath(snapshot.settings.homePage || "");
           state.settings.userNotifications = {
             ntfyTopicUrl: snapshot.settings.notifications.ntfyTopicUrl || "",
             ntfyToken: snapshot.settings.notifications.ntfyToken || ""
           };
           state.userSettingsLoaded = true;
-          renderHomeButton();
           renderSettingsForm2();
         }
         function currentThemeID() {
@@ -7717,7 +8774,7 @@
         }
         async function loadThemes() {
           const payload = normalizeThemeListResponse(await fetchJSON("/api/themes"));
-          state.themeLibrary = Array.isArray(payload.themes) && payload.themes.length > 0 ? payload.themes.slice() : builtinThemeLibrary();
+          state.themeLibrary = mergedThemeLibrary(payload.themes);
           state.themeLibraryLoaded = true;
           refreshThemeCache(state.themeLibrary);
           const currentThemeIDValue = currentThemeID();
@@ -7975,6 +9032,7 @@
           try {
             setTaskDateApplySuppressed2(true);
             rememberNoteFocus();
+            noteLocalPageChange(task.page || state.selectedPage || "");
             await toggleTaskDone(task);
             await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
             restoreNoteFocus();
@@ -8008,6 +9066,9 @@
             state.currentDerived = derived;
             state.currentMarkdown = page.rawMarkdown || "";
             state.originalMarkdown = page.rawMarkdown || "";
+            if (state.remoteChangePage && state.remoteChangePage === (page.page || pagePath)) {
+              clearRemoteChangeToast();
+            }
             clearAutosaveTimer();
             clearPropertyDraft();
             state.selectedSavedQueryPayload = null;
@@ -8470,8 +9531,7 @@
         function collectServerSettingsForm() {
           return {
             vault: {
-              vaultPath: String(els.settingsVaultPath.value || "").trim(),
-              homePage: state.settings.vault.homePage || ""
+              vaultPath: String(els.settingsVaultPath.value || "").trim()
             },
             notifications: {
               ntfyInterval: String(els.settingsNtfyInterval.value || "1m").trim()
@@ -8481,7 +9541,6 @@
         function collectUserSettingsForm() {
           return {
             settings: {
-              homePage: normalizePageDraftPath(state.homePage || ""),
               notifications: {
                 ntfyTopicUrl: String(els.settingsUserNtfyTopicUrl.value || "").trim(),
                 ntfyToken: String(els.settingsUserNtfyToken.value || "").trim()
@@ -8492,29 +9551,12 @@
         function currentUserSettingsPayload() {
           return {
             settings: {
-              homePage: normalizePageDraftPath(state.homePage || ""),
               notifications: {
                 ntfyTopicUrl: state.settings.userNotifications.ntfyTopicUrl || "",
                 ntfyToken: state.settings.userNotifications.ntfyToken || ""
               }
             }
           };
-        }
-        function persistUserHomePage(showFailure) {
-          if (!state.authenticated) {
-            return;
-          }
-          fetchJSON("/api/user/settings", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(currentUserSettingsPayload())
-          }).then(function(snapshot) {
-            setUserSettingsSnapshot(snapshot);
-          }).catch(function(error) {
-            if (showFailure) {
-              setNoteStatus("Home page update failed: " + errorMessage(error));
-            }
-          });
         }
         function collectClientPreferencesForm() {
           return normalizeClientPreferences({
@@ -8525,7 +9567,9 @@
               dateTimeFormat: String(els.settingsDateTimeFormat.value || "browser").trim()
             },
             vaults: {
-              topLevelFoldersAsVaults: Boolean(els.settingsUserTopLevelVaults.checked)
+              topLevelFoldersAsVaults: Boolean(els.settingsUserTopLevelVaults.checked),
+              rootHomePage: state.settings.preferences.vaults.rootHomePage,
+              scopeHomePages: state.settings.preferences.vaults.scopeHomePages
             },
             hotkeys: {
               quickSwitcher: String(els.settingsQuickSwitcher.value || "").trim(),
@@ -8542,6 +9586,7 @@
         function applyClientPreferences(preferences) {
           state.settings.preferences = cloneClientPreferences(preferences);
           state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
+          syncHomePageForCurrentScope();
           state.savedThemeId = currentThemeID();
           state.previewThemeId = currentThemeID();
           saveStoredClientPreferences(state.settings.preferences);
@@ -9019,6 +10064,7 @@
           const markdownToSave = state.currentMarkdown;
           setNoteStatus("Saving " + state.selectedPage + "...");
           try {
+            noteLocalPageChange(state.selectedPage);
             const payload = await savePageMarkdown(state.selectedPage, markdownToSave, encodePath);
             state.currentPage = payload;
             state.originalMarkdown = payload.rawMarkdown || markdownToSave;
@@ -9072,6 +10118,13 @@
                 payload = { raw: messageEvent.data };
               }
               addEventLine(eventName, payload, false);
+              if (shouldPromptForRemoteReload(eventName, payload)) {
+                loadPages();
+                loadTasks();
+                loadSavedQueryTree();
+                showRemoteChangeToast(String(payload.page || state.selectedPage || ""));
+                return;
+              }
               debounceRefresh();
             });
           });
@@ -9093,6 +10146,12 @@
               return;
             }
             login();
+          });
+          on(els.remoteChangeReload, "click", function() {
+            reloadRemoteChangedPage();
+          });
+          on(els.remoteChangeDismiss, "click", function() {
+            clearRemoteChangeToast();
           });
           function isTypingTarget(target) {
             const element = target instanceof Element ? target : null;

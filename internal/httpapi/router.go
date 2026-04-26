@@ -67,7 +67,6 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("GET /api/meta", func(w http.ResponseWriter, r *http.Request) {
 		runtimeVault := settings.Vault{
 			VaultPath: deps.Config.VaultPath,
-			HomePage:  deps.Config.HomePage,
 		}
 		activeVaultRecord := currentVaultRecord(r.Context(), deps)
 		var currentVaultPayload *vault.Vault

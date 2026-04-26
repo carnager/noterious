@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -67,6 +68,17 @@ type backlinksResponse struct {
 type pageDeletedResponse struct {
 	OK   bool   `json:"ok"`
 	Page string `json:"page"`
+}
+
+type indexedPageState struct {
+	summary *index.PageSummary
+	tasks   []index.Task
+}
+
+type rewrittenPageState struct {
+	path   string
+	before indexedPageState
+	after  indexedPageState
 }
 
 func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
@@ -448,6 +460,23 @@ func handlePageMoveRequest(w http.ResponseWriter, r *http.Request, deps Dependen
 		http.Error(w, "failed to summarize moved page", http.StatusInternalServerError)
 		return
 	}
+	rewrittenPages, err := rewriteMovedPageLinks(r.Context(), deps, vaultService, pagePath, targetPage)
+	if err != nil {
+		http.Error(w, "failed to rewrite links to moved page", http.StatusInternalServerError)
+		return
+	}
+	if len(rewrittenPages) > 0 {
+		updatedPage, err = deps.Index.GetPage(r.Context(), targetPage)
+		if err != nil {
+			writePageError(w, r, err, "failed to load moved page")
+			return
+		}
+		currentPageSummaryValue, err = summarizePageRecord(r.Context(), deps.Index, updatedPage)
+		if err != nil {
+			http.Error(w, "failed to summarize moved page", http.StatusInternalServerError)
+			return
+		}
+	}
 	PublishDeletionEvents(r.Context(), deps.Events, deps.Index, deps.Query, pagePath, dependentPages, []query.PageChange{{
 		Before: &previousPageSummaryValue,
 		After:  nil,
@@ -456,12 +485,85 @@ func handlePageMoveRequest(w http.ResponseWriter, r *http.Request, deps Dependen
 		Before: nil,
 		After:  &currentPageSummaryValue,
 	}}, query.DiffTaskChanges(nil, updatedPage.Tasks))
+	for _, rewrittenPage := range rewrittenPages {
+		if rewrittenPage.path == targetPage {
+			continue
+		}
+		PublishInvalidationEvents(r.Context(), deps.Events, deps.Index, deps.Query, rewrittenPage.path, []query.PageChange{{
+			Before: rewrittenPage.before.summary,
+			After:  rewrittenPage.after.summary,
+		}}, query.DiffTaskChanges(rewrittenPage.before.tasks, rewrittenPage.after.tasks))
+		if deps.OnPageChanged != nil {
+			deps.OnPageChanged(rewrittenPage.path)
+		}
+	}
 	if deps.OnPageChanged != nil {
 		deps.OnPageChanged(pagePath)
 		deps.OnPageChanged(targetPage)
 	}
 
 	writeJSON(w, http.StatusOK, pageRecordPayload(updatedPage))
+}
+
+func rewriteMovedPageLinks(ctx context.Context, deps Dependencies, vaultService *vault.Service, fromPage string, toPage string) ([]rewrittenPageState, error) {
+	pages, err := vaultService.ScanMarkdownPages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rewritten := make([]rewrittenPageState, 0)
+	for _, page := range pages {
+		raw, err := vaultService.ReadPage(page.Path)
+		if err != nil {
+			return nil, err
+		}
+		nextRaw, changed := markdown.RewritePageLinks(string(raw), page.Path, fromPage, toPage)
+		if !changed {
+			continue
+		}
+		before, err := loadIndexedPageState(ctx, deps.Index, page.Path)
+		if err != nil {
+			return nil, err
+		}
+		if err := vaultService.WritePage(page.Path, []byte(nextRaw)); err != nil {
+			return nil, err
+		}
+		if deps.History != nil {
+			if _, err := deps.History.SaveRevision(page.Path, []byte(nextRaw)); err != nil {
+				return nil, err
+			}
+		}
+		if err := refreshPageDerivedState(ctx, deps, vaultService, page.Path); err != nil {
+			return nil, err
+		}
+		after, err := loadIndexedPageState(ctx, deps.Index, page.Path)
+		if err != nil {
+			return nil, err
+		}
+		rewritten = append(rewritten, rewrittenPageState{
+			path:   page.Path,
+			before: before,
+			after:  after,
+		})
+	}
+	return rewritten, nil
+}
+
+func loadIndexedPageState(ctx context.Context, indexService *index.Service, pagePath string) (indexedPageState, error) {
+	page, err := indexService.GetPage(ctx, pagePath)
+	if err != nil {
+		if errors.Is(err, index.ErrPageNotFound) {
+			return indexedPageState{}, nil
+		}
+		return indexedPageState{}, err
+	}
+	summary, err := summarizePageRecord(ctx, indexService, page)
+	if err != nil {
+		return indexedPageState{}, err
+	}
+	return indexedPageState{
+		summary: &summary,
+		tasks:   append([]index.Task(nil), page.Tasks...),
+	}, nil
 }
 
 func handlePageQueryBlocksGet(w http.ResponseWriter, r *http.Request, deps Dependencies, pagePath string) {

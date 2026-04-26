@@ -28,7 +28,6 @@ func configuredVault(settingsStore *settings.Store, cfg config.Config) vault.Vau
 		Key:       "default",
 		Name:      "Configured Vault",
 		VaultPath: configuredVaultRoot(settingsStore, cfg),
-		HomePage:  strings.TrimSpace(cfg.HomePage),
 	}
 }
 

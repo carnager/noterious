@@ -53,7 +53,9 @@ export function buildSelectionURL(href: string, selectedPage: string, selectedSa
 
 export function applyURLState(options: ApplyURLStateOptions): void {
   const urlState = parseURLState(options.href);
-  if (urlState.page) {
+  if (urlState.page && options.pages.some(function (page) {
+    return String(page.path || "").toLowerCase() === urlState.page.toLowerCase();
+  })) {
     options.onNavigateToPage(urlState.page, true);
     return;
   }

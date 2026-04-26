@@ -95,13 +95,13 @@ export function buildTaskSavePayload(
   taskRemind: string,
   taskWho: string,
   parseDateValue: (value: string) => string,
-  parseDateTimeValue: (value: string) => string
+  parseTimeValue: (value: string) => string
 ): TaskSavePayload {
   return {
     text: taskText.trim(),
     state: taskState,
     due: parseDateValue(taskDue),
-    remind: parseDateTimeValue(taskRemind),
+    remind: parseTimeValue(taskRemind),
     who: taskWho
       .split(",")
       .map(function (part) {

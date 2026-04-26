@@ -41,7 +41,7 @@ import {
   setMarkdownEditorSelection,
   setMarkdownEditorValue,
 } from "./editorState";
-import { currentActiveScopePrefix, fetchJSON, requireOK, scopedEventSourceURL, scopedRequestInit, setActiveScopePrefix } from "./http";
+import { fetchJSON, requireOK, scopedEventSourceURL, scopedRequestInit, setActiveScopePrefix } from "./http";
 import {
   applyInlineTableEditor as applyInlineTableEditorUI,
   anchorInlineTableEditorToRenderedTable as anchorInlineTableEditorToRenderedTableUI,
@@ -159,6 +159,7 @@ import {
   defaultThemeId,
   loadStoredThemeCache,
   mergeThemeCache,
+  mergedThemeLibrary,
   removeThemeFromCache,
   resolveTheme,
   saveStoredThemeCache,
@@ -311,7 +312,6 @@ interface AppState {
   settingsRestartRequired: boolean;
   settingsLoaded: boolean;
   userSettingsLoaded: boolean;
-  configHomePage: string;
   homePage: string;
   topLevelFoldersAsVaults: boolean;
   themeLibraryLoaded: boolean;
@@ -347,6 +347,11 @@ interface AppState {
   setupRequired: boolean;
   authGateMode: AuthGateMode;
   settingsSection: SettingsSection;
+  remoteChangePage: string;
+  remoteChangeHasLocalEdits: boolean;
+  expectedLocalChangePage: string;
+  expectedLocalChangeCount: number;
+  expectedLocalChangeUntil: number;
 }
 
 interface TreeContextMenuState {
@@ -415,7 +420,6 @@ interface TreeContextMenuState {
       preferences: cloneClientPreferences(defaultClientPreferences()),
       vault: {
         vaultPath: "./vault",
-        homePage: "",
       },
       notifications: {
         ntfyInterval: "1m",
@@ -427,12 +431,10 @@ interface TreeContextMenuState {
     },
     appliedVault: {
       vaultPath: "./vault",
-      homePage: "",
     },
     settingsRestartRequired: false,
     settingsLoaded: false,
     userSettingsLoaded: false,
-    configHomePage: "",
     homePage: "",
     topLevelFoldersAsVaults: false,
     themeLibraryLoaded: false,
@@ -473,6 +475,11 @@ interface TreeContextMenuState {
     setupRequired: false,
     authGateMode: "login",
     settingsSection: "appearance",
+    remoteChangePage: "",
+    remoteChangeHasLocalEdits: false,
+    expectedLocalChangePage: "",
+    expectedLocalChangeCount: 0,
+    expectedLocalChangeUntil: 0,
   };
 
   const els = {
@@ -518,6 +525,10 @@ interface TreeContextMenuState {
     noteHeading: requiredElement<HTMLInputElement>("note-heading"),
     toggleSourceMode: requiredElement<HTMLButtonElement>("toggle-source-mode"),
     noteStatus: requiredElement<HTMLElement>("note-status"),
+    remoteChangeToast: requiredElement<HTMLElement>("remote-change-toast"),
+    remoteChangeMessage: requiredElement<HTMLElement>("remote-change-message"),
+    remoteChangeReload: requiredElement<HTMLButtonElement>("remote-change-reload"),
+    remoteChangeDismiss: requiredElement<HTMLButtonElement>("remote-change-dismiss"),
     treeContextMenu: requiredElement<HTMLDivElement>("tree-context-menu"),
     markdownEditor: requiredElement<HTMLTextAreaElement>("markdown-editor"),
     structuredView: requiredElement<HTMLElement>("structured-view"),
@@ -658,6 +669,7 @@ interface TreeContextMenuState {
 
   async function saveTaskDateField(task: TaskRecord, field: "due" | "remind", value: string): Promise<void> {
     setTaskDateApplySuppressed(true);
+    noteLocalPageChange(task.page || state.selectedPage || "");
     await saveTask(task.ref, {
       text: task.text || "",
       state: task.done ? "done" : "todo",
@@ -683,6 +695,7 @@ interface TreeContextMenuState {
     if (!window.confirm('Delete task "' + (task.text || task.ref) + '"?')) {
       return;
     }
+    noteLocalPageChange(task.page || state.selectedPage || "");
     await deleteTaskRequest(ref);
     closeTaskPickers();
     await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
@@ -823,6 +836,74 @@ interface TreeContextMenuState {
     }, 250);
   }
 
+  function clearRemoteChangeToast(): void {
+    state.remoteChangePage = "";
+    state.remoteChangeHasLocalEdits = false;
+    els.remoteChangeToast.classList.add("hidden");
+  }
+
+  function noteLocalPageChange(pagePath: string): void {
+    if (!pagePath) {
+      return;
+    }
+    if (state.expectedLocalChangePage !== pagePath || Date.now() > state.expectedLocalChangeUntil) {
+      state.expectedLocalChangePage = pagePath;
+      state.expectedLocalChangeCount = 0;
+    }
+    state.expectedLocalChangeCount += 1;
+    state.expectedLocalChangeUntil = Date.now() + 5000;
+  }
+
+  function consumeExpectedLocalPageChange(pagePath: string): boolean {
+    if (!pagePath || state.expectedLocalChangePage !== pagePath || Date.now() > state.expectedLocalChangeUntil) {
+      return false;
+    }
+    if (state.expectedLocalChangeCount <= 0) {
+      return false;
+    }
+    state.expectedLocalChangeCount -= 1;
+    if (state.expectedLocalChangeCount <= 0) {
+      state.expectedLocalChangePage = "";
+      state.expectedLocalChangeUntil = 0;
+    }
+    return true;
+  }
+
+  function showRemoteChangeToast(pagePath: string): void {
+    state.remoteChangePage = pagePath;
+    state.remoteChangeHasLocalEdits = hasUnsavedPageChanges();
+    els.remoteChangeMessage.textContent = state.remoteChangeHasLocalEdits
+      ? pagePath + " changed on another device. Reload will discard local edits."
+      : pagePath + " changed on another device.";
+    els.remoteChangeToast.classList.remove("hidden");
+    setNoteStatus("Remote change detected for " + pagePath + ".");
+  }
+
+  function reloadRemoteChangedPage(): void {
+    const pagePath = state.remoteChangePage || state.selectedPage;
+    clearRemoteChangeToast();
+    loadPages();
+    loadTasks();
+    loadSavedQueryTree();
+    if (pagePath && state.selectedPage === pagePath) {
+      refreshCurrentDetail(true);
+    }
+  }
+
+  function shouldPromptForRemoteReload(eventName: string, payload: Record<string, unknown>): boolean {
+    if (eventName !== "page.changed" || !state.selectedPage) {
+      return false;
+    }
+    const eventPage = typeof payload.page === "string" ? payload.page : "";
+    if (!eventPage || eventPage !== state.selectedPage) {
+      return false;
+    }
+    if (consumeExpectedLocalPageChange(eventPage)) {
+      return false;
+    }
+    return markdownEditorHasFocus(state, els) || inlineTableEditorHasFocus() || inlineTableEditorOpen();
+  }
+
   function clearAutosaveTimer() {
     if (!state.autosaveTimer) {
       return;
@@ -845,25 +926,46 @@ interface TreeContextMenuState {
 
   function setHomePage(pagePath: string): void {
     const normalized = normalizePageDraftPath(pagePath);
+    const scopePrefix = currentScopePrefix();
     state.homePage = normalized;
+    if (scopePrefix) {
+      state.settings.preferences.vaults.scopeHomePages[scopePrefix] = normalized;
+    } else {
+      state.settings.preferences.vaults.rootHomePage = normalized;
+    }
+    saveStoredClientPreferences(state.settings.preferences);
     renderHomeButton();
     if (!els.settingsModalShell.classList.contains("hidden")) {
       renderSettingsForm();
     }
-    persistUserHomePage(true);
   }
 
   function clearHomePage() {
+    const scopePrefix = currentScopePrefix();
     state.homePage = "";
+    if (scopePrefix) {
+      delete state.settings.preferences.vaults.scopeHomePages[scopePrefix];
+    } else {
+      state.settings.preferences.vaults.rootHomePage = "";
+    }
+    saveStoredClientPreferences(state.settings.preferences);
     renderHomeButton();
     if (!els.settingsModalShell.classList.contains("hidden")) {
       renderSettingsForm();
     }
-    persistUserHomePage(true);
   }
 
   function currentHomePage() {
     return normalizePageDraftPath(state.homePage || "");
+  }
+
+  function syncHomePageForCurrentScope(): void {
+    const scopePrefix = currentScopePrefix();
+    if (scopePrefix) {
+      state.homePage = normalizePageDraftPath(state.settings.preferences.vaults.scopeHomePages[scopePrefix] || "");
+      return;
+    }
+    state.homePage = normalizePageDraftPath(state.settings.preferences.vaults.rootHomePage || "");
   }
 
   function renderHomeButton(): void {
@@ -1058,9 +1160,14 @@ interface TreeContextMenuState {
       state.currentVault = state.availableVaults[0] || null;
     }
     setActiveScopePrefix(currentScopePrefix());
+    syncHomePageForCurrentScope();
     state.vaultSwitchPending = false;
     state.vaultSwitcherOpen = false;
     renderSessionState();
+    renderHomeButton();
+    if (!els.settingsModalShell.classList.contains("hidden")) {
+      renderSettingsForm();
+    }
   }
 
   const scopeStorageKey = "noterious.scope-prefix";
@@ -1178,8 +1285,11 @@ interface TreeContextMenuState {
         loadSavedQueryDetail(name);
       },
       onRenderIdle: function () {
+        state.selectedPage = "";
+        state.selectedSavedQuery = "";
         renderPages();
         renderSavedQueryTree();
+        syncURLState(true);
       },
     });
   }
@@ -1196,6 +1306,7 @@ interface TreeContextMenuState {
         state.pendingPageTaskRef = taskRef;
       },
       onSelectPage: function (path) {
+        clearRemoteChangeToast();
         state.selectedPage = path;
         state.selectedSavedQuery = "";
       },
@@ -1237,10 +1348,6 @@ interface TreeContextMenuState {
   function currentScopePrefix(): string {
     if (!state.topLevelFoldersAsVaults || !state.rootVault || !state.currentVault) {
       return "";
-    }
-    const requestScopePrefix = currentActiveScopePrefix();
-    if (requestScopePrefix) {
-      return requestScopePrefix;
     }
     const rootPath = normalizeVaultPath(state.rootVault.vaultPath || "");
     const currentPath = normalizeVaultPath(state.currentVault.vaultPath || "");
@@ -1297,6 +1404,7 @@ interface TreeContextMenuState {
         state.pendingPageTaskRef = taskRef;
       },
       onSelectPage: function (path) {
+        clearRemoteChangeToast();
         state.selectedPage = path;
         state.selectedSavedQuery = "";
       },
@@ -1323,6 +1431,7 @@ interface TreeContextMenuState {
         state.pendingPageTaskRef = nextTaskRef;
       },
       onSelectPage: function (path) {
+        clearRemoteChangeToast();
         state.selectedPage = path;
         state.selectedSavedQuery = "";
       },
@@ -1878,6 +1987,7 @@ interface TreeContextMenuState {
       return;
     }
 
+    noteLocalPageChange(state.selectedPage);
     await fetchJSON<unknown>("/api/pages/" + encodePath(state.selectedPage), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -2038,13 +2148,11 @@ interface TreeContextMenuState {
   }
 
   function setUserSettingsSnapshot(snapshot: UserSettingsResponse): void {
-    state.homePage = normalizePageDraftPath(snapshot.settings.homePage || "");
     state.settings.userNotifications = {
       ntfyTopicUrl: snapshot.settings.notifications.ntfyTopicUrl || "",
       ntfyToken: snapshot.settings.notifications.ntfyToken || "",
     };
     state.userSettingsLoaded = true;
-    renderHomeButton();
     renderSettingsForm();
   }
 
@@ -2096,9 +2204,7 @@ interface TreeContextMenuState {
 
   async function loadThemes() {
     const payload = normalizeThemeListResponse(await fetchJSON<ThemeListResponse>("/api/themes"));
-    state.themeLibrary = Array.isArray(payload.themes) && payload.themes.length > 0
-      ? payload.themes.slice()
-      : builtinThemeLibrary();
+    state.themeLibrary = mergedThemeLibrary(payload.themes);
     state.themeLibraryLoaded = true;
     refreshThemeCache(state.themeLibrary);
     const currentThemeIDValue = currentThemeID();
@@ -2380,6 +2486,7 @@ interface TreeContextMenuState {
     try {
       setTaskDateApplySuppressed(true);
       rememberNoteFocus();
+      noteLocalPageChange(task.page || state.selectedPage || "");
       await toggleTaskDoneRequest(task);
       await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
       restoreNoteFocus();
@@ -2416,6 +2523,9 @@ interface TreeContextMenuState {
       state.currentDerived = derived;
       state.currentMarkdown = page.rawMarkdown || "";
       state.originalMarkdown = page.rawMarkdown || "";
+      if (state.remoteChangePage && state.remoteChangePage === (page.page || pagePath)) {
+        clearRemoteChangeToast();
+      }
       clearAutosaveTimer();
       clearPropertyDraft();
       state.selectedSavedQueryPayload = null;
@@ -2935,7 +3045,6 @@ interface TreeContextMenuState {
     return {
       vault: {
         vaultPath: String(els.settingsVaultPath.value || "").trim(),
-        homePage: state.settings.vault.homePage || "",
       },
       notifications: {
         ntfyInterval: String(els.settingsNtfyInterval.value || "1m").trim(),
@@ -2946,7 +3055,6 @@ interface TreeContextMenuState {
   function collectUserSettingsForm(): UserSettingsResponse {
     return {
       settings: {
-        homePage: normalizePageDraftPath(state.homePage || ""),
         notifications: {
           ntfyTopicUrl: String(els.settingsUserNtfyTopicUrl.value || "").trim(),
           ntfyToken: String(els.settingsUserNtfyToken.value || "").trim(),
@@ -2958,30 +3066,12 @@ interface TreeContextMenuState {
   function currentUserSettingsPayload(): UserSettingsResponse {
     return {
       settings: {
-        homePage: normalizePageDraftPath(state.homePage || ""),
         notifications: {
           ntfyTopicUrl: state.settings.userNotifications.ntfyTopicUrl || "",
           ntfyToken: state.settings.userNotifications.ntfyToken || "",
         },
       },
     };
-  }
-
-  function persistUserHomePage(showFailure: boolean): void {
-    if (!state.authenticated) {
-      return;
-    }
-    fetchJSON<UserSettingsResponse>("/api/user/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(currentUserSettingsPayload()),
-    }).then(function (snapshot) {
-      setUserSettingsSnapshot(snapshot);
-    }).catch(function (error) {
-      if (showFailure) {
-        setNoteStatus("Home page update failed: " + errorMessage(error));
-      }
-    });
   }
 
   function collectClientPreferencesForm(): ClientPreferences {
@@ -2994,6 +3084,8 @@ interface TreeContextMenuState {
       },
       vaults: {
         topLevelFoldersAsVaults: Boolean(els.settingsUserTopLevelVaults.checked),
+        rootHomePage: state.settings.preferences.vaults.rootHomePage,
+        scopeHomePages: state.settings.preferences.vaults.scopeHomePages,
       },
       hotkeys: {
         quickSwitcher: String(els.settingsQuickSwitcher.value || "").trim(),
@@ -3011,6 +3103,7 @@ interface TreeContextMenuState {
   function applyClientPreferences(preferences: ClientPreferences): void {
     state.settings.preferences = cloneClientPreferences(preferences);
     state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
+    syncHomePageForCurrentScope();
     state.savedThemeId = currentThemeID();
     state.previewThemeId = currentThemeID();
     saveStoredClientPreferences(state.settings.preferences);
@@ -3522,6 +3615,7 @@ interface TreeContextMenuState {
 
     setNoteStatus("Saving " + state.selectedPage + "...");
     try {
+      noteLocalPageChange(state.selectedPage);
       const payload = await savePageMarkdown(state.selectedPage, markdownToSave, encodePath);
       state.currentPage = payload;
       state.originalMarkdown = payload.rawMarkdown || markdownToSave;
@@ -3581,6 +3675,13 @@ interface TreeContextMenuState {
           payload = { raw: messageEvent.data };
         }
         addEventLine(eventName, payload, false);
+        if (shouldPromptForRemoteReload(eventName, payload)) {
+          loadPages();
+          loadTasks();
+          loadSavedQueryTree();
+          showRemoteChangeToast(String(payload.page || state.selectedPage || ""));
+          return;
+        }
         debounceRefresh();
       });
     });
@@ -3603,6 +3704,12 @@ interface TreeContextMenuState {
         return;
       }
       login();
+    });
+    on(els.remoteChangeReload, "click", function () {
+      reloadRemoteChangedPage();
+    });
+    on(els.remoteChangeDismiss, "click", function () {
+      clearRemoteChangeToast();
     });
     function isTypingTarget(target: EventTarget | null): boolean {
       const element = target instanceof Element ? target : null;

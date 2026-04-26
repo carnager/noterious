@@ -72,11 +72,8 @@ func New(cfg config.Config) (*App, error) {
 		Key:       "default",
 		Name:      "Configured Vault",
 		VaultPath: cfg.VaultPath,
-		HomePage:  cfg.HomePage,
 	}
-	cfg.HomePage = configuredVault.HomePage
 	runtimeSettings.Vault.VaultPath = configuredVault.VaultPath
-	runtimeSettings.Vault.HomePage = configuredVault.HomePage
 	settingsStore.SetAppliedRuntime(runtimeSettings)
 
 	authService, err := auth.NewService(context.Background(), cfg.DataDir, cfg.AuthCookieName, cfg.AuthSessionTTL)
@@ -177,7 +174,6 @@ func (a *App) Run(ctx context.Context) error {
 		"listen_addr", a.cfg.ListenAddr,
 		"default_vault_path", a.cfg.VaultPath,
 		"data_dir", a.cfg.DataDir,
-		"default_home_page", a.cfg.HomePage,
 		"watch_interval", a.cfg.WatchInterval.String(),
 		"ntfy_enabled", a.notifier != nil && a.notifier.Enabled(),
 		"ntfy_interval", a.cfg.NtfyInterval.String(),

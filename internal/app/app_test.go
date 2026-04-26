@@ -27,7 +27,6 @@ func TestNewDoesNotEagerlyBuildConfiguredVaultIndex(t *testing.T) {
 		ListenAddr:            ":0",
 		VaultPath:             vaultDir,
 		DataDir:               dataDir,
-		HomePage:              "index",
 		WatchInterval:         time.Minute,
 		NtfyInterval:          time.Minute,
 		AuthCookieName:        "test_session",

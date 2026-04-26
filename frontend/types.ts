@@ -145,7 +145,6 @@ export interface VaultRecord {
   key: string;
   name: string;
   vaultPath: string;
-  homePage: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -257,11 +256,12 @@ export interface UISettings {
 
 export interface VaultPreferences {
   topLevelFoldersAsVaults: boolean;
+  rootHomePage: string;
+  scopeHomePages: Record<string, string>;
 }
 
 export interface VaultSettings {
   vaultPath: string;
-  homePage: string;
 }
 
 export interface ServerNotificationSettings {
@@ -274,7 +274,6 @@ export interface UserNotificationSettings {
 }
 
 export interface UserSettings {
-  homePage: string;
   notifications: UserNotificationSettings;
 }
 

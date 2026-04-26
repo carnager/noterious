@@ -234,7 +234,6 @@ func TestUserSettingsPersistPerUserAndListNotificationTargets(t *testing.T) {
 	}
 
 	updated, err := service.UpdateUserSettings(context.Background(), user.ID, UserSettings{
-		HomePage: "notes/home",
 		Notifications: NotificationSettings{
 			NtfyTopicURL: " https://ntfy.sh/ralf ",
 			NtfyToken:    " secret-token ",
@@ -243,9 +242,6 @@ func TestUserSettingsPersistPerUserAndListNotificationTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateUserSettings() error = %v", err)
 	}
-	if updated.HomePage != "notes/home" {
-		t.Fatalf("updated.HomePage = %q want %q", updated.HomePage, "notes/home")
-	}
 	if updated.Notifications.NtfyTopicURL != "https://ntfy.sh/ralf" || updated.Notifications.NtfyToken != "secret-token" {
 		t.Fatalf("updated user settings = %#v", updated)
 	}
@@ -253,9 +249,6 @@ func TestUserSettingsPersistPerUserAndListNotificationTargets(t *testing.T) {
 	loaded, err := service.UserSettings(context.Background(), user.ID)
 	if err != nil {
 		t.Fatalf("UserSettings() error = %v", err)
-	}
-	if loaded.HomePage != "notes/home" {
-		t.Fatalf("loaded.HomePage = %q want %q", loaded.HomePage, "notes/home")
 	}
 	if loaded.Notifications.NtfyTopicURL != "https://ntfy.sh/ralf" || loaded.Notifications.NtfyToken != "secret-token" {
 		t.Fatalf("loaded user settings = %#v", loaded)
@@ -314,7 +307,6 @@ func TestMigrateAddsAccountColumns(t *testing.T) {
 	defer rows.Close()
 
 	foundMustChange := false
-	foundHomePage := false
 	foundTopicURL := false
 	foundToken := false
 	for rows.Next() {
@@ -330,9 +322,6 @@ func TestMigrateAddsAccountColumns(t *testing.T) {
 		if name == "must_change_password" {
 			foundMustChange = true
 		}
-		if name == "home_page" {
-			foundHomePage = true
-		}
 		if name == "ntfy_topic_url" {
 			foundTopicURL = true
 		}
@@ -345,9 +334,6 @@ func TestMigrateAddsAccountColumns(t *testing.T) {
 	}
 	if !foundMustChange {
 		t.Fatal("users schema missing must_change_password column after migration")
-	}
-	if !foundHomePage {
-		t.Fatal("users schema missing home_page column after migration")
 	}
 	if !foundTopicURL {
 		t.Fatal("users schema missing ntfy_topic_url column after migration")

@@ -14,6 +14,7 @@ let currentDisplayFormat: DateTimeDisplayFormat = "browser";
 
 const dateOnlyPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
 const dateTimePattern = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/;
+const timeOnlyPattern = /^(\d{2}):(\d{2})(?::(\d{2}))?$/;
 
 export function normalizeDateTimeDisplayFormat(value: string | null | undefined): DateTimeDisplayFormat {
   switch (String(value || "").trim().toLowerCase()) {
@@ -214,6 +215,22 @@ function parseStructuredEditableDateTimeValue(raw: string): StructuredDateValue 
   return null;
 }
 
+function parseStructuredEditableTimeValue(raw: string): { hour: number; minute: number; second: number } | null {
+  const text = String(raw || "").trim();
+  if (!text) {
+    return null;
+  }
+  const match = text.match(timeOnlyPattern);
+  if (!match) {
+    return null;
+  }
+  return {
+    hour: Number(match[1]),
+    minute: Number(match[2]),
+    second: Number(match[3] || "0"),
+  };
+}
+
 export function formatDateValue(value: string | Date): string {
   if (value instanceof Date) {
     return formatStructuredDate(structuredDateFromDate(value));
@@ -254,9 +271,21 @@ export function formatEditableDateTimeValue(value: string): string {
   return formatStructuredEditableDateTime(structured);
 }
 
+export function formatEditableTimeValue(value: string): string {
+  const parsed = parseStructuredEditableTimeValue(value);
+  if (!parsed) {
+    return String(value || "");
+  }
+  return [pad(parsed.hour), pad(parsed.minute)].join(":");
+}
+
 export function formatTimeValue(value: string | Date): string {
   if (value instanceof Date) {
     return formatStructuredTime(structuredDateFromDate(value));
+  }
+  const parsedTime = parseStructuredEditableTimeValue(String(value || ""));
+  if (parsedTime) {
+    return [pad(parsedTime.hour), pad(parsedTime.minute)].join(":");
   }
   const structured = parseStructuredDateValue(value);
   if (!structured) {
@@ -293,12 +322,28 @@ export function parseEditableDateTimeValue(value: string): string {
   ].join(" ");
 }
 
+export function parseEditableTimeValue(value: string): string {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  const structured = parseStructuredEditableTimeValue(text);
+  if (!structured) {
+    throw new Error('Invalid time. Use "HH:MM".');
+  }
+  return [pad(structured.hour), pad(structured.minute)].join(":");
+}
+
 export function editableDatePlaceholder(): string {
   return currentDisplayFormat === "de" ? "30.04.2026" : "2026-04-30";
 }
 
 export function editableDateTimePlaceholder(): string {
   return currentDisplayFormat === "de" ? "30.04.2026 09:00" : "2026-04-30 09:00";
+}
+
+export function editableTimePlaceholder(): string {
+  return "09:00";
 }
 
 export function isDateLikeColumn(column: string): boolean {
@@ -319,6 +364,12 @@ export function formatMaybeDateValue(column: string, value: string): string {
   const text = String(value || "");
   if (!text.trim() || !isDateLikeColumn(column)) {
     return text;
+  }
+  if (String(column || "").trim().toLowerCase() === "remind") {
+    const parsedTime = parseStructuredEditableTimeValue(text);
+    if (parsedTime) {
+      return [pad(parsedTime.hour), pad(parsedTime.minute)].join(":");
+    }
   }
   const structured = parseStructuredDateValue(text);
   if (structured) {

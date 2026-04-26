@@ -11,7 +11,6 @@ type Config struct {
 	ListenAddr            string
 	VaultPath             string
 	DataDir               string
-	HomePage              string
 	WatchInterval         time.Duration
 	NtfyInterval          time.Duration
 	AuthCookieName        string
@@ -38,7 +37,6 @@ func LoadFromEnv() (Config, error) {
 		ListenAddr:            envOrDefault("NOTERIOUS_LISTEN_ADDR", ":3000"),
 		VaultPath:             envOrDefault("NOTERIOUS_VAULT_PATH", "./vault"),
 		DataDir:               envOrDefault("NOTERIOUS_DATA_DIR", "./data"),
-		HomePage:              envOrDefault("NOTERIOUS_HOME_PAGE", ""),
 		WatchInterval:         watchInterval,
 		NtfyInterval:          ntfyInterval,
 		AuthCookieName:        envOrDefault("NOTERIOUS_AUTH_COOKIE_NAME", "noterious_session"),
