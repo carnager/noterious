@@ -3012,7 +3012,7 @@ kbd {
   border: 1px solid var(--line-strong);
   border-radius: 12px;
   background: var(--overlay);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow);
   box-sizing: border-box;
 }
 
@@ -3161,7 +3161,7 @@ kbd {
   padding: 0.32rem 0.5rem;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: rgba(28, 31, 44, 0.96);
+  background: color-mix(in srgb, var(--overlay-soft) 92%, var(--surface-soft));
   color: var(--ink);
   font: inherit;
   cursor: pointer;
@@ -3173,7 +3173,9 @@ kbd {
 .task-picker-footer button:focus-visible,
 .task-picker-apply:hover,
 .task-picker-apply:focus-visible {
-  border-color: var(--accent);
+  border-color: var(--line-strong);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .task-picker-weekdays,
@@ -3196,25 +3198,27 @@ kbd {
 
 .task-picker-day {
   min-height: 2rem;
-  border: 1px solid transparent;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(24, 27, 39, 0.94);
+  background: color-mix(in srgb, var(--overlay-soft) 92%, var(--surface-soft));
   color: var(--ink);
   cursor: pointer;
 }
 
 .task-picker-day:hover,
 .task-picker-day:focus-visible {
-  border-color: rgba(122, 162, 247, 0.4);
+  border-color: var(--line-strong);
+  background: var(--accent-soft);
 }
 
 .task-picker-day.is-faded {
-  color: rgba(192, 202, 245, 0.45);
+  color: color-mix(in srgb, var(--muted) 68%, transparent);
 }
 
 .task-picker-day.is-selected {
-  background: rgba(122, 162, 247, 0.18);
-  border-color: rgba(122, 162, 247, 0.5);
+  background: color-mix(in srgb, var(--accent-soft) 88%, var(--overlay-soft));
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .task-picker-time {

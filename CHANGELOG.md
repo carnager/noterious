@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - The desktop sidebar no longer grows with long page content and now scrolls within its own fixed viewport height.
 - The page-tree right-click context menu, slash menu, embedded query edit button, and other overlay controls now follow the active theme instead of keeping hard-coded dark styling.
 - Embedded query blocks now read as derived content with a soft themed shell and label, while active-line markup reveals for headings, links, and inline task properties now adapt better across light and dark themes.
+- Calendar and task-date popup controls now follow the active theme instead of keeping dark fixed button and day-cell styling.
 
 ## [v0.1.7] - 2026-04-26
 
