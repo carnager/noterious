@@ -852,9 +852,9 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   max-width: min(22rem, calc(100vw - 24px));
   padding: 0.35rem;
   border-radius: 12px;
-  border: 1px solid rgba(122, 162, 247, 0.12);
-  background: rgba(20, 23, 34, 0.96);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  background: var(--overlay);
+  box-shadow: var(--shadow);
   backdrop-filter: blur(18px);
 }
 
@@ -885,7 +885,7 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 
 .tree-context-menu-item:hover,
 .tree-context-menu-item:focus-visible {
-  background: rgba(122, 162, 247, 0.1);
+  background: var(--accent-soft);
   outline: none;
 }
 
@@ -895,22 +895,22 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 }
 
 .tree-context-menu-item.danger {
-  color: #f497a8;
+  color: var(--warn);
 }
 
 .tree-context-menu-item.danger svg {
-  color: #f497a8;
+  color: var(--warn);
 }
 
 .tree-context-menu-item.danger:hover,
 .tree-context-menu-item.danger:focus-visible {
-  background: rgba(247, 118, 142, 0.12);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
 }
 
 .tree-context-menu-divider {
   height: 1px;
   margin: 0.35rem 0.2rem;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--line);
 }
 
 .page-tree-chevron {

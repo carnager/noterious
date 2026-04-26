@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.9] - 2026-04-26
+
+### Fixed
+- The page-tree right-click context menu now follows the active theme instead of keeping a hard-coded dark overlay style.
+
 ## [v0.1.8] - 2026-04-26
 
 ### Added
