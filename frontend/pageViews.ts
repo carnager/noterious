@@ -460,31 +460,61 @@ export function renderPagesTree(
   container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
 }
 
-export type TaskFilter = "not-done" | "has-due" | "has-reminder" | "all";
+export interface TaskPanelFilters {
+  currentPage: boolean;
+  notDone: boolean;
+  hasDue: boolean;
+  hasReminder: boolean;
+}
 
-export function filterTasks(tasks: TaskRecord[], filter: TaskFilter): TaskRecord[] {
+export function filterTasks(tasks: TaskRecord[], filters: TaskPanelFilters, currentPagePath?: string | null): TaskRecord[] {
   if (!tasks || !tasks.length) {
     return [];
   }
-  switch (filter) {
-    case "not-done":
-      return tasks.filter(function (task) { return !task.done; });
-    case "has-due":
-      return tasks.filter(function (task) { return Boolean(task.due); });
-    case "has-reminder":
-      return tasks.filter(function (task) { return Boolean(task.remind); });
-    default:
-      return tasks;
-  }
+  return tasks.filter(function (task) {
+    if (filters.currentPage && (!currentPagePath || task.page !== currentPagePath)) {
+      return false;
+    }
+    if (filters.notDone && task.done) {
+      return false;
+    }
+    if (filters.hasDue && !task.due) {
+      return false;
+    }
+    if (filters.hasReminder && !task.remind) {
+      return false;
+    }
+    return true;
+  });
 }
 
-export function renderPageTasks(container: HTMLDivElement, tasks: TaskRecord[], onSelectTask: (task: TaskRecord) => void, onToggleTask: (task: TaskRecord) => void, filter?: TaskFilter): void {
+export function renderPageTasks(
+  container: HTMLDivElement,
+  tasks: TaskRecord[],
+  onSelectTask: (task: TaskRecord) => void,
+  onToggleTask: (task: TaskRecord) => void,
+  filters: TaskPanelFilters,
+  currentPagePath?: string | null
+): void {
   clearNode(container);
 
-  const filtered = filterTasks(tasks, filter || "not-done");
+  const filtered = filterTasks(tasks, filters, currentPagePath);
   if (!filtered.length) {
-    const label = filter === "all" ? "No tasks on this page." : "No matching tasks.";
-    renderEmpty(container, tasks.length ? label : "No indexed tasks on this page.");
+    const activeFilters = [
+      filters.currentPage,
+      filters.notDone,
+      filters.hasDue,
+      filters.hasReminder,
+    ].filter(Boolean).length;
+    if (!tasks.length) {
+      renderEmpty(container, "No indexed tasks in this vault.");
+      return;
+    }
+    if (filters.currentPage && !currentPagePath) {
+      renderEmpty(container, "Select a page to filter tasks to the current page.");
+      return;
+    }
+    renderEmpty(container, activeFilters ? "No matching tasks." : "No indexed tasks in this vault.");
     return;
   }
 

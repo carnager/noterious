@@ -3,40 +3,34 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/config"
 	"github.com/carnager/noterious/internal/settings"
-	"github.com/carnager/noterious/internal/vaults"
+	"github.com/carnager/noterious/internal/vault"
 )
 
 type authSessionResponse struct {
-	Authenticated bool          `json:"authenticated"`
-	User          *auth.User    `json:"user,omitempty"`
-	Vault         *vaults.Vault `json:"vault,omitempty"`
-	SetupRequired bool          `json:"setupRequired,omitempty"`
-}
-
-type authVaultsResponse struct {
-	RootVault    *vaults.Vault  `json:"rootVault,omitempty"`
-	Vaults       []vaults.Vault `json:"vaults"`
-	Count        int            `json:"count"`
-	CurrentVault *vaults.Vault  `json:"currentVault,omitempty"`
+	Authenticated bool         `json:"authenticated"`
+	User          *auth.User   `json:"user,omitempty"`
+	Vault         *vault.Vault `json:"vault,omitempty"`
+	SetupRequired bool         `json:"setupRequired,omitempty"`
 }
 
 type userSettingsResponse struct {
 	Settings auth.UserSettings `json:"settings"`
 }
 
-func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegistry *vaults.Service, settingsStore *settings.Store, cfg config.Config) {
-	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
+type vaultsResponse struct {
+	Vaults []vault.Vault `json:"vaults"`
+	Count  int           `json:"count"`
+}
+
+func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, settingsStore *settings.Store, cfg config.Config) {
+	mux.HandleFunc("POST /api/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		if authService == nil {
 			http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
 			return
@@ -61,21 +55,17 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 			return
 		}
 
-		currentVault := loadCurrentVaultForUser(r.Context(), authService, vaultRegistry, settingsStore, cfg, session.User, session.Token)
+		currentVault := configuredVault(settingsStore, cfg)
 
 		authService.SetSessionCookie(w, r, session)
 		writeJSON(w, http.StatusOK, authSessionResponse{
 			Authenticated: true,
 			User:          &session.User,
-			Vault:         currentVault,
+			Vault:         &currentVault,
 		})
 	})
 
-	mux.HandleFunc("/api/auth/setup", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
+	mux.HandleFunc("POST /api/auth/setup", func(w http.ResponseWriter, r *http.Request) {
 		if authService == nil {
 			http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
 			return
@@ -107,37 +97,27 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 			return
 		}
 
-		currentVault := loadCurrentVaultForUser(r.Context(), authService, vaultRegistry, settingsStore, cfg, session.User, session.Token)
+		currentVault := configuredVault(settingsStore, cfg)
 
 		authService.SetSessionCookie(w, r, session)
 		writeJSON(w, http.StatusOK, authSessionResponse{
 			Authenticated: true,
 			User:          &session.User,
-			Vault:         currentVault,
+			Vault:         &currentVault,
 		})
 	})
 
-	mux.HandleFunc("/api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
+	mux.HandleFunc("POST /api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
 		if authService != nil {
 			if cookie, err := r.Cookie(authService.CookieName()); err == nil && strings.TrimSpace(cookie.Value) != "" {
 				_ = authService.Logout(r.Context(), cookie.Value)
 			}
 		}
 		authService.ClearSessionCookie(w, r)
-		writeJSON(w, http.StatusOK, map[string]any{
-			"ok": true,
-		})
+		writeJSON(w, http.StatusOK, okStatusResponse{OK: true})
 	})
 
-	mux.HandleFunc("/api/auth/change-password", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
+	mux.HandleFunc("POST /api/auth/change-password", func(w http.ResponseWriter, r *http.Request) {
 		if authService == nil {
 			http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
 			return
@@ -176,16 +156,16 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 			}
 		}
 
-		currentVault := loadCurrentVaultForUser(r.Context(), authService, vaultRegistry, settingsStore, cfg, updatedUser, tokenFromContextOrEmpty(r.Context()))
+		currentVault := configuredVault(settingsStore, cfg)
 
 		writeJSON(w, http.StatusOK, authSessionResponse{
 			Authenticated: true,
 			User:          &updatedUser,
-			Vault:         currentVault,
+			Vault:         &currentVault,
 		})
 	})
 
-	mux.HandleFunc("/api/user/settings", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/user/settings", func(w http.ResponseWriter, r *http.Request) {
 		if authService == nil {
 			http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
 			return
@@ -197,45 +177,52 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 			return
 		}
 
-		switch r.Method {
-		case http.MethodGet:
-			settings, err := authService.UserSettings(r.Context(), user.ID)
-			if err != nil {
-				if errors.Is(err, auth.ErrAuthenticationRequired) {
-					http.Error(w, auth.ErrAuthenticationRequired.Error(), http.StatusUnauthorized)
-					return
-				}
-				http.Error(w, "failed to load user settings", http.StatusInternalServerError)
+		settings, err := authService.UserSettings(r.Context(), user.ID)
+		if err != nil {
+			if errors.Is(err, auth.ErrAuthenticationRequired) {
+				http.Error(w, auth.ErrAuthenticationRequired.Error(), http.StatusUnauthorized)
 				return
 			}
-			writeJSON(w, http.StatusOK, userSettingsResponse{
-				Settings: settings,
-			})
-		case http.MethodPut:
-			var request userSettingsResponse
-			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				http.Error(w, "invalid request body", http.StatusBadRequest)
-				return
-			}
-			settings, err := authService.UpdateUserSettings(r.Context(), user.ID, request.Settings)
-			if err != nil {
-				if errors.Is(err, auth.ErrAuthenticationRequired) {
-					http.Error(w, auth.ErrAuthenticationRequired.Error(), http.StatusUnauthorized)
-					return
-				}
-				http.Error(w, "failed to update user settings", http.StatusInternalServerError)
-				return
-			}
-			writeJSON(w, http.StatusOK, userSettingsResponse{
-				Settings: settings,
-			})
-		default:
-			writeMethodNotAllowed(w, http.MethodGet, http.MethodPut)
+			http.Error(w, "failed to load user settings", http.StatusInternalServerError)
+			return
 		}
+		writeJSON(w, http.StatusOK, userSettingsResponse{
+			Settings: settings,
+		})
+	})
+	mux.HandleFunc("PUT /api/user/settings", func(w http.ResponseWriter, r *http.Request) {
+		if authService == nil {
+			http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		user, ok := auth.UserFromContext(r.Context())
+		if !ok || user.ID == 0 {
+			http.Error(w, auth.ErrAuthenticationRequired.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		var request userSettingsResponse
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		settings, err := authService.UpdateUserSettings(r.Context(), user.ID, request.Settings)
+		if err != nil {
+			if errors.Is(err, auth.ErrAuthenticationRequired) {
+				http.Error(w, auth.ErrAuthenticationRequired.Error(), http.StatusUnauthorized)
+				return
+			}
+			http.Error(w, "failed to update user settings", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, userSettingsResponse{
+			Settings: settings,
+		})
 	})
 
-	mux.HandleFunc("/api/user/vaults", func(w http.ResponseWriter, r *http.Request) {
-		if authService == nil || vaultRegistry == nil {
+	mux.HandleFunc("GET /api/user/vaults", func(w http.ResponseWriter, r *http.Request) {
+		if authService == nil {
 			http.Error(w, "vault management unavailable", http.StatusServiceUnavailable)
 			return
 		}
@@ -246,48 +233,15 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 			return
 		}
 
-		switch r.Method {
-		case http.MethodGet:
-			vaultList, err := vaultRegistry.ListDiscoveredTopLevel(r.Context(), configuredVaultRoot(settingsStore, cfg))
-			if err != nil {
-				http.Error(w, "failed to list vaults", http.StatusInternalServerError)
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{
-				"vaults": vaultList,
-				"count":  len(vaultList),
-			})
-		case http.MethodPost:
-			vaultRoot := configuredVaultRoot(settingsStore, cfg)
-			if strings.TrimSpace(vaultRoot) == "" {
-				http.Error(w, "vault root is not configured", http.StatusServiceUnavailable)
-				return
-			}
-
-			var request struct {
-				Name string `json:"name"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				http.Error(w, "invalid request body", http.StatusBadRequest)
-				return
-			}
-
-			createdVault, err := vaultRegistry.CreateTopLevel(r.Context(), vaults.TopLevelCreateConfig{
-				VaultRoot: vaultRoot,
-				Name:      request.Name,
-			})
-			if err != nil {
-				http.Error(w, err.Error(), statusForVaultError(err))
-				return
-			}
-			writeJSON(w, http.StatusCreated, createdVault)
-		default:
-			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
+		vaultList, err := vault.DiscoverTopLevel(configuredVaultRoot(settingsStore, cfg))
+		if err != nil {
+			http.Error(w, "failed to list vaults", http.StatusInternalServerError)
+			return
 		}
+		writeJSON(w, http.StatusOK, vaultsResponse{Vaults: vaultList, Count: len(vaultList)})
 	})
-
-	mux.HandleFunc("/api/user/vaults/", func(w http.ResponseWriter, r *http.Request) {
-		if authService == nil || vaultRegistry == nil {
+	mux.HandleFunc("POST /api/user/vaults", func(w http.ResponseWriter, r *http.Request) {
+		if authService == nil {
 			http.Error(w, "vault management unavailable", http.StatusServiceUnavailable)
 			return
 		}
@@ -298,19 +252,48 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 			return
 		}
 
-		vaultID, subresource, ok := parseVaultPath(strings.TrimPrefix(r.URL.Path, "/api/user/vaults/"))
-		if !ok || subresource != "" {
+		vaultRoot := configuredVaultRoot(settingsStore, cfg)
+		if strings.TrimSpace(vaultRoot) == "" {
+			http.Error(w, "vault root is not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		var request struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		createdVault, err := vault.CreateTopLevel(vaultRoot, request.Name, "")
+		if err != nil {
+			http.Error(w, err.Error(), statusForVaultError(err))
+			return
+		}
+		writeJSON(w, http.StatusCreated, createdVault)
+	})
+	mux.HandleFunc("PUT /api/user/vaults/{vaultID}", func(w http.ResponseWriter, r *http.Request) {
+		if authService == nil {
+			http.Error(w, "vault management unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		user, ok := auth.UserFromContext(r.Context())
+		if !ok || user.ID == 0 {
+			http.Error(w, auth.ErrAuthenticationRequired.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		vaultID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("vaultID")), 10, 64)
+		if err != nil || vaultID <= 0 {
 			http.Error(w, "invalid vault path", http.StatusBadRequest)
 			return
 		}
-		if r.Method != http.MethodPut {
-			writeMethodNotAllowed(w, http.MethodPut)
-			return
-		}
 
-		selectedVault, err := vaultRegistry.GetByID(r.Context(), vaultID)
+		selectedVault, err := vault.FindTopLevelByID(configuredVaultRoot(settingsStore, cfg), vaultID)
 		if err != nil {
-			if errors.Is(err, vaults.ErrVaultNotFound) {
+			if errors.Is(err, vault.ErrVaultNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
@@ -326,10 +309,7 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 			return
 		}
 
-		updatedVault, err := vaultRegistry.UpdateTopLevel(r.Context(), selectedVault.ID, vaults.TopLevelUpdateConfig{
-			VaultRoot: configuredVaultRoot(settingsStore, cfg),
-			Name:      request.Name,
-		})
+		updatedVault, err := vault.RenameTopLevel(configuredVaultRoot(settingsStore, cfg), selectedVault, request.Name)
 		if err != nil {
 			http.Error(w, err.Error(), statusForVaultError(err))
 			return
@@ -337,11 +317,7 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 		writeJSON(w, http.StatusOK, updatedVault)
 	})
 
-	mux.HandleFunc("/api/auth/me", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
+	mux.HandleFunc("GET /api/auth/me", func(w http.ResponseWriter, r *http.Request) {
 		if authService == nil {
 			writeJSON(w, http.StatusOK, authSessionResponse{
 				Authenticated: false,
@@ -370,98 +346,12 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 			return
 		}
 
-		currentVault := loadCurrentVaultForUser(r.Context(), authService, vaultRegistry, settingsStore, cfg, user, token)
+		currentVault := configuredVault(settingsStore, cfg)
 
 		writeJSON(w, http.StatusOK, authSessionResponse{
 			Authenticated: true,
 			User:          &user,
-			Vault:         currentVault,
-		})
-	})
-
-	mux.HandleFunc("/api/auth/vaults", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-		if authService == nil || vaultRegistry == nil {
-			http.Error(w, "vault selection unavailable", http.StatusServiceUnavailable)
-			return
-		}
-
-		user, ok := auth.UserFromContext(r.Context())
-		if !ok || user.ID == 0 {
-			http.Error(w, auth.ErrAuthenticationRequired.Error(), http.StatusUnauthorized)
-			return
-		}
-
-		vaultSnapshot, err := loadAuthVaultsSnapshotForUser(r.Context(), authService, vaultRegistry, settingsStore, cfg, user, tokenFromContextOrEmpty(r.Context()))
-		if err != nil {
-			http.Error(w, "failed to load available vaults", http.StatusInternalServerError)
-			return
-		}
-
-		writeJSON(w, http.StatusOK, vaultSnapshot)
-	})
-
-	mux.HandleFunc("/api/auth/vault", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
-			writeMethodNotAllowed(w, http.MethodPut)
-			return
-		}
-		if authService == nil || vaultRegistry == nil {
-			http.Error(w, "vault selection unavailable", http.StatusServiceUnavailable)
-			return
-		}
-
-		user, ok := auth.UserFromContext(r.Context())
-		if !ok || user.ID == 0 {
-			http.Error(w, auth.ErrAuthenticationRequired.Error(), http.StatusUnauthorized)
-			return
-		}
-		token := tokenFromContextOrEmpty(r.Context())
-		if token == "" {
-			http.Error(w, auth.ErrAuthenticationRequired.Error(), http.StatusUnauthorized)
-			return
-		}
-
-		var request struct {
-			VaultID int64 `json:"vaultId"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		selectedVault, err := resolveSelectedVaultForUser(r.Context(), vaultRegistry, settingsStore, cfg, user, request.VaultID)
-		if err != nil {
-			if errors.Is(err, vaults.ErrVaultNotFound) {
-				http.Error(w, err.Error(), http.StatusNotFound)
-				return
-			}
-			http.Error(w, "failed to resolve current vault", http.StatusInternalServerError)
-			return
-		}
-		if err := authService.SetCurrentVaultID(r.Context(), token, selectedVault.ID); err != nil {
-			if errors.Is(err, auth.ErrAuthenticationRequired) {
-				http.Error(w, auth.ErrAuthenticationRequired.Error(), http.StatusUnauthorized)
-				return
-			}
-			http.Error(w, "failed to update current vault", http.StatusInternalServerError)
-			return
-		}
-		slog.Info("current vault selected",
-			"user_id", user.ID,
-			"username", user.Username,
-			"vault_id", selectedVault.ID,
-			"vault_name", selectedVault.Name,
-			"vault_path", selectedVault.VaultPath,
-		)
-
-		writeJSON(w, http.StatusOK, authSessionResponse{
-			Authenticated: true,
-			User:          &user,
-			Vault:         &selectedVault,
+			Vault:         &currentVault,
 		})
 	})
 }
@@ -511,7 +401,6 @@ func wrapWithAPIAuth(next http.Handler, authService *auth.Service) http.Handler 
 		}
 
 		ctx := auth.WithUser(r.Context(), user)
-		ctx = auth.WithSessionToken(ctx, token)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

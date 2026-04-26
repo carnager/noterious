@@ -14,11 +14,10 @@ import (
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/vault"
-	"github.com/carnager/noterious/internal/vaults"
 )
 
 type VaultWatcher struct {
-	vaultRecord vaults.Vault
+	vaultRecord vault.Vault
 	vault       *vault.Service
 	index       *index.Service
 	query       *query.Service
@@ -28,7 +27,7 @@ type VaultWatcher struct {
 	known map[string]time.Time
 }
 
-func NewVaultWatcher(ctx context.Context, currentVault vaults.Vault, vaultService *vault.Service, indexService *index.Service, queryService *query.Service, eventBroker *httpapi.EventBroker) (*VaultWatcher, error) {
+func NewVaultWatcher(ctx context.Context, currentVault vault.Vault, vaultService *vault.Service, indexService *index.Service, queryService *query.Service, eventBroker *httpapi.EventBroker) (*VaultWatcher, error) {
 	ctx = withWatcherVault(ctx, currentVault)
 	pageFiles, err := vaultService.ScanMarkdownPages(ctx)
 	if err != nil {
@@ -190,11 +189,11 @@ func (w *VaultWatcher) Poll(ctx context.Context) error {
 	return nil
 }
 
-func withWatcherVault(ctx context.Context, currentVault vaults.Vault) context.Context {
+func withWatcherVault(ctx context.Context, currentVault vault.Vault) context.Context {
 	if currentVault.ID <= 0 {
 		return ctx
 	}
-	return vaults.WithVault(ctx, currentVault)
+	return vault.WithVault(ctx, currentVault)
 }
 
 func pageFrontmatterStringList(value any) []string {

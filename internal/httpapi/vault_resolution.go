@@ -1,23 +1,16 @@
 package httpapi
 
 import (
-	"context"
-	"errors"
 	"log/slog"
+	"net/http"
 	"strings"
 
-	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/config"
 	"github.com/carnager/noterious/internal/settings"
-	"github.com/carnager/noterious/internal/vaults"
+	"github.com/carnager/noterious/internal/vault"
 )
 
-type resolvedUserVaultState struct {
-	RootVault        vaults.Vault
-	DiscoveredVaults []vaults.Vault
-	SelectedVaultID  int64
-	CurrentVault     vaults.Vault
-}
+const requestScopeHeader = "X-Noterious-Scope"
 
 func configuredVaultRoot(settingsStore *settings.Store, cfg config.Config) string {
 	if settingsStore != nil {
@@ -29,149 +22,84 @@ func configuredVaultRoot(settingsStore *settings.Store, cfg config.Config) strin
 	return strings.TrimSpace(cfg.VaultPath)
 }
 
-func loadCurrentVaultForUser(ctx context.Context, authService *auth.Service, vaultRegistry *vaults.Service, settingsStore *settings.Store, cfg config.Config, user auth.User, token string) *vaults.Vault {
-	if vaultRegistry == nil || user.ID <= 0 {
-		return nil
-	}
-	state, err := resolveUserVaultState(ctx, authService, vaultRegistry, settingsStore, cfg, user, token)
-	if err != nil {
-		slog.Error("current vault resolution failed",
-			"user_id", user.ID,
-			"username", user.Username,
-			"selected_vault_id", currentVaultIDForToken(ctx, authService, token),
-			"error", err,
-		)
-		return nil
-	}
-	return &state.CurrentVault
-}
-
-func loadAuthVaultsSnapshotForUser(ctx context.Context, authService *auth.Service, vaultRegistry *vaults.Service, settingsStore *settings.Store, cfg config.Config, user auth.User, token string) (authVaultsResponse, error) {
-	state, err := resolveUserVaultState(ctx, authService, vaultRegistry, settingsStore, cfg, user, token)
-	if err != nil {
-		return authVaultsResponse{}, err
-	}
-	return authVaultsResponse{
-		RootVault:    &state.RootVault,
-		Vaults:       state.DiscoveredVaults,
-		Count:        len(state.DiscoveredVaults),
-		CurrentVault: &state.CurrentVault,
-	}, nil
-}
-
-func resolveVaultForUser(ctx context.Context, vaultRegistry *vaults.Service, settingsStore *settings.Store, cfg config.Config, user auth.User, vaultID int64) (vaults.Vault, error) {
-	state, err := resolveUserVaultStateWithSelectedID(ctx, vaultRegistry, settingsStore, cfg, user, vaultID)
-	if err != nil {
-		return vaults.Vault{}, err
-	}
-	return state.CurrentVault, nil
-}
-
-func resolveSelectedVaultForUser(ctx context.Context, vaultRegistry *vaults.Service, settingsStore *settings.Store, cfg config.Config, user auth.User, vaultID int64) (vaults.Vault, error) {
-	catalog, err := loadUserVaultCatalog(ctx, vaultRegistry, settingsStore, cfg, user)
-	if err != nil {
-		return vaults.Vault{}, err
-	}
-	return resolveRequestedVaultFromCatalog(ctx, vaultRegistry, user, catalog, vaultID)
-}
-
-func resolveUserVaultState(ctx context.Context, authService *auth.Service, vaultRegistry *vaults.Service, settingsStore *settings.Store, cfg config.Config, user auth.User, token string) (resolvedUserVaultState, error) {
-	return resolveUserVaultStateWithSelectedID(ctx, vaultRegistry, settingsStore, cfg, user, currentVaultIDForToken(ctx, authService, token))
-}
-
-func resolveUserVaultStateWithSelectedID(ctx context.Context, vaultRegistry *vaults.Service, settingsStore *settings.Store, cfg config.Config, user auth.User, selectedVaultID int64) (resolvedUserVaultState, error) {
-	catalog, err := loadUserVaultCatalog(ctx, vaultRegistry, settingsStore, cfg, user)
-	if err != nil {
-		return resolvedUserVaultState{}, err
-	}
-	currentVault, err := resolveCurrentVaultFromCatalog(ctx, vaultRegistry, user, catalog, selectedVaultID)
-	if err != nil {
-		return resolvedUserVaultState{}, err
-	}
-	return resolvedUserVaultState{
-		RootVault:        catalog.RootVault,
-		DiscoveredVaults: catalog.DiscoveredVaults,
-		SelectedVaultID:  selectedVaultID,
-		CurrentVault:     currentVault,
-	}, nil
-}
-
-type userVaultCatalog struct {
-	RootVault        vaults.Vault
-	DiscoveredVaults []vaults.Vault
-}
-
-func loadUserVaultCatalog(ctx context.Context, vaultRegistry *vaults.Service, settingsStore *settings.Store, cfg config.Config, user auth.User) (userVaultCatalog, error) {
-	rootVault, err := resolveRootVaultForUser(ctx, vaultRegistry, settingsStore, cfg, user)
-	if err != nil {
-		return userVaultCatalog{}, err
-	}
-	discoveredVaults, err := vaultRegistry.ListDiscoveredTopLevel(ctx, configuredVaultRoot(settingsStore, cfg))
-	if err != nil {
-		return userVaultCatalog{}, err
-	}
-	return userVaultCatalog{
-		RootVault:        rootVault,
-		DiscoveredVaults: discoveredVaults,
-	}, nil
-}
-
-func resolveRequestedVaultFromCatalog(ctx context.Context, vaultRegistry *vaults.Service, user auth.User, catalog userVaultCatalog, vaultID int64) (vaults.Vault, error) {
-	if vaultID == 0 || vaultID == catalog.RootVault.ID {
-		return catalog.RootVault, nil
-	}
-	for _, discoveredVault := range catalog.DiscoveredVaults {
-		if discoveredVault.ID == vaultID {
-			return vaultRegistry.GetByID(ctx, vaultID)
-		}
-	}
-	return vaults.Vault{}, vaults.ErrVaultNotFound
-}
-
-func resolveCurrentVaultFromCatalog(ctx context.Context, vaultRegistry *vaults.Service, user auth.User, catalog userVaultCatalog, selectedVaultID int64) (vaults.Vault, error) {
-	if selectedVaultID <= 0 || selectedVaultID == catalog.RootVault.ID {
-		return catalog.RootVault, nil
-	}
-
-	selectedVault, err := resolveRequestedVaultFromCatalog(ctx, vaultRegistry, user, catalog, selectedVaultID)
-	if err == nil {
-		return selectedVault, nil
-	}
-	if errors.Is(err, vaults.ErrVaultNotFound) {
-		slog.Warn("selected vault unavailable; falling back to configured root",
-			"user_id", user.ID,
-			"username", user.Username,
-			"selected_vault_id", selectedVaultID,
-			"root_vault_id", catalog.RootVault.ID,
-		)
-		return catalog.RootVault, nil
-	}
-	return vaults.Vault{}, err
-}
-
-func resolveRootVaultForUser(ctx context.Context, vaultRegistry *vaults.Service, settingsStore *settings.Store, cfg config.Config, user auth.User) (vaults.Vault, error) {
-	return vaultRegistry.EnsureRuntimeRoot(ctx, vaults.RuntimeRootConfig{
+func configuredVault(settingsStore *settings.Store, cfg config.Config) vault.Vault {
+	return vault.Vault{
+		ID:        vault.ConfiguredVaultID,
+		Key:       "default",
+		Name:      "Configured Vault",
 		VaultPath: configuredVaultRoot(settingsStore, cfg),
 		HomePage:  strings.TrimSpace(cfg.HomePage),
-	})
+	}
 }
 
-func currentVaultIDForToken(ctx context.Context, authService *auth.Service, token string) int64 {
-	if authService == nil || strings.TrimSpace(token) == "" {
-		return 0
+func resolveScopeRecord(settingsStore *settings.Store, cfg config.Config, scopePrefix string) (vault.Vault, error) {
+	rootVault := configuredVault(settingsStore, cfg)
+	scopePrefix = normalizeScopePrefix(scopePrefix)
+	if scopePrefix == "" {
+		return rootVault, nil
 	}
-	vaultID, err := authService.CurrentVaultIDByToken(ctx, token)
+
+	discoveredVaults, err := vault.DiscoverTopLevel(rootVault.VaultPath)
 	if err != nil {
-		slog.Warn("load selected vault from session failed", "error", err)
-		return 0
+		return vault.Vault{}, err
 	}
-	return vaultID
+	for _, discoveredVault := range discoveredVaults {
+		discoveredPrefix := scopePrefixForVault(rootVault, discoveredVault)
+		if discoveredPrefix == scopePrefix {
+			return discoveredVault, nil
+		}
+	}
+	return rootVault, nil
 }
 
-func tokenFromContextOrEmpty(ctx context.Context) string {
-	token, ok := auth.SessionTokenFromContext(ctx)
-	if !ok {
+func requestedScopePrefix(r *http.Request) string {
+	if r == nil {
 		return ""
 	}
-	return strings.TrimSpace(token)
+	if prefix := normalizeScopePrefix(r.URL.Query().Get("scope")); prefix != "" {
+		return prefix
+	}
+	return normalizeScopePrefix(r.Header.Get(requestScopeHeader))
+}
+
+func resolveRequestScope(settingsStore *settings.Store, cfg config.Config, requestedPrefix string) (string, error) {
+	rootVault := configuredVault(settingsStore, cfg)
+	scopePrefix := normalizeScopePrefix(requestedPrefix)
+	if scopePrefix == "" {
+		return "", nil
+	}
+
+	discoveredVaults, err := vault.DiscoverTopLevel(rootVault.VaultPath)
+	if err != nil {
+		return "", err
+	}
+	for _, discoveredVault := range discoveredVaults {
+		discoveredPrefix := scopePrefixForVault(rootVault, discoveredVault)
+		if discoveredPrefix == scopePrefix {
+			return discoveredPrefix, nil
+		}
+	}
+
+	slog.Warn("requested scope is unavailable; falling back to configured root",
+		"scope_prefix", scopePrefix,
+		"vault_path", rootVault.VaultPath,
+	)
+	return "", nil
+}
+
+func normalizeScopePrefix(prefix string) string {
+	trimmed := strings.Trim(strings.ReplaceAll(strings.TrimSpace(prefix), "\\", "/"), "/")
+	if trimmed == "" {
+		return ""
+	}
+	parts := strings.Split(trimmed, "/")
+	normalized := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || part == "." || part == ".." {
+			return ""
+		}
+		normalized = append(normalized, part)
+	}
+	return strings.Join(normalized, "/")
 }

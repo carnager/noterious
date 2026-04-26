@@ -1599,7 +1599,7 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   padding: 0.4rem 0.5rem;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: rgba(26, 27, 38, 0.58);
+  background: color-mix(in srgb, var(--surface-soft) 58%, transparent);
 }
 
 .context-item strong,

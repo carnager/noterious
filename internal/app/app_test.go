@@ -40,7 +40,6 @@ func TestNewDoesNotEagerlyBuildConfiguredVaultIndex(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_ = app.auth.Close()
-		_ = app.vaults.Close()
 		_ = app.index.Close()
 	})
 

@@ -401,7 +401,6 @@ func (s *SQLiteStore) RemovePage(ctx context.Context, pagePath string) error {
 }
 
 type PageRecord struct {
-	VaultID     int64
 	Path        string
 	Title       string
 	RawMarkdown string
@@ -413,7 +412,6 @@ type PageRecord struct {
 }
 
 type PageSummary struct {
-	VaultID           int64          `json:"vaultId,omitempty"`
 	Path              string         `json:"path"`
 	Title             string         `json:"title"`
 	Tags              []string       `json:"tags,omitempty"`
@@ -429,7 +427,6 @@ type PageSummary struct {
 }
 
 type QueryBlock struct {
-	VaultID     int64    `json:"vaultId,omitempty"`
 	Source      string   `json:"source"`
 	Line        int      `json:"line"`
 	ID          string   `json:"id,omitempty"`
@@ -450,7 +447,6 @@ type QueryBlock struct {
 }
 
 type BacklinkRecord struct {
-	VaultID     int64  `json:"vaultId,omitempty"`
 	SourcePage  string `json:"sourcePage"`
 	SourceTitle string `json:"sourceTitle"`
 	LinkText    string `json:"linkText"`
@@ -459,7 +455,6 @@ type BacklinkRecord struct {
 }
 
 type SavedQuery struct {
-	VaultID     int64    `json:"vaultId,omitempty"`
 	Name        string   `json:"name"`
 	Title       string   `json:"title"`
 	Description string   `json:"description,omitempty"`
@@ -650,15 +645,15 @@ func (s *SQLiteStore) ListPages(ctx context.Context) ([]PageSummary, error) {
 		pages[idx].Frontmatter = frontmatter
 		pages[idx].Tags = append([]string(nil), frontmatterStringList(frontmatter["tags"])...)
 	}
-	outgoingCounts, err := loadPageCountMap(ctx, s.db, `SELECT source_page, COUNT(*) FROM links GROUP BY source_page;`)
+	outgoingCounts, err := loadOutgoingLinkCounts(ctx, s.db)
 	if err != nil {
 		return nil, fmt.Errorf("list outgoing link counts: %w", err)
 	}
-	backlinkCounts, err := loadPageCountMap(ctx, s.db, `SELECT target_page, COUNT(*) FROM links GROUP BY target_page;`)
+	backlinkCounts, err := loadBacklinkCounts(ctx, s.db)
 	if err != nil {
 		return nil, fmt.Errorf("list backlink counts: %w", err)
 	}
-	queryBlockCounts, err := loadPageCountMap(ctx, s.db, `SELECT page, COUNT(*) FROM query_caches GROUP BY page;`)
+	queryBlockCounts, err := loadQueryBlockCounts(ctx, s.db)
 	if err != nil {
 		return nil, fmt.Errorf("list query block counts: %w", err)
 	}
@@ -900,13 +895,37 @@ func normalizeSavedQueryTags(tags []string) []string {
 	return normalized
 }
 
-func loadPageCountMap(ctx context.Context, db *sql.DB, query string) (map[string]int, error) {
-	rows, err := db.QueryContext(ctx, query)
+func loadOutgoingLinkCounts(ctx context.Context, db *sql.DB) (map[string]int, error) {
+	rows, err := db.QueryContext(ctx, `SELECT source_page, COUNT(*) FROM links GROUP BY source_page;`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
+	return scanPageCountRows(rows)
+}
+
+func loadBacklinkCounts(ctx context.Context, db *sql.DB) (map[string]int, error) {
+	rows, err := db.QueryContext(ctx, `SELECT target_page, COUNT(*) FROM links GROUP BY target_page;`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanPageCountRows(rows)
+}
+
+func loadQueryBlockCounts(ctx context.Context, db *sql.DB) (map[string]int, error) {
+	rows, err := db.QueryContext(ctx, `SELECT page, COUNT(*) FROM query_caches GROUP BY page;`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanPageCountRows(rows)
+}
+
+func scanPageCountRows(rows *sql.Rows) (map[string]int, error) {
 	counts := make(map[string]int)
 	for rows.Next() {
 		var (

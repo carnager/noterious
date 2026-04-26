@@ -8,7 +8,6 @@ import (
 
 	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/vault"
-	"github.com/carnager/noterious/internal/vaults"
 )
 
 func TestReindexPageUpdatesOnePageAndPreservesOthers(t *testing.T) {
@@ -84,24 +83,23 @@ func TestReindexPageUpdatesOnePageAndPreservesOthers(t *testing.T) {
 	}
 }
 
-func TestVaultStoresAreIsolated(t *testing.T) {
+func TestSingleStoreUsesScopePrefixFiltering(t *testing.T) {
 	t.Parallel()
 
 	rootDir := t.TempDir()
 	dataDir := filepath.Join(rootDir, "data")
-	vaultOneDir := filepath.Join(rootDir, "vault-one")
-	vaultTwoDir := filepath.Join(rootDir, "vault-two")
+	vaultDir := filepath.Join(rootDir, "vault")
 
-	if err := os.MkdirAll(vaultOneDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll(vaultOne) error = %v", err)
+	if err := os.MkdirAll(filepath.Join(vaultDir, "work"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(work) error = %v", err)
 	}
-	if err := os.MkdirAll(vaultTwoDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll(vaultTwo) error = %v", err)
+	if err := os.MkdirAll(filepath.Join(vaultDir, "private"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(private) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(vaultOneDir, "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(vaultDir, "work", "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(alpha) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(vaultTwoDir, "beta.md"), []byte("# Beta\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(vaultDir, "private", "beta.md"), []byte("# Beta\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(beta) error = %v", err)
 	}
 
@@ -113,21 +111,18 @@ func TestVaultStoresAreIsolated(t *testing.T) {
 		_ = indexService.Close()
 	}()
 
-	workspaceOne := vaults.WithVault(context.Background(), vaults.Vault{ID: 1, VaultPath: vaultOneDir})
-	workspaceTwo := vaults.WithVault(context.Background(), vaults.Vault{ID: 2, VaultPath: vaultTwoDir})
+	workspaceOne := vault.WithScopePrefix(context.Background(), "work")
+	workspaceTwo := vault.WithScopePrefix(context.Background(), "private")
 
-	if err := indexService.RebuildFromVault(workspaceOne, vault.NewService(vaultOneDir)); err != nil {
-		t.Fatalf("RebuildFromVault(workspaceOne) error = %v", err)
-	}
-	if err := indexService.RebuildFromVault(workspaceTwo, vault.NewService(vaultTwoDir)); err != nil {
-		t.Fatalf("RebuildFromVault(workspaceTwo) error = %v", err)
+	if err := indexService.RebuildFromVault(context.Background(), vault.NewService(vaultDir)); err != nil {
+		t.Fatalf("RebuildFromVault() error = %v", err)
 	}
 
 	pagesOne, err := indexService.ListPages(workspaceOne)
 	if err != nil {
 		t.Fatalf("ListPages(workspaceOne) error = %v", err)
 	}
-	if len(pagesOne) != 1 || pagesOne[0].Path != "alpha" {
+	if len(pagesOne) != 1 || pagesOne[0].Path != "work/alpha" {
 		t.Fatalf("pagesOne = %#v", pagesOne)
 	}
 
@@ -135,19 +130,19 @@ func TestVaultStoresAreIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListPages(workspaceTwo) error = %v", err)
 	}
-	if len(pagesTwo) != 1 || pagesTwo[0].Path != "beta" {
+	if len(pagesTwo) != 1 || pagesTwo[0].Path != "private/beta" {
 		t.Fatalf("pagesTwo = %#v", pagesTwo)
 	}
 
 	if _, err := indexService.PutSavedQuery(workspaceOne, SavedQuery{Name: "open-tasks", Title: "Open Tasks", Query: "from tasks"}); err != nil {
 		t.Fatalf("PutSavedQuery(workspaceOne) error = %v", err)
 	}
-	if _, err := indexService.GetSavedQuery(workspaceTwo, "open-tasks"); err != ErrSavedQueryNotFound {
-		t.Fatalf("GetSavedQuery(workspaceTwo) error = %v, want %v", err, ErrSavedQueryNotFound)
+	if _, err := indexService.GetSavedQuery(workspaceTwo, "open-tasks"); err != nil {
+		t.Fatalf("GetSavedQuery(workspaceTwo) error = %v", err)
 	}
 
-	if got := indexService.DatabasePathForVault(1); got == indexService.DatabasePathForVault(2) {
-		t.Fatalf("vault database paths should differ: %q", got)
+	if got := indexService.DatabasePathForVault(1); got != indexService.DatabasePathForVault(2) {
+		t.Fatalf("vault database paths should match single-store path: %q vs %q", got, indexService.DatabasePathForVault(2))
 	}
 }
 
@@ -173,7 +168,7 @@ func TestVaultStoreUsesDedicatedDefaultIndexDatabase(t *testing.T) {
 		_ = indexService.Close()
 	})
 
-	workspaceCtx := vaults.WithVault(context.Background(), vaults.Vault{ID: 42})
+	workspaceCtx := vault.WithVault(context.Background(), vault.Vault{ID: 42})
 	pages, err := indexService.ListPages(workspaceCtx)
 	if err != nil {
 		t.Fatalf("ListPages() error = %v", err)

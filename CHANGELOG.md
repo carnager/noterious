@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.10] - 2026-04-26
+
+### Added
+- The sidebar Tasks panel now loads vault-wide tasks for the current scope instead of only tasks from the selected page.
+- Task panel filters are now combinable and include a `Current Page` toggle alongside `Not Done`, `Has Due`, and `Reminders`.
+
+### Changed
+- The abandoned multi-vault backend model has been fully collapsed into a single-store architecture with top-level-folder scope filtering.
+- Scope selection is now client/request-driven instead of being persisted through auth/session or per-vault backend storage.
+- Vault discovery and rename/create flows are now filesystem-backed directly from the configured vault root.
+- Large parts of the HTTP API were moved onto typed response payloads and method-aware routing, reducing ad-hoc maps and manual method switching.
+- The backend event broker and HTTP logging paths were simplified and hardened for normal server operation.
+
+### Fixed
+- Scoped tree rendering now shows the contents of the selected top-level folder instead of redundantly showing the selected folder as the tree root.
+- Theme selection no longer flashes the default dark theme briefly when switching scope or reloading.
+- Query result cells now render inline markdown such as bold and italic markup instead of showing the raw markers.
+- Event subscriber cleanup no longer risks double-close panics, and dropped SSE events are now observable through broker accounting and warning logs.
+- Successful request logging is restored for normal API traffic, while noisy health/SSE endpoints remain suppressed.
+- Vault/folder HTTP error handling now uses real sentinel errors instead of string matching, and duplicate top-level vault creation now returns a proper conflict.
+
 ## [v0.1.9] - 2026-04-26
 
 ### Added

@@ -12,51 +12,156 @@ import (
 	"github.com/carnager/noterious/internal/query"
 )
 
+type datasetsResponse struct {
+	Datasets []query.DatasetDescriptor `json:"datasets"`
+	Count    int                       `json:"count"`
+}
+
+type querySchemaCountsResponse struct {
+	Datasets     int `json:"datasets"`
+	Examples     int `json:"examples"`
+	SavedQueries int `json:"savedQueries"`
+}
+
+type savedQuerySummaryResponse struct {
+	Name        string   `json:"name"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Folder      string   `json:"folder"`
+	Tags        []string `json:"tags"`
+	UpdatedAt   string   `json:"updatedAt"`
+}
+
+type querySchemaResponse struct {
+	Datasets     []query.DatasetDescriptor   `json:"datasets"`
+	Capabilities query.QueryCapabilities     `json:"capabilities"`
+	Examples     []query.QueryExample        `json:"examples"`
+	SavedQueries []savedQuerySummaryResponse `json:"savedQueries"`
+	Counts       querySchemaCountsResponse   `json:"counts"`
+}
+
+type queryExamplesResponse struct {
+	Dataset  string               `json:"dataset"`
+	Examples []query.QueryExample `json:"examples"`
+	Count    int                  `json:"count"`
+}
+
+type queryEditorSchemaResponse struct {
+	Datasets     []query.DatasetDescriptor   `json:"datasets"`
+	Capabilities query.QueryCapabilities     `json:"capabilities"`
+	Examples     []query.QueryExample        `json:"examples"`
+	SavedQueries []savedQuerySummaryResponse `json:"savedQueries"`
+}
+
+type queryEditorResponse struct {
+	Schema             queryEditorSchemaResponse         `json:"schema"`
+	RootSuggestions    query.QuerySuggestionResult       `json:"rootSuggestions"`
+	ClauseSuggestions  []query.QueryClauseSuggestionSet  `json:"clauseSuggestions"`
+	DatasetSuggestions []query.QueryDatasetSuggestionSet `json:"datasetSuggestions"`
+}
+
+type savedQueryActionResponse struct {
+	Name        string                       `json:"name"`
+	Title       string                       `json:"title"`
+	Description string                       `json:"description"`
+	Folder      string                       `json:"folder"`
+	Tags        []string                     `json:"tags"`
+	Query       string                       `json:"query"`
+	Suggest     *query.QuerySuggestionResult `json:"suggest,omitempty"`
+	Format      *query.QueryFormatResult     `json:"format,omitempty"`
+	Result      *query.Result                `json:"result,omitempty"`
+	Analyze     *query.QueryAnalysis         `json:"analyze,omitempty"`
+	Plan        *query.QueryPlan             `json:"plan,omitempty"`
+	Lint        *query.QueryLintResult       `json:"lint,omitempty"`
+	Preview     *query.QueryPreviewResult    `json:"preview,omitempty"`
+	Count       *query.QueryCountResult      `json:"count,omitempty"`
+	Workbench   *query.QueryWorkbenchResult  `json:"workbench,omitempty"`
+}
+
+type savedQueryFacetsItemResponse struct {
+	Folder string `json:"folder,omitempty"`
+	Tag    string `json:"tag,omitempty"`
+	Count  int    `json:"count"`
+}
+
+type savedQueryFacetsResponse struct {
+	Query   string                         `json:"query"`
+	Folder  string                         `json:"folder"`
+	Tag     string                         `json:"tag"`
+	Folders []savedQueryFacetsItemResponse `json:"folders"`
+	Tags    []savedQueryFacetsItemResponse `json:"tags"`
+	Count   int                            `json:"count"`
+}
+
+type savedQueryTreeFolderResponse struct {
+	Folder  string                      `json:"folder"`
+	Count   int                         `json:"count"`
+	Queries []savedQuerySummaryResponse `json:"queries"`
+}
+
+type savedQueryTreeResponse struct {
+	Query   string                         `json:"query"`
+	Folder  string                         `json:"folder"`
+	Tag     string                         `json:"tag"`
+	Folders []savedQueryTreeFolderResponse `json:"folders"`
+	Count   int                            `json:"count"`
+}
+
+type savedQueriesResponse struct {
+	Query   string             `json:"query"`
+	Folder  string             `json:"folder"`
+	Tag     string             `json:"tag"`
+	Queries []index.SavedQuery `json:"queries"`
+	Count   int                `json:"count"`
+}
+
+type updatedSavedQueriesResponse struct {
+	Queries []index.SavedQuery `json:"queries"`
+	Count   int                `json:"count"`
+}
+
 func mountQueryEndpoints(mux *http.ServeMux, deps Dependencies) {
-	mux.HandleFunc("/api/queries/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/queries/", func(w http.ResponseWriter, r *http.Request) {
+		handleSavedQueryRequest(w, r, deps)
+	})
+	mux.HandleFunc("POST /api/queries/", func(w http.ResponseWriter, r *http.Request) {
+		handleSavedQueryRequest(w, r, deps)
+	})
+	mux.HandleFunc("PUT /api/queries/", func(w http.ResponseWriter, r *http.Request) {
+		handleSavedQueryRequest(w, r, deps)
+	})
+	mux.HandleFunc("DELETE /api/queries/", func(w http.ResponseWriter, r *http.Request) {
 		handleSavedQueryRequest(w, r, deps)
 	})
 
-	mux.HandleFunc("/api/queries/facets", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/queries/facets", func(w http.ResponseWriter, r *http.Request) {
 		handleSavedQueryFacetsRequest(w, r, deps)
 	})
 
-	mux.HandleFunc("/api/queries/tree", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/queries/tree", func(w http.ResponseWriter, r *http.Request) {
 		handleSavedQueryTreeRequest(w, r, deps)
 	})
 
-	mux.HandleFunc("/api/queries", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/queries", func(w http.ResponseWriter, r *http.Request) {
+		handleSavedQueriesRequest(w, r, deps)
+	})
+	mux.HandleFunc("POST /api/queries", func(w http.ResponseWriter, r *http.Request) {
+		handleSavedQueriesRequest(w, r, deps)
+	})
+	mux.HandleFunc("PATCH /api/queries", func(w http.ResponseWriter, r *http.Request) {
 		handleSavedQueriesRequest(w, r, deps)
 	})
 
-	mux.HandleFunc("/api/query/datasets", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-
+	mux.HandleFunc("GET /api/query/datasets", func(w http.ResponseWriter, r *http.Request) {
 		datasets := query.DescribeDatasets()
-		writeJSON(w, http.StatusOK, map[string]any{
-			"datasets": datasets,
-			"count":    len(datasets),
-		})
+		writeJSON(w, http.StatusOK, datasetsResponse{Datasets: datasets, Count: len(datasets)})
 	})
 
-	mux.HandleFunc("/api/query/capabilities", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-
+	mux.HandleFunc("GET /api/query/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, query.DescribeCapabilities())
 	})
 
-	mux.HandleFunc("/api/query/schema", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-
+	mux.HandleFunc("GET /api/query/schema", func(w http.ResponseWriter, r *http.Request) {
 		schema := query.DescribeSchema()
 		savedQueries, err := deps.Index.ListSavedQueries(r.Context())
 		if err != nil {
@@ -64,25 +169,20 @@ func mountQueryEndpoints(mux *http.ServeMux, deps Dependencies) {
 			return
 		}
 		savedQuerySummaries := buildSavedQuerySummaries(savedQueries)
-		writeJSON(w, http.StatusOK, map[string]any{
-			"datasets":     schema.Datasets,
-			"capabilities": schema.Capabilities,
-			"examples":     schema.Examples,
-			"savedQueries": savedQuerySummaries,
-			"counts": map[string]int{
-				"datasets":     len(schema.Datasets),
-				"examples":     len(schema.Examples),
-				"savedQueries": len(savedQuerySummaries),
+		writeJSON(w, http.StatusOK, querySchemaResponse{
+			Datasets:     schema.Datasets,
+			Capabilities: schema.Capabilities,
+			Examples:     schema.Examples,
+			SavedQueries: savedQuerySummaries,
+			Counts: querySchemaCountsResponse{
+				Datasets:     len(schema.Datasets),
+				Examples:     len(schema.Examples),
+				SavedQueries: len(savedQuerySummaries),
 			},
 		})
 	})
 
-	mux.HandleFunc("/api/query/examples", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-
+	mux.HandleFunc("GET /api/query/examples", func(w http.ResponseWriter, r *http.Request) {
 		dataset := strings.TrimSpace(r.URL.Query().Get("dataset"))
 		examples := query.DescribeExamples()
 		if dataset != "" {
@@ -95,44 +195,34 @@ func mountQueryEndpoints(mux *http.ServeMux, deps Dependencies) {
 			examples = filtered
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"dataset":  dataset,
-			"examples": examples,
-			"count":    len(examples),
+		writeJSON(w, http.StatusOK, queryExamplesResponse{
+			Dataset:  dataset,
+			Examples: examples,
+			Count:    len(examples),
 		})
 	})
 
-	mux.HandleFunc("/api/query/editor", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-
+	mux.HandleFunc("GET /api/query/editor", func(w http.ResponseWriter, r *http.Request) {
 		savedQueries, err := deps.Index.ListSavedQueries(r.Context())
 		if err != nil {
 			http.Error(w, "failed to list saved queries", http.StatusInternalServerError)
 			return
 		}
 		editor := query.DescribeEditor()
-		writeJSON(w, http.StatusOK, map[string]any{
-			"schema": map[string]any{
-				"datasets":     editor.Schema.Datasets,
-				"capabilities": editor.Schema.Capabilities,
-				"examples":     editor.Schema.Examples,
-				"savedQueries": buildSavedQuerySummaries(savedQueries),
+		writeJSON(w, http.StatusOK, queryEditorResponse{
+			Schema: queryEditorSchemaResponse{
+				Datasets:     editor.Schema.Datasets,
+				Capabilities: editor.Schema.Capabilities,
+				Examples:     editor.Schema.Examples,
+				SavedQueries: buildSavedQuerySummaries(savedQueries),
 			},
-			"rootSuggestions":    editor.RootSuggestions,
-			"clauseSuggestions":  editor.ClauseSuggestions,
-			"datasetSuggestions": editor.DatasetSuggestions,
+			RootSuggestions:    editor.RootSuggestions,
+			ClauseSuggestions:  editor.ClauseSuggestions,
+			DatasetSuggestions: editor.DatasetSuggestions,
 		})
 	})
 
-	mux.HandleFunc("/api/query/analyze", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-
+	mux.HandleFunc("POST /api/query/analyze", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Query string `json:"query"`
 		}
@@ -144,12 +234,7 @@ func mountQueryEndpoints(mux *http.ServeMux, deps Dependencies) {
 		writeJSON(w, http.StatusOK, query.Analyze(request.Query))
 	})
 
-	mux.HandleFunc("/api/query/plan", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-
+	mux.HandleFunc("POST /api/query/plan", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Query string `json:"query"`
 		}
@@ -161,12 +246,7 @@ func mountQueryEndpoints(mux *http.ServeMux, deps Dependencies) {
 		writeJSON(w, http.StatusOK, query.Plan(request.Query))
 	})
 
-	mux.HandleFunc("/api/query/lint", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-
+	mux.HandleFunc("POST /api/query/lint", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Query string `json:"query"`
 		}
@@ -178,12 +258,7 @@ func mountQueryEndpoints(mux *http.ServeMux, deps Dependencies) {
 		writeJSON(w, http.StatusOK, query.Lint(request.Query))
 	})
 
-	mux.HandleFunc("/api/query/preview", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-
+	mux.HandleFunc("POST /api/query/preview", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Query string `json:"query"`
 			Limit int    `json:"limit"`
@@ -196,12 +271,7 @@ func mountQueryEndpoints(mux *http.ServeMux, deps Dependencies) {
 		writeJSON(w, http.StatusOK, query.Preview(r.Context(), deps.Index, request.Query, request.Limit))
 	})
 
-	mux.HandleFunc("/api/query/count", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-
+	mux.HandleFunc("POST /api/query/count", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Query string `json:"query"`
 		}
@@ -213,12 +283,7 @@ func mountQueryEndpoints(mux *http.ServeMux, deps Dependencies) {
 		writeJSON(w, http.StatusOK, query.Count(r.Context(), deps.Index, request.Query))
 	})
 
-	mux.HandleFunc("/api/query/workbench", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-
+	mux.HandleFunc("POST /api/query/workbench", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Query        string `json:"query"`
 			PreviewLimit int    `json:"previewLimit"`
@@ -231,12 +296,7 @@ func mountQueryEndpoints(mux *http.ServeMux, deps Dependencies) {
 		writeJSON(w, http.StatusOK, query.Workbench(r.Context(), deps.Index, request.Query, request.PreviewLimit))
 	})
 
-	mux.HandleFunc("/api/query/suggest", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-
+	mux.HandleFunc("POST /api/query/suggest", func(w http.ResponseWriter, r *http.Request) {
 		var request query.QuerySuggestionRequest
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -246,12 +306,7 @@ func mountQueryEndpoints(mux *http.ServeMux, deps Dependencies) {
 		writeJSON(w, http.StatusOK, query.Suggest(request))
 	})
 
-	mux.HandleFunc("/api/query/format", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-
+	mux.HandleFunc("POST /api/query/format", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Query string `json:"query"`
 		}
@@ -263,11 +318,7 @@ func mountQueryEndpoints(mux *http.ServeMux, deps Dependencies) {
 		writeJSON(w, http.StatusOK, query.Format(request.Query))
 	})
 
-	mux.HandleFunc("/api/query/execute", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
+	mux.HandleFunc("POST /api/query/execute", func(w http.ResponseWriter, r *http.Request) {
 		if deps.Query == nil {
 			http.Error(w, "query service unavailable", http.StatusInternalServerError)
 			return
@@ -305,46 +356,58 @@ func handleSavedQueryRequest(w http.ResponseWriter, r *http.Request, deps Depend
 
 	switch r.Method {
 	case http.MethodGet:
-		savedQuery, err := deps.Index.GetSavedQuery(r.Context(), name)
-		if err != nil {
-			writeSavedQueryError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, savedQuery)
+		handleSavedQueryGetRequest(w, r, deps, name)
 	case http.MethodPut:
-		var request struct {
-			Title       string   `json:"title"`
-			Description string   `json:"description"`
-			Folder      string   `json:"folder"`
-			Tags        []string `json:"tags"`
-			Query       string   `json:"query"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-		savedQuery, err := deps.Index.PutSavedQuery(r.Context(), index.SavedQuery{
-			Name:        name,
-			Title:       strings.TrimSpace(request.Title),
-			Description: strings.TrimSpace(request.Description),
-			Folder:      strings.TrimSpace(request.Folder),
-			Tags:        append([]string(nil), request.Tags...),
-			Query:       request.Query,
-		})
-		if err != nil {
-			http.Error(w, "failed to save query", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, savedQuery)
+		handleSavedQueryPutRequest(w, r, deps, name)
 	case http.MethodDelete:
-		if err := deps.Index.DeleteSavedQuery(r.Context(), name); err != nil {
-			writeSavedQueryError(w, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
+		handleSavedQueryDeleteRequest(w, r, deps, name)
 	default:
 		writeMethodNotAllowed(w, http.MethodGet, http.MethodPut, http.MethodDelete)
 	}
+}
+
+func handleSavedQueryGetRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, name string) {
+	savedQuery, err := deps.Index.GetSavedQuery(r.Context(), name)
+	if err != nil {
+		writeSavedQueryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, savedQuery)
+}
+
+func handleSavedQueryPutRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, name string) {
+	var request struct {
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		Folder      string   `json:"folder"`
+		Tags        []string `json:"tags"`
+		Query       string   `json:"query"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	savedQuery, err := deps.Index.PutSavedQuery(r.Context(), index.SavedQuery{
+		Name:        name,
+		Title:       strings.TrimSpace(request.Title),
+		Description: strings.TrimSpace(request.Description),
+		Folder:      strings.TrimSpace(request.Folder),
+		Tags:        append([]string(nil), request.Tags...),
+		Query:       request.Query,
+	})
+	if err != nil {
+		http.Error(w, "failed to save query", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, savedQuery)
+}
+
+func handleSavedQueryDeleteRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, name string) {
+	if err := deps.Index.DeleteSavedQuery(r.Context(), name); err != nil {
+		writeSavedQueryError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleSavedQueryActionRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, name string, action string) {
@@ -361,63 +424,120 @@ func handleSavedQueryActionRequest(w http.ResponseWriter, r *http.Request, deps 
 
 	switch action {
 	case "suggest":
-		var request query.QuerySuggestionRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-		request.Query = savedQuery.Query
-		writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, "suggest", query.Suggest(request)))
+		handleSavedQuerySuggestAction(w, r, savedQuery)
 	case "format":
-		writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, "format", query.Format(savedQuery.Query)))
+		handleSavedQueryFormatAction(w, savedQuery)
 	case "execute":
-		if deps.Query == nil {
-			http.Error(w, "query service unavailable", http.StatusInternalServerError)
-			return
-		}
-		result, err := deps.Query.Execute(r.Context(), deps.Index, savedQuery.Query)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, "result", result))
+		handleSavedQueryExecuteAction(w, r, deps, savedQuery)
 	case "analyze":
-		writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, "analyze", query.Analyze(savedQuery.Query)))
+		handleSavedQueryAnalyzeAction(w, savedQuery)
 	case "plan":
-		writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, "plan", query.Plan(savedQuery.Query)))
+		handleSavedQueryPlanAction(w, savedQuery)
 	case "lint":
-		writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, "lint", query.Lint(savedQuery.Query)))
+		handleSavedQueryLintAction(w, savedQuery)
 	case "preview":
-		var request struct {
-			Limit int `json:"limit"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-		writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, "preview", query.Preview(r.Context(), deps.Index, savedQuery.Query, request.Limit)))
+		handleSavedQueryPreviewAction(w, r, deps, savedQuery)
 	case "count":
-		writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, "count", query.Count(r.Context(), deps.Index, savedQuery.Query)))
+		handleSavedQueryCountAction(w, r, deps, savedQuery)
 	case "workbench":
-		var request struct {
-			PreviewLimit int `json:"previewLimit"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-		writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, "workbench", query.Workbench(r.Context(), deps.Index, savedQuery.Query, request.PreviewLimit)))
+		handleSavedQueryWorkbenchAction(w, r, deps, savedQuery)
 	default:
 		http.NotFound(w, r)
 	}
 }
 
-func handleSavedQueryFacetsRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
-	if r.Method != http.MethodGet {
-		writeMethodNotAllowed(w, http.MethodGet)
+func handleSavedQuerySuggestAction(w http.ResponseWriter, r *http.Request, savedQuery index.SavedQuery) {
+	var request query.QuerySuggestionRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	request.Query = savedQuery.Query
+	result := query.Suggest(request)
+	writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, func(payload *savedQueryActionResponse) {
+		payload.Suggest = &result
+	}))
+}
 
+func handleSavedQueryFormatAction(w http.ResponseWriter, savedQuery index.SavedQuery) {
+	result := query.Format(savedQuery.Query)
+	writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, func(payload *savedQueryActionResponse) {
+		payload.Format = &result
+	}))
+}
+
+func handleSavedQueryExecuteAction(w http.ResponseWriter, r *http.Request, deps Dependencies, savedQuery index.SavedQuery) {
+	if deps.Query == nil {
+		http.Error(w, "query service unavailable", http.StatusInternalServerError)
+		return
+	}
+	result, err := deps.Query.Execute(r.Context(), deps.Index, savedQuery.Query)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, func(payload *savedQueryActionResponse) {
+		payload.Result = &result
+	}))
+}
+
+func handleSavedQueryAnalyzeAction(w http.ResponseWriter, savedQuery index.SavedQuery) {
+	result := query.Analyze(savedQuery.Query)
+	writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, func(payload *savedQueryActionResponse) {
+		payload.Analyze = &result
+	}))
+}
+
+func handleSavedQueryPlanAction(w http.ResponseWriter, savedQuery index.SavedQuery) {
+	result := query.Plan(savedQuery.Query)
+	writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, func(payload *savedQueryActionResponse) {
+		payload.Plan = &result
+	}))
+}
+
+func handleSavedQueryLintAction(w http.ResponseWriter, savedQuery index.SavedQuery) {
+	result := query.Lint(savedQuery.Query)
+	writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, func(payload *savedQueryActionResponse) {
+		payload.Lint = &result
+	}))
+}
+
+func handleSavedQueryPreviewAction(w http.ResponseWriter, r *http.Request, deps Dependencies, savedQuery index.SavedQuery) {
+	var request struct {
+		Limit int `json:"limit"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	result := query.Preview(r.Context(), deps.Index, savedQuery.Query, request.Limit)
+	writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, func(payload *savedQueryActionResponse) {
+		payload.Preview = &result
+	}))
+}
+
+func handleSavedQueryCountAction(w http.ResponseWriter, r *http.Request, deps Dependencies, savedQuery index.SavedQuery) {
+	result := query.Count(r.Context(), deps.Index, savedQuery.Query)
+	writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, func(payload *savedQueryActionResponse) {
+		payload.Count = &result
+	}))
+}
+
+func handleSavedQueryWorkbenchAction(w http.ResponseWriter, r *http.Request, deps Dependencies, savedQuery index.SavedQuery) {
+	var request struct {
+		PreviewLimit int `json:"previewLimit"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	result := query.Workbench(r.Context(), deps.Index, savedQuery.Query, request.PreviewLimit)
+	writeJSON(w, http.StatusOK, savedQueryActionPayload(savedQuery, func(payload *savedQueryActionResponse) {
+		payload.Workbench = &result
+	}))
+}
+
+func handleSavedQueryFacetsRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
 	savedQueries, queryText, folder, tag, err := filteredSavedQueriesFromRequest(r, deps.Index)
 	if err != nil {
 		http.Error(w, "failed to list saved queries", http.StatusInternalServerError)
@@ -425,136 +545,138 @@ func handleSavedQueryFacetsRequest(w http.ResponseWriter, r *http.Request, deps 
 	}
 
 	folders, tags := summarizeSavedQueryFacets(savedQueries)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"query":   queryText,
-		"folder":  folder,
-		"tag":     tag,
-		"folders": folders,
-		"tags":    tags,
-		"count":   len(savedQueries),
+	writeJSON(w, http.StatusOK, savedQueryFacetsResponse{
+		Query:   queryText,
+		Folder:  folder,
+		Tag:     tag,
+		Folders: folders,
+		Tags:    tags,
+		Count:   len(savedQueries),
 	})
 }
 
 func handleSavedQueryTreeRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
-	if r.Method != http.MethodGet {
-		writeMethodNotAllowed(w, http.MethodGet)
-		return
-	}
-
 	savedQueries, queryText, folder, tag, err := filteredSavedQueriesFromRequest(r, deps.Index)
 	if err != nil {
 		http.Error(w, "failed to list saved queries", http.StatusInternalServerError)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"query":   queryText,
-		"folder":  folder,
-		"tag":     tag,
-		"folders": buildSavedQueryTree(savedQueries),
-		"count":   len(savedQueries),
+	writeJSON(w, http.StatusOK, savedQueryTreeResponse{
+		Query:   queryText,
+		Folder:  folder,
+		Tag:     tag,
+		Folders: buildSavedQueryTree(savedQueries),
+		Count:   len(savedQueries),
 	})
 }
 
 func handleSavedQueriesRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
-	if r.Method != http.MethodGet && r.Method != http.MethodPost && r.Method != http.MethodPatch {
-		writeMethodNotAllowed(w, http.MethodGet, http.MethodPost, http.MethodPatch)
+	switch r.Method {
+	case http.MethodGet:
+		handleSavedQueriesGetRequest(w, r, deps)
+	case http.MethodPost:
+		handleSavedQueriesPostRequest(w, r, deps)
+	case http.MethodPatch:
+		handleSavedQueriesPatchRequest(w, r, deps)
+	}
+}
+
+func handleSavedQueriesGetRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
+	savedQueries, queryText, folder, tag, err := filteredSavedQueriesFromRequest(r, deps.Index)
+	if err != nil {
+		http.Error(w, "failed to list saved queries", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, savedQueriesResponse{
+		Query:   queryText,
+		Folder:  folder,
+		Tag:     tag,
+		Queries: savedQueries,
+		Count:   len(savedQueries),
+	})
+}
+
+func handleSavedQueriesPostRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
+	var request struct {
+		Name        string   `json:"name"`
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		Folder      string   `json:"folder"`
+		Tags        []string `json:"tags"`
+		Query       string   `json:"query"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(request.Name)
+	if name == "" {
+		http.Error(w, "query name is required", http.StatusBadRequest)
+		return
+	}
+	savedQuery, err := deps.Index.PutSavedQuery(r.Context(), index.SavedQuery{
+		Name:        name,
+		Title:       strings.TrimSpace(request.Title),
+		Description: strings.TrimSpace(request.Description),
+		Folder:      strings.TrimSpace(request.Folder),
+		Tags:        append([]string(nil), request.Tags...),
+		Query:       request.Query,
+	})
+	if err != nil {
+		http.Error(w, "failed to save query", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusCreated, savedQuery)
+}
+
+func handleSavedQueriesPatchRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
+	var request struct {
+		Names  []string  `json:"names"`
+		Folder *string   `json:"folder"`
+		Tags   *[]string `json:"tags"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	switch r.Method {
-	case http.MethodGet:
-		savedQueries, queryText, folder, tag, err := filteredSavedQueriesFromRequest(r, deps.Index)
+	names := normalizedSavedQueryNames(request.Names)
+	if len(names) == 0 {
+		http.Error(w, "query names are required", http.StatusBadRequest)
+		return
+	}
+	if request.Folder == nil && request.Tags == nil {
+		http.Error(w, "at least one bulk saved query change is required", http.StatusBadRequest)
+		return
+	}
+
+	updatedQueries := make([]index.SavedQuery, 0, len(names))
+	for _, name := range names {
+		savedQuery, err := deps.Index.GetSavedQuery(r.Context(), name)
 		if err != nil {
-			http.Error(w, "failed to list saved queries", http.StatusInternalServerError)
+			writeSavedQueryError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"query":   queryText,
-			"folder":  folder,
-			"tag":     tag,
-			"queries": savedQueries,
-			"count":   len(savedQueries),
-		})
-	case http.MethodPost:
-		var request struct {
-			Name        string   `json:"name"`
-			Title       string   `json:"title"`
-			Description string   `json:"description"`
-			Folder      string   `json:"folder"`
-			Tags        []string `json:"tags"`
-			Query       string   `json:"query"`
+		if request.Folder != nil {
+			savedQuery.Folder = strings.TrimSpace(*request.Folder)
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
+		if request.Tags != nil {
+			savedQuery.Tags = append([]string(nil), (*request.Tags)...)
 		}
-		name := strings.TrimSpace(request.Name)
-		if name == "" {
-			http.Error(w, "query name is required", http.StatusBadRequest)
-			return
-		}
-		savedQuery, err := deps.Index.PutSavedQuery(r.Context(), index.SavedQuery{
-			Name:        name,
-			Title:       strings.TrimSpace(request.Title),
-			Description: strings.TrimSpace(request.Description),
-			Folder:      strings.TrimSpace(request.Folder),
-			Tags:        append([]string(nil), request.Tags...),
-			Query:       request.Query,
-		})
+
+		savedQuery, err = deps.Index.PutSavedQuery(r.Context(), savedQuery)
 		if err != nil {
 			http.Error(w, "failed to save query", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusCreated, savedQuery)
-	case http.MethodPatch:
-		var request struct {
-			Names  []string  `json:"names"`
-			Folder *string   `json:"folder"`
-			Tags   *[]string `json:"tags"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		names := normalizedSavedQueryNames(request.Names)
-		if len(names) == 0 {
-			http.Error(w, "query names are required", http.StatusBadRequest)
-			return
-		}
-		if request.Folder == nil && request.Tags == nil {
-			http.Error(w, "at least one bulk saved query change is required", http.StatusBadRequest)
-			return
-		}
-
-		updatedQueries := make([]index.SavedQuery, 0, len(names))
-		for _, name := range names {
-			savedQuery, err := deps.Index.GetSavedQuery(r.Context(), name)
-			if err != nil {
-				writeSavedQueryError(w, err)
-				return
-			}
-			if request.Folder != nil {
-				savedQuery.Folder = strings.TrimSpace(*request.Folder)
-			}
-			if request.Tags != nil {
-				savedQuery.Tags = append([]string(nil), (*request.Tags)...)
-			}
-
-			savedQuery, err = deps.Index.PutSavedQuery(r.Context(), savedQuery)
-			if err != nil {
-				http.Error(w, "failed to save query", http.StatusInternalServerError)
-				return
-			}
-			updatedQueries = append(updatedQueries, savedQuery)
-		}
-
-		writeJSON(w, http.StatusOK, map[string]any{
-			"queries": updatedQueries,
-			"count":   len(updatedQueries),
-		})
+		updatedQueries = append(updatedQueries, savedQuery)
 	}
+
+	writeJSON(w, http.StatusOK, updatedSavedQueriesResponse{
+		Queries: updatedQueries,
+		Count:   len(updatedQueries),
+	})
 }
 
 func parseSavedQueryPath(rawPath string) (string, string, bool) {
@@ -577,16 +699,16 @@ func parseSavedQueryPath(rawPath string) (string, string, bool) {
 	return trimmed, "", true
 }
 
-func savedQueryActionPayload(savedQuery index.SavedQuery, key string, value any) map[string]any {
-	payload := map[string]any{
-		"name":        savedQuery.Name,
-		"title":       savedQuery.Title,
-		"description": savedQuery.Description,
-		"folder":      savedQuery.Folder,
-		"tags":        savedQuery.Tags,
-		"query":       savedQuery.Query,
+func savedQueryActionPayload(savedQuery index.SavedQuery, populate func(*savedQueryActionResponse)) savedQueryActionResponse {
+	payload := savedQueryActionResponse{
+		Name:        savedQuery.Name,
+		Title:       savedQuery.Title,
+		Description: savedQuery.Description,
+		Folder:      savedQuery.Folder,
+		Tags:        append([]string(nil), savedQuery.Tags...),
+		Query:       savedQuery.Query,
 	}
-	payload[key] = value
+	populate(&payload)
 	return payload
 }
 
@@ -698,22 +820,22 @@ func containsSavedQueryTag(tags []string, needle string) bool {
 	return false
 }
 
-func buildSavedQuerySummaries(savedQueries []index.SavedQuery) []map[string]any {
-	summaries := make([]map[string]any, 0, len(savedQueries))
+func buildSavedQuerySummaries(savedQueries []index.SavedQuery) []savedQuerySummaryResponse {
+	summaries := make([]savedQuerySummaryResponse, 0, len(savedQueries))
 	for _, savedQuery := range savedQueries {
-		summaries = append(summaries, map[string]any{
-			"name":        savedQuery.Name,
-			"title":       savedQuery.Title,
-			"description": savedQuery.Description,
-			"folder":      savedQuery.Folder,
-			"tags":        append([]string(nil), savedQuery.Tags...),
-			"updatedAt":   savedQuery.UpdatedAt,
+		summaries = append(summaries, savedQuerySummaryResponse{
+			Name:        savedQuery.Name,
+			Title:       savedQuery.Title,
+			Description: savedQuery.Description,
+			Folder:      savedQuery.Folder,
+			Tags:        append([]string(nil), savedQuery.Tags...),
+			UpdatedAt:   savedQuery.UpdatedAt,
 		})
 	}
 	return summaries
 }
 
-func summarizeSavedQueryFacets(savedQueries []index.SavedQuery) ([]map[string]any, []map[string]any) {
+func summarizeSavedQueryFacets(savedQueries []index.SavedQuery) ([]savedQueryFacetsItemResponse, []savedQueryFacetsItemResponse) {
 	folderCounts := make(map[string]int)
 	tagCounts := make(map[string]int)
 
@@ -730,46 +852,38 @@ func summarizeSavedQueryFacets(savedQueries []index.SavedQuery) ([]map[string]an
 		}
 	}
 
-	folders := make([]map[string]any, 0, len(folderCounts))
+	folders := make([]savedQueryFacetsItemResponse, 0, len(folderCounts))
 	for folder, count := range folderCounts {
-		folders = append(folders, map[string]any{
-			"folder": folder,
-			"count":  count,
+		folders = append(folders, savedQueryFacetsItemResponse{
+			Folder: folder,
+			Count:  count,
 		})
 	}
 	sort.Slice(folders, func(i, j int) bool {
-		left := folders[i]
-		right := folders[j]
-		leftCount := left["count"].(int)
-		rightCount := right["count"].(int)
-		if leftCount != rightCount {
-			return leftCount > rightCount
+		if folders[i].Count != folders[j].Count {
+			return folders[i].Count > folders[j].Count
 		}
-		return left["folder"].(string) < right["folder"].(string)
+		return folders[i].Folder < folders[j].Folder
 	})
 
-	tags := make([]map[string]any, 0, len(tagCounts))
+	tags := make([]savedQueryFacetsItemResponse, 0, len(tagCounts))
 	for tag, count := range tagCounts {
-		tags = append(tags, map[string]any{
-			"tag":   tag,
-			"count": count,
+		tags = append(tags, savedQueryFacetsItemResponse{
+			Tag:   tag,
+			Count: count,
 		})
 	}
 	sort.Slice(tags, func(i, j int) bool {
-		left := tags[i]
-		right := tags[j]
-		leftCount := left["count"].(int)
-		rightCount := right["count"].(int)
-		if leftCount != rightCount {
-			return leftCount > rightCount
+		if tags[i].Count != tags[j].Count {
+			return tags[i].Count > tags[j].Count
 		}
-		return left["tag"].(string) < right["tag"].(string)
+		return tags[i].Tag < tags[j].Tag
 	})
 
 	return folders, tags
 }
 
-func buildSavedQueryTree(savedQueries []index.SavedQuery) []map[string]any {
+func buildSavedQueryTree(savedQueries []index.SavedQuery) []savedQueryTreeFolderResponse {
 	groups := make(map[string][]index.SavedQuery)
 	for _, savedQuery := range savedQueries {
 		folder := strings.TrimSpace(savedQuery.Folder)
@@ -782,16 +896,16 @@ func buildSavedQueryTree(savedQueries []index.SavedQuery) []map[string]any {
 	}
 	sort.Strings(folderNames)
 
-	tree := make([]map[string]any, 0, len(folderNames))
+	tree := make([]savedQueryTreeFolderResponse, 0, len(folderNames))
 	for _, folder := range folderNames {
 		queries := groups[folder]
 		sort.Slice(queries, func(i, j int) bool {
 			return queries[i].Name < queries[j].Name
 		})
-		tree = append(tree, map[string]any{
-			"folder":  folder,
-			"count":   len(queries),
-			"queries": buildSavedQuerySummaries(queries),
+		tree = append(tree, savedQueryTreeFolderResponse{
+			Folder:  folder,
+			Count:   len(queries),
+			Queries: buildSavedQuerySummaries(queries),
 		})
 	}
 	return tree

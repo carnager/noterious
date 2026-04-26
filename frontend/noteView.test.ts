@@ -172,4 +172,35 @@ describe("note view query rendering", function () {
     expect(html).toContain('data-task-ref="task-1"');
     expect(html).toContain('data-page-link="index"');
   });
+
+  it("renders inline markdown inside query result cells", function () {
+    setDateTimeDisplayFormat("browser");
+    const derived: DerivedPage = {
+      toc: [],
+      backlinks: [],
+      linkCounts: {},
+      taskCounts: {},
+      queryBlocks: [{
+        source: "```query\nfrom tasks\n```",
+        line: 1,
+        key: "markup",
+        rowCount: 1,
+        stale: false,
+        result: {
+          columns: ["task", "notes"],
+          rows: [{
+            task: "**Bold** and *italic*",
+            notes: "See **this**",
+            __taskRef: "task-1",
+            __pagePath: "index",
+          }],
+        },
+      }],
+    };
+
+    const html = renderedQueryBlocksForEditor(derived)[0].html;
+    expect(html).toContain("<strong>Bold</strong>");
+    expect(html).toContain("<em>italic</em>");
+    expect(html).toContain("<strong>this</strong>");
+  });
 });

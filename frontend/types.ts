@@ -178,13 +178,6 @@ export interface AuthSessionResponse {
   setupRequired?: boolean;
 }
 
-export interface AuthVaultsResponse {
-  rootVault?: VaultRecord;
-  vaults: VaultRecord[];
-  count: number;
-  currentVault?: VaultRecord;
-}
-
 export interface VaultListResponse {
   vaults: VaultRecord[];
   count: number;
@@ -310,6 +303,14 @@ export interface PageListResponse {
   count: number;
   query?: string;
   tag?: string;
+}
+
+export interface TaskListResponse {
+  tasks: TaskRecord[];
+  count: number;
+  query?: string;
+  state?: string;
+  who?: string;
 }
 
 export interface SavedQueryTreeResponse {

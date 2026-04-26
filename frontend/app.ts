@@ -41,7 +41,7 @@ import {
   setMarkdownEditorSelection,
   setMarkdownEditorValue,
 } from "./editorState";
-import { fetchJSON, requireOK } from "./http";
+import { currentActiveScopePrefix, fetchJSON, requireOK, scopedEventSourceURL, scopedRequestInit, setActiveScopePrefix } from "./http";
 import {
   applyInlineTableEditor as applyInlineTableEditorUI,
   anchorInlineTableEditorToRenderedTable as anchorInlineTableEditorToRenderedTableUI,
@@ -124,7 +124,7 @@ import {
   renderPageContext as renderPageContextUI,
   renderPageTags as renderPageTagsUI,
   renderPageTasks as renderPageTasksUI,
-  type TaskFilter,
+  type TaskPanelFilters,
 } from "./pageViews";
 import {
   closeTreeContextMenu as closeTreeContextMenuUI,
@@ -167,7 +167,6 @@ import {
 import type {
   AppSettings as SettingsModel,
   AuthSessionResponse,
-  AuthVaultsResponse,
   AuthenticatedUser,
   BacklinkRecord,
   DocumentListResponse,
@@ -195,11 +194,13 @@ import type {
   SearchPayload,
   SlashMenuContext,
   TaskRecord,
+  TaskListResponse,
   ThemeListResponse,
   ThemeRecord,
   TrashListResponse,
   TrashPageRecord,
   UserSettingsResponse,
+  VaultListResponse,
   VaultRecord,
   VaultSettings,
 } from "./types";
@@ -329,7 +330,7 @@ interface AppState {
   pendingPageLineFocus: number | null;
   pendingPageTaskRef: string;
   renamingPageTitle: boolean;
-  taskFilter: TaskFilter;
+  taskFilters: TaskPanelFilters;
   tableEditor: TableEditorState | null;
   pageHistory: PageRevisionRecord[];
   selectedHistoryRevisionId: string;
@@ -337,6 +338,7 @@ interface AppState {
   trashPages: TrashPageRecord[];
   authenticated: boolean;
   currentUser: AuthenticatedUser | null;
+  rootVault: VaultRecord | null;
   currentVault: VaultRecord | null;
   availableVaults: VaultRecord[];
   vaultSwitchPending: boolean;
@@ -449,7 +451,12 @@ interface TreeContextMenuState {
     pendingPageLineFocus: null,
     pendingPageTaskRef: "",
     renamingPageTitle: false,
-    taskFilter: "not-done" as TaskFilter,
+    taskFilters: {
+      currentPage: false,
+      notDone: false,
+      hasDue: false,
+      hasReminder: false,
+    } as TaskPanelFilters,
     tableEditor: null,
     pageHistory: [],
     selectedHistoryRevisionId: "",
@@ -457,6 +464,7 @@ interface TreeContextMenuState {
     trashPages: [],
     authenticated: false,
     currentUser: null,
+    rootVault: null,
     currentVault: null,
     availableVaults: [],
     vaultSwitchPending: false,
@@ -658,7 +666,7 @@ interface TreeContextMenuState {
       who: Array.isArray(task.who) ? task.who.slice() : [],
     });
     closeTaskPickers();
-    await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
+    await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
     restoreNoteFocus();
     window.requestAnimationFrame(function () {
       window.requestAnimationFrame(function () {
@@ -677,7 +685,7 @@ interface TreeContextMenuState {
     }
     await deleteTaskRequest(ref);
     closeTaskPickers();
-    await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
+    await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
   }
 
   function closeTaskPickers(): void {
@@ -807,6 +815,7 @@ interface TreeContextMenuState {
     window.clearTimeout(state.refreshTimer ?? undefined);
     state.refreshTimer = window.setTimeout(function () {
       loadPages();
+      loadTasks();
       loadSavedQueryTree();
       if (!markdownEditorHasFocus(state, els)) {
         refreshCurrentDetail(false);
@@ -887,6 +896,9 @@ interface TreeContextMenuState {
 
   function setAuthSession(session: AuthSessionResponse): void {
     applyAuthSessionResponse(state, session);
+    state.rootVault = state.authenticated && session.vault
+      ? session.vault
+      : null;
     renderSessionState();
     renderAuthGate();
   }
@@ -1013,7 +1025,7 @@ interface TreeContextMenuState {
   }
 
   async function loadAuthenticatedApp() {
-    await loadAuthVaults().catch(function (error) {
+    await loadAvailableVaults().catch(function (error) {
       setNoteStatus("Vault list failed: " + errorMessage(error));
     });
     await Promise.all([
@@ -1028,6 +1040,7 @@ interface TreeContextMenuState {
       }),
       loadMeta(),
       loadPages(),
+      loadTasks(),
       loadSavedQueryTree(),
       loadDocuments(),
     ]);
@@ -1044,52 +1057,57 @@ interface TreeContextMenuState {
     })) {
       state.currentVault = state.availableVaults[0] || null;
     }
+    setActiveScopePrefix(currentScopePrefix());
     state.vaultSwitchPending = false;
     state.vaultSwitcherOpen = false;
     renderSessionState();
   }
 
-  async function selectCurrentVault(vaultID: number): Promise<AuthSessionResponse> {
-    return fetchJSON<AuthSessionResponse>("/api/auth/vault", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vaultId: vaultID }),
-    }, true);
+  const scopeStorageKey = "noterious.scope-prefix";
+
+  function loadStoredScopePrefix(): string {
+    try {
+      return normalizePageDraftPath(window.localStorage.getItem(scopeStorageKey) || "");
+    } catch (_error) {
+      return "";
+    }
   }
 
-  async function loadAuthVaults(): Promise<void> {
-    const snapshot = await fetchJSON<AuthVaultsResponse>("/api/auth/vaults");
-    const rootVault = snapshot.rootVault || null;
-    const discoveredVaults = Array.isArray(snapshot.vaults) ? snapshot.vaults.slice() : [];
-    const currentVault = snapshot.currentVault || rootVault;
-    if (!state.topLevelFoldersAsVaults) {
-      if (rootVault && currentVault && currentVault.id !== rootVault.id) {
-        const session = await selectCurrentVault(rootVault.id);
-        setAuthSession(session);
-        setVisibleVaultState([rootVault], session.vault || rootVault);
-        return;
+  function storeScopePrefix(prefix: string): void {
+    const normalized = normalizePageDraftPath(prefix);
+    try {
+      if (normalized) {
+        window.localStorage.setItem(scopeStorageKey, normalized);
+      } else {
+        window.localStorage.removeItem(scopeStorageKey);
       }
-      setVisibleVaultState(rootVault ? [rootVault] : [], currentVault);
+    } catch (_error) {
+      // Ignore storage failures and keep working with in-memory state.
+    }
+  }
+
+  async function loadAvailableVaults(): Promise<void> {
+    const rootVault = state.rootVault;
+    const snapshot = await fetchJSON<VaultListResponse>("/api/user/vaults");
+    const discoveredVaults = Array.isArray(snapshot.vaults) ? snapshot.vaults.slice() : [];
+    const storedScopePrefix = loadStoredScopePrefix();
+    if (!state.topLevelFoldersAsVaults) {
+      storeScopePrefix("");
+      setVisibleVaultState(rootVault ? [rootVault] : [], rootVault);
       return;
     }
 
-    const desiredVault = discoveredVaults.length === 0
-      ? rootVault
-      : discoveredVaults.find(function (vault) {
-        return Boolean(currentVault && vault.id === currentVault.id);
-      }) || discoveredVaults[0];
+    const desiredVault = discoveredVaults.find(function (vault: VaultRecord) {
+      const relativePath = rootVault
+        ? normalizePageDraftPath(normalizeVaultPath(vault.vaultPath).slice(normalizeVaultPath(rootVault.vaultPath).length + 1))
+        : "";
+      return relativePath === storedScopePrefix;
+    }) || discoveredVaults[0] || rootVault;
     const visibleVaults = discoveredVaults.length > 0
       ? discoveredVaults
       : (rootVault ? [rootVault] : []);
-
-    if (desiredVault && (!currentVault || currentVault.id !== desiredVault.id)) {
-      const session = await selectCurrentVault(desiredVault.id);
-      setAuthSession(session);
-      setVisibleVaultState(visibleVaults, session.vault || desiredVault);
-      return;
-    }
-
-    setVisibleVaultState(visibleVaults, desiredVault || currentVault);
+    storeScopePrefix(rootVault && desiredVault ? scopePrefixForVaultSelection(rootVault, desiredVault) : "");
+    setVisibleVaultState(visibleVaults, desiredVault);
   }
 
   async function switchVault(vaultID: number): Promise<void> {
@@ -1102,8 +1120,14 @@ interface TreeContextMenuState {
     state.vaultSwitchPending = true;
     renderSessionState();
     try {
-      const session = await selectCurrentVault(vaultID);
-      setAuthSession(session);
+      const nextVault = state.availableVaults.find(function (vault) {
+        return vault.id === vaultID;
+      }) || null;
+      if (!nextVault) {
+        throw new Error("Selected vault is unavailable.");
+      }
+      storeScopePrefix(state.rootVault ? scopePrefixForVaultSelection(state.rootVault, nextVault) : "");
+      setActiveScopePrefix(state.rootVault ? scopePrefixForVaultSelection(state.rootVault, nextVault) : "");
       setVaultSwitcherOpen(false);
       setSessionMenuOpen(false);
       window.location.reload();
@@ -1194,16 +1218,68 @@ interface TreeContextMenuState {
     });
   }
 
+  function normalizeVaultPath(path: string): string {
+    return String(path || "").replace(/\\/g, "/").replace(/\/+$/, "").trim();
+  }
+
+  function scopePrefixForVaultSelection(rootVault: VaultRecord, selectedVault: VaultRecord): string {
+    const rootPath = normalizeVaultPath(rootVault.vaultPath || "");
+    const currentPath = normalizeVaultPath(selectedVault.vaultPath || "");
+    if (!rootPath || !currentPath || rootPath === currentPath) {
+      return "";
+    }
+    if (!currentPath.startsWith(rootPath + "/")) {
+      return "";
+    }
+    return normalizePageDraftPath(currentPath.slice(rootPath.length + 1)) || "";
+  }
+
+  function currentScopePrefix(): string {
+    if (!state.topLevelFoldersAsVaults || !state.rootVault || !state.currentVault) {
+      return "";
+    }
+    const requestScopePrefix = currentActiveScopePrefix();
+    if (requestScopePrefix) {
+      return requestScopePrefix;
+    }
+    const rootPath = normalizeVaultPath(state.rootVault.vaultPath || "");
+    const currentPath = normalizeVaultPath(state.currentVault.vaultPath || "");
+    if (!rootPath || !currentPath || rootPath === currentPath) {
+      return "";
+    }
+    if (!currentPath.startsWith(rootPath + "/")) {
+      return "";
+    }
+    return normalizePageDraftPath(currentPath.slice(rootPath.length + 1)) || "";
+  }
+
+  function applyCurrentScopePrefix(pagePath: string): string {
+    const normalized = normalizePageDraftPath(pagePath);
+    if (!normalized) {
+      return "";
+    }
+    const scopePrefix = currentScopePrefix();
+    if (!scopePrefix || normalized === scopePrefix || normalized.startsWith(scopePrefix + "/")) {
+      return normalized;
+    }
+    return scopePrefix + "/" + normalized;
+  }
+
   function openOrCreatePage(pagePath: string, replace: boolean): void {
     const normalized = normalizePageDraftPath(pagePath);
     if (!normalized) {
+      return;
+    }
+    const scopedPath = applyCurrentScopePrefix(normalized);
+    if (hasPage(scopedPath)) {
+      navigateToPage(scopedPath, replace);
       return;
     }
     if (hasPage(normalized)) {
       navigateToPage(normalized, replace);
       return;
     }
-    createPage(normalized).catch(function (error) {
+    createPage(scopedPath || normalized).catch(function (error) {
       setNoteStatus("Create page failed: " + errorMessage(error));
     });
   }
@@ -1712,8 +1788,8 @@ interface TreeContextMenuState {
     }, 700);
   }
 
-  function renderPageTasks(tasks: TaskRecord[]): void {
-    renderPageTasksUI(els.pageTaskList, Array.isArray(tasks) ? tasks : [], function (task) {
+  function renderPageTasks(): void {
+    renderPageTasksUI(els.pageTaskList, Array.isArray(state.tasks) ? state.tasks : [], function (task) {
       if (!task || !task.page) {
         return;
       }
@@ -1722,7 +1798,7 @@ interface TreeContextMenuState {
       toggleTaskDone(task).catch(function (error) {
         setNoteStatus("Task toggle failed: " + errorMessage(error));
       });
-    }, state.taskFilter);
+    }, state.taskFilters, state.currentPage ? (state.currentPage.page || state.currentPage.path || "") : "");
   }
 
   function renderPageContext() {
@@ -1808,7 +1884,7 @@ interface TreeContextMenuState {
       body: JSON.stringify(payload),
     });
 
-    await Promise.all([loadPages(), loadPageDetail(state.selectedPage, true)]);
+    await Promise.all([loadPages(), loadTasks(), loadPageDetail(state.selectedPage, true)]);
   }
 
   function startAddProperty() {
@@ -1915,7 +1991,7 @@ interface TreeContextMenuState {
     renderNoteStudio();
     renderSourceModeButton();
     renderPageHistoryButton();
-    renderPageTasks([]);
+    renderPageTasks();
     renderPageTags();
     renderPageContext();
     renderPageProperties();
@@ -1953,7 +2029,7 @@ interface TreeContextMenuState {
     loadMeta();
     if (state.currentPage) {
       renderNoteStudio();
-      renderPageTasks(state.currentPage.tasks || []);
+      renderPageTasks();
       renderPageContext();
       renderPageProperties();
     } else if (state.selectedSavedQuery) {
@@ -2164,8 +2240,24 @@ interface TreeContextMenuState {
     }
   }
 
+  async function loadTasks() {
+    try {
+      const payload = await fetchJSON<TaskListResponse>("/api/tasks");
+      state.tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
+      renderPageTasks();
+    } catch (error) {
+      state.tasks = [];
+      renderEmpty(els.pageTaskList, errorMessage(error));
+    }
+  }
+
   function renderPages() {
-    renderPagesSection(state, els, {
+    renderPagesSection({
+      selectedPage: state.selectedPage,
+      pages: state.pages,
+      expandedPageFolders: state.expandedPageFolders,
+      scopePrefix: currentScopePrefix(),
+    }, els, {
       navigateToPage: navigateToPage,
       createPage: createPage,
       renameFolder: renameFolder,
@@ -2289,7 +2381,7 @@ interface TreeContextMenuState {
       setTaskDateApplySuppressed(true);
       rememberNoteFocus();
       await toggleTaskDoneRequest(task);
-      await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
+      await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
       restoreNoteFocus();
       window.requestAnimationFrame(function () {
         window.requestAnimationFrame(function () {
@@ -2378,7 +2470,7 @@ interface TreeContextMenuState {
           }
         }, 0);
       }
-      renderPageTasks(page.tasks || []);
+      renderPageTasks();
       renderPageTags();
       renderPageContext();
       renderPageProperties();
@@ -2658,7 +2750,7 @@ interface TreeContextMenuState {
       body: JSON.stringify({ revisionId: revision.id }),
     }).then(function () {
       closePageHistoryModal();
-      return Promise.all([loadPages(), loadPageDetail(state.selectedPage, true)]);
+      return Promise.all([loadPages(), loadTasks(), loadPageDetail(state.selectedPage, true)]);
     }).then(function () {
       setNoteStatus("Restored revision for " + state.selectedPage + ".");
     }).catch(function (error) {
@@ -2929,7 +3021,7 @@ interface TreeContextMenuState {
     renderPageHistoryButton();
     if (state.currentPage) {
       renderNoteStudio();
-      renderPageTasks(state.currentPage.tasks || []);
+      renderPageTasks();
       renderPageContext();
       renderPageProperties();
     }
@@ -2962,7 +3054,7 @@ interface TreeContextMenuState {
       });
       setSettingsSnapshot(settingsSnapshot);
       await loadMeta();
-      await loadAuthVaults();
+      await loadAvailableVaults();
       if (state.selectedPage || state.selectedSavedQuery) {
         syncURLState(true);
       }
@@ -3119,7 +3211,7 @@ interface TreeContextMenuState {
   }
 
   async function createPage(pagePath: string): Promise<void> {
-    return createPageRequest(pagePath, {
+    return createPageRequest(applyCurrentScopePrefix(pagePath), {
       encodePath: encodePath,
       fetchJSON: fetchJSON,
       loadPages: loadPages,
@@ -3133,10 +3225,10 @@ interface TreeContextMenuState {
     if (state.selectedPage) {
       formData.append("page", state.selectedPage);
     }
-    const response = await fetch("/api/documents", {
+    const response = await fetch("/api/documents", scopedRequestInit({
       method: "POST",
       body: formData,
-    });
+    }));
     await requireOK(response);
     const document = await response.json() as DocumentRecord;
     state.documents = [document].concat(state.documents.filter(function (item) {
@@ -3454,7 +3546,7 @@ interface TreeContextMenuState {
       state.eventSource.close();
     }
 
-    const source = new EventSource("/api/events");
+    const source = new EventSource(scopedEventSourceURL("/api/events"));
     state.eventSource = source;
 
     const markLive = function (label: string, live: boolean): void {
@@ -3707,12 +3799,26 @@ interface TreeContextMenuState {
       if (!button) {
         return;
       }
-      const filter = (button.getAttribute("data-task-filter") || "not-done") as TaskFilter;
-      state.taskFilter = filter;
+      const filter = button.getAttribute("data-task-filter") || "";
+      if (filter === "current-page") {
+        state.taskFilters.currentPage = !state.taskFilters.currentPage;
+      } else if (filter === "not-done") {
+        state.taskFilters.notDone = !state.taskFilters.notDone;
+      } else if (filter === "has-due") {
+        state.taskFilters.hasDue = !state.taskFilters.hasDue;
+      } else if (filter === "has-reminder") {
+        state.taskFilters.hasReminder = !state.taskFilters.hasReminder;
+      }
       els.taskFilters.querySelectorAll(".task-filter").forEach(function (btn) {
-        btn.classList.toggle("active", btn.getAttribute("data-task-filter") === filter);
+        const key = btn.getAttribute("data-task-filter") || "";
+        btn.classList.toggle("active",
+          (key === "current-page" && state.taskFilters.currentPage)
+          || (key === "not-done" && state.taskFilters.notDone)
+          || (key === "has-due" && state.taskFilters.hasDue)
+          || (key === "has-reminder" && state.taskFilters.hasReminder)
+        );
       });
-      renderPageTasks(state.currentPage ? state.currentPage.tasks || [] : []);
+      renderPageTasks();
     });
     on(els.toggleDebug, "click", function () {
       setDebugOpen(!state.debugOpen);
@@ -4356,7 +4462,7 @@ interface TreeContextMenuState {
     state.previewThemeId = currentThemeID();
     applyUIPreferences();
     renderNoteStudio();
-    renderPageTasks([]);
+    renderPageTasks();
     renderPageContext();
     renderPageProperties();
     renderHelpShortcuts();

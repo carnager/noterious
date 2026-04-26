@@ -48,14 +48,6 @@ func (r *responseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return hijacker.Hijack()
 }
 
-func (r *responseRecorder) Push(target string, opts *http.PushOptions) error {
-	pusher, ok := r.ResponseWriter.(http.Pusher)
-	if !ok {
-		return http.ErrNotSupported
-	}
-	return pusher.Push(target, opts)
-}
-
 func withHTTPLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
@@ -116,14 +108,11 @@ func shouldLogHTTPRequest(r *http.Request, status int, duration time.Duration) b
 	if duration >= 750*time.Millisecond {
 		return true
 	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-		return true
-	}
 	switch r.URL.Path {
 	case "/api/healthz", "/api/events":
 		return false
 	default:
-		return false
+		return true
 	}
 }
 

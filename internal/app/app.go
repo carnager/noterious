@@ -18,15 +18,13 @@ import (
 	"github.com/carnager/noterious/internal/settings"
 	"github.com/carnager/noterious/internal/themes"
 	"github.com/carnager/noterious/internal/vault"
-	"github.com/carnager/noterious/internal/vaults"
 )
 
 type App struct {
 	cfg                    config.Config
-	configuredVault        vaults.Vault
+	configuredVault        vault.Vault
 	auth                   *auth.Service
 	themes                 *themes.Service
-	vaults                 *vaults.Service
 	index                  *index.Service
 	store                  *settings.Store
 	events                 *httpapi.EventBroker
@@ -35,27 +33,46 @@ type App struct {
 	notifier               *notify.Service
 }
 
+type cleanupStack struct {
+	closers []func()
+}
+
+func (s *cleanupStack) Add(fn func()) {
+	if fn == nil {
+		return
+	}
+	s.closers = append(s.closers, fn)
+}
+
+func (s *cleanupStack) Run() {
+	for i := len(s.closers) - 1; i >= 0; i-- {
+		s.closers[i]()
+	}
+}
+
 func New(cfg config.Config) (*App, error) {
 	settingsStore, err := settings.NewStore(cfg.DataDir, settings.DefaultSettingsFromConfig(cfg))
 	if err != nil {
 		return nil, fmt.Errorf("init settings: %w", err)
 	}
+	cleanup := cleanupStack{}
+	success := false
+	defer func() {
+		if !success {
+			cleanup.Run()
+		}
+	}()
 	runtimeSettings := settingsStore.Settings()
 	if parsed, err := time.ParseDuration(runtimeSettings.Notifications.NtfyInterval); err == nil {
 		cfg.NtfyInterval = parsed
 	}
 
-	vaultRegistry, err := vaults.NewService(context.Background(), cfg.DataDir)
-	if err != nil {
-		return nil, fmt.Errorf("init vault store: %w", err)
-	}
-	configuredVault, err := vaultRegistry.EnsureRuntimeRoot(context.Background(), vaults.RuntimeRootConfig{
+	configuredVault := vault.Vault{
+		ID:        vault.ConfiguredVaultID,
+		Key:       "default",
+		Name:      "Configured Vault",
 		VaultPath: cfg.VaultPath,
 		HomePage:  cfg.HomePage,
-	})
-	if err != nil {
-		_ = vaultRegistry.Close()
-		return nil, fmt.Errorf("ensure configured vault: %w", err)
 	}
 	cfg.HomePage = configuredVault.HomePage
 	runtimeSettings.Vault.VaultPath = configuredVault.VaultPath
@@ -64,62 +81,47 @@ func New(cfg config.Config) (*App, error) {
 
 	authService, err := auth.NewService(context.Background(), cfg.DataDir, cfg.AuthCookieName, cfg.AuthSessionTTL)
 	if err != nil {
-		_ = vaultRegistry.Close()
 		return nil, fmt.Errorf("init auth store: %w", err)
 	}
+	cleanup.Add(func() {
+		_ = authService.Close()
+	})
 	bootstrap, err := authService.EnsureBootstrap(context.Background(), auth.BootstrapConfig{
 		Username: cfg.AuthBootstrapUsername,
 		Password: cfg.AuthBootstrapPassword,
 	})
 	if err != nil {
-		_ = vaultRegistry.Close()
-		_ = authService.Close()
 		return nil, fmt.Errorf("bootstrap auth: %w", err)
 	}
 	vaultService := vault.NewService(cfg.VaultPath)
 	themeService, err := themes.NewService(cfg.DataDir)
 	if err != nil {
-		_ = vaultRegistry.Close()
-		_ = authService.Close()
 		return nil, fmt.Errorf("init theme store: %w", err)
 	}
 	indexService := index.NewService(cfg.DataDir)
+	cleanup.Add(func() {
+		_ = indexService.Close()
+	})
 	queryService := query.NewService()
 	documentService, err := documents.NewService(cfg.VaultPath)
 	if err != nil {
-		_ = vaultRegistry.Close()
-		_ = authService.Close()
 		return nil, fmt.Errorf("init document store: %w", err)
 	}
 	historyService, err := history.NewService(cfg.DataDir)
 	if err != nil {
-		_ = vaultRegistry.Close()
-		_ = authService.Close()
 		return nil, fmt.Errorf("init history store: %w", err)
-	}
-	if err := historyService.AdoptDefaultVaultHistory(configuredVault.ID); err != nil {
-		_ = vaultRegistry.Close()
-		_ = authService.Close()
-		return nil, fmt.Errorf("migrate history into vault: %w", err)
 	}
 	eventBroker := httpapi.NewEventBroker()
 	notifier, err := notify.NewService(cfg.DataDir, indexService, authService)
 	if err != nil {
-		_ = vaultRegistry.Close()
-		_ = authService.Close()
 		return nil, fmt.Errorf("init notifier: %w", err)
 	}
 
 	if err := indexService.Open(context.Background()); err != nil {
-		_ = vaultRegistry.Close()
-		_ = authService.Close()
 		return nil, fmt.Errorf("open index: %w", err)
 	}
 	configuredVaultWatcher, err := NewVaultWatcher(context.Background(), configuredVault, vaultService, indexService, queryService, eventBroker)
 	if err != nil {
-		_ = vaultRegistry.Close()
-		_ = authService.Close()
-		_ = indexService.Close()
 		return nil, fmt.Errorf("init vault watcher: %w", err)
 	}
 
@@ -129,7 +131,6 @@ func New(cfg config.Config) (*App, error) {
 		Documents:     documentService,
 		History:       historyService,
 		Themes:        themeService,
-		Vaults:        vaultRegistry,
 		Vault:         vaultService,
 		Index:         indexService,
 		Query:         queryService,
@@ -145,12 +146,11 @@ func New(cfg config.Config) (*App, error) {
 		slog.Info("initial auth setup required")
 	}
 
-	return &App{
+	app := &App{
 		cfg:                    cfg,
 		configuredVault:        configuredVault,
 		auth:                   authService,
 		themes:                 themeService,
-		vaults:                 vaultRegistry,
 		index:                  indexService,
 		store:                  settingsStore,
 		events:                 eventBroker,
@@ -161,13 +161,14 @@ func New(cfg config.Config) (*App, error) {
 			Handler:           router,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
-	}, nil
+	}
+	success = true
+	return app, nil
 }
 
 func (a *App) Run(ctx context.Context) error {
 	defer func() {
 		_ = a.auth.Close()
-		_ = a.vaults.Close()
 		_ = a.index.Close()
 	}()
 	errCh := make(chan error, 1)
@@ -190,7 +191,7 @@ func (a *App) Run(ctx context.Context) error {
 		close(errCh)
 	}()
 
-	configuredVaultCtx := vaults.WithVault(ctx, a.configuredVault)
+	configuredVaultCtx := vault.WithVault(ctx, a.configuredVault)
 	if a.configuredVaultWatcher != nil && a.cfg.WatchInterval > 0 {
 		slog.Info("configured vault watcher started",
 			"interval", a.cfg.WatchInterval.String(),

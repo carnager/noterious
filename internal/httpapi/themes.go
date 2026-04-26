@@ -8,11 +8,24 @@ import (
 	"github.com/carnager/noterious/internal/themes"
 )
 
+type themesResponse struct {
+	Themes []themes.Record `json:"themes"`
+	Count  int             `json:"count"`
+}
+
+type okIDResponse struct {
+	OK bool   `json:"ok"`
+	ID string `json:"id"`
+}
+
 func mountThemeEndpoints(mux *http.ServeMux, deps Dependencies) {
-	mux.HandleFunc("/api/themes", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/themes", func(w http.ResponseWriter, r *http.Request) {
 		handleThemesRequest(w, r, deps)
 	})
-	mux.HandleFunc("/api/themes/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/themes", func(w http.ResponseWriter, r *http.Request) {
+		handleThemesRequest(w, r, deps)
+	})
+	mux.HandleFunc("DELETE /api/themes/{themeID}", func(w http.ResponseWriter, r *http.Request) {
 		handleThemeRequest(w, r, deps)
 	})
 }
@@ -22,44 +35,38 @@ func handleThemesRequest(w http.ResponseWriter, r *http.Request, deps Dependenci
 		http.Error(w, "theme management unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	switch r.Method {
-	case http.MethodGet:
+	if r.Method == http.MethodGet {
 		items, err := deps.Themes.List()
 		if err != nil {
 			http.Error(w, "failed to list themes", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"themes": items,
-			"count":  len(items),
-		})
-	case http.MethodPost:
-		if err := r.ParseMultipartForm(themes.MaxUploadBytes); err != nil {
-			http.Error(w, "invalid multipart upload", http.StatusBadRequest)
-			return
-		}
-		file, header, err := r.FormFile("file")
-		if err != nil {
-			http.Error(w, "file is required", http.StatusBadRequest)
-			return
-		}
-		defer file.Close()
-		created, err := deps.Themes.CreateFromReader(header.Filename, file)
-		if err != nil {
-			switch {
-			case errors.Is(err, themes.ErrInvalidTheme):
-				http.Error(w, err.Error(), http.StatusBadRequest)
-			case errors.Is(err, themes.ErrThemeExists):
-				http.Error(w, err.Error(), http.StatusConflict)
-			default:
-				http.Error(w, "failed to create theme", http.StatusInternalServerError)
-			}
-			return
-		}
-		writeJSON(w, http.StatusCreated, created)
-	default:
-		writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
+		writeJSON(w, http.StatusOK, themesResponse{Themes: items, Count: len(items)})
+		return
 	}
+	if err := r.ParseMultipartForm(themes.MaxUploadBytes); err != nil {
+		http.Error(w, "invalid multipart upload", http.StatusBadRequest)
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "file is required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	created, err := deps.Themes.CreateFromReader(header.Filename, file)
+	if err != nil {
+		switch {
+		case errors.Is(err, themes.ErrInvalidTheme):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, themes.ErrThemeExists):
+			http.Error(w, err.Error(), http.StatusConflict)
+		default:
+			http.Error(w, "failed to create theme", http.StatusInternalServerError)
+		}
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
 }
 
 func handleThemeRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
@@ -67,13 +74,9 @@ func handleThemeRequest(w http.ResponseWriter, r *http.Request, deps Dependencie
 		http.Error(w, "theme management unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	themeID := normalizeThemePath(strings.TrimPrefix(r.URL.Path, "/api/themes/"))
+	themeID := normalizeThemePath(r.PathValue("themeID"))
 	if themeID == "" {
 		http.Error(w, "invalid theme path", http.StatusBadRequest)
-		return
-	}
-	if r.Method != http.MethodDelete {
-		writeMethodNotAllowed(w, http.MethodDelete)
 		return
 	}
 	if err := deps.Themes.Delete(themeID); err != nil {
@@ -89,10 +92,7 @@ func handleThemeRequest(w http.ResponseWriter, r *http.Request, deps Dependencie
 		}
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true,
-		"id": themeID,
-	})
+	writeJSON(w, http.StatusOK, okIDResponse{OK: true, ID: themeID})
 }
 
 func normalizeThemePath(value string) string {

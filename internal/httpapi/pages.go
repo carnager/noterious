@@ -12,11 +12,86 @@ import (
 	"github.com/carnager/noterious/internal/markdown"
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/vault"
-	"github.com/carnager/noterious/internal/vaults"
 )
 
+type taskCountsPayload struct {
+	Total int `json:"total"`
+	Open  int `json:"open"`
+	Done  int `json:"done"`
+}
+
+type linkCountsPayload struct {
+	Outgoing  int `json:"outgoing"`
+	Backlinks int `json:"backlinks"`
+}
+
+type pageRecordResponse struct {
+	Page        string         `json:"page"`
+	Title       string         `json:"title"`
+	RawMarkdown string         `json:"rawMarkdown"`
+	CreatedAt   string         `json:"createdAt"`
+	UpdatedAt   string         `json:"updatedAt"`
+	Frontmatter map[string]any `json:"frontmatter"`
+	Links       []index.Link   `json:"links"`
+	Tasks       []index.Task   `json:"tasks"`
+}
+
+type derivedPageResponse struct {
+	Page        string                 `json:"page"`
+	Title       string                 `json:"title"`
+	TOC         []index.Heading        `json:"toc"`
+	Links       []index.Link           `json:"links"`
+	Tasks       []index.Task           `json:"tasks"`
+	Backlinks   []index.BacklinkRecord `json:"backlinks"`
+	QueryBlocks []index.QueryBlock     `json:"queryBlocks"`
+	LinkCounts  linkCountsPayload      `json:"linkCounts"`
+	TaskCounts  taskCountsPayload      `json:"taskCounts"`
+}
+
+type queryBlocksResponse struct {
+	Page        string             `json:"page"`
+	QueryBlocks []index.QueryBlock `json:"queryBlocks"`
+	Count       int                `json:"count"`
+}
+
+type queryBlockResponse struct {
+	Page       string           `json:"page"`
+	QueryBlock index.QueryBlock `json:"queryBlock"`
+}
+
+type backlinksResponse struct {
+	Page      string                 `json:"page"`
+	Backlinks []index.BacklinkRecord `json:"backlinks"`
+}
+
+type pageDeletedResponse struct {
+	OK   bool   `json:"ok"`
+	Page string `json:"page"`
+}
+
 func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
-	vaultID := vaults.VaultIDFromContext(r.Context())
+	handlePageRequestByMethod(w, r, deps, r.Method)
+}
+
+func mountPageEndpoints(mux *http.ServeMux, deps Dependencies) {
+	mux.HandleFunc("GET /api/pages/", func(w http.ResponseWriter, r *http.Request) {
+		handlePageRequestByMethod(w, r, deps, http.MethodGet)
+	})
+	mux.HandleFunc("PUT /api/pages/", func(w http.ResponseWriter, r *http.Request) {
+		handlePageRequestByMethod(w, r, deps, http.MethodPut)
+	})
+	mux.HandleFunc("PATCH /api/pages/", func(w http.ResponseWriter, r *http.Request) {
+		handlePageRequestByMethod(w, r, deps, http.MethodPatch)
+	})
+	mux.HandleFunc("DELETE /api/pages/", func(w http.ResponseWriter, r *http.Request) {
+		handlePageRequestByMethod(w, r, deps, http.MethodDelete)
+	})
+	mux.HandleFunc("POST /api/pages/", func(w http.ResponseWriter, r *http.Request) {
+		handlePageRequestByMethod(w, r, deps, http.MethodPost)
+	})
+}
+
+func handlePageRequestByMethod(w http.ResponseWriter, r *http.Request, deps Dependencies, method string) {
 	vaultService := currentVault(r.Context(), deps)
 	pagePath, subresource, ok := splitPageSubresource(strings.TrimPrefix(r.URL.Path, "/api/pages/"))
 	if !ok {
@@ -24,391 +99,534 @@ func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 		return
 	}
 
-	switch subresource {
-	case "":
-		switch r.Method {
-		case http.MethodGet:
-			pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
-			if err != nil {
-				writePageError(w, r, err, "failed to load page")
-				return
-			}
-
-			writeJSON(w, http.StatusOK, pageRecordPayload(pageRecord))
-		case http.MethodPut:
-			var previousTasks []index.Task
-			var previousPageSummary *index.PageSummary
-			if existingPage, err := deps.Index.GetPage(r.Context(), pagePath); err == nil {
-				previousTasks = append(previousTasks, existingPage.Tasks...)
-				summary, err := summarizePageRecord(r.Context(), deps.Index, existingPage)
-				if err == nil {
-					previousPageSummary = &summary
-				}
-			}
-			var request struct {
-				RawMarkdown string `json:"rawMarkdown"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				http.Error(w, "invalid request body", http.StatusBadRequest)
-				return
-			}
-
-			if err := vaultService.WritePage(pagePath, []byte(request.RawMarkdown)); err != nil {
-				http.Error(w, "failed to write page", http.StatusInternalServerError)
-				return
-			}
-			if deps.History != nil {
-				if _, err := deps.History.SaveRevisionForVault(vaultID, pagePath, []byte(request.RawMarkdown)); err != nil {
-					http.Error(w, "failed to save page history", http.StatusInternalServerError)
-					return
-				}
-			}
-			if err := refreshPageDerivedState(r.Context(), deps, vaultService, pagePath); err != nil {
-				http.Error(w, "failed to update page state", http.StatusInternalServerError)
-				return
-			}
-
-			pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
-			if err != nil {
-				writePageError(w, r, err, "failed to load page")
-				return
-			}
-			currentPageSummary, err := summarizePageRecord(r.Context(), deps.Index, pageRecord)
-			if err != nil {
-				http.Error(w, "failed to summarize page", http.StatusInternalServerError)
-				return
-			}
-			PublishInvalidationEvents(r.Context(), deps.Events, deps.Index, deps.Query, pagePath, []query.PageChange{{
-				Before: previousPageSummary,
-				After:  &currentPageSummary,
-			}}, query.DiffTaskChanges(previousTasks, pageRecord.Tasks))
-			if deps.OnPageChanged != nil {
-				deps.OnPageChanged(pagePath)
-			}
-
-			writeJSON(w, http.StatusOK, pageRecordPayload(pageRecord))
-		case http.MethodDelete:
-			pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
-			if err != nil {
-				writePageError(w, r, err, "failed to load page")
-				return
-			}
-			previousTasks := append([]index.Task(nil), pageRecord.Tasks...)
-			previousPageSummaryValue, err := summarizePageRecord(r.Context(), deps.Index, pageRecord)
-			if err != nil {
-				http.Error(w, "failed to summarize page", http.StatusInternalServerError)
-				return
-			}
-			backlinks, err := deps.Index.GetBacklinks(r.Context(), pagePath)
-			if err != nil {
-				writePageError(w, r, err, "failed to load backlinks")
-				return
-			}
-			dependentPages := collectBacklinkSourcePages(backlinks)
-			if deps.History != nil {
-				if _, err := deps.History.SaveRevisionForVault(vaultID, pagePath, []byte(pageRecord.RawMarkdown)); err != nil {
-					http.Error(w, "failed to save page history", http.StatusInternalServerError)
-					return
-				}
-				if err := deps.History.MoveToTrashForVault(vaultID, pagePath, []byte(pageRecord.RawMarkdown)); err != nil {
-					http.Error(w, "failed to move page to trash", http.StatusInternalServerError)
-					return
-				}
-			}
-			if err := vaultService.DeletePage(pagePath); err != nil {
-				http.Error(w, "failed to delete page", http.StatusInternalServerError)
-				return
-			}
-			if err := deps.Index.RemovePage(r.Context(), pagePath); err != nil {
-				http.Error(w, "failed to remove page from index", http.StatusInternalServerError)
-				return
-			}
-			PublishDeletionEvents(r.Context(), deps.Events, deps.Index, deps.Query, pagePath, dependentPages, []query.PageChange{{
-				Before: &previousPageSummaryValue,
-				After:  nil,
-			}}, query.DiffTaskChanges(previousTasks, nil))
-			if deps.OnPageChanged != nil {
-				deps.OnPageChanged(pagePath)
-			}
-			writeJSON(w, http.StatusOK, map[string]any{
-				"ok":   true,
-				"page": pagePath,
-			})
-		case http.MethodPatch:
-			var request struct {
-				Title       *string  `json:"title"`
-				Tags        []string `json:"tags"`
-				Frontmatter *struct {
-					Set    map[string]any `json:"set"`
-					Remove []string       `json:"remove"`
-				} `json:"frontmatter"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				http.Error(w, "invalid request body", http.StatusBadRequest)
-				return
-			}
-			if request.Frontmatter == nil && request.Title == nil && request.Tags == nil {
-				http.Error(w, "unsupported page patch", http.StatusBadRequest)
-				return
-			}
-
-			patch := markdown.FrontmatterPatch{}
-			if request.Frontmatter != nil {
-				patch.Set = request.Frontmatter.Set
-				patch.Remove = request.Frontmatter.Remove
-			}
-			if request.Title != nil {
-				title := strings.TrimSpace(*request.Title)
-				if title == "" {
-					patch.Remove = append(patch.Remove, "title")
-				} else {
-					if patch.Set == nil {
-						patch.Set = make(map[string]any)
-					}
-					patch.Set["title"] = title
-				}
-			}
-			if request.Tags != nil {
-				tags := make([]string, 0, len(request.Tags))
-				for _, tag := range request.Tags {
-					trimmed := strings.TrimSpace(tag)
-					if trimmed != "" {
-						tags = append(tags, trimmed)
-					}
-				}
-				if len(tags) == 0 {
-					patch.Remove = append(patch.Remove, "tags")
-				} else {
-					if patch.Set == nil {
-						patch.Set = make(map[string]any)
-					}
-					patch.Set["tags"] = tags
-				}
-			}
-
-			pageRecord, err := patchPageFrontmatter(r.Context(), deps, pagePath, patch)
-			if err != nil {
-				writePageError(w, r, err, "failed to patch page")
-				return
-			}
-
-			writeJSON(w, http.StatusOK, pageRecordPayload(pageRecord))
-		default:
-			writeMethodNotAllowed(w, http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodDelete)
-		}
-	case "backlinks":
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-		backlinks, err := deps.Index.GetBacklinks(r.Context(), pagePath)
-		if err != nil {
-			writePageError(w, r, err, "failed to load backlinks")
-			return
-		}
-
-		writeJSON(w, http.StatusOK, map[string]any{
-			"page":      pagePath,
-			"backlinks": backlinks,
-		})
-	case "frontmatter":
-		if r.Method != http.MethodPatch {
+	switch method {
+	case http.MethodGet:
+		switch subresource {
+		case "":
+			handlePageGetRequest(w, r, deps, pagePath)
+		case "backlinks":
+			handlePageBacklinksRequest(w, r, deps, pagePath)
+		case "derived":
+			handlePageDerivedRequest(w, r, deps, pagePath)
+		case "query-blocks":
+			handlePageQueryBlocksGet(w, r, deps, pagePath)
+		case "frontmatter", "move":
 			writeMethodNotAllowed(w, http.MethodPatch)
-			return
+		default:
+			http.NotFound(w, r)
 		}
-
-		var request struct {
-			Set    map[string]any `json:"set"`
-			Remove []string       `json:"remove"`
+	case http.MethodPut:
+		switch subresource {
+		case "":
+			handlePagePutRequest(w, r, deps, vaultService, pagePath)
+		case "backlinks", "derived", "frontmatter", "move", "query-blocks":
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodPatch, http.MethodDelete, http.MethodPost)
+		default:
+			http.NotFound(w, r)
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
+	case http.MethodDelete:
+		switch subresource {
+		case "":
+			handlePageDeleteRequest(w, r, deps, vaultService, pagePath)
+		case "backlinks", "derived", "frontmatter", "move", "query-blocks":
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodPost)
+		default:
+			http.NotFound(w, r)
 		}
-
-		pageRecord, err := patchPageFrontmatter(r.Context(), deps, pagePath, markdown.FrontmatterPatch{
-			Set:    request.Set,
-			Remove: request.Remove,
-		})
-		if err != nil {
-			writePageError(w, r, err, "failed to patch page")
-			return
-		}
-
-		writeJSON(w, http.StatusOK, pageRecordPayload(pageRecord))
-	case "move":
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-
-		var request struct {
-			TargetPage string `json:"targetPage"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-		targetPage, ok := normalizeAPIPagePath(request.TargetPage)
-		if !ok || targetPage == "" {
-			http.Error(w, "invalid target page", http.StatusBadRequest)
-			return
-		}
-
-		pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
-		if err != nil {
-			writePageError(w, r, err, "failed to load page")
-			return
-		}
-		previousTasks := append([]index.Task(nil), pageRecord.Tasks...)
-		previousPageSummaryValue, err := summarizePageRecord(r.Context(), deps.Index, pageRecord)
-		if err != nil {
-			http.Error(w, "failed to summarize page", http.StatusInternalServerError)
-			return
-		}
-		backlinks, err := deps.Index.GetBacklinks(r.Context(), pagePath)
-		if err != nil {
-			writePageError(w, r, err, "failed to load backlinks")
-			return
-		}
-		dependentPages := collectBacklinkSourcePages(backlinks)
-		if err := vaultService.MovePage(pagePath, targetPage); err != nil {
-			http.Error(w, "failed to move page", http.StatusInternalServerError)
-			return
-		}
-		if deps.History != nil {
-			if err := deps.History.MovePageForVault(vaultID, pagePath, targetPage); err != nil {
-				http.Error(w, "failed to move page history", http.StatusInternalServerError)
-				return
-			}
-		}
-		if err := deps.Index.RemovePage(r.Context(), pagePath); err != nil {
-			http.Error(w, "failed to remove old page from index", http.StatusInternalServerError)
-			return
-		}
-		if err := refreshPageDerivedState(r.Context(), deps, vaultService, targetPage); err != nil {
-			http.Error(w, "failed to update moved page state", http.StatusInternalServerError)
-			return
-		}
-		updatedPage, err := deps.Index.GetPage(r.Context(), targetPage)
-		if err != nil {
-			writePageError(w, r, err, "failed to load moved page")
-			return
-		}
-		currentPageSummaryValue, err := summarizePageRecord(r.Context(), deps.Index, updatedPage)
-		if err != nil {
-			http.Error(w, "failed to summarize moved page", http.StatusInternalServerError)
-			return
-		}
-		PublishDeletionEvents(r.Context(), deps.Events, deps.Index, deps.Query, pagePath, dependentPages, []query.PageChange{{
-			Before: &previousPageSummaryValue,
-			After:  nil,
-		}}, query.DiffTaskChanges(previousTasks, nil))
-		PublishInvalidationEvents(r.Context(), deps.Events, deps.Index, deps.Query, targetPage, []query.PageChange{{
-			Before: nil,
-			After:  &currentPageSummaryValue,
-		}}, query.DiffTaskChanges(nil, updatedPage.Tasks))
-		if deps.OnPageChanged != nil {
-			deps.OnPageChanged(pagePath)
-			deps.OnPageChanged(targetPage)
-		}
-
-		writeJSON(w, http.StatusOK, pageRecordPayload(updatedPage))
-	case "derived":
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-		if err := refreshPageQueryState(r.Context(), deps, pagePath); err != nil {
-			writePageError(w, r, err, "failed to refresh derived query state")
-			return
-		}
-		pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
-		if err != nil {
-			writePageError(w, r, err, "failed to load derived state")
-			return
-		}
-
-		backlinks, err := deps.Index.GetBacklinks(r.Context(), pagePath)
-		if err != nil {
-			writePageError(w, r, err, "failed to load derived state")
-			return
-		}
-
-		queryBlocks, err := loadFreshEnrichedQueryBlocks(r.Context(), deps, pagePath)
-		if err != nil {
-			writePageError(w, r, err, "failed to load derived state")
-			return
-		}
-
-		writeJSON(w, http.StatusOK, derivedPagePayload(pageRecord, backlinks, queryBlocks))
-	case "query-blocks":
-		queryBlockValue, mode, action, isCollection := parseQueryBlockPath(r.URL.Path)
-
-		switch {
-		case isCollection && action == "refresh" && r.Method == http.MethodPost:
-			if deps.Query == nil {
-				http.Error(w, "query service unavailable", http.StatusInternalServerError)
-				return
-			}
-			queryBlocks, err := deps.Query.ForceRefreshPageCache(r.Context(), deps.Index, pagePath)
-			if err != nil {
-				writePageError(w, r, err, "failed to refresh query blocks")
-				return
-			}
-			if err := markStaleQueryBlocks(r.Context(), deps.Index, queryBlocks); err != nil {
-				writePageError(w, r, err, "failed to load refreshed query blocks")
-				return
-			}
-			publishQueryBlockRefreshEvents(deps.Events, vaultID, pagePath, queryBlocks)
-			writeJSON(w, http.StatusOK, queryBlocksPayload(pagePath, queryBlocks))
-		case isCollection && r.Method == http.MethodGet:
-			queryBlocks, err := loadFreshEnrichedQueryBlocks(r.Context(), deps, pagePath)
-			if err != nil {
-				writePageError(w, r, err, "failed to load query blocks")
-				return
-			}
-			writeJSON(w, http.StatusOK, queryBlocksPayload(pagePath, queryBlocks))
-		case isCollection:
-			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
-		case action == "" && r.Method == http.MethodGet:
-			block, err := loadFreshEnrichedQueryBlockByMode(r.Context(), deps, pagePath, mode, queryBlockValue)
-			if err != nil {
-				writeQueryBlockError(w, r, err, "failed to load query block")
-				return
-			}
-			writeJSON(w, http.StatusOK, queryBlockPayload(pagePath, block))
-		case action == "refresh" && r.Method == http.MethodPost:
-			if deps.Query == nil {
-				http.Error(w, "query service unavailable", http.StatusInternalServerError)
-				return
-			}
-			block, err := loadEnrichedQueryBlockByMode(r.Context(), deps.Index, pagePath, mode, queryBlockValue)
-			if err != nil {
-				writeQueryBlockError(w, r, err, "failed to refresh query block")
-				return
-			}
-			if _, err := deps.Query.RefreshPageBlock(r.Context(), deps.Index, pagePath, block.BlockKey); err != nil {
-				writeQueryBlockError(w, r, err, "failed to refresh query block")
-				return
-			}
-			block, err = loadEnrichedQueryBlock(r.Context(), deps.Index, pagePath, block.BlockKey)
-			if err != nil {
-				writeQueryBlockError(w, r, err, "failed to load refreshed query block")
-				return
-			}
-			publishQueryBlockRefreshEvents(deps.Events, vaultID, pagePath, []index.QueryBlock{block})
-			writeJSON(w, http.StatusOK, queryBlockPayload(pagePath, block))
-		case action == "":
-			writeMethodNotAllowed(w, http.MethodGet)
-		case action == "refresh":
-			writeMethodNotAllowed(w, http.MethodPost)
+	case http.MethodPatch:
+		switch subresource {
+		case "":
+			handlePagePatchRequest(w, r, deps, pagePath)
+		case "frontmatter":
+			handlePageFrontmatterPatchRequest(w, r, deps, pagePath)
+		case "backlinks", "derived", "move", "query-blocks":
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPost)
 		default:
 			http.NotFound(w, r)
 		}
 	default:
+		switch subresource {
+		case "move":
+			handlePageMoveRequest(w, r, deps, vaultService, pagePath)
+		case "query-blocks":
+			handlePageQueryBlocksPost(w, r, deps, pagePath)
+		case "", "backlinks", "derived", "frontmatter":
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}
+}
+
+func handlePageGetRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, pagePath string) {
+	pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
+	if err != nil {
+		writePageError(w, r, err, "failed to load page")
+		return
+	}
+	writeJSON(w, http.StatusOK, pageRecordPayload(pageRecord))
+}
+
+func handlePageBacklinksRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, pagePath string) {
+	backlinks, err := deps.Index.GetBacklinks(r.Context(), pagePath)
+	if err != nil {
+		writePageError(w, r, err, "failed to load backlinks")
+		return
+	}
+	writeJSON(w, http.StatusOK, backlinksResponse{
+		Page:      pagePath,
+		Backlinks: backlinks,
+	})
+}
+
+func handlePageDerivedRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, pagePath string) {
+	if err := refreshPageQueryState(r.Context(), deps, pagePath); err != nil {
+		writePageError(w, r, err, "failed to refresh derived query state")
+		return
+	}
+	pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
+	if err != nil {
+		writePageError(w, r, err, "failed to load derived state")
+		return
+	}
+	backlinks, err := deps.Index.GetBacklinks(r.Context(), pagePath)
+	if err != nil {
+		writePageError(w, r, err, "failed to load derived state")
+		return
+	}
+	queryBlocks, err := loadFreshEnrichedQueryBlocks(r.Context(), deps, pagePath)
+	if err != nil {
+		writePageError(w, r, err, "failed to load derived state")
+		return
+	}
+	writeJSON(w, http.StatusOK, derivedPagePayload(pageRecord, backlinks, queryBlocks))
+}
+
+func handlePagePutRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, vaultService *vault.Service, pagePath string) {
+	var previousTasks []index.Task
+	var previousPageSummary *index.PageSummary
+	if existingPage, err := deps.Index.GetPage(r.Context(), pagePath); err == nil {
+		previousTasks = append(previousTasks, existingPage.Tasks...)
+		summary, err := summarizePageRecord(r.Context(), deps.Index, existingPage)
+		if err == nil {
+			previousPageSummary = &summary
+		}
+	}
+	var request struct {
+		RawMarkdown string `json:"rawMarkdown"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := vaultService.WritePage(pagePath, []byte(request.RawMarkdown)); err != nil {
+		http.Error(w, "failed to write page", http.StatusInternalServerError)
+		return
+	}
+	if deps.History != nil {
+		if _, err := deps.History.SaveRevision(pagePath, []byte(request.RawMarkdown)); err != nil {
+			http.Error(w, "failed to save page history", http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := refreshPageDerivedState(r.Context(), deps, vaultService, pagePath); err != nil {
+		http.Error(w, "failed to update page state", http.StatusInternalServerError)
+		return
+	}
+	pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
+	if err != nil {
+		writePageError(w, r, err, "failed to load page")
+		return
+	}
+	currentPageSummary, err := summarizePageRecord(r.Context(), deps.Index, pageRecord)
+	if err != nil {
+		http.Error(w, "failed to summarize page", http.StatusInternalServerError)
+		return
+	}
+	PublishInvalidationEvents(r.Context(), deps.Events, deps.Index, deps.Query, pagePath, []query.PageChange{{
+		Before: previousPageSummary,
+		After:  &currentPageSummary,
+	}}, query.DiffTaskChanges(previousTasks, pageRecord.Tasks))
+	if deps.OnPageChanged != nil {
+		deps.OnPageChanged(pagePath)
+	}
+	writeJSON(w, http.StatusOK, pageRecordPayload(pageRecord))
+}
+
+func handlePageDeleteRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, vaultService *vault.Service, pagePath string) {
+	pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
+	if err != nil {
+		writePageError(w, r, err, "failed to load page")
+		return
+	}
+	previousTasks := append([]index.Task(nil), pageRecord.Tasks...)
+	previousPageSummaryValue, err := summarizePageRecord(r.Context(), deps.Index, pageRecord)
+	if err != nil {
+		http.Error(w, "failed to summarize page", http.StatusInternalServerError)
+		return
+	}
+	backlinks, err := deps.Index.GetBacklinks(r.Context(), pagePath)
+	if err != nil {
+		writePageError(w, r, err, "failed to load backlinks")
+		return
+	}
+	dependentPages := collectBacklinkSourcePages(backlinks)
+	if deps.History != nil {
+		if _, err := deps.History.SaveRevision(pagePath, []byte(pageRecord.RawMarkdown)); err != nil {
+			http.Error(w, "failed to save page history", http.StatusInternalServerError)
+			return
+		}
+		if err := deps.History.MoveToTrash(pagePath, []byte(pageRecord.RawMarkdown)); err != nil {
+			http.Error(w, "failed to move page to trash", http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := vaultService.DeletePage(pagePath); err != nil {
+		http.Error(w, "failed to delete page", http.StatusInternalServerError)
+		return
+	}
+	if err := deps.Index.RemovePage(r.Context(), pagePath); err != nil {
+		http.Error(w, "failed to remove page from index", http.StatusInternalServerError)
+		return
+	}
+	PublishDeletionEvents(r.Context(), deps.Events, deps.Index, deps.Query, pagePath, dependentPages, []query.PageChange{{
+		Before: &previousPageSummaryValue,
+		After:  nil,
+	}}, query.DiffTaskChanges(previousTasks, nil))
+	if deps.OnPageChanged != nil {
+		deps.OnPageChanged(pagePath)
+	}
+	writeJSON(w, http.StatusOK, pageDeletedResponse{
+		OK:   true,
+		Page: pagePath,
+	})
+}
+
+func handlePagePatchRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, pagePath string) {
+	patch, ok := decodePagePatchRequest(w, r)
+	if !ok {
+		return
+	}
+	pageRecord, err := patchPageFrontmatter(r.Context(), deps, pagePath, patch)
+	if err != nil {
+		writePageError(w, r, err, "failed to patch page")
+		return
+	}
+	writeJSON(w, http.StatusOK, pageRecordPayload(pageRecord))
+}
+
+func handlePageFrontmatterPatchRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, pagePath string) {
+	var request struct {
+		Set    map[string]any `json:"set"`
+		Remove []string       `json:"remove"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	pageRecord, err := patchPageFrontmatter(r.Context(), deps, pagePath, markdown.FrontmatterPatch{
+		Set:    request.Set,
+		Remove: request.Remove,
+	})
+	if err != nil {
+		writePageError(w, r, err, "failed to patch page")
+		return
+	}
+	writeJSON(w, http.StatusOK, pageRecordPayload(pageRecord))
+}
+
+func decodePagePatchRequest(w http.ResponseWriter, r *http.Request) (markdown.FrontmatterPatch, bool) {
+	var request struct {
+		Title       *string  `json:"title"`
+		Tags        []string `json:"tags"`
+		Frontmatter *struct {
+			Set    map[string]any `json:"set"`
+			Remove []string       `json:"remove"`
+		} `json:"frontmatter"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return markdown.FrontmatterPatch{}, false
+	}
+	if request.Frontmatter == nil && request.Title == nil && request.Tags == nil {
+		http.Error(w, "unsupported page patch", http.StatusBadRequest)
+		return markdown.FrontmatterPatch{}, false
+	}
+
+	patch := markdown.FrontmatterPatch{}
+	if request.Frontmatter != nil {
+		patch.Set = request.Frontmatter.Set
+		patch.Remove = request.Frontmatter.Remove
+	}
+	if request.Title != nil {
+		title := strings.TrimSpace(*request.Title)
+		if title == "" {
+			patch.Remove = append(patch.Remove, "title")
+		} else {
+			if patch.Set == nil {
+				patch.Set = make(map[string]any)
+			}
+			patch.Set["title"] = title
+		}
+	}
+	if request.Tags != nil {
+		tags := make([]string, 0, len(request.Tags))
+		for _, tag := range request.Tags {
+			trimmed := strings.TrimSpace(tag)
+			if trimmed != "" {
+				tags = append(tags, trimmed)
+			}
+		}
+		if len(tags) == 0 {
+			patch.Remove = append(patch.Remove, "tags")
+		} else {
+			if patch.Set == nil {
+				patch.Set = make(map[string]any)
+			}
+			patch.Set["tags"] = tags
+		}
+	}
+	return patch, true
+}
+
+func handlePageMoveRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, vaultService *vault.Service, pagePath string) {
+	var request struct {
+		TargetPage string `json:"targetPage"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	targetPage, ok := normalizeAPIPagePath(request.TargetPage)
+	if !ok || targetPage == "" {
+		http.Error(w, "invalid target page", http.StatusBadRequest)
+		return
+	}
+
+	pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
+	if err != nil {
+		writePageError(w, r, err, "failed to load page")
+		return
+	}
+	previousTasks := append([]index.Task(nil), pageRecord.Tasks...)
+	previousPageSummaryValue, err := summarizePageRecord(r.Context(), deps.Index, pageRecord)
+	if err != nil {
+		http.Error(w, "failed to summarize page", http.StatusInternalServerError)
+		return
+	}
+	backlinks, err := deps.Index.GetBacklinks(r.Context(), pagePath)
+	if err != nil {
+		writePageError(w, r, err, "failed to load backlinks")
+		return
+	}
+	dependentPages := collectBacklinkSourcePages(backlinks)
+	if err := vaultService.MovePage(pagePath, targetPage); err != nil {
+		http.Error(w, "failed to move page", http.StatusInternalServerError)
+		return
+	}
+	if deps.History != nil {
+		if err := deps.History.MovePage(pagePath, targetPage); err != nil {
+			http.Error(w, "failed to move page history", http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := deps.Index.RemovePage(r.Context(), pagePath); err != nil {
+		http.Error(w, "failed to remove old page from index", http.StatusInternalServerError)
+		return
+	}
+	if err := refreshPageDerivedState(r.Context(), deps, vaultService, targetPage); err != nil {
+		http.Error(w, "failed to update moved page state", http.StatusInternalServerError)
+		return
+	}
+	updatedPage, err := deps.Index.GetPage(r.Context(), targetPage)
+	if err != nil {
+		writePageError(w, r, err, "failed to load moved page")
+		return
+	}
+	currentPageSummaryValue, err := summarizePageRecord(r.Context(), deps.Index, updatedPage)
+	if err != nil {
+		http.Error(w, "failed to summarize moved page", http.StatusInternalServerError)
+		return
+	}
+	PublishDeletionEvents(r.Context(), deps.Events, deps.Index, deps.Query, pagePath, dependentPages, []query.PageChange{{
+		Before: &previousPageSummaryValue,
+		After:  nil,
+	}}, query.DiffTaskChanges(previousTasks, nil))
+	PublishInvalidationEvents(r.Context(), deps.Events, deps.Index, deps.Query, targetPage, []query.PageChange{{
+		Before: nil,
+		After:  &currentPageSummaryValue,
+	}}, query.DiffTaskChanges(nil, updatedPage.Tasks))
+	if deps.OnPageChanged != nil {
+		deps.OnPageChanged(pagePath)
+		deps.OnPageChanged(targetPage)
+	}
+
+	writeJSON(w, http.StatusOK, pageRecordPayload(updatedPage))
+}
+
+func handlePageQueryBlocksGet(w http.ResponseWriter, r *http.Request, deps Dependencies, pagePath string) {
+	queryBlockValue, mode, action, isCollection := parseQueryBlockPath(r.URL.Path)
+	switch {
+	case isCollection && action == "":
+		queryBlocks, err := loadFreshEnrichedQueryBlocks(r.Context(), deps, pagePath)
+		if err != nil {
+			writePageError(w, r, err, "failed to load query blocks")
+			return
+		}
+		writeJSON(w, http.StatusOK, queryBlocksPayload(pagePath, queryBlocks))
+	case isCollection && action == "refresh":
+		writeMethodNotAllowed(w, http.MethodPost)
+	case action == "":
+		block, err := loadFreshEnrichedQueryBlockByMode(r.Context(), deps, pagePath, mode, queryBlockValue)
+		if err != nil {
+			writeQueryBlockError(w, r, err, "failed to load query block")
+			return
+		}
+		writeJSON(w, http.StatusOK, queryBlockPayload(pagePath, block))
+	case action == "refresh":
+		writeMethodNotAllowed(w, http.MethodPost)
+	default:
 		http.NotFound(w, r)
 	}
+}
+
+func handlePageQueryBlocksPost(w http.ResponseWriter, r *http.Request, deps Dependencies, pagePath string) {
+	queryBlockValue, mode, action, isCollection := parseQueryBlockPath(r.URL.Path)
+	switch {
+	case isCollection && action == "refresh":
+		if deps.Query == nil {
+			http.Error(w, "query service unavailable", http.StatusInternalServerError)
+			return
+		}
+		queryBlocks, err := deps.Query.ForceRefreshPageCache(r.Context(), deps.Index, pagePath)
+		if err != nil {
+			writePageError(w, r, err, "failed to refresh query blocks")
+			return
+		}
+		if err := markStaleQueryBlocks(r.Context(), deps.Index, queryBlocks); err != nil {
+			writePageError(w, r, err, "failed to load refreshed query blocks")
+			return
+		}
+		publishQueryBlockRefreshEvents(deps.Events, pagePath, queryBlocks)
+		writeJSON(w, http.StatusOK, queryBlocksPayload(pagePath, queryBlocks))
+	case isCollection:
+		writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
+	case action == "refresh":
+		if deps.Query == nil {
+			http.Error(w, "query service unavailable", http.StatusInternalServerError)
+			return
+		}
+		block, err := loadEnrichedQueryBlockByMode(r.Context(), deps.Index, pagePath, mode, queryBlockValue)
+		if err != nil {
+			writeQueryBlockError(w, r, err, "failed to refresh query block")
+			return
+		}
+		if _, err := deps.Query.RefreshPageBlock(r.Context(), deps.Index, pagePath, block.BlockKey); err != nil {
+			writeQueryBlockError(w, r, err, "failed to refresh query block")
+			return
+		}
+		block, err = loadEnrichedQueryBlock(r.Context(), deps.Index, pagePath, block.BlockKey)
+		if err != nil {
+			writeQueryBlockError(w, r, err, "failed to load refreshed query block")
+			return
+		}
+		publishQueryBlockRefreshEvents(deps.Events, pagePath, []index.QueryBlock{block})
+		writeJSON(w, http.StatusOK, queryBlockPayload(pagePath, block))
+	case action == "":
+		writeMethodNotAllowed(w, http.MethodGet)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func splitPageSubresource(rawPath string) (string, string, bool) {
+	trimmed := strings.Trim(strings.TrimSpace(rawPath), "/")
+	if trimmed == "" {
+		return "", "", false
+	}
+
+	parts := strings.Split(trimmed, "/")
+	if len(parts) >= 2 && parts[len(parts)-2] == "query-blocks" && parts[len(parts)-1] == "refresh" {
+		pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-2], "/"))
+		return pagePath, "query-blocks", ok
+	}
+	if len(parts) > 2 && parts[len(parts)-2] == "query-blocks" {
+		pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-2], "/"))
+		return pagePath, "query-blocks", ok
+	}
+	if len(parts) > 3 && parts[len(parts)-3] == "query-blocks" && parts[len(parts)-2] == "id" {
+		pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-3], "/"))
+		return pagePath, "query-blocks", ok
+	}
+	if len(parts) > 3 && parts[len(parts)-3] == "query-blocks" && parts[len(parts)-1] == "refresh" {
+		pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-3], "/"))
+		return pagePath, "query-blocks", ok
+	}
+	if len(parts) > 4 && parts[len(parts)-4] == "query-blocks" && parts[len(parts)-3] == "id" && parts[len(parts)-1] == "refresh" {
+		pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-4], "/"))
+		return pagePath, "query-blocks", ok
+	}
+	if len(parts) > 1 && parts[len(parts)-1] == "query-blocks" {
+		pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-1], "/"))
+		return pagePath, "query-blocks", ok
+	}
+	if len(parts) > 1 {
+		last := parts[len(parts)-1]
+		switch last {
+		case "backlinks", "derived", "frontmatter", "move":
+			pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-1], "/"))
+			return pagePath, last, ok
+		}
+	}
+
+	pagePath, ok := normalizeAPIPagePath(trimmed)
+	return pagePath, "", ok
+}
+
+func parseQueryBlockPath(rawPath string) (string, string, string, bool) {
+	trimmed := strings.Trim(strings.TrimSpace(strings.TrimPrefix(rawPath, "/api/pages/")), "/")
+	if trimmed == "" {
+		return "", "", "", false
+	}
+	parts := strings.Split(trimmed, "/")
+	if len(parts) >= 2 && parts[len(parts)-2] == "query-blocks" && parts[len(parts)-1] == "refresh" {
+		return "", "", "refresh", true
+	}
+	if len(parts) >= 2 && parts[len(parts)-1] == "query-blocks" {
+		return "", "", "", true
+	}
+	if len(parts) >= 4 && parts[len(parts)-3] == "query-blocks" && parts[len(parts)-2] == "id" {
+		id := strings.TrimSpace(parts[len(parts)-1])
+		if id == "" || id == "." || id == "id" || id == "query-blocks" {
+			return "", "", "", false
+		}
+		return id, "id", "", false
+	}
+	if len(parts) >= 5 && parts[len(parts)-4] == "query-blocks" && parts[len(parts)-3] == "id" && parts[len(parts)-1] == "refresh" {
+		id := strings.TrimSpace(parts[len(parts)-2])
+		if id == "" || id == "." || id == "id" || id == "query-blocks" {
+			return "", "", "", false
+		}
+		return id, "id", "refresh", false
+	}
+	if len(parts) < 3 {
+		return "", "", "", false
+	}
+	if parts[len(parts)-2] == "query-blocks" {
+		key := strings.TrimSpace(parts[len(parts)-1])
+		if key == "" || key == "." || key == "query-blocks" {
+			return "", "", "", false
+		}
+		return key, "key", "", false
+	}
+	if len(parts) >= 4 && parts[len(parts)-3] == "query-blocks" && parts[len(parts)-1] == "refresh" {
+		key := strings.TrimSpace(parts[len(parts)-2])
+		if key == "" || key == "." || key == "query-blocks" {
+			return "", "", "", false
+		}
+		return key, "key", "refresh", false
+	}
+	return "", "", "", false
 }
 
 func collectBacklinkSourcePages(backlinks []index.BacklinkRecord) []string {
@@ -427,63 +645,71 @@ func collectBacklinkSourcePages(backlinks []index.BacklinkRecord) []string {
 	return dependentPages
 }
 
-func pageRecordPayload(pageRecord index.PageRecord) map[string]any {
-	return map[string]any{
-		"page":        pageRecord.Path,
-		"title":       pageRecord.Title,
-		"rawMarkdown": pageRecord.RawMarkdown,
-		"createdAt":   pageRecord.CreatedAt,
-		"updatedAt":   pageRecord.UpdatedAt,
-		"frontmatter": pageRecord.Frontmatter,
-		"links":       pageRecord.Links,
-		"tasks":       pageRecord.Tasks,
+func pageRecordPayload(pageRecord index.PageRecord) pageRecordResponse {
+	return pageRecordResponse{
+		Page:        pageRecord.Path,
+		Title:       pageRecord.Title,
+		RawMarkdown: pageRecord.RawMarkdown,
+		CreatedAt:   pageRecord.CreatedAt,
+		UpdatedAt:   pageRecord.UpdatedAt,
+		Frontmatter: pageRecord.Frontmatter,
+		Links:       pageRecord.Links,
+		Tasks:       pageRecord.Tasks,
 	}
 }
 
-func derivedPagePayload(pageRecord index.PageRecord, backlinks []index.BacklinkRecord, queryBlocks []index.QueryBlock) map[string]any {
-	return map[string]any{
-		"page":        pageRecord.Path,
-		"title":       pageRecord.Title,
-		"toc":         index.ExtractHeadings(pageRecord.RawMarkdown),
-		"links":       pageRecord.Links,
-		"tasks":       pageRecord.Tasks,
-		"backlinks":   backlinks,
-		"queryBlocks": queryBlocks,
-		"linkCounts":  map[string]int{"outgoing": len(pageRecord.Links), "backlinks": len(backlinks)},
-		"taskCounts":  map[string]int{"total": len(pageRecord.Tasks), "open": countOpenTasks(pageRecord.Tasks), "done": countDoneTasks(pageRecord.Tasks)},
+func derivedPagePayload(pageRecord index.PageRecord, backlinks []index.BacklinkRecord, queryBlocks []index.QueryBlock) derivedPageResponse {
+	openTaskCount, doneTaskCount := countTaskStates(pageRecord.Tasks)
+	return derivedPageResponse{
+		Page:        pageRecord.Path,
+		Title:       pageRecord.Title,
+		TOC:         index.ExtractHeadings(pageRecord.RawMarkdown),
+		Links:       pageRecord.Links,
+		Tasks:       pageRecord.Tasks,
+		Backlinks:   backlinks,
+		QueryBlocks: queryBlocks,
+		LinkCounts: linkCountsPayload{
+			Outgoing:  len(pageRecord.Links),
+			Backlinks: len(backlinks),
+		},
+		TaskCounts: taskCountsPayload{
+			Total: len(pageRecord.Tasks),
+			Open:  openTaskCount,
+			Done:  doneTaskCount,
+		},
 	}
 }
 
-func queryBlocksPayload(pagePath string, queryBlocks []index.QueryBlock) map[string]any {
-	return map[string]any{
-		"page":        pagePath,
-		"queryBlocks": queryBlocks,
-		"count":       len(queryBlocks),
+func queryBlocksPayload(pagePath string, queryBlocks []index.QueryBlock) queryBlocksResponse {
+	return queryBlocksResponse{
+		Page:        pagePath,
+		QueryBlocks: queryBlocks,
+		Count:       len(queryBlocks),
 	}
 }
 
-func queryBlockPayload(pagePath string, queryBlock index.QueryBlock) map[string]any {
-	return map[string]any{
-		"page":       pagePath,
-		"queryBlock": queryBlock,
+func queryBlockPayload(pagePath string, queryBlock index.QueryBlock) queryBlockResponse {
+	return queryBlockResponse{
+		Page:       pagePath,
+		QueryBlock: queryBlock,
 	}
 }
 
-func publishQueryBlockRefreshEvents(eventBroker *EventBroker, vaultID int64, pagePath string, queryBlocks []index.QueryBlock) {
+func publishQueryBlockRefreshEvents(eventBroker *EventBroker, pagePath string, queryBlocks []index.QueryBlock) {
 	if eventBroker == nil {
 		return
 	}
 	for _, block := range queryBlocks {
-		eventBroker.PublishToVault(vaultID, Event{
+		eventBroker.Publish(Event{
 			Type: "query-block.changed",
 			Data: queryBlockChangedData(pagePath, block),
 		})
 	}
-	eventBroker.PublishToVault(vaultID, Event{
+	eventBroker.Publish(Event{
 		Type: "derived.changed",
-		Data: map[string]any{"page": pagePath},
+		Data: pageEventData{Page: pagePath},
 	})
-	eventBroker.PublishToVault(vaultID, Event{
+	eventBroker.Publish(Event{
 		Type: "query.changed",
 		Data: queryChangedData(pagePath, pagePath, queryBlocks),
 	})
@@ -510,7 +736,6 @@ func refreshPageDerivedState(ctx context.Context, deps Dependencies, vaultServic
 }
 
 func patchPageFrontmatter(ctx context.Context, deps Dependencies, pagePath string, patch markdown.FrontmatterPatch) (index.PageRecord, error) {
-	vaultID := vaults.VaultIDFromContext(ctx)
 	vaultService := currentVault(ctx, deps)
 	pageRecord, err := deps.Index.GetPage(ctx, pagePath)
 	if err != nil {
@@ -537,7 +762,7 @@ func patchPageFrontmatter(ctx context.Context, deps Dependencies, pagePath strin
 		return index.PageRecord{}, err
 	}
 	if deps.History != nil {
-		if _, err := deps.History.SaveRevisionForVault(vaultID, pagePath, []byte(updatedMarkdown)); err != nil {
+		if _, err := deps.History.SaveRevision(pagePath, []byte(updatedMarkdown)); err != nil {
 			return index.PageRecord{}, err
 		}
 	}

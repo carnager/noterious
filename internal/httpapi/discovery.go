@@ -10,26 +10,104 @@ import (
 	"github.com/carnager/noterious/internal/index"
 )
 
+type pageCountsResponse struct {
+	OutgoingLinks int `json:"outgoingLinks"`
+	Backlinks     int `json:"backlinks"`
+	Tasks         int `json:"tasks"`
+	OpenTasks     int `json:"openTasks"`
+	DoneTasks     int `json:"doneTasks"`
+	QueryBlocks   int `json:"queryBlocks"`
+}
+
+type pageListItemResponse struct {
+	Path      string             `json:"path"`
+	Title     string             `json:"title"`
+	CreatedAt string             `json:"createdAt"`
+	UpdatedAt string             `json:"updatedAt"`
+	Tags      []string           `json:"tags"`
+	Counts    pageCountsResponse `json:"counts"`
+}
+
+type pageListResponse struct {
+	Query string                 `json:"query"`
+	Tag   string                 `json:"tag"`
+	Pages []pageListItemResponse `json:"pages"`
+	Count int                    `json:"count"`
+}
+
+type searchCountsResponse struct {
+	Pages   int `json:"pages"`
+	Tasks   int `json:"tasks"`
+	Queries int `json:"queries"`
+	Total   int `json:"total"`
+}
+
+type pageSearchResultResponse struct {
+	Path    string `json:"path"`
+	Title   string `json:"title"`
+	Match   string `json:"match"`
+	Line    int    `json:"line"`
+	Snippet string `json:"snippet"`
+}
+
+type taskSearchResultResponse struct {
+	Ref     string `json:"ref"`
+	Page    string `json:"page"`
+	Line    int    `json:"line"`
+	Text    string `json:"text"`
+	Done    bool   `json:"done"`
+	Snippet string `json:"snippet"`
+}
+
+type savedQuerySearchResultResponse struct {
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Folder      string `json:"folder"`
+	Match       string `json:"match"`
+	Snippet     string `json:"snippet"`
+}
+
+type searchResponse struct {
+	Query   string                           `json:"query"`
+	Pages   []pageSearchResultResponse       `json:"pages"`
+	Tasks   []taskSearchResultResponse       `json:"tasks"`
+	Queries []savedQuerySearchResultResponse `json:"queries"`
+	Counts  searchCountsResponse             `json:"counts"`
+}
+
+type linkSummaryResponse struct {
+	Total     int `json:"total"`
+	Wikilink  int `json:"wikilink"`
+	Markdown  int `json:"markdown"`
+	OtherKind int `json:"otherKind"`
+}
+
+type linksResponse struct {
+	Query      string              `json:"query"`
+	SourcePage string              `json:"sourcePage"`
+	TargetPage string              `json:"targetPage"`
+	Kind       string              `json:"kind"`
+	Links      []index.Link        `json:"links"`
+	Count      int                 `json:"count"`
+	Summary    linkSummaryResponse `json:"summary"`
+}
+
 func mountDiscoveryEndpoints(mux *http.ServeMux, deps Dependencies) {
-	mux.HandleFunc("/api/pages", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/pages", func(w http.ResponseWriter, r *http.Request) {
 		handlePagesListRequest(w, r, deps)
 	})
 
-	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/search", func(w http.ResponseWriter, r *http.Request) {
 		handleSearchRequest(w, r, deps)
 	})
 
-	mux.HandleFunc("/api/links", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/links", func(w http.ResponseWriter, r *http.Request) {
 		handleLinksRequest(w, r, deps)
 	})
 }
 
 func handlePagesListRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
-	if r.Method != http.MethodGet {
-		writeMethodNotAllowed(w, http.MethodGet)
-		return
-	}
-
 	pages, err := deps.Index.ListPages(r.Context())
 	if err != nil {
 		http.Error(w, "failed to list pages", http.StatusInternalServerError)
@@ -52,35 +130,19 @@ func handlePagesListRequest(w http.ResponseWriter, r *http.Request, deps Depende
 		summaries = filterPageListByTag(summaries, tagFilter)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"query": queryText,
-		"tag":   tagFilter,
-		"pages": summaries,
-		"count": len(summaries),
+	writeJSON(w, http.StatusOK, pageListResponse{
+		Query: queryText,
+		Tag:   tagFilter,
+		Pages: summaries,
+		Count: len(summaries),
 	})
 }
 
 func handleSearchRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
-	if r.Method != http.MethodGet {
-		writeMethodNotAllowed(w, http.MethodGet)
-		return
-	}
-
 	queryText := strings.TrimSpace(r.URL.Query().Get("q"))
 	limit := 12
 	if queryText == "" {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"query":   "",
-			"pages":   []any{},
-			"tasks":   []any{},
-			"queries": []any{},
-			"counts": map[string]int{
-				"pages":   0,
-				"tasks":   0,
-				"queries": 0,
-				"total":   0,
-			},
-		})
+		writeJSON(w, http.StatusOK, emptySearchResponse())
 		return
 	}
 
@@ -93,11 +155,6 @@ func handleSearchRequest(w http.ResponseWriter, r *http.Request, deps Dependenci
 }
 
 func handleLinksRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
-	if r.Method != http.MethodGet {
-		writeMethodNotAllowed(w, http.MethodGet)
-		return
-	}
-
 	links, err := deps.Index.ListLinks(r.Context())
 	if err != nil {
 		http.Error(w, "failed to list links", http.StatusInternalServerError)
@@ -121,14 +178,14 @@ func handleLinksRequest(w http.ResponseWriter, r *http.Request, deps Dependencie
 		links = filterLinksByKind(links, kind)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"query":      queryText,
-		"sourcePage": sourcePage,
-		"targetPage": targetPage,
-		"kind":       kind,
-		"links":      links,
-		"count":      len(links),
-		"summary":    summarizeLinks(links),
+	writeJSON(w, http.StatusOK, linksResponse{
+		Query:      queryText,
+		SourcePage: sourcePage,
+		TargetPage: targetPage,
+		Kind:       kind,
+		Links:      links,
+		Count:      len(links),
+		Summary:    summarizeLinks(links),
 	})
 }
 
@@ -210,61 +267,54 @@ func filterLinksByKind(links []index.Link, kind string) []index.Link {
 	return filtered
 }
 
-func summarizeLinks(links []index.Link) map[string]int {
-	summary := map[string]int{
-		"total":     len(links),
-		"wikilink":  0,
-		"markdown":  0,
-		"otherKind": 0,
+func summarizeLinks(links []index.Link) linkSummaryResponse {
+	summary := linkSummaryResponse{
+		Total: len(links),
 	}
 	for _, link := range links {
 		switch strings.ToLower(strings.TrimSpace(link.Kind)) {
 		case "wikilink":
-			summary["wikilink"]++
+			summary.Wikilink++
 		case "markdown":
-			summary["markdown"]++
+			summary.Markdown++
 		default:
-			summary["otherKind"]++
+			summary.OtherKind++
 		}
 	}
 	return summary
 }
 
-func buildPageListSummaries(pages []index.PageSummary) ([]map[string]any, error) {
-	summaries := make([]map[string]any, 0, len(pages))
+func buildPageListSummaries(pages []index.PageSummary) ([]pageListItemResponse, error) {
+	summaries := make([]pageListItemResponse, 0, len(pages))
 	for _, page := range pages {
-		summaries = append(summaries, map[string]any{
-			"path":      page.Path,
-			"title":     page.Title,
-			"createdAt": page.CreatedAt,
-			"updatedAt": page.UpdatedAt,
-			"tags":      append([]string(nil), page.Tags...),
-			"counts": map[string]int{
-				"outgoingLinks": page.OutgoingLinkCount,
-				"backlinks":     page.BacklinkCount,
-				"tasks":         page.TaskCount,
-				"openTasks":     page.OpenTaskCount,
-				"doneTasks":     page.DoneTaskCount,
-				"queryBlocks":   page.QueryBlockCount,
+		summaries = append(summaries, pageListItemResponse{
+			Path:      page.Path,
+			Title:     page.Title,
+			CreatedAt: page.CreatedAt,
+			UpdatedAt: page.UpdatedAt,
+			Tags:      append([]string(nil), page.Tags...),
+			Counts: pageCountsResponse{
+				OutgoingLinks: page.OutgoingLinkCount,
+				Backlinks:     page.BacklinkCount,
+				Tasks:         page.TaskCount,
+				OpenTasks:     page.OpenTaskCount,
+				DoneTasks:     page.DoneTaskCount,
+				QueryBlocks:   page.QueryBlockCount,
 			},
 		})
 	}
 	return summaries, nil
 }
 
-func filterPageListByTag(pages []map[string]any, tag string) []map[string]any {
+func filterPageListByTag(pages []pageListItemResponse, tag string) []pageListItemResponse {
 	needle := strings.ToLower(strings.TrimSpace(tag))
 	if needle == "" {
 		return pages
 	}
 
-	filtered := make([]map[string]any, 0, len(pages))
+	filtered := make([]pageListItemResponse, 0, len(pages))
 	for _, page := range pages {
-		tags, ok := page["tags"].([]string)
-		if !ok {
-			continue
-		}
-		for _, item := range tags {
+		for _, item := range page.Tags {
 			if strings.EqualFold(strings.TrimSpace(item), needle) {
 				filtered = append(filtered, page)
 				break
@@ -274,21 +324,20 @@ func filterPageListByTag(pages []map[string]any, tag string) []map[string]any {
 	return filtered
 }
 
-func performGlobalSearch(ctx context.Context, indexService *index.Service, queryText string, limit int) (map[string]any, error) {
+func emptySearchResponse() searchResponse {
+	return searchResponse{
+		Query:   "",
+		Pages:   []pageSearchResultResponse{},
+		Tasks:   []taskSearchResultResponse{},
+		Queries: []savedQuerySearchResultResponse{},
+		Counts:  searchCountsResponse{},
+	}
+}
+
+func performGlobalSearch(ctx context.Context, indexService *index.Service, queryText string, limit int) (searchResponse, error) {
 	needle := strings.ToLower(strings.TrimSpace(queryText))
 	if needle == "" {
-		return map[string]any{
-			"query":   "",
-			"pages":   []any{},
-			"tasks":   []any{},
-			"queries": []any{},
-			"counts": map[string]int{
-				"pages":   0,
-				"tasks":   0,
-				"queries": 0,
-				"total":   0,
-			},
-		}, nil
+		return emptySearchResponse(), nil
 	}
 	if limit <= 0 {
 		limit = 12
@@ -296,9 +345,9 @@ func performGlobalSearch(ctx context.Context, indexService *index.Service, query
 
 	pageSummaries, err := indexService.ListPages(ctx)
 	if err != nil {
-		return nil, err
+		return searchResponse{}, err
 	}
-	pageResults := make([]map[string]any, 0, limit)
+	pageResults := make([]pageSearchResultResponse, 0, limit)
 	for _, summary := range pageSummaries {
 		if len(pageResults) >= limit {
 			break
@@ -309,76 +358,64 @@ func performGlobalSearch(ctx context.Context, indexService *index.Service, query
 		}
 		result := searchPageRecord(record, needle)
 		if result != nil {
-			pageResults = append(pageResults, result)
+			pageResults = append(pageResults, *result)
 		}
 	}
 
 	tasks, err := indexService.ListTasks(ctx)
 	if err != nil {
-		return nil, err
+		return searchResponse{}, err
 	}
-	taskResults := make([]map[string]any, 0, limit)
+	taskResults := make([]taskSearchResultResponse, 0, limit)
 	for _, task := range tasks {
 		if len(taskResults) >= limit {
 			break
 		}
 		if result := searchTaskRecord(task, needle); result != nil {
-			taskResults = append(taskResults, result)
+			taskResults = append(taskResults, *result)
 		}
 	}
 
 	savedQueries, err := indexService.ListSavedQueries(ctx)
 	if err != nil {
-		return nil, err
+		return searchResponse{}, err
 	}
-	queryResults := make([]map[string]any, 0, limit)
+	queryResults := make([]savedQuerySearchResultResponse, 0, limit)
 	for _, savedQuery := range savedQueries {
 		if len(queryResults) >= limit {
 			break
 		}
 		if result := searchSavedQueryRecord(savedQuery, needle); result != nil {
-			queryResults = append(queryResults, result)
+			queryResults = append(queryResults, *result)
 		}
 	}
 
-	return map[string]any{
-		"query":   queryText,
-		"pages":   pageResults,
-		"tasks":   taskResults,
-		"queries": queryResults,
-		"counts": map[string]int{
-			"pages":   len(pageResults),
-			"tasks":   len(taskResults),
-			"queries": len(queryResults),
-			"total":   len(pageResults) + len(taskResults) + len(queryResults),
+	return searchResponse{
+		Query:   queryText,
+		Pages:   pageResults,
+		Tasks:   taskResults,
+		Queries: queryResults,
+		Counts: searchCountsResponse{
+			Pages:   len(pageResults),
+			Tasks:   len(taskResults),
+			Queries: len(queryResults),
+			Total:   len(pageResults) + len(taskResults) + len(queryResults),
 		},
 	}, nil
 }
 
-func searchPageRecord(page index.PageRecord, needle string) map[string]any {
+func searchPageRecord(page index.PageRecord, needle string) *pageSearchResultResponse {
 	pathValue := page.Path
 	titleValue := page.Title
 	if strings.Contains(strings.ToLower(pathValue), needle) {
-		return map[string]any{
-			"path":    page.Path,
-			"title":   page.Title,
-			"match":   "path",
-			"line":    1,
-			"snippet": page.Path,
-		}
+		return &pageSearchResultResponse{Path: page.Path, Title: page.Title, Match: "path", Line: 1, Snippet: page.Path}
 	}
 	if strings.Contains(strings.ToLower(titleValue), needle) {
 		line := findFirstMatchingLine(page.RawMarkdown, titleValue)
 		if line <= 0 {
 			line = 1
 		}
-		return map[string]any{
-			"path":    page.Path,
-			"title":   page.Title,
-			"match":   "title",
-			"line":    line,
-			"snippet": page.Title,
-		}
+		return &pageSearchResultResponse{Path: page.Path, Title: page.Title, Match: "title", Line: line, Snippet: page.Title}
 	}
 
 	for key, value := range page.Frontmatter {
@@ -394,12 +431,12 @@ func searchPageRecord(page index.PageRecord, needle string) map[string]any {
 			if line <= 0 {
 				line = 1
 			}
-			return map[string]any{
-				"path":    page.Path,
-				"title":   page.Title,
-				"match":   "frontmatter:" + key,
-				"line":    line,
-				"snippet": key + ": " + clipSnippet(text, 80),
+			return &pageSearchResultResponse{
+				Path:    page.Path,
+				Title:   page.Title,
+				Match:   "frontmatter:" + key,
+				Line:    line,
+				Snippet: key + ": " + clipSnippet(text, 80),
 			}
 		}
 	}
@@ -409,18 +446,12 @@ func searchPageRecord(page index.PageRecord, needle string) map[string]any {
 		if line <= 0 {
 			line = 1
 		}
-		return map[string]any{
-			"path":    page.Path,
-			"title":   page.Title,
-			"match":   "content",
-			"line":    line,
-			"snippet": snippet,
-		}
+		return &pageSearchResultResponse{Path: page.Path, Title: page.Title, Match: "content", Line: line, Snippet: snippet}
 	}
 	return nil
 }
 
-func searchTaskRecord(task index.Task, needle string) map[string]any {
+func searchTaskRecord(task index.Task, needle string) *taskSearchResultResponse {
 	candidates := []string{
 		task.Ref,
 		task.Page,
@@ -429,20 +460,20 @@ func searchTaskRecord(task index.Task, needle string) map[string]any {
 	}
 	for _, candidate := range candidates {
 		if strings.Contains(strings.ToLower(candidate), needle) {
-			return map[string]any{
-				"ref":     task.Ref,
-				"page":    task.Page,
-				"line":    task.Line,
-				"text":    task.Text,
-				"done":    task.Done,
-				"snippet": clipSnippet(candidate, 96),
+			return &taskSearchResultResponse{
+				Ref:     task.Ref,
+				Page:    task.Page,
+				Line:    task.Line,
+				Text:    task.Text,
+				Done:    task.Done,
+				Snippet: clipSnippet(candidate, 96),
 			}
 		}
 	}
 	return nil
 }
 
-func searchSavedQueryRecord(savedQuery index.SavedQuery, needle string) map[string]any {
+func searchSavedQueryRecord(savedQuery index.SavedQuery, needle string) *savedQuerySearchResultResponse {
 	candidates := []struct {
 		match string
 		text  string
@@ -455,25 +486,25 @@ func searchSavedQueryRecord(savedQuery index.SavedQuery, needle string) map[stri
 	}
 	for _, candidate := range candidates {
 		if strings.Contains(strings.ToLower(candidate.text), needle) {
-			return map[string]any{
-				"name":        savedQuery.Name,
-				"title":       savedQuery.Title,
-				"description": savedQuery.Description,
-				"folder":      savedQuery.Folder,
-				"match":       candidate.match,
-				"snippet":     clipSnippet(candidate.text, 96),
+			return &savedQuerySearchResultResponse{
+				Name:        savedQuery.Name,
+				Title:       savedQuery.Title,
+				Description: savedQuery.Description,
+				Folder:      savedQuery.Folder,
+				Match:       candidate.match,
+				Snippet:     clipSnippet(candidate.text, 96),
 			}
 		}
 	}
 	for _, tag := range savedQuery.Tags {
 		if strings.Contains(strings.ToLower(tag), needle) {
-			return map[string]any{
-				"name":        savedQuery.Name,
-				"title":       savedQuery.Title,
-				"description": savedQuery.Description,
-				"folder":      savedQuery.Folder,
-				"match":       "tag",
-				"snippet":     tag,
+			return &savedQuerySearchResultResponse{
+				Name:        savedQuery.Name,
+				Title:       savedQuery.Title,
+				Description: savedQuery.Description,
+				Folder:      savedQuery.Folder,
+				Match:       "tag",
+				Snippet:     tag,
 			}
 		}
 	}
@@ -553,6 +584,7 @@ func summarizePageRecord(ctx context.Context, indexService *index.Service, pageR
 	if err != nil && !errors.Is(err, index.ErrPageNotFound) {
 		return index.PageSummary{}, err
 	}
+	openTaskCount, doneTaskCount := countTaskStates(pageRecord.Tasks)
 	return index.PageSummary{
 		Path:              pageRecord.Path,
 		Title:             pageRecord.Title,
@@ -561,8 +593,8 @@ func summarizePageRecord(ctx context.Context, indexService *index.Service, pageR
 		OutgoingLinkCount: len(pageRecord.Links),
 		BacklinkCount:     len(backlinks),
 		TaskCount:         len(pageRecord.Tasks),
-		OpenTaskCount:     countOpenTasks(pageRecord.Tasks),
-		DoneTaskCount:     countDoneTasks(pageRecord.Tasks),
+		OpenTaskCount:     openTaskCount,
+		DoneTaskCount:     doneTaskCount,
 		QueryBlockCount:   len(queryBlocks),
 		CreatedAt:         pageRecord.CreatedAt,
 		UpdatedAt:         pageRecord.UpdatedAt,

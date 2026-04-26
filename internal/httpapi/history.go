@@ -7,8 +7,40 @@ import (
 	"time"
 
 	historyservice "github.com/carnager/noterious/internal/history"
-	"github.com/carnager/noterious/internal/vaults"
 )
+
+type okPageResponse struct {
+	OK   bool   `json:"ok"`
+	Page string `json:"page"`
+}
+
+type okResponse struct {
+	OK bool `json:"ok"`
+}
+
+type revisionResponse struct {
+	ID          string `json:"id"`
+	Page        string `json:"page"`
+	SavedAt     string `json:"savedAt"`
+	RawMarkdown string `json:"rawMarkdown"`
+}
+
+type pageHistoryResponse struct {
+	Page      string             `json:"page"`
+	Revisions []revisionResponse `json:"revisions"`
+	Count     int                `json:"count"`
+}
+
+type trashEntryResponse struct {
+	Page        string `json:"page"`
+	DeletedAt   string `json:"deletedAt"`
+	RawMarkdown string `json:"rawMarkdown"`
+}
+
+type trashPagesResponse struct {
+	Pages []trashEntryResponse `json:"pages"`
+	Count int                  `json:"count"`
+}
 
 func handlePageHistoryRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
 	if deps.History == nil {
@@ -29,24 +61,20 @@ func handlePageHistoryRequest(w http.ResponseWriter, r *http.Request, deps Depen
 		return
 	}
 
-	vaultID := vaults.VaultIDFromContext(r.Context())
 	if restore {
-		handlePageHistoryRestore(w, r, deps, vaultID, pagePath)
+		handlePageHistoryRestore(w, r, deps, pagePath)
 		return
 	}
 
 	switch r.Method {
 	case http.MethodDelete:
-		if err := deps.History.DeletePageHistoryForVault(vaultID, pagePath); err != nil {
+		if err := deps.History.DeletePageHistory(pagePath); err != nil {
 			http.Error(w, "failed to purge page history", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":   true,
-			"page": pagePath,
-		})
+		writeJSON(w, http.StatusOK, okPageResponse{OK: true, Page: pagePath})
 	case http.MethodGet:
-		revisions, err := deps.History.ListRevisionsForVault(vaultID, pagePath)
+		revisions, err := deps.History.ListRevisions(pagePath)
 		if err != nil {
 			http.Error(w, "failed to load page history", http.StatusInternalServerError)
 			return
@@ -57,7 +85,7 @@ func handlePageHistoryRequest(w http.ResponseWriter, r *http.Request, deps Depen
 	}
 }
 
-func handlePageHistoryRestore(w http.ResponseWriter, r *http.Request, deps Dependencies, vaultID int64, pagePath string) {
+func handlePageHistoryRestore(w http.ResponseWriter, r *http.Request, deps Dependencies, pagePath string) {
 	if r.Method != http.MethodPost {
 		writeMethodNotAllowed(w, http.MethodPost)
 		return
@@ -72,13 +100,13 @@ func handlePageHistoryRestore(w http.ResponseWriter, r *http.Request, deps Depen
 		return
 	}
 
-	revision, err := deps.History.GetRevisionForVault(vaultID, pagePath, request.RevisionID)
+	revision, err := deps.History.GetRevision(pagePath, request.RevisionID)
 	if err != nil {
 		http.Error(w, "failed to load revision", http.StatusNotFound)
 		return
 	}
 	if currentMarkdown, err := vaultService.ReadPage(pagePath); err == nil {
-		if _, err := deps.History.SaveRevisionForVault(vaultID, pagePath, currentMarkdown); err != nil {
+		if _, err := deps.History.SaveRevision(pagePath, currentMarkdown); err != nil {
 			http.Error(w, "failed to snapshot current page", http.StatusInternalServerError)
 			return
 		}
@@ -87,7 +115,7 @@ func handlePageHistoryRestore(w http.ResponseWriter, r *http.Request, deps Depen
 		http.Error(w, "failed to restore page", http.StatusInternalServerError)
 		return
 	}
-	if _, err := deps.History.SaveRevisionForVault(vaultID, pagePath, []byte(revision.RawMarkdown)); err != nil {
+	if _, err := deps.History.SaveRevision(pagePath, []byte(revision.RawMarkdown)); err != nil {
 		http.Error(w, "failed to save restored revision", http.StatusInternalServerError)
 		return
 	}
@@ -113,18 +141,15 @@ func handleTrashPagesRequest(w http.ResponseWriter, r *http.Request, deps Depend
 		return
 	}
 
-	vaultID := vaults.VaultIDFromContext(r.Context())
 	switch r.Method {
 	case http.MethodDelete:
-		if err := deps.History.EmptyTrashForVault(vaultID); err != nil {
+		if err := deps.History.EmptyTrash(); err != nil {
 			http.Error(w, "failed to empty trash", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"ok": true,
-		})
+		writeJSON(w, http.StatusOK, okResponse{OK: true})
 	case http.MethodGet:
-		trashEntries, err := deps.History.ListTrashForVault(vaultID)
+		trashEntries, err := deps.History.ListTrash()
 		if err != nil {
 			http.Error(w, "failed to load trash", http.StatusInternalServerError)
 			return
@@ -141,7 +166,6 @@ func handleTrashPageRequest(w http.ResponseWriter, r *http.Request, deps Depende
 		return
 	}
 
-	vaultID := vaults.VaultIDFromContext(r.Context())
 	vaultService := currentVault(r.Context(), deps)
 	raw := strings.TrimPrefix(r.URL.Path, "/api/trash/pages/")
 	restore := false
@@ -161,7 +185,7 @@ func handleTrashPageRequest(w http.ResponseWriter, r *http.Request, deps Depende
 			writeMethodNotAllowed(w, http.MethodPost)
 			return
 		}
-		entry, err := deps.History.RestoreFromTrashForVault(vaultID, pagePath)
+		entry, err := deps.History.RestoreFromTrash(pagePath)
 		if err != nil {
 			http.Error(w, "failed to restore trashed page", http.StatusNotFound)
 			return
@@ -170,7 +194,7 @@ func handleTrashPageRequest(w http.ResponseWriter, r *http.Request, deps Depende
 			http.Error(w, "failed to restore page", http.StatusInternalServerError)
 			return
 		}
-		if _, err := deps.History.SaveRevisionForVault(vaultID, pagePath, []byte(entry.RawMarkdown)); err != nil {
+		if _, err := deps.History.SaveRevision(pagePath, []byte(entry.RawMarkdown)); err != nil {
 			http.Error(w, "failed to save restored page history", http.StatusInternalServerError)
 			return
 		}
@@ -194,44 +218,41 @@ func handleTrashPageRequest(w http.ResponseWriter, r *http.Request, deps Depende
 		writeMethodNotAllowed(w, http.MethodDelete)
 		return
 	}
-	if err := deps.History.PermanentlyDeleteForVault(vaultID, pagePath); err != nil {
+	if err := deps.History.PermanentlyDelete(pagePath); err != nil {
 		http.Error(w, "failed to permanently delete trashed page", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":   true,
-		"page": pagePath,
-	})
+	writeJSON(w, http.StatusOK, okPageResponse{OK: true, Page: pagePath})
 }
 
-func pageHistoryPayload(pagePath string, revisions []historyservice.Revision) map[string]any {
-	items := make([]map[string]any, 0, len(revisions))
+func pageHistoryPayload(pagePath string, revisions []historyservice.Revision) pageHistoryResponse {
+	items := make([]revisionResponse, 0, len(revisions))
 	for _, revision := range revisions {
-		items = append(items, map[string]any{
-			"id":          revision.ID,
-			"page":        revision.Page,
-			"savedAt":     revision.SavedAt.UTC().Format(time.RFC3339Nano),
-			"rawMarkdown": revision.RawMarkdown,
+		items = append(items, revisionResponse{
+			ID:          revision.ID,
+			Page:        revision.Page,
+			SavedAt:     revision.SavedAt.UTC().Format(time.RFC3339Nano),
+			RawMarkdown: revision.RawMarkdown,
 		})
 	}
-	return map[string]any{
-		"page":      pagePath,
-		"revisions": items,
-		"count":     len(items),
+	return pageHistoryResponse{
+		Page:      pagePath,
+		Revisions: items,
+		Count:     len(items),
 	}
 }
 
-func trashPagesPayload(trashEntries []historyservice.TrashEntry) map[string]any {
-	items := make([]map[string]any, 0, len(trashEntries))
+func trashPagesPayload(trashEntries []historyservice.TrashEntry) trashPagesResponse {
+	items := make([]trashEntryResponse, 0, len(trashEntries))
 	for _, entry := range trashEntries {
-		items = append(items, map[string]any{
-			"page":        entry.Page,
-			"deletedAt":   entry.DeletedAt.UTC().Format(time.RFC3339Nano),
-			"rawMarkdown": entry.RawMarkdown,
+		items = append(items, trashEntryResponse{
+			Page:        entry.Page,
+			DeletedAt:   entry.DeletedAt.UTC().Format(time.RFC3339Nano),
+			RawMarkdown: entry.RawMarkdown,
 		})
 	}
-	return map[string]any{
-		"pages": items,
-		"count": len(items),
+	return trashPagesResponse{
+		Pages: items,
+		Count: len(items),
 	}
 }
