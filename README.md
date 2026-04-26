@@ -14,8 +14,7 @@ Noterious is a server-first, markdown-backed knowledge base with markdown files 
 
 - Go server
 - One configured vault root on disk
-- One user root folder below that vault root per user
-- Optional child-vault switching across top-level folders inside the user root
+- Optional top-level folder switching directly below that vault root
 - SQLite-backed derived index
 - HTTP API for web and companion clients
 - SSE for live invalidation
@@ -134,17 +133,13 @@ CLI flags override the corresponding environment variables when both are set.
 
 The configured `vault root` is the server-level root directory.
 
-With auth enabled, each user gets one personal root directly below that folder:
+The vault root itself is a valid markdown vault.
 
-- `<vault-root>/<username>`
+Optional switchable vaults are just direct child folders below that root:
 
-That user root is always a valid markdown vault on its own.
+- `<vault-root>/<top-level-folder>`
 
-Users may also keep separate child vaults as direct folders below their personal root:
-
-- `<vault-root>/<username>/<child-vault>`
-
-The web UI has a per-user preference for whether those top-level child folders should be treated as switchable vaults or whether the whole user root should remain the active vault. Different users can choose differently against the same server.
+The web UI can treat those top-level folders as switchable scopes, or keep the root itself as the active vault.
 
 ## Runtime Model
 
@@ -156,7 +151,7 @@ At runtime, Noterious keeps two different vault concepts separate:
 That means:
 
 - `/api/meta` exposes both `runtimeVault` and `currentVault`
-- `/api/auth/vaults` exposes the signed-in user's personal root, discovered child vaults, and current session vault
+- `/api/auth/vaults` exposes the configured root, discovered top-level vaults, and current session vault
 - page, task, link, and query routes run against the resolved current vault for that request
 
 Background services are intentionally tied to the configured runtime vault root, not the per-session current vault:
@@ -164,14 +159,14 @@ Background services are intentionally tied to the configured runtime vault root,
 - the filesystem watcher polls the configured runtime vault root path
 - the ntfy notifier polls the configured runtime vault root index when that index exists
 
-Those background services do not currently fan out across every discovered personal or child vault.
+Those background services do not currently fan out across every discovered top-level vault.
 
 The repository includes a user-level systemd unit template at [contrib/systemd/noterious.service](/home/carnager/Code/noterious/contrib/systemd/noterious.service). Copy it to `~/.config/systemd/user/noterious.service`, adjust the paths, then run `systemctl --user daemon-reload` and `systemctl --user enable --now noterious`.
 
-Auth is enabled for the server API. On first startup against an empty data directory, Noterious bootstraps one admin user:
+Auth is enabled for the server API. On first startup against an empty data directory, Noterious bootstraps one account:
 
 - If `NOTERIOUS_AUTH_BOOTSTRAP_USERNAME` and `NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD` are set, those credentials are used.
-- Otherwise the server starts in first-run setup mode and the web UI lets you create the initial admin account.
+- Otherwise the server starts in first-run setup mode and the web UI lets you create the initial account.
 
 The web UI now signs in through:
 
@@ -183,6 +178,7 @@ The web UI now signs in through:
 - `GET /api/user/vaults`
 
 `GET /api/auth/vaults` returns the signed-in user's root vault, discovered child vaults, and current session vault in one snapshot so the frontend can apply its per-user top-level-folders preference without stitching together multiple APIs.
+`GET /api/auth/vaults` returns the configured root vault, discovered top-level vaults, and current session vault in one snapshot.
 
 ## Planned Principles
 

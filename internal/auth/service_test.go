@@ -27,7 +27,7 @@ func TestEnsureBootstrapWithoutPasswordRequiresSetup(t *testing.T) {
 		t.Fatalf("EnsureBootstrap() error = %v", err)
 	}
 	if result.Created {
-		t.Fatal("EnsureBootstrap() unexpectedly created admin user")
+		t.Fatal("EnsureBootstrap() unexpectedly created an account")
 	}
 	if !result.SetupRequired {
 		t.Fatal("SetupRequired = false, want true when no bootstrap password is configured")
@@ -42,7 +42,7 @@ func TestEnsureBootstrapWithoutPasswordRequiresSetup(t *testing.T) {
 	}
 }
 
-func TestCreateInitialAdminCreatesFirstUserAndDisablesSetup(t *testing.T) {
+func TestCreateInitialAccountCreatesFirstUserAndDisablesSetup(t *testing.T) {
 	t.Parallel()
 
 	service, err := NewService(context.Background(), t.TempDir(), "", 0)
@@ -53,15 +53,12 @@ func TestCreateInitialAdminCreatesFirstUserAndDisablesSetup(t *testing.T) {
 		_ = service.Close()
 	})
 
-	user, err := service.CreateInitialAdmin(context.Background(), "Owner", "secret-pass")
+	user, err := service.CreateInitialAccount(context.Background(), "Owner", "secret-pass")
 	if err != nil {
-		t.Fatalf("CreateInitialAdmin() error = %v", err)
+		t.Fatalf("CreateInitialAccount() error = %v", err)
 	}
 	if user.Username != "owner" {
 		t.Fatalf("Username = %q want %q", user.Username, "owner")
-	}
-	if user.Role != "admin" {
-		t.Fatalf("Role = %q want %q", user.Role, "admin")
 	}
 	if user.MustChangePassword {
 		t.Fatal("MustChangePassword = true, want false")
@@ -72,11 +69,11 @@ func TestCreateInitialAdminCreatesFirstUserAndDisablesSetup(t *testing.T) {
 		t.Fatalf("SetupRequired() error = %v", err)
 	}
 	if setupRequired {
-		t.Fatal("SetupRequired() = true after initial admin creation, want false")
+		t.Fatal("SetupRequired() = true after initial account creation, want false")
 	}
 
-	if _, err := service.CreateInitialAdmin(context.Background(), "other", "secret-pass"); !errors.Is(err, ErrSetupRejected) {
-		t.Fatalf("CreateInitialAdmin(second) error = %v want ErrSetupRejected", err)
+	if _, err := service.CreateInitialAccount(context.Background(), "other", "secret-pass"); !errors.Is(err, ErrInitialAccountRejected) {
+		t.Fatalf("CreateInitialAccount(second) error = %v want ErrInitialAccountRejected", err)
 	}
 }
 
@@ -180,9 +177,9 @@ func TestChangePasswordClearsLegacyMustChangeRequirement(t *testing.T) {
 		_ = service.Close()
 	})
 
-	user, err := service.CreateInitialAdmin(context.Background(), "admin", "secret-pass")
+	user, err := service.CreateInitialAccount(context.Background(), "admin", "secret-pass")
 	if err != nil {
-		t.Fatalf("CreateInitialAdmin() error = %v", err)
+		t.Fatalf("CreateInitialAccount() error = %v", err)
 	}
 	if _, err := service.db.ExecContext(context.Background(), `
 		UPDATE users
@@ -231,9 +228,9 @@ func TestUserSettingsPersistPerUserAndListNotificationTargets(t *testing.T) {
 		_ = service.Close()
 	})
 
-	user, err := service.CreateInitialAdmin(context.Background(), "Ralf", "secret-pass")
+	user, err := service.CreateInitialAccount(context.Background(), "Ralf", "secret-pass")
 	if err != nil {
-		t.Fatalf("CreateInitialAdmin() error = %v", err)
+		t.Fatalf("CreateInitialAccount() error = %v", err)
 	}
 
 	updated, err := service.UpdateUserSettings(context.Background(), user.ID, UserSettings{
@@ -276,7 +273,7 @@ func TestUserSettingsPersistPerUserAndListNotificationTargets(t *testing.T) {
 	}
 }
 
-func TestMigrateAddsMustChangePasswordColumn(t *testing.T) {
+func TestMigrateAddsAccountColumns(t *testing.T) {
 	t.Parallel()
 
 	dataDir := t.TempDir()
@@ -291,7 +288,6 @@ func TestMigrateAddsMustChangePasswordColumn(t *testing.T) {
 			id INTEGER PRIMARY KEY,
 			username TEXT NOT NULL UNIQUE,
 			password_hash TEXT NOT NULL,
-			role TEXT NOT NULL DEFAULT 'admin',
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL,
 			last_login_at INTEGER

@@ -2,12 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.7] - 2026-04-26
+
+### Added
+- Shared vault-resolution flow for auth and request handling, plus regression coverage for first-use index creation when switching into an unindexed top-level vault.
+- Focused frontend regression coverage for settings persistence so client-preference rerenders no longer wipe unsaved notification fields.
+
+### Changed
+- Collapsed the runtime model back to one configured vault root with optional top-level folder switching, removing the old per-user-root vault layout.
+- Simplified auth toward a single-account deployment model, including setup wording, session/runtime terminology, and settings flow.
+- Separated `/api/meta` runtime-vault state from current session-vault state so server config and active request scope are exposed distinctly.
+- Startup indexing and notification polling now stay lazy around the configured root instead of eagerly creating index state on boot.
+- Split large frontend UI surfaces out of `frontend/app.ts` into dedicated modules for session UI, settings, help, palettes, history/trash, page tree operations, client preferences, and inline editors.
+
+### Fixed
+- User notification settings now persist correctly when saving from the settings dialog, including ntfy topic/token fields.
+- Rendered table editing now matches the visual table metrics more closely, uses a softer active-cell fill, and supports consistent `Enter`/`Escape` finish and cancel shortcuts.
+- Rendered table navigation no longer exposes raw markdown as part of the upward movement workaround attempts; table editing stays behind the dedicated table editor UI.
+
 ## [v0.1.6] - 2026-04-25
 
 ### Added
-- First-run admin setup with `Create The First Admin` flow for fresh installs, plus forced bootstrap password rotation before normal API access is restored.
+- First-run account setup with `Create The First Account` flow for fresh installs, plus forced bootstrap password rotation before normal API access is restored.
 - Per-user notification settings backed by the auth store and exposed through `/api/user/settings`.
-- Separate `User Settings` and `Admin Settings` entry points with a sidebar-based settings layout.
+- Sidebar settings layout with separate account and runtime sections.
 
 ### Changed
 - Appearance and hotkey preferences now stay in the browser instead of being stored as shared server settings.
@@ -18,12 +36,12 @@ All notable changes to this project will be documented in this file.
 - Auth bootstrap/setup state now reaches the UI correctly, so fresh servers show setup instead of the generic login form.
 - Graceful shutdown no longer times out when SSE clients are connected.
 - Fresh empty vaults now still show the root row in the file tree, so the first note can be created immediately.
-- Saving user or admin settings now closes the dialog consistently.
+- Saving settings now closes the dialog consistently.
 
 ## [v0.1.5] - 2026-04-25
 
 ### Added
-- Session-cookie authentication with bootstrap admin creation, login/logout/session endpoints, and API protection for non-public routes.
+- Session-cookie authentication with bootstrap account creation, login/logout/session endpoints, and API protection for non-public routes.
 - A runtime vault-selection layer around the existing single-vault runtime, exposed through auth and meta responses.
 - Vault health detection in backend metadata so missing or unreadable vault paths are surfaced explicitly.
 - Structured server logging for startup, shutdown, watcher/notifier lifecycle, ntfy deliveries, and noteworthy HTTP requests.

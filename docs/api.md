@@ -172,7 +172,7 @@ When auth is enabled, every API endpoint except `GET /api/healthz`, `POST /api/a
 
 `POST /api/auth/login` accepts `{"username":"...","password":"..."}` and, on success, sets the session cookie and returns the authenticated user summary plus the current resolved `vault`. `POST /api/auth/logout` clears the current session cookie. `GET /api/auth/me` returns the current session state plus the authenticated user payload and current resolved `vault` when a session is active.
 
-`GET /api/auth/vaults` returns the auth-side vault-selection snapshot for the signed-in user: `rootVault`, discovered child `vaults`, `count`, and the currently resolved `currentVault`. The server does not own the user's top-level-folders preference; clients use this single snapshot to decide whether to keep the personal root active or switch into one of the discovered child vaults.
+`GET /api/auth/vaults` returns the auth-side vault-selection snapshot for the signed-in user: `rootVault`, discovered top-level `vaults`, `count`, and the currently resolved `currentVault`. The server does not own the client's top-level-folders preference; clients use this single snapshot to decide whether to keep the configured root active or switch into one of the discovered top-level vaults.
 
 `PUT /api/auth/vault` accepts `{"vaultId":123}` and persists the current session vault selection for subsequent protected API requests.
 

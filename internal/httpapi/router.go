@@ -87,8 +87,8 @@ func NewRouter(deps Dependencies) http.Handler {
 		}
 		if deps.Auth != nil {
 			user, ok := auth.UserFromContext(r.Context())
-			if !ok || !isAdminUser(user) {
-				http.Error(w, "admin privileges required", http.StatusForbidden)
+			if !ok || user.ID == 0 {
+				http.Error(w, auth.ErrAuthenticationRequired.Error(), http.StatusUnauthorized)
 				return
 			}
 		}
@@ -376,7 +376,7 @@ func statusForVaultError(err error) int {
 		return http.StatusOK
 	}
 	switch {
-	case errors.Is(err, vaults.ErrVaultNotFound), errors.Is(err, vaults.ErrVaultMembershipRequired):
+	case errors.Is(err, vaults.ErrVaultNotFound):
 		return http.StatusNotFound
 	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))

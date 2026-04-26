@@ -1,10 +1,8 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -31,11 +29,6 @@ type authVaultsResponse struct {
 
 type userSettingsResponse struct {
 	Settings auth.UserSettings `json:"settings"`
-}
-
-type usersResponse struct {
-	Users []auth.User `json:"users"`
-	Count int         `json:"count"`
 }
 
 func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegistry *vaults.Service, settingsStore *settings.Store, cfg config.Config) {
@@ -97,10 +90,10 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 			return
 		}
 
-		createdUser, err := authService.CreateInitialAdmin(r.Context(), request.Username, request.Password)
+		_, err := authService.CreateInitialAccount(r.Context(), request.Username, request.Password)
 		if err != nil {
 			switch {
-			case errors.Is(err, auth.ErrSetupRejected):
+			case errors.Is(err, auth.ErrInitialAccountRejected):
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			default:
@@ -108,13 +101,6 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 				return
 			}
 		}
-		if vaultRegistry != nil {
-			if err := ensurePersonalVaultForUser(r.Context(), vaultRegistry, settingsStore, cfg, createdUser); err != nil {
-				http.Error(w, "failed to create initial personal vault", http.StatusInternalServerError)
-				return
-			}
-		}
-
 		session, err := authService.Login(r.Context(), request.Username, request.Password)
 		if err != nil {
 			http.Error(w, "setup login failed", http.StatusInternalServerError)
@@ -262,7 +248,7 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 
 		switch r.Method {
 		case http.MethodGet:
-			vaultList, err := vaultRegistry.ListDiscoveredPersonal(r.Context(), configuredVaultRoot(settingsStore, cfg), user.ID, user.Username)
+			vaultList, err := vaultRegistry.ListDiscoveredTopLevel(r.Context(), configuredVaultRoot(settingsStore, cfg))
 			if err != nil {
 				http.Error(w, "failed to list vaults", http.StatusInternalServerError)
 				return
@@ -286,10 +272,8 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 				return
 			}
 
-			createdVault, err := vaultRegistry.CreatePersonal(r.Context(), vaults.PersonalCreateConfig{
+			createdVault, err := vaultRegistry.CreateTopLevel(r.Context(), vaults.TopLevelCreateConfig{
 				VaultRoot: vaultRoot,
-				UserID:    user.ID,
-				Username:  user.Username,
 				Name:      request.Name,
 			})
 			if err != nil {
@@ -324,10 +308,10 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 			return
 		}
 
-		selectedVault, _, err := vaultRegistry.OwnedVaultForUser(r.Context(), user.ID, vaultID)
+		selectedVault, err := vaultRegistry.GetByID(r.Context(), vaultID)
 		if err != nil {
-			if errors.Is(err, vaults.ErrVaultMembershipRequired) {
-				http.Error(w, err.Error(), http.StatusForbidden)
+			if errors.Is(err, vaults.ErrVaultNotFound) {
+				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
 			http.Error(w, "failed to load vault", http.StatusInternalServerError)
@@ -342,9 +326,8 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 			return
 		}
 
-		updatedVault, err := vaultRegistry.UpdatePersonal(r.Context(), selectedVault.ID, vaults.PersonalUpdateConfig{
+		updatedVault, err := vaultRegistry.UpdateTopLevel(r.Context(), selectedVault.ID, vaults.TopLevelUpdateConfig{
 			VaultRoot: configuredVaultRoot(settingsStore, cfg),
-			Username:  user.Username,
 			Name:      request.Name,
 		})
 		if err != nil {
@@ -352,64 +335,6 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 			return
 		}
 		writeJSON(w, http.StatusOK, updatedVault)
-	})
-
-	mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
-		if authService == nil {
-			http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
-			return
-		}
-
-		user, ok := auth.UserFromContext(r.Context())
-		if !ok || user.ID == 0 {
-			http.Error(w, auth.ErrAuthenticationRequired.Error(), http.StatusUnauthorized)
-			return
-		}
-		if !isAdminUser(user) {
-			http.Error(w, "admin privileges required", http.StatusForbidden)
-			return
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			users, err := authService.ListUsers(r.Context())
-			if err != nil {
-				http.Error(w, "failed to list users", http.StatusInternalServerError)
-				return
-			}
-			writeJSON(w, http.StatusOK, usersResponse{
-				Users: users,
-				Count: len(users),
-			})
-		case http.MethodPost:
-			var request struct {
-				Username string `json:"username"`
-				Password string `json:"password"`
-				Role     string `json:"role"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				http.Error(w, "invalid request body", http.StatusBadRequest)
-				return
-			}
-			createdUser, err := authService.CreateUser(r.Context(), request.Username, request.Password, request.Role)
-			if err != nil {
-				status := http.StatusBadRequest
-				if strings.Contains(strings.ToLower(err.Error()), "already exists") {
-					status = http.StatusConflict
-				}
-				http.Error(w, err.Error(), status)
-				return
-			}
-			if vaultRegistry != nil {
-				if err := ensurePersonalVaultForUser(r.Context(), vaultRegistry, settingsStore, cfg, createdUser); err != nil {
-					http.Error(w, "failed to create personal vault", http.StatusInternalServerError)
-					return
-				}
-			}
-			writeJSON(w, http.StatusCreated, createdUser)
-		default:
-			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
-		}
 	})
 
 	mux.HandleFunc("/api/auth/me", func(w http.ResponseWriter, r *http.Request) {
@@ -472,10 +397,6 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 
 		vaultSnapshot, err := loadAuthVaultsSnapshotForUser(r.Context(), authService, vaultRegistry, settingsStore, cfg, user, tokenFromContextOrEmpty(r.Context()))
 		if err != nil {
-			if errors.Is(err, vaults.ErrVaultMembershipRequired) {
-				http.Error(w, err.Error(), http.StatusForbidden)
-				return
-			}
 			http.Error(w, "failed to load available vaults", http.StatusInternalServerError)
 			return
 		}
@@ -514,8 +435,8 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 
 		selectedVault, err := resolveSelectedVaultForUser(r.Context(), vaultRegistry, settingsStore, cfg, user, request.VaultID)
 		if err != nil {
-			if errors.Is(err, vaults.ErrVaultMembershipRequired) {
-				http.Error(w, err.Error(), http.StatusForbidden)
+			if errors.Is(err, vaults.ErrVaultNotFound) {
+				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
 			http.Error(w, "failed to resolve current vault", http.StatusInternalServerError)
@@ -543,22 +464,6 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, vaultRegi
 			Vault:         &selectedVault,
 		})
 	})
-}
-
-func ensurePersonalVaultForUser(ctx context.Context, vaultRegistry *vaults.Service, settingsStore *settings.Store, cfg config.Config, user auth.User) error {
-	if vaultRegistry == nil || user.ID <= 0 || strings.TrimSpace(user.Username) == "" {
-		return nil
-	}
-	vaultRoot := configuredVaultRoot(settingsStore, cfg)
-	if strings.TrimSpace(vaultRoot) == "" {
-		return fmt.Errorf("vault root is not configured")
-	}
-	_, _, err := vaultRegistry.EnsureUserRootVault(ctx, vaultRoot, user.ID, user.Username)
-	return err
-}
-
-func isAdminUser(user auth.User) bool {
-	return strings.EqualFold(strings.TrimSpace(user.Role), "admin")
 }
 
 func wrapWithAPIAuth(next http.Handler, authService *auth.Service) http.Handler {

@@ -71,37 +71,6 @@ func TestEnsureRuntimeRootCreatesAndUpdatesVault(t *testing.T) {
 	}
 }
 
-func TestEnsureUserRootVaultAssignsOwner(t *testing.T) {
-	t.Parallel()
-
-	service, err := NewService(context.Background(), t.TempDir())
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = service.Close()
-	})
-
-	rootDir := t.TempDir()
-	rootVault, membership, err := service.EnsureUserRootVault(context.Background(), rootDir, 7, "alex")
-	if err != nil {
-		t.Fatalf("EnsureUserRootVault() error = %v", err)
-	}
-	if rootVault.OwnerUserID != 7 {
-		t.Fatalf("vault.OwnerUserID = %d want 7", rootVault.OwnerUserID)
-	}
-	if membership.UserID != 7 || membership.Role != RoleOwner {
-		t.Fatalf("membership = %#v", membership)
-	}
-	owned, ownedMembership, err := service.OwnedVaultForUser(context.Background(), 7, rootVault.ID)
-	if err != nil {
-		t.Fatalf("OwnedVaultForUser() error = %v", err)
-	}
-	if owned.ID != rootVault.ID || ownedMembership.UserID != 7 {
-		t.Fatalf("owned = %#v membership = %#v", owned, ownedMembership)
-	}
-}
-
 func TestCreateListAndUpdateVault(t *testing.T) {
 	t.Parallel()
 
@@ -190,50 +159,7 @@ func TestUpdateRejectsConfiguredVault(t *testing.T) {
 	}
 }
 
-func TestListOwnedByUserAndOwnedVaultForUser(t *testing.T) {
-	t.Parallel()
-
-	service, err := NewService(context.Background(), t.TempDir())
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = service.Close()
-	})
-
-	teamVault, err := service.CreatePersonal(context.Background(), PersonalCreateConfig{
-		VaultRoot: t.TempDir(),
-		UserID:    7,
-		Username:  "alex",
-		Name:      "Team Alpha",
-		HomePage:  "notes/start",
-	})
-	if err != nil {
-		t.Fatalf("CreatePersonal() error = %v", err)
-	}
-	ownedVaults, err := service.ListOwnedByUser(context.Background(), 7)
-	if err != nil {
-		t.Fatalf("ListOwnedByUser() error = %v", err)
-	}
-	if len(ownedVaults) != 1 {
-		t.Fatalf("len(ListOwnedByUser()) = %d want 1", len(ownedVaults))
-	}
-	if ownedVaults[0].ID != teamVault.ID {
-		t.Fatalf("ListOwnedByUser()[0].ID = %d want %d", ownedVaults[0].ID, teamVault.ID)
-	}
-	resolvedVault, resolvedMembership, err := service.OwnedVaultForUser(context.Background(), 7, teamVault.ID)
-	if err != nil {
-		t.Fatalf("OwnedVaultForUser() error = %v", err)
-	}
-	if resolvedVault.ID != teamVault.ID || resolvedMembership.Role != RoleOwner {
-		t.Fatalf("OwnedVaultForUser() = %#v %#v", resolvedVault, resolvedMembership)
-	}
-	if _, _, err := service.OwnedVaultForUser(context.Background(), 8, teamVault.ID); err != ErrVaultMembershipRequired {
-		t.Fatalf("OwnedVaultForUser(unowned) error = %v want %v", err, ErrVaultMembershipRequired)
-	}
-}
-
-func TestCreatePersonalBuildsVaultPath(t *testing.T) {
+func TestCreateTopLevelBuildsVaultPath(t *testing.T) {
 	t.Parallel()
 
 	service, err := NewService(context.Background(), t.TempDir())
@@ -245,26 +171,27 @@ func TestCreatePersonalBuildsVaultPath(t *testing.T) {
 	})
 
 	rootDir := t.TempDir()
-	createdVault, err := service.CreatePersonal(context.Background(), PersonalCreateConfig{
+	createdVault, err := service.CreateTopLevel(context.Background(), TopLevelCreateConfig{
 		VaultRoot: rootDir,
-		UserID:    7,
-		Username:  "ralf",
 		Name:      "Work",
 		HomePage:  "notes/home",
 	})
 	if err != nil {
-		t.Fatalf("CreatePersonal() error = %v", err)
+		t.Fatalf("CreateTopLevel() error = %v", err)
 	}
-	expectedVaultPath := filepath.Join(rootDir, "ralf", "work")
+	expectedVaultPath := filepath.Join(rootDir, "work")
 	if createdVault.VaultPath != expectedVaultPath {
 		t.Fatalf("vault.VaultPath = %q want %q", createdVault.VaultPath, expectedVaultPath)
+	}
+	if createdVault.Key != "root__work" {
+		t.Fatalf("vault.Key = %q want root__work", createdVault.Key)
 	}
 	if _, err := os.Stat(expectedVaultPath); err != nil {
 		t.Fatalf("Stat(%q) error = %v", expectedVaultPath, err)
 	}
 }
 
-func TestCreatePersonalAllowsSameVaultNameAcrossUsers(t *testing.T) {
+func TestUpdateTopLevelRenamesVaultFolder(t *testing.T) {
 	t.Parallel()
 
 	service, err := NewService(context.Background(), t.TempDir())
@@ -276,72 +203,31 @@ func TestCreatePersonalAllowsSameVaultNameAcrossUsers(t *testing.T) {
 	})
 
 	rootDir := t.TempDir()
-	firstVault, err := service.CreatePersonal(context.Background(), PersonalCreateConfig{
+	createdVault, err := service.CreateTopLevel(context.Background(), TopLevelCreateConfig{
 		VaultRoot: rootDir,
-		UserID:    7,
-		Username:  "alex",
 		Name:      "Work",
 	})
 	if err != nil {
-		t.Fatalf("CreatePersonal(alex) error = %v", err)
-	}
-	secondVault, err := service.CreatePersonal(context.Background(), PersonalCreateConfig{
-		VaultRoot: rootDir,
-		UserID:    8,
-		Username:  "sam",
-		Name:      "Work",
-	})
-	if err != nil {
-		t.Fatalf("CreatePersonal(sam) error = %v", err)
-	}
-	if firstVault.Key == secondVault.Key {
-		t.Fatalf("vault keys should be internal and unique per user: %q", firstVault.Key)
-	}
-	if firstVault.VaultPath != filepath.Join(rootDir, "alex", "work") {
-		t.Fatalf("first vault path = %q", firstVault.VaultPath)
-	}
-	if secondVault.VaultPath != filepath.Join(rootDir, "sam", "work") {
-		t.Fatalf("second vault path = %q", secondVault.VaultPath)
-	}
-}
-
-func TestUpdatePersonalRenamesVaultFolder(t *testing.T) {
-	t.Parallel()
-
-	service, err := NewService(context.Background(), t.TempDir())
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = service.Close()
-	})
-
-	rootDir := t.TempDir()
-	createdVault, err := service.CreatePersonal(context.Background(), PersonalCreateConfig{
-		VaultRoot: rootDir,
-		UserID:    7,
-		Username:  "alex",
-		Name:      "Work",
-	})
-	if err != nil {
-		t.Fatalf("CreatePersonal() error = %v", err)
+		t.Fatalf("CreateTopLevel() error = %v", err)
 	}
 	sourcePath := filepath.Join(createdVault.VaultPath, "notes.md")
 	if err := os.WriteFile(sourcePath, []byte("# work\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	updated, err := service.UpdatePersonal(context.Background(), createdVault.ID, PersonalUpdateConfig{
+	updated, err := service.UpdateTopLevel(context.Background(), createdVault.ID, TopLevelUpdateConfig{
 		VaultRoot: rootDir,
-		Username:  "alex",
-		Name:      "Private",
+		Name:      "Private Vault",
 	})
 	if err != nil {
-		t.Fatalf("UpdatePersonal() error = %v", err)
+		t.Fatalf("UpdateTopLevel() error = %v", err)
 	}
-	expectedVaultPath := filepath.Join(rootDir, "alex", "private")
+	expectedVaultPath := filepath.Join(rootDir, "private-vault")
 	if updated.VaultPath != expectedVaultPath {
 		t.Fatalf("updated.VaultPath = %q want %q", updated.VaultPath, expectedVaultPath)
+	}
+	if updated.Key != "root__private-vault" {
+		t.Fatalf("updated.Key = %q want root__private-vault", updated.Key)
 	}
 	if _, err := os.Stat(filepath.Join(expectedVaultPath, "notes.md")); err != nil {
 		t.Fatalf("renamed vault file missing: %v", err)
@@ -351,7 +237,7 @@ func TestUpdatePersonalRenamesVaultFolder(t *testing.T) {
 	}
 }
 
-func TestListDiscoveredPersonalCreatesVaultRecordsFromFolders(t *testing.T) {
+func TestListDiscoveredTopLevelCreatesVaultRecordsFromFolders(t *testing.T) {
 	t.Parallel()
 
 	service, err := NewService(context.Background(), t.TempDir())
@@ -363,31 +249,26 @@ func TestListDiscoveredPersonalCreatesVaultRecordsFromFolders(t *testing.T) {
 	})
 
 	rootDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(rootDir, "alex", "work"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(rootDir, "work"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(work) error = %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(rootDir, "alex", "private"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(rootDir, "private"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(private) error = %v", err)
 	}
 
-	discovered, err := service.ListDiscoveredPersonal(context.Background(), rootDir, 7, "alex")
+	discovered, err := service.ListDiscoveredTopLevel(context.Background(), rootDir)
 	if err != nil {
-		t.Fatalf("ListDiscoveredPersonal() error = %v", err)
+		t.Fatalf("ListDiscoveredTopLevel() error = %v", err)
 	}
 	if len(discovered) != 2 {
 		t.Fatalf("len(discovered) = %d want 2", len(discovered))
 	}
-	if discovered[0].VaultPath != filepath.Join(rootDir, "alex", "private") || discovered[1].VaultPath != filepath.Join(rootDir, "alex", "work") {
+	if discovered[0].VaultPath != filepath.Join(rootDir, "private") || discovered[1].VaultPath != filepath.Join(rootDir, "work") {
 		t.Fatalf("discovered = %#v", discovered)
 	}
-	for _, discoveredVault := range discovered {
-		if _, _, err := service.OwnedVaultForUser(context.Background(), 7, discoveredVault.ID); err != nil {
-			t.Fatalf("OwnedVaultForUser(%d) error = %v", discoveredVault.ID, err)
-		}
-	}
 }
 
-func TestEnsureUserRootVaultUsesExistingCasePreservedFolder(t *testing.T) {
+func TestListDiscoveredTopLevelAdoptsCaseChangedPath(t *testing.T) {
 	t.Parallel()
 
 	service, err := NewService(context.Background(), t.TempDir())
@@ -399,53 +280,22 @@ func TestEnsureUserRootVaultUsesExistingCasePreservedFolder(t *testing.T) {
 	})
 
 	rootDir := t.TempDir()
-	existingRoot := filepath.Join(rootDir, "Rasi")
-	if err := os.MkdirAll(existingRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll(existingRoot) error = %v", err)
-	}
-
-	rootVault, membership, err := service.EnsureUserRootVault(context.Background(), rootDir, 7, "rasi")
-	if err != nil {
-		t.Fatalf("EnsureUserRootVault() error = %v", err)
-	}
-	if rootVault.VaultPath != existingRoot {
-		t.Fatalf("vault.VaultPath = %q want %q", rootVault.VaultPath, existingRoot)
-	}
-	if membership.Role != RoleOwner || membership.UserID != 7 {
-		t.Fatalf("membership = %#v", membership)
-	}
-}
-
-func TestListDiscoveredPersonalAdoptsCaseChangedOwnedVaultPath(t *testing.T) {
-	t.Parallel()
-
-	service, err := NewService(context.Background(), t.TempDir())
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = service.Close()
-	})
-
-	rootDir := t.TempDir()
-	actualRoot := filepath.Join(rootDir, "Rasi")
-	actualWork := filepath.Join(actualRoot, "Work")
+	actualWork := filepath.Join(rootDir, "Work")
 	if err := os.MkdirAll(actualWork, 0o755); err != nil {
 		t.Fatalf("MkdirAll(actualWork) error = %v", err)
 	}
 
 	staleVault, err := service.Create(context.Background(), CreateConfig{
-		Key:       filesystemVaultKey("rasi", "Work"),
+		Key:       "root__work",
 		Name:      "Work",
-		VaultPath: filepath.Join(rootDir, "rasi", "Work"),
-		HomePage:  "",
+		VaultPath: filepath.Join(rootDir, "work"),
 	})
 	if err != nil {
 		t.Fatalf("Create(stale vault) error = %v", err)
 	}
-	discovered, err := service.ListDiscoveredPersonal(context.Background(), rootDir, 7, "rasi")
+	discovered, err := service.ListDiscoveredTopLevel(context.Background(), rootDir)
 	if err != nil {
-		t.Fatalf("ListDiscoveredPersonal() error = %v", err)
+		t.Fatalf("ListDiscoveredTopLevel() error = %v", err)
 	}
 	if len(discovered) != 1 {
 		t.Fatalf("len(discovered) = %d want 1", len(discovered))

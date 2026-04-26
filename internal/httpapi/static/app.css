@@ -2957,6 +2957,9 @@ kbd {
   background: transparent;
   border: 0;
   box-shadow: none;
+  font-family: var(--editor-font-family);
+  font-size: 0.94rem;
+  line-height: 1.58;
 }
 
 .table-editor-head {
@@ -3006,6 +3009,8 @@ kbd {
   overflow: hidden;
   background: rgba(26, 27, 38, 0.96);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  font: inherit;
+  line-height: inherit;
 }
 
 .table-editor-row {
@@ -3026,6 +3031,13 @@ kbd {
   padding: 0.42rem 0.62rem;
   background: transparent;
   box-shadow: none;
+  appearance: none;
+  -webkit-appearance: none;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--ink);
+  caret-color: var(--ink);
 }
 
 .table-editor-row input:last-child {
@@ -3039,10 +3051,9 @@ kbd {
 }
 
 .table-editor-row input:focus {
-  position: relative;
-  z-index: 1;
-  background: rgba(122, 162, 247, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(122, 162, 247, 0.24);
+  outline: none;
+  background: rgba(122, 162, 247, 0.1);
+  box-shadow: none;
 }
 
 .task-picker-head {

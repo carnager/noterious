@@ -166,7 +166,6 @@ export interface MetaResponse {
 export interface AuthenticatedUser {
   id: number;
   username: string;
-  role: string;
   createdAt: string;
   lastLoginAt?: string;
   mustChangePassword: boolean;
@@ -184,11 +183,6 @@ export interface AuthVaultsResponse {
   vaults: VaultRecord[];
   count: number;
   currentVault?: VaultRecord;
-}
-
-export interface UsersResponse {
-  users: AuthenticatedUser[];
-  count: number;
 }
 
 export interface VaultListResponse {

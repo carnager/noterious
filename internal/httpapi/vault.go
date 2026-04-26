@@ -55,10 +55,6 @@ func wrapWithVault(next http.Handler, vaultRegistry *vaults.Service, authService
 			currentVaultID := currentVaultIDForToken(r.Context(), authService, tokenFromContextOrEmpty(r.Context()))
 			activeVault, err := resolveVaultForUser(r.Context(), vaultRegistry, settingsStore, cfg, user, currentVaultID)
 			if err != nil {
-				if errors.Is(err, vaults.ErrVaultMembershipRequired) {
-					http.Error(w, err.Error(), http.StatusForbidden)
-					return
-				}
 				slog.Error("request vault resolution failed",
 					"path", r.URL.Path,
 					"user_id", user.ID,
@@ -199,7 +195,7 @@ func rebuildVaultStateLocked(ctx context.Context, currentVaultRecord vaults.Vaul
 
 func shouldSkipVaultResolution(path string) bool {
 	switch path {
-	case "/api/healthz", "/api/users", "/api/user/vaults":
+	case "/api/healthz", "/api/user/vaults":
 		return true
 	}
 	if strings.HasPrefix(path, "/api/user/vaults/") {

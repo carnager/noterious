@@ -106,7 +106,7 @@ func loadUserVaultCatalog(ctx context.Context, vaultRegistry *vaults.Service, se
 	if err != nil {
 		return userVaultCatalog{}, err
 	}
-	discoveredVaults, err := vaultRegistry.ListDiscoveredPersonal(ctx, configuredVaultRoot(settingsStore, cfg), user.ID, user.Username)
+	discoveredVaults, err := vaultRegistry.ListDiscoveredTopLevel(ctx, configuredVaultRoot(settingsStore, cfg))
 	if err != nil {
 		return userVaultCatalog{}, err
 	}
@@ -122,11 +122,10 @@ func resolveRequestedVaultFromCatalog(ctx context.Context, vaultRegistry *vaults
 	}
 	for _, discoveredVault := range catalog.DiscoveredVaults {
 		if discoveredVault.ID == vaultID {
-			selectedVault, _, err := vaultRegistry.OwnedVaultForUser(ctx, user.ID, vaultID)
-			return selectedVault, err
+			return vaultRegistry.GetByID(ctx, vaultID)
 		}
 	}
-	return vaults.Vault{}, vaults.ErrVaultMembershipRequired
+	return vaults.Vault{}, vaults.ErrVaultNotFound
 }
 
 func resolveCurrentVaultFromCatalog(ctx context.Context, vaultRegistry *vaults.Service, user auth.User, catalog userVaultCatalog, selectedVaultID int64) (vaults.Vault, error) {
@@ -138,8 +137,8 @@ func resolveCurrentVaultFromCatalog(ctx context.Context, vaultRegistry *vaults.S
 	if err == nil {
 		return selectedVault, nil
 	}
-	if errors.Is(err, vaults.ErrVaultMembershipRequired) || errors.Is(err, vaults.ErrVaultNotFound) {
-		slog.Warn("selected vault unavailable; falling back to user root",
+	if errors.Is(err, vaults.ErrVaultNotFound) {
+		slog.Warn("selected vault unavailable; falling back to configured root",
 			"user_id", user.ID,
 			"username", user.Username,
 			"selected_vault_id", selectedVaultID,
@@ -151,9 +150,10 @@ func resolveCurrentVaultFromCatalog(ctx context.Context, vaultRegistry *vaults.S
 }
 
 func resolveRootVaultForUser(ctx context.Context, vaultRegistry *vaults.Service, settingsStore *settings.Store, cfg config.Config, user auth.User) (vaults.Vault, error) {
-	vaultRoot := configuredVaultRoot(settingsStore, cfg)
-	rootVault, _, err := vaultRegistry.EnsureUserRootVault(ctx, vaultRoot, user.ID, user.Username)
-	return rootVault, err
+	return vaultRegistry.EnsureRuntimeRoot(ctx, vaults.RuntimeRootConfig{
+		VaultPath: configuredVaultRoot(settingsStore, cfg),
+		HomePage:  strings.TrimSpace(cfg.HomePage),
+	})
 }
 
 func currentVaultIDForToken(ctx context.Context, authService *auth.Service, token string) int64 {

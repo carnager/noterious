@@ -6,11 +6,11 @@ Much of this refactor is already in place.
 
 Mostly done in the current codebase:
 
-- the personal root plus child-vault model is implemented across backend, frontend, and docs
+- the configured-root plus top-level-vault model is implemented across backend and routing
 - auth-side vault snapshots and session vault selection exist (`/api/auth/vaults`, `/api/auth/vault`)
 - filesystem-first child vault discovery/create/rename flows are implemented and tested
 - route-scoped vault index initialization exists, with request-time logging and targeted rebuild gates
-- real-model regression coverage exists for pre-existing folders, child-vault switching, case-preserved username roots, and folder discovery
+- real-model regression coverage exists for pre-existing folders, top-level-vault switching, and folder discovery
 
 What still looks incomplete or only partially cleaned up:
 
@@ -22,12 +22,11 @@ What still looks incomplete or only partially cleaned up:
 
 ## Refactor Goal
 
-Make the current personal-multi-vault implementation a clean, stable base again:
+Make the current single-user root-plus-top-level-folders implementation a clean, stable base again:
 
 - markdown-first
 - folder-first
 - one configured server vault root
-- one user root below that
 - optional "top-level folders are vaults" mode
 - no collaboration-first architecture leaking through the code
 
@@ -46,7 +45,7 @@ Make the current personal-multi-vault implementation a clean, stable base again:
 
 - make first-load vault selection easier to reason about
 - reduce the amount of scattered fallback logic between:
-  - user root
+  - configured root
   - selected vault
   - discovered top-level vaults
   - current session vault
@@ -55,7 +54,7 @@ Make the current personal-multi-vault implementation a clean, stable base again:
   - current vault in the client
 - document the expected behavior for:
   - fresh setup with existing folders
-  - empty user root
+  - empty configured root
   - top-level-folders mode on
   - top-level-folders mode off
 
@@ -82,7 +81,7 @@ Make the current personal-multi-vault implementation a clean, stable base again:
 ## 5. Tighten Filesystem-First Behavior
 
 - ensure the filesystem remains the source of truth
-- make direct child-folder discovery under the user root explicit and well-tested
+- make direct child-folder discovery under the configured root explicit and well-tested
 - avoid app-owned metadata becoming more important than the real folders/files
 - verify rename/create flows still map cleanly to real directories
 
@@ -107,19 +106,18 @@ Make the current personal-multi-vault implementation a clean, stable base again:
 ## 8. Strengthen Tests Around The Real Model
 
 - add focused tests for:
-  - fresh setup with pre-existing `vaultRoot/<user>/<child>` folders
+  - fresh setup with pre-existing `vaultRoot/<child>` folders
   - top-level-folders mode on/off
-  - switching between child vaults
-  - empty child vaults
-  - case-sensitive username folder discovery
+  - switching between top-level vaults
+  - empty top-level vaults
+  - case-sensitive top-level folder discovery
   - first-use index rebuild on a newly selected vault
-- keep these as direct regression tests for the actual user model, not the older mixed terminology
+- keep these as direct regression tests for the actual single-root model, not the older personal-root terminology
 
 ## 9. Clean Documentation
 
 - update README and operator docs so they describe:
   - vault root
-  - user root
   - folder-first vault behavior
   - top-level-folders mode
 - remove stale wording that still implies collaboration/shared vaults are the main design

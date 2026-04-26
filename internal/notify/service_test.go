@@ -69,9 +69,9 @@ func TestPollSendsAndDeduplicatesDueNotifications(t *testing.T) {
 	defer func() {
 		_ = authService.Close()
 	}()
-	user, err := authService.CreateInitialAdmin(context.Background(), "ralf", "secret-pass")
+	user, err := authService.CreateInitialAccount(context.Background(), "ralf", "secret-pass")
 	if err != nil {
-		t.Fatalf("CreateInitialAdmin() error = %v", err)
+		t.Fatalf("CreateInitialAccount() error = %v", err)
 	}
 
 	requests := 0
@@ -142,8 +142,8 @@ func TestPollSkipsWhenIndexDatabaseDoesNotExist(t *testing.T) {
 	defer func() {
 		_ = authService.Close()
 	}()
-	if _, err := authService.CreateInitialAdmin(context.Background(), "admin", "secret-pass"); err != nil {
-		t.Fatalf("CreateInitialAdmin() error = %v", err)
+	if _, err := authService.CreateInitialAccount(context.Background(), "admin", "secret-pass"); err != nil {
+		t.Fatalf("CreateInitialAccount() error = %v", err)
 	}
 
 	service, err := NewService(notifyDataDir, indexService, authService)

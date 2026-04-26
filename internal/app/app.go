@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/carnager/noterious/internal/auth"
@@ -75,23 +74,6 @@ func New(cfg config.Config) (*App, error) {
 		_ = authService.Close()
 		return nil, fmt.Errorf("bootstrap auth: %w", err)
 	}
-	users, err := authService.ListUsers(context.Background())
-	if err != nil {
-		_ = vaultRegistry.Close()
-		_ = authService.Close()
-		return nil, fmt.Errorf("list users for vault bootstrap: %w", err)
-	}
-	for _, user := range users {
-		if strings.TrimSpace(user.Username) == "" {
-			continue
-		}
-		if _, _, err := vaultRegistry.EnsureUserRootVault(context.Background(), cfg.VaultPath, user.ID, user.Username); err != nil {
-			_ = vaultRegistry.Close()
-			_ = authService.Close()
-			return nil, fmt.Errorf("ensure user root vault for %s: %w", user.Username, err)
-		}
-	}
-
 	vaultService := vault.NewService(cfg.VaultPath)
 	indexService := index.NewService(cfg.DataDir)
 	queryService := query.NewService()
@@ -149,7 +131,7 @@ func New(cfg config.Config) (*App, error) {
 	router = withHTTPLogging(router)
 
 	if bootstrap.Created {
-		slog.Info("bootstrapped auth admin user", "username", bootstrap.Username)
+		slog.Info("bootstrapped auth account", "username", bootstrap.Username)
 	} else if bootstrap.SetupRequired {
 		slog.Info("initial auth setup required")
 	}

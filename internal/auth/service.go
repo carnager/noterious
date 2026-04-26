@@ -23,16 +23,14 @@ const (
 	defaultCookieName        = "noterious_session"
 	defaultSessionTTL        = 30 * 24 * time.Hour
 	sessionHeartbeatInterval = 5 * time.Minute
-	bootstrapSecretFileName  = "bootstrap-admin.txt"
-	roleAdmin                = "admin"
-	roleUser                 = "user"
+	bootstrapSecretFileName  = "bootstrap-account.txt"
 )
 
 var (
 	ErrAuthenticationRequired = errors.New("authentication required")
 	ErrInvalidCredentials     = errors.New("invalid username or password")
 	ErrPasswordChangeRejected = errors.New("password change rejected")
-	ErrSetupRejected          = errors.New("initial admin setup rejected")
+	ErrInitialAccountRejected = errors.New("initial account setup rejected")
 )
 
 type BootstrapConfig struct {
@@ -66,7 +64,6 @@ type NotificationTarget struct {
 type User struct {
 	ID                 int64      `json:"id"`
 	Username           string     `json:"username"`
-	Role               string     `json:"role"`
 	CreatedAt          time.Time  `json:"createdAt"`
 	LastLoginAt        *time.Time `json:"lastLoginAt,omitempty"`
 	MustChangePassword bool       `json:"mustChangePassword"`
@@ -178,10 +175,10 @@ func (s *Service) EnsureBootstrap(ctx context.Context, cfg BootstrapConfig) (Boo
 
 	username := normalizeUsername(cfg.Username)
 	if username == "" {
-		username = "admin"
+		username = "owner"
 	}
 
-	if _, err := s.createUser(ctx, username, password, "admin", false); err != nil {
+	if _, err := s.createUser(ctx, username, password, false); err != nil {
 		return BootstrapResult{}, err
 	}
 
@@ -191,7 +188,7 @@ func (s *Service) EnsureBootstrap(ctx context.Context, cfg BootstrapConfig) (Boo
 	}, nil
 }
 
-func (s *Service) CreateInitialAdmin(ctx context.Context, username string, password string) (User, error) {
+func (s *Service) CreateInitialAccount(ctx context.Context, username string, password string) (User, error) {
 	if s == nil {
 		return User{}, fmt.Errorf("auth service unavailable")
 	}
@@ -201,57 +198,10 @@ func (s *Service) CreateInitialAdmin(ctx context.Context, username string, passw
 		return User{}, err
 	}
 	if count > 0 {
-		return User{}, fmt.Errorf("%w: users already exist", ErrSetupRejected)
+		return User{}, fmt.Errorf("%w: users already exist", ErrInitialAccountRejected)
 	}
 
-	user, err := s.createUser(ctx, username, password, "admin", false)
-	if err != nil {
-		return User{}, err
-	}
-	return user, nil
-}
-
-func (s *Service) CreateUser(ctx context.Context, username string, password string, role string) (User, error) {
-	if s == nil {
-		return User{}, fmt.Errorf("auth service unavailable")
-	}
-	return s.createUser(ctx, username, password, role, false)
-}
-
-func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
-	if s == nil {
-		return nil, fmt.Errorf("auth service unavailable")
-	}
-
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, username, role, created_at, last_login_at, must_change_password
-		FROM users
-		ORDER BY username ASC;
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("list users: %w", err)
-	}
-	defer rows.Close()
-
-	users := make([]User, 0)
-	for rows.Next() {
-		var user User
-		var createdAtMillis int64
-		var lastLoginMillis sql.NullInt64
-		if err := rows.Scan(&user.ID, &user.Username, &user.Role, &createdAtMillis, &lastLoginMillis, &user.MustChangePassword); err != nil {
-			return nil, fmt.Errorf("scan user: %w", err)
-		}
-		user.CreatedAt = time.UnixMilli(createdAtMillis).UTC()
-		if lastLoginMillis.Valid {
-			lastLogin := time.UnixMilli(lastLoginMillis.Int64).UTC()
-			user.LastLoginAt = &lastLogin
-		}
-		users = append(users, user)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate users: %w", err)
-	}
-	return users, nil
+	return s.createUser(ctx, username, password, false)
 }
 
 func (s *Service) Login(ctx context.Context, username string, password string) (Session, error) {
@@ -265,7 +215,7 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 	}
 
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, username, password_hash, role, created_at, last_login_at, must_change_password
+		SELECT id, username, password_hash, created_at, last_login_at, must_change_password
 		FROM users
 		WHERE username = ?;
 	`, normalized)
@@ -275,7 +225,7 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 	var createdAtMillis int64
 	var lastLoginMillis sql.NullInt64
 	var mustChangePassword bool
-	if err := row.Scan(&user.ID, &user.Username, &passwordHash, &user.Role, &createdAtMillis, &lastLoginMillis, &mustChangePassword); err != nil {
+	if err := row.Scan(&user.ID, &user.Username, &passwordHash, &createdAtMillis, &lastLoginMillis, &mustChangePassword); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Session{}, ErrInvalidCredentials
 		}
@@ -420,7 +370,7 @@ func (s *Service) CurrentUserByToken(ctx context.Context, token string) (User, e
 	}
 
 	row := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.username, u.role, u.created_at, u.last_login_at, u.must_change_password, s.expires_at, s.last_seen_at
+		SELECT u.id, u.username, u.created_at, u.last_login_at, u.must_change_password, s.expires_at, s.last_seen_at
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.token_hash = ?;
@@ -432,7 +382,7 @@ func (s *Service) CurrentUserByToken(ctx context.Context, token string) (User, e
 	var mustChangePassword bool
 	var expiresAtMillis int64
 	var lastSeenMillis int64
-	if err := row.Scan(&user.ID, &user.Username, &user.Role, &createdAtMillis, &lastLoginMillis, &mustChangePassword, &expiresAtMillis, &lastSeenMillis); err != nil {
+	if err := row.Scan(&user.ID, &user.Username, &createdAtMillis, &lastLoginMillis, &mustChangePassword, &expiresAtMillis, &lastSeenMillis); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return User{}, ErrAuthenticationRequired
 		}
@@ -484,7 +434,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID int64, currentPassw
 	}
 
 	row := s.db.QueryRowContext(ctx, `
-		SELECT username, password_hash, role, created_at, last_login_at, must_change_password
+		SELECT username, password_hash, created_at, last_login_at, must_change_password
 		FROM users
 		WHERE id = ?;
 	`, userID)
@@ -493,7 +443,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID int64, currentPassw
 	var passwordHash string
 	var createdAtMillis int64
 	var lastLoginMillis sql.NullInt64
-	if err := row.Scan(&user.Username, &passwordHash, &user.Role, &createdAtMillis, &lastLoginMillis, &user.MustChangePassword); err != nil {
+	if err := row.Scan(&user.Username, &passwordHash, &createdAtMillis, &lastLoginMillis, &user.MustChangePassword); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return User{}, ErrAuthenticationRequired
 		}
@@ -673,7 +623,7 @@ func (s *Service) ClearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Service) createUser(ctx context.Context, username string, password string, role string, mustChangePassword bool) (User, error) {
+func (s *Service) createUser(ctx context.Context, username string, password string, mustChangePassword bool) (User, error) {
 	normalized := normalizeUsername(username)
 	if normalized == "" {
 		return User{}, fmt.Errorf("username is required")
@@ -681,9 +631,12 @@ func (s *Service) createUser(ctx context.Context, username string, password stri
 	if strings.TrimSpace(password) == "" {
 		return User{}, fmt.Errorf("password is required")
 	}
-	normalizedRole, ok := normalizeUserRole(role)
-	if !ok {
-		return User{}, fmt.Errorf("invalid role %q", strings.TrimSpace(role))
+	count, err := s.userCount(ctx)
+	if err != nil {
+		return User{}, err
+	}
+	if count > 0 {
+		return User{}, fmt.Errorf("%w: user already exists", ErrInitialAccountRejected)
 	}
 
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -693,9 +646,9 @@ func (s *Service) createUser(ctx context.Context, username string, password stri
 
 	now := time.Now().UTC()
 	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO users(username, password_hash, role, created_at, updated_at, must_change_password)
-		VALUES(?, ?, ?, ?, ?, ?);
-	`, normalized, string(passwordHash), normalizedRole, now.UnixMilli(), now.UnixMilli(), mustChangePassword)
+		INSERT INTO users(username, password_hash, created_at, updated_at, must_change_password)
+		VALUES(?, ?, ?, ?, ?);
+	`, normalized, string(passwordHash), now.UnixMilli(), now.UnixMilli(), mustChangePassword)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed: users.username") {
 			return User{}, fmt.Errorf("username already exists")
@@ -710,7 +663,6 @@ func (s *Service) createUser(ctx context.Context, username string, password stri
 	return User{
 		ID:                 id,
 		Username:           normalized,
-		Role:               normalizedRole,
 		CreatedAt:          now,
 		MustChangePassword: mustChangePassword,
 	}, nil
@@ -724,7 +676,6 @@ func (s *Service) migrate(ctx context.Context) error {
 			id INTEGER PRIMARY KEY,
 			username TEXT NOT NULL UNIQUE,
 			password_hash TEXT NOT NULL,
-			role TEXT NOT NULL DEFAULT 'admin',
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL,
 			must_change_password INTEGER NOT NULL DEFAULT 0,
@@ -892,17 +843,6 @@ func (s *Service) clearBootstrapCredentials() error {
 
 func normalizeUsername(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
-}
-
-func normalizeUserRole(value string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", roleUser:
-		return roleUser, true
-	case roleAdmin:
-		return roleAdmin, true
-	default:
-		return "", false
-	}
 }
 
 func normalizeUserSettings(input UserSettings) UserSettings {
