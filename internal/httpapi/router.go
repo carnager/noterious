@@ -16,6 +16,7 @@ import (
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/settings"
+	"github.com/carnager/noterious/internal/themes"
 	"github.com/carnager/noterious/internal/vault"
 	"github.com/carnager/noterious/internal/vaults"
 )
@@ -25,6 +26,7 @@ type Dependencies struct {
 	Settings      *settings.Store
 	Documents     *documents.Service
 	History       *history.Service
+	Themes        *themes.Service
 	Vaults        *vaults.Service
 	Vault         *vault.Service
 	Index         *index.Service
@@ -111,6 +113,7 @@ func NewRouter(deps Dependencies) http.Handler {
 			writeMethodNotAllowed(w, http.MethodGet, http.MethodPut)
 		}
 	})
+	mountThemeEndpoints(mux, deps)
 	mountDocumentAndFolderEndpoints(mux, deps)
 
 	mux.HandleFunc("/api/pages/", func(w http.ResponseWriter, r *http.Request) {

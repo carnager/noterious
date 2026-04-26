@@ -1,4 +1,4 @@
-import type { AppSettings as SettingsModel } from "./types";
+import type { AppSettings as SettingsModel, ThemeRecord } from "./types";
 
 export type SettingsSection = "appearance" | "notifications" | "vault";
 
@@ -6,6 +6,8 @@ export interface SettingsUiState {
   settingsSection: SettingsSection;
   settingsLoaded: boolean;
   topLevelFoldersAsVaults: boolean;
+  themeLibraryLoaded: boolean;
+  themeLibrary: ThemeRecord[];
   settings: SettingsModel;
 }
 
@@ -27,6 +29,11 @@ export interface SettingsUiElements {
   settingsFontFamily: HTMLSelectElement;
   settingsFontSize: HTMLSelectElement;
   settingsDateTimeFormat: HTMLSelectElement;
+  settingsTheme: HTMLSelectElement;
+  settingsThemeUpload: HTMLButtonElement;
+  settingsThemeDelete: HTMLButtonElement;
+  settingsThemeUploadInput: HTMLInputElement;
+  settingsThemeHelp: HTMLElement;
   settingsQuickSwitcher: HTMLInputElement;
   settingsGlobalSearch: HTMLInputElement;
   settingsCommandPalette: HTMLInputElement;
@@ -93,6 +100,7 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
     els.settingsFontFamily,
     els.settingsFontSize,
     els.settingsDateTimeFormat,
+    els.settingsTheme,
     els.settingsQuickSwitcher,
     els.settingsGlobalSearch,
     els.settingsCommandPalette,
@@ -109,6 +117,8 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
   userFields.forEach(function (field) {
     field.disabled = false;
   });
+  els.settingsThemeUpload.disabled = false;
+  els.settingsThemeDelete.disabled = false;
 
   if (!state.settingsLoaded) {
     els.saveSettings.disabled = true;
@@ -122,9 +132,19 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
   els.settingsUserNtfyTopicUrl.value = state.settings.userNotifications.ntfyTopicUrl || "";
   els.settingsUserNtfyToken.value = state.settings.userNotifications.ntfyToken || "";
   els.settingsUserTopLevelVaults.checked = state.topLevelFoldersAsVaults;
+  renderThemeOptions(state, els);
   els.settingsFontFamily.value = state.settings.preferences.ui.fontFamily || "mono";
   els.settingsFontSize.value = state.settings.preferences.ui.fontSize || "16";
   els.settingsDateTimeFormat.value = state.settings.preferences.ui.dateTimeFormat || "browser";
+  els.settingsTheme.value = state.settings.preferences.ui.themeId || "noterious-night";
+  const selectedTheme = state.themeLibrary.find(function (theme) {
+    return theme.id === els.settingsTheme.value;
+  }) || null;
+  const themeControlsDisabled = !state.themeLibraryLoaded && state.themeLibrary.length === 0;
+  els.settingsTheme.disabled = themeControlsDisabled;
+  els.settingsThemeUpload.disabled = themeControlsDisabled;
+  els.settingsThemeDelete.disabled = themeControlsDisabled || !selectedTheme || selectedTheme.source !== "custom";
+  els.settingsThemeHelp.textContent = "Built-in themes are always available. Upload JSON token themes to add custom ones.";
   els.settingsQuickSwitcher.value = state.settings.preferences.hotkeys.quickSwitcher || "";
   els.settingsGlobalSearch.value = state.settings.preferences.hotkeys.globalSearch || "";
   els.settingsCommandPalette.value = state.settings.preferences.hotkeys.commandPalette || "";
@@ -133,4 +153,31 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
   els.settingsSaveCurrentPage.value = state.settings.preferences.hotkeys.saveCurrentPage || "";
   els.settingsToggleRawMode.value = state.settings.preferences.hotkeys.toggleRawMode || "";
   els.settingsToggleTaskDone.value = state.settings.preferences.hotkeys.toggleTaskDone || "";
+}
+
+function renderThemeOptions(state: SettingsUiState, els: SettingsUiElements): void {
+  const selectedValue = els.settingsTheme.value || state.settings.preferences.ui.themeId || "noterious-night";
+  els.settingsTheme.textContent = "";
+  const themes = Array.isArray(state.themeLibrary) ? state.themeLibrary.slice() : [];
+  themes.sort(function (left, right) {
+    if (left.source !== right.source) {
+      return left.source === "builtin" ? -1 : 1;
+    }
+    return left.name.localeCompare(right.name);
+  });
+  themes.forEach(function (theme) {
+    const option = document.createElement("option");
+    option.value = theme.id;
+    option.textContent = theme.source === "custom" ? theme.name + " (Custom)" : theme.name;
+    els.settingsTheme.appendChild(option);
+  });
+  if (themes.length === 0) {
+    const option = document.createElement("option");
+    option.value = "noterious-night";
+    option.textContent = "Noterious Night";
+    els.settingsTheme.appendChild(option);
+  }
+  els.settingsTheme.value = themes.some(function (theme) {
+    return theme.id === selectedValue;
+  }) ? selectedValue : "noterious-night";
 }

@@ -18,6 +18,7 @@ export function defaultClientPreferences(): ClientPreferences {
       fontFamily: "mono",
       fontSize: "16",
       dateTimeFormat: "browser",
+      themeId: "noterious-night",
     },
     vaults: {
       topLevelFoldersAsVaults: false,
@@ -41,6 +42,7 @@ export function cloneClientPreferences(input: ClientPreferences): ClientPreferen
       fontFamily: input.ui.fontFamily,
       fontSize: input.ui.fontSize,
       dateTimeFormat: input.ui.dateTimeFormat,
+      themeId: input.ui.themeId,
     },
     vaults: {
       topLevelFoldersAsVaults: Boolean(input.vaults.topLevelFoldersAsVaults),
@@ -64,6 +66,7 @@ export function normalizeClientPreferences(input: unknown): ClientPreferences {
   const fontFamily = String(uiSource.fontFamily ?? defaults.ui.fontFamily).trim();
   const fontSize = String(uiSource.fontSize ?? defaults.ui.fontSize).trim();
   const dateTimeFormat = String(uiSource.dateTimeFormat ?? defaults.ui.dateTimeFormat).trim();
+  const themeId = String(uiSource.themeId ?? defaults.ui.themeId).trim();
 
   return {
     hotkeys: {
@@ -80,6 +83,7 @@ export function normalizeClientPreferences(input: unknown): ClientPreferences {
       fontFamily: fontFamily === "sans" || fontFamily === "serif" ? fontFamily : "mono",
       fontSize: ["14", "15", "16", "17", "18", "19", "20"].includes(fontSize) ? fontSize : defaults.ui.fontSize,
       dateTimeFormat: dateTimeFormat === "iso" || dateTimeFormat === "de" ? dateTimeFormat : "browser",
+      themeId: themeId || defaults.ui.themeId,
     },
     vaults: {
       topLevelFoldersAsVaults: Boolean(vaultsSource.topLevelFoldersAsVaults),

@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.8] - 2026-04-26
+
+### Added
+- First-class theme management with built-in themes, browser-local theme selection, and server-managed custom theme upload/delete.
+- A larger built-in theme library including Arc, Arc Dark, Nord, Dracula, Solarized, Catppuccin, and Base16 variants.
+- Dedicated user-facing theme authoring documentation covering the JSON theme format and token reference.
+
+### Changed
+- The web UI now applies themes across the sidebar, settings modal, user menu, vault switcher, rendered tables, and the table editor.
+- The README is now user-focused and the API and architecture docs now match the current single-account, top-level-vault, theme-enabled app model.
+
+### Fixed
+- Code blocks, active-line highlighting, modal controls, and topbar path styling now follow the selected theme instead of leaking static dark-theme styling.
+- The desktop sidebar no longer grows with long page content and now scrolls within its own fixed viewport height.
+
 ## [v0.1.7] - 2026-04-26
 
 ### Added

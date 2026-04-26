@@ -16,6 +16,7 @@ import (
 	"github.com/carnager/noterious/internal/notify"
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/settings"
+	"github.com/carnager/noterious/internal/themes"
 	"github.com/carnager/noterious/internal/vault"
 	"github.com/carnager/noterious/internal/vaults"
 )
@@ -24,6 +25,7 @@ type App struct {
 	cfg                    config.Config
 	configuredVault        vaults.Vault
 	auth                   *auth.Service
+	themes                 *themes.Service
 	vaults                 *vaults.Service
 	index                  *index.Service
 	store                  *settings.Store
@@ -75,6 +77,12 @@ func New(cfg config.Config) (*App, error) {
 		return nil, fmt.Errorf("bootstrap auth: %w", err)
 	}
 	vaultService := vault.NewService(cfg.VaultPath)
+	themeService, err := themes.NewService(cfg.DataDir)
+	if err != nil {
+		_ = vaultRegistry.Close()
+		_ = authService.Close()
+		return nil, fmt.Errorf("init theme store: %w", err)
+	}
 	indexService := index.NewService(cfg.DataDir)
 	queryService := query.NewService()
 	documentService, err := documents.NewService(cfg.VaultPath)
@@ -120,6 +128,7 @@ func New(cfg config.Config) (*App, error) {
 		Settings:      settingsStore,
 		Documents:     documentService,
 		History:       historyService,
+		Themes:        themeService,
 		Vaults:        vaultRegistry,
 		Vault:         vaultService,
 		Index:         indexService,
@@ -140,6 +149,7 @@ func New(cfg config.Config) (*App, error) {
 		cfg:                    cfg,
 		configuredVault:        configuredVault,
 		auth:                   authService,
+		themes:                 themeService,
 		vaults:                 vaultRegistry,
 		index:                  indexService,
 		store:                  settingsStore,

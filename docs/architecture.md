@@ -40,12 +40,26 @@ The SQLite index is disposable and rebuildable from the markdown vault.
 
 Vault-scoped derived state is separated by resolved vault identity. The configured runtime vault root and user-selected current vaults are not the same concept.
 
+Custom theme files are not stored in the vault. They live under the server data directory in `themes/` and are part of server-managed application state.
+
+Appearance choices such as selected theme, font family, font size, date/time display, and hotkeys are browser-local UI preferences rather than shared server settings.
+
 Background services currently stay scoped to the configured runtime vault root:
 
 - the filesystem watcher polls that configured vault path directly
 - the ntfy notifier polls that configured vault's derived index when it exists
 
 Request-time API handling resolves the current vault separately from auth/session state.
+
+## Scope Model
+
+The current app model is:
+
+1. one configured vault root on disk
+2. optional top-level folder switching below that root
+3. one account per deployment
+
+That means “extra vaults” in the UI are direct child folders under the configured root, not independently configured storage backends.
 
 ## Rendering Model
 

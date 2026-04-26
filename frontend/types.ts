@@ -207,10 +207,59 @@ export interface Preferences {
   vaults: VaultPreferences;
 }
 
+export type ThemeSource = "builtin" | "custom";
+export type ThemeKind = "dark" | "light";
+
+export interface ThemeTokens {
+  bg: string;
+  bgGradientStart: string;
+  bgGradientEnd: string;
+  bgGlowA: string;
+  bgGlowB: string;
+  sidebar: string;
+  sidebarSoft: string;
+  panel: string;
+  panelStrong: string;
+  surface: string;
+  surfaceSoft: string;
+  overlay: string;
+  overlaySoft: string;
+  table: string;
+  tableHeader: string;
+  editorOverlay: string;
+  ink: string;
+  muted: string;
+  accent: string;
+  accentSoft: string;
+  warn: string;
+  line: string;
+  lineStrong: string;
+  focusRing: string;
+  selection: string;
+  shadow: string;
+  themeColor: string;
+}
+
+export interface ThemeRecord {
+  version: number;
+  id: string;
+  name: string;
+  source: ThemeSource;
+  kind: ThemeKind;
+  description: string;
+  tokens: ThemeTokens;
+}
+
+export interface ThemeListResponse {
+  themes: ThemeRecord[];
+  count: number;
+}
+
 export interface UISettings {
   fontFamily: "mono" | "sans" | "serif";
   fontSize: string;
   dateTimeFormat: "browser" | "iso" | "de";
+  themeId: string;
 }
 
 export interface VaultPreferences {

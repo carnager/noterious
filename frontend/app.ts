@@ -152,6 +152,17 @@ import {
   renderSettingsForm as renderSettingsFormUI,
 } from "./settingsUi";
 import { closeSlashMenu, documentCommandsForText, maybeOpenSlashMenu, moveSlashSelection, openSlashMenuWithCommands, wikilinkCommandsForContext } from "./slashMenu";
+import {
+  applyTheme,
+  builtinThemeLibrary,
+  defaultThemeId,
+  loadStoredThemeCache,
+  mergeThemeCache,
+  removeThemeFromCache,
+  resolveTheme,
+  saveStoredThemeCache,
+  normalizeThemeListResponse,
+} from "./themes";
 import type {
   AppSettings as SettingsModel,
   AuthSessionResponse,
@@ -183,6 +194,8 @@ import type {
   SearchPayload,
   SlashMenuContext,
   TaskRecord,
+  ThemeListResponse,
+  ThemeRecord,
   TrashListResponse,
   TrashPageRecord,
   UserSettingsResponse,
@@ -299,6 +312,11 @@ interface AppState {
   configHomePage: string;
   homePage: string;
   topLevelFoldersAsVaults: boolean;
+  themeLibraryLoaded: boolean;
+  themeLibrary: ThemeRecord[];
+  savedThemeId: string;
+  previewThemeId: string;
+  themeCache: Record<string, ThemeRecord>;
   markdownEditorApi: NoteriousEditorApi | null;
   windowBlurred: boolean;
   restoreFocusSpec: FocusRestoreSpec | null;
@@ -413,6 +431,11 @@ interface TreeContextMenuState {
     configHomePage: "",
     homePage: "",
     topLevelFoldersAsVaults: false,
+    themeLibraryLoaded: false,
+    themeLibrary: builtinThemeLibrary(),
+    savedThemeId: defaultThemeId,
+    previewThemeId: defaultThemeId,
+    themeCache: {},
     markdownEditorApi: null,
     windowBlurred: false,
     restoreFocusSpec: null,
@@ -584,6 +607,11 @@ interface TreeContextMenuState {
     settingsUserNtfyTopicUrl: requiredElement<HTMLInputElement>("settings-user-ntfy-topic-url"),
     settingsUserNtfyToken: requiredElement<HTMLInputElement>("settings-user-ntfy-token"),
     settingsUserTopLevelVaults: requiredElement<HTMLInputElement>("settings-user-top-level-vaults"),
+    settingsTheme: requiredElement<HTMLSelectElement>("settings-ui-theme"),
+    settingsThemeUpload: requiredElement<HTMLButtonElement>("settings-theme-upload"),
+    settingsThemeDelete: requiredElement<HTMLButtonElement>("settings-theme-delete"),
+    settingsThemeUploadInput: requiredElement<HTMLInputElement>("settings-theme-upload-input"),
+    settingsThemeHelp: requiredElement<HTMLElement>("settings-theme-help"),
     settingsFontFamily: requiredElement<HTMLSelectElement>("settings-ui-font-family"),
     settingsFontSize: requiredElement<HTMLSelectElement>("settings-ui-font-size"),
     settingsDateTimeFormat: requiredElement<HTMLSelectElement>("settings-ui-date-time-format"),
@@ -985,6 +1013,11 @@ interface TreeContextMenuState {
       setNoteStatus("Vault list failed: " + errorMessage(error));
     });
     await Promise.all([
+      loadThemes().catch(function (error) {
+        state.themeLibraryLoaded = false;
+        renderSettingsForm();
+        setNoteStatus("Theme library failed: " + errorMessage(error));
+      }),
       loadSettings(),
       loadUserSettings().catch(function (error) {
         setNoteStatus("User settings failed: " + errorMessage(error));
@@ -1926,6 +1959,34 @@ interface TreeContextMenuState {
     renderSettingsForm();
   }
 
+  function currentThemeID(): string {
+    return String(state.settings.preferences.ui.themeId || defaultThemeId).trim() || defaultThemeId;
+  }
+
+  function refreshThemeCache(themes: ThemeRecord[]): void {
+    state.themeCache = mergeThemeCache(themes);
+    saveStoredThemeCache(state.themeCache);
+  }
+
+  function syncThemeSelection(themeID: string): void {
+    const normalizedID = String(themeID || "").trim() || defaultThemeId;
+    state.settings.preferences.ui.themeId = normalizedID;
+    state.previewThemeId = normalizedID;
+  }
+
+  function applyCurrentTheme(themeID?: string): ThemeRecord {
+    const resolved = resolveTheme(themeID || currentThemeID(), state.themeLibrary, state.themeCache);
+    applyTheme(resolved);
+    return resolved;
+  }
+
+  function restoreSavedThemePreview(): void {
+    const savedThemeID = state.savedThemeId || defaultThemeId;
+    syncThemeSelection(savedThemeID);
+    applyCurrentTheme(savedThemeID);
+    renderSettingsForm();
+  }
+
   function applyUIPreferences(): void {
     const root = document.documentElement;
     const fontFamily = state.settings.preferences.ui.fontFamily || "mono";
@@ -1941,6 +2002,88 @@ interface TreeContextMenuState {
     root.style.setProperty("--app-font-size", fontSize + "px");
     setDateTimeDisplayFormat(dateTimeFormat);
     markdownEditorSetDateTimeFormat(state, dateTimeFormat);
+    applyCurrentTheme(currentThemeID());
+  }
+
+  async function loadThemes() {
+    const payload = normalizeThemeListResponse(await fetchJSON<ThemeListResponse>("/api/themes"));
+    state.themeLibrary = Array.isArray(payload.themes) && payload.themes.length > 0
+      ? payload.themes.slice()
+      : builtinThemeLibrary();
+    state.themeLibraryLoaded = true;
+    refreshThemeCache(state.themeLibrary);
+    const currentThemeIDValue = currentThemeID();
+    const resolved = resolveTheme(currentThemeIDValue, state.themeLibrary, state.themeCache);
+    const savedThemeStillExists = resolved.id === currentThemeIDValue;
+    if (!savedThemeStillExists) {
+      syncThemeSelection(defaultThemeId);
+      saveStoredClientPreferences(state.settings.preferences);
+      state.savedThemeId = defaultThemeId;
+    }
+    applyCurrentTheme(currentThemeID());
+    renderSettingsForm();
+  }
+
+  function currentSelectedTheme(): ThemeRecord | null {
+    const selectedID = String(els.settingsTheme.value || currentThemeID()).trim();
+    return state.themeLibrary.find(function (theme) {
+      return theme.id === selectedID;
+    }) || null;
+  }
+
+  function previewTheme(themeID: string, persistSelection: boolean): void {
+    syncThemeSelection(themeID);
+    applyCurrentTheme(themeID);
+    if (persistSelection) {
+      state.savedThemeId = currentThemeID();
+      saveStoredClientPreferences(state.settings.preferences);
+    }
+    renderSettingsForm();
+  }
+
+  async function uploadThemeFile(file: File): Promise<void> {
+    const body = new FormData();
+    body.append("file", file);
+    const created = await fetchJSON<ThemeRecord>("/api/themes", {
+      method: "POST",
+      body: body,
+    });
+    state.themeLibrary = builtinThemeLibrary().concat(
+      state.themeLibrary.filter(function (theme) {
+        return theme.source === "custom" && theme.id !== created.id;
+      }),
+      [created],
+    );
+    refreshThemeCache(state.themeLibrary);
+    previewTheme(created.id, false);
+    els.settingsStatus.textContent = 'Theme "' + created.name + '" uploaded.';
+  }
+
+  async function deleteCurrentTheme(): Promise<void> {
+    const selectedTheme = currentSelectedTheme();
+    if (!selectedTheme || selectedTheme.source !== "custom") {
+      return;
+    }
+    if (!window.confirm('Delete theme "' + selectedTheme.name + '"?')) {
+      return;
+    }
+    await fetchJSON<{ ok: boolean }>("/api/themes/" + encodeURIComponent(selectedTheme.id), {
+      method: "DELETE",
+    });
+    state.themeLibrary = state.themeLibrary.filter(function (theme) {
+      return theme.id !== selectedTheme.id;
+    });
+    state.themeCache = removeThemeFromCache(state.themeCache, selectedTheme.id);
+    saveStoredThemeCache(state.themeCache);
+    const removedActiveTheme = state.savedThemeId === selectedTheme.id || state.previewThemeId === selectedTheme.id;
+    if (removedActiveTheme) {
+      syncThemeSelection(defaultThemeId);
+      state.savedThemeId = defaultThemeId;
+      saveStoredClientPreferences(state.settings.preferences);
+      applyCurrentTheme(defaultThemeId);
+    }
+    renderSettingsForm();
+    els.settingsStatus.textContent = 'Theme "' + selectedTheme.name + '" deleted.';
   }
 
   async function loadSettings() {
@@ -2641,6 +2784,8 @@ interface TreeContextMenuState {
 
   function setSettingsOpen(open: boolean): void {
     if (open) {
+      state.savedThemeId = currentThemeID();
+      state.previewThemeId = currentThemeID();
       rememberNoteFocus();
       els.searchModalShell.classList.add("hidden");
       els.commandModalShell.classList.add("hidden");
@@ -2664,7 +2809,7 @@ interface TreeContextMenuState {
           return;
         }
         if (state.settingsSection === "appearance") {
-          focusWithoutScroll(els.settingsFontFamily);
+          focusWithoutScroll(els.settingsTheme);
           return;
         }
         focusWithoutScroll(els.closeSettingsModal);
@@ -2675,6 +2820,9 @@ interface TreeContextMenuState {
   }
 
   function closeSettingsModal() {
+    if (state.previewThemeId !== state.savedThemeId) {
+      restoreSavedThemePreview();
+    }
     setSettingsOpen(false);
   }
 
@@ -2734,6 +2882,7 @@ interface TreeContextMenuState {
   function collectClientPreferencesForm(): ClientPreferences {
     return normalizeClientPreferences({
       ui: {
+        themeId: String(els.settingsTheme.value || defaultThemeId).trim(),
         fontFamily: String(els.settingsFontFamily.value || "mono").trim(),
         fontSize: String(els.settingsFontSize.value || "16").trim(),
         dateTimeFormat: String(els.settingsDateTimeFormat.value || "browser").trim(),
@@ -2757,6 +2906,8 @@ interface TreeContextMenuState {
   function applyClientPreferences(preferences: ClientPreferences): void {
     state.settings.preferences = cloneClientPreferences(preferences);
     state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
+    state.savedThemeId = currentThemeID();
+    state.previewThemeId = currentThemeID();
     saveStoredClientPreferences(state.settings.preferences);
     renderHelpShortcuts();
     renderSettingsForm();
@@ -3835,6 +3986,32 @@ interface TreeContextMenuState {
       closeSettingsModal();
       restoreNoteFocus();
     });
+    on(els.settingsTheme, "change", function () {
+      previewTheme(String(els.settingsTheme.value || defaultThemeId).trim() || defaultThemeId, false);
+    });
+    on(els.settingsThemeUpload, "click", function () {
+      els.settingsThemeUploadInput.value = "";
+      els.settingsThemeUploadInput.click();
+    });
+    on(els.settingsThemeUploadInput, "change", function () {
+      const file = els.settingsThemeUploadInput.files && els.settingsThemeUploadInput.files[0]
+        ? els.settingsThemeUploadInput.files[0]
+        : null;
+      if (!file) {
+        return;
+      }
+      els.settingsStatus.textContent = "Uploading theme…";
+      uploadThemeFile(file).catch(function (error) {
+        els.settingsStatus.textContent = "Theme upload failed: " + errorMessage(error);
+      }).finally(function () {
+        els.settingsThemeUploadInput.value = "";
+      });
+    });
+    on(els.settingsThemeDelete, "click", function () {
+      deleteCurrentTheme().catch(function (error) {
+        els.settingsStatus.textContent = "Theme delete failed: " + errorMessage(error);
+      });
+    });
     on(els.saveSettings, "click", function () {
       persistSettings().catch(function (error) {
         els.settingsStatus.textContent = errorMessage(error);
@@ -4146,8 +4323,11 @@ interface TreeContextMenuState {
     setRailOpen(!window.matchMedia("(max-width: 1180px)").matches);
     setPageSearchOpen(false);
     setSourceOpen(false);
+    state.themeCache = loadStoredThemeCache();
     state.settings.preferences = loadStoredClientPreferences();
     state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
+    state.savedThemeId = currentThemeID();
+    state.previewThemeId = currentThemeID();
     applyUIPreferences();
     renderNoteStudio();
     renderPageTasks([]);

@@ -489,6 +489,16 @@
                   <option value="serif">Serif</option>
                 </select>
               </label>
+              <label class="search modal-field-wide">
+                <span>Theme</span>
+                <select id="settings-ui-theme"></select>
+              </label>
+              <div class="modal-field-wide settings-theme-actions">
+                <button type="button" id="settings-theme-upload">Upload Theme</button>
+                <button type="button" id="settings-theme-delete">Delete Theme</button>
+                <input id="settings-theme-upload-input" type="file" accept=".json,application/json" class="hidden" aria-hidden="true">
+              </div>
+              <p id="settings-theme-help" class="settings-theme-help modal-field-wide"></p>
               <label class="search">
                 <span>Font Size</span>
                 <select id="settings-ui-font-size">

@@ -1,121 +1,96 @@
 # Noterious
 
-Noterious is a server-first, markdown-backed knowledge base with markdown files on disk as the source of truth.
+Noterious is a server-first markdown notebook. Your notes stay as markdown files on disk, while the server handles indexing, queries, rendering, history, notifications, and the web UI.
 
-## Goals
+## What It Does
 
-- Markdown files remain the source of truth.
-- The server owns indexing, querying, rendering, events, and API access.
-- Clients stay thin and fast, especially on weak devices.
-- Offline support is graceful degradation, not full offline equivalence.
-- UI sugar edits semantic entities and round-trips back to markdown cleanly.
+- keeps markdown files as the source of truth
+- serves a web UI for browsing, editing, tasks, backlinks, and embedded queries
+- builds a disposable SQLite index for fast search and query execution
+- supports one account per deployment
+- can treat top-level folders under the vault root as switchable vault scopes
+- supports built-in and custom UI themes
 
-## Product Shape
+## Quick Start
 
-- Go server
-- One configured vault root on disk
-- Optional top-level folder switching directly below that vault root
-- SQLite-backed derived index
-- HTTP API for web and companion clients
-- SSE for live invalidation
-- Web UI as a thin editor/viewer
-- Android companion using the same API directly
-
-## Early Scope
-
-Phase 1 is intentionally narrow:
-
-- vault bootstrap and config loading
-- HTTP server with health and metadata endpoints
-- page/query architecture docs
-- package layout for vault, markdown, index, query, and HTTP API layers
-
-## Repo Layout
-
-- `cmd/noterious`: application entrypoint
-- `internal/app`: top-level application wiring
-- `internal/config`: configuration loading
-- `internal/httpapi`: HTTP router and handlers
-- `internal/vault`: vault filesystem abstraction
-- `internal/markdown`: markdown parsing and rewrite layer
-- `internal/index`: derived index services
-- `internal/query`: query model and execution interfaces
-- `docs`: architecture and API design
-
-## Build And Run
-
-Prerequisites:
+Requirements:
 
 - Go
 - Node.js and npm
 
-Install frontend dependencies once:
+Install frontend dependencies:
 
 ```bash
 npm install
 ```
 
-Build the embedded frontend assets:
+Build the embedded UI:
 
 ```bash
 npm run build:ui
-```
-
-Verify that committed embedded assets are up to date:
-
-```bash
-npm run verify:ui
-```
-
-Or use the local build wrapper:
-
-```bash
-make build
-```
-
-Build the server binary:
-
-```bash
-go build -o noterious ./cmd/noterious
 ```
 
 Run the server:
 
 ```bash
-./noterious
-```
-
-Or override the listen port directly:
-
-```bash
-./noterious -port 9090
-```
-
-The startup flags currently support:
-
-- `--listen-addr`
-- `--port`
-- `--data-dir`
-- `--vault-dir`
-
-For local iteration you can also run the app directly without creating a binary first:
-
-```bash
-npm run build:ui
 go run ./cmd/noterious
 ```
 
-Important: the web UI is served through Go `embed`, so after `npm run build:ui` you must restart the Go process for updated frontend assets to be included.
+Or build a binary first:
 
-The repository also includes CI that rebuilds the embedded frontend assets and fails if committed generated files are stale.
+```bash
+go build -o noterious ./cmd/noterious
+./noterious
+```
 
-By default the app uses:
+By default Noterious uses:
 
 - vault root: `./vault`
 - data dir: `./data`
 - listen address: `:3000`
 
-These can be overridden with:
+Open `http://localhost:3000`.
+
+On first startup against an empty data directory:
+
+- if `NOTERIOUS_AUTH_BOOTSTRAP_USERNAME` and `NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD` are set, that account is created automatically
+- otherwise the web UI starts in first-run setup mode and asks you to create the initial account
+
+## Vault Model
+
+Noterious has one configured vault root on disk.
+
+That root is itself a valid note space:
+
+- `<vault-root>`
+
+Optional switchable vault scopes are just direct child folders below it:
+
+- `<vault-root>/<top-level-folder>`
+
+If you enable `Use top-level folders as vaults` in settings, the UI can switch between those top-level folders. This is a UI/runtime scope feature, not a separate storage backend.
+
+Background services stay rooted at the configured vault root:
+
+- the filesystem watcher polls the configured root
+- the ntfy notifier polls the configured root index when it exists
+
+Request-time page/task/query routes run against the currently selected vault scope for that session.
+
+## Themes
+
+Theme selection is browser-local.
+
+- built-in themes ship with the app
+- custom themes are uploaded through the settings modal
+- uploaded theme files are stored on the server under `<data-dir>/themes`
+- deleting a custom theme removes it from the shared server theme library
+
+To create your own themes, see [docs/themes.md](/home/carnager/Code/noterious/docs/themes.md:1).
+
+## Configuration
+
+Useful environment variables:
 
 - `NOTERIOUS_VAULT_PATH`
 - `NOTERIOUS_DATA_DIR`
@@ -127,77 +102,43 @@ These can be overridden with:
 - `NOTERIOUS_AUTH_BOOTSTRAP_USERNAME`
 - `NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD`
 
-CLI flags override the corresponding environment variables when both are set.
+CLI flags currently support:
 
-## Vault Layout
+- `--listen-addr`
+- `--port`
+- `--data-dir`
+- `--vault-dir`
 
-The configured `vault root` is the server-level root directory.
+CLI flags override the corresponding environment variables.
 
-The vault root itself is a valid markdown vault.
+## Development
 
-Optional switchable vaults are just direct child folders below that root:
+Rebuild the embedded UI after frontend changes:
 
-- `<vault-root>/<top-level-folder>`
+```bash
+npm run build:ui
+```
 
-The web UI can treat those top-level folders as switchable scopes, or keep the root itself as the active vault.
+Verify committed generated assets:
 
-## Runtime Model
+```bash
+npm run verify:ui
+```
 
-At runtime, Noterious keeps two different vault concepts separate:
+The UI is served through Go `embed`, so after rebuilding the frontend you must restart the Go process to pick up the new files.
 
-- `configured runtime vault root`: the server-applied vault root from settings and process startup
-- `current vault`: the vault resolved for the current authenticated request or session
+## Docs
 
-That means:
+- [docs/api.md](/home/carnager/Code/noterious/docs/api.md:1) for HTTP endpoints
+- [docs/query-language.md](/home/carnager/Code/noterious/docs/query-language.md:1) for embedded query syntax
+- [docs/architecture.md](/home/carnager/Code/noterious/docs/architecture.md:1) for runtime/storage structure
+- [docs/themes.md](/home/carnager/Code/noterious/docs/themes.md:1) for custom theme authoring
 
-- `/api/meta` exposes both `runtimeVault` and `currentVault`
-- `/api/auth/vaults` exposes the configured root, discovered top-level vaults, and current session vault
-- page, task, link, and query routes run against the resolved current vault for that request
+## Service Setup
 
-Background services are intentionally tied to the configured runtime vault root, not the per-session current vault:
+The repository includes a user-level systemd unit template at [contrib/systemd/noterious.service](/home/carnager/Code/noterious/contrib/systemd/noterious.service:1). Copy it to `~/.config/systemd/user/noterious.service`, adjust the paths, then run:
 
-- the filesystem watcher polls the configured runtime vault root path
-- the ntfy notifier polls the configured runtime vault root index when that index exists
-
-Those background services do not currently fan out across every discovered top-level vault.
-
-The repository includes a user-level systemd unit template at [contrib/systemd/noterious.service](/home/carnager/Code/noterious/contrib/systemd/noterious.service). Copy it to `~/.config/systemd/user/noterious.service`, adjust the paths, then run `systemctl --user daemon-reload` and `systemctl --user enable --now noterious`.
-
-Auth is enabled for the server API. On first startup against an empty data directory, Noterious bootstraps one account:
-
-- If `NOTERIOUS_AUTH_BOOTSTRAP_USERNAME` and `NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD` are set, those credentials are used.
-- Otherwise the server starts in first-run setup mode and the web UI lets you create the initial account.
-
-The web UI now signs in through:
-
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
-- `GET /api/auth/me`
-- `GET /api/auth/vaults`
-- `PUT /api/auth/vault`
-- `GET /api/user/vaults`
-
-`GET /api/auth/vaults` returns the signed-in user's root vault, discovered child vaults, and current session vault in one snapshot so the frontend can apply its per-user top-level-folders preference without stitching together multiple APIs.
-`GET /api/auth/vaults` returns the configured root vault, discovered top-level vaults, and current session vault in one snapshot.
-
-## Planned Principles
-
-1. Markdown is canonical storage.
-2. The server exposes semantic APIs instead of raw text hacks.
-3. Expensive derived state is computed once on the server.
-4. Clients render cached or server-provided state, not full vault queries.
-5. Structured edits compile back to minimal markdown patches.
-
-## Exploratory UI
-
-The server now ships a small embedded exploratory UI at `/`.
-
-It is intentionally thin and API-driven:
-
-- note-first page browser with preview-first reading and edit mode
-- semantic task popup editing, including clickable tasks inside the rendered note
-- page context summaries for backlinks, links, and embedded queries
-- a hidden debug drawer for raw/derived views, saved queries, query lab, and SSE events
-- open-task snapshot for quick navigation across the vault
-
-The goal is fast dogfooding of the current API, not a polished long-term client yet.
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now noterious
+```

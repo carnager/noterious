@@ -25,6 +25,7 @@ import (
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/settings"
+	"github.com/carnager/noterious/internal/themes"
 	"github.com/carnager/noterious/internal/vault"
 	"github.com/carnager/noterious/internal/vaults"
 )
@@ -1861,6 +1862,7 @@ func TestProtectedAPIsRequireAuthWhenEnabled(t *testing.T) {
 		"/api/pages",
 		"/api/settings",
 		"/api/user/settings",
+		"/api/themes",
 		"/api/events",
 	} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
@@ -1876,6 +1878,170 @@ func TestProtectedAPIsRequireAuthWhenEnabled(t *testing.T) {
 	router.ServeHTTP(publicResponse, publicRequest)
 	if publicResponse.Code != http.StatusOK {
 		t.Fatalf("/api/healthz status = %d want %d", publicResponse.Code, http.StatusOK)
+	}
+}
+
+func TestThemesAPIListsBuiltinsAndManagesCustomThemes(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+	if err := os.MkdirAll(vaultDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "index.md"), []byte("# Home\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	authService := buildTestAuthService(t, dataDir, "alex", "secret-pass")
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Auth: authService,
+	})
+	cookie := loginTestUser(t, router, "alex", "secret-pass")
+
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/themes", nil)
+	listRequest.AddCookie(cookie)
+	listResponse := httptest.NewRecorder()
+	router.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/themes status = %d body=%s", listResponse.Code, listResponse.Body.String())
+	}
+	var listed struct {
+		Themes []struct {
+			ID     string `json:"id"`
+			Source string `json:"source"`
+		} `json:"themes"`
+	}
+	if err := json.Unmarshal(listResponse.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("Unmarshal(list) error = %v", err)
+	}
+	if len(listed.Themes) < 4 || listed.Themes[0].ID != "noterious-night" || listed.Themes[0].Source != "builtin" {
+		t.Fatalf("listed = %#v", listed)
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "soft-paper.json")
+	if err != nil {
+		t.Fatalf("CreateFormFile() error = %v", err)
+	}
+	if _, err := io.WriteString(part, `{
+  "version": 1,
+  "name": "Soft Paper",
+  "kind": "light",
+  "description": "test",
+  "tokens": {
+    "bg": "#ffffff",
+    "bgGradientStart": "#fafafa",
+    "bgGradientEnd": "#f3f3f3",
+    "bgGlowA": "rgba(0, 0, 0, 0.02)",
+    "bgGlowB": "rgba(0, 0, 0, 0.03)",
+    "panel": "rgba(255, 255, 255, 0.9)",
+    "panelStrong": "#efefef",
+    "surface": "#f5f5f5",
+    "surfaceSoft": "#fbfbfb",
+    "sidebar": "#f0e8dd",
+    "sidebarSoft": "rgba(240, 232, 221, 0.82)",
+    "overlay": "rgba(255, 252, 245, 0.98)",
+    "overlaySoft": "rgba(248, 243, 233, 0.94)",
+    "table": "rgba(245, 239, 228, 0.9)",
+    "tableHeader": "rgba(51, 102, 153, 0.08)",
+    "editorOverlay": "rgba(248, 243, 233, 0.98)",
+    "ink": "#222222",
+    "muted": "#666666",
+    "accent": "#336699",
+    "accentSoft": "rgba(51, 102, 153, 0.14)",
+    "warn": "#bb4444",
+    "line": "rgba(51, 102, 153, 0.13)",
+    "lineStrong": "rgba(51, 102, 153, 0.22)",
+    "focusRing": "rgba(51, 102, 153, 0.32)",
+    "selection": "rgba(51, 102, 153, 0.18)",
+    "shadow": "0 8px 18px rgba(0, 0, 0, 0.12)",
+    "themeColor": "#ffffff"
+  }
+}`); err != nil {
+		t.Fatalf("WriteString() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close() error = %v", err)
+	}
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/themes", &body)
+	createRequest.Header.Set("Content-Type", writer.FormDataContentType())
+	createRequest.AddCookie(cookie)
+	createResponse := httptest.NewRecorder()
+	router.ServeHTTP(createResponse, createRequest)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("POST /api/themes status = %d body=%s", createResponse.Code, createResponse.Body.String())
+	}
+	var created struct {
+		ID     string `json:"id"`
+		Source string `json:"source"`
+	}
+	if err := json.Unmarshal(createResponse.Body.Bytes(), &created); err != nil {
+		t.Fatalf("Unmarshal(create) error = %v", err)
+	}
+	if created.ID != "soft-paper" || created.Source != "custom" {
+		t.Fatalf("created = %#v", created)
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/themes/soft-paper", nil)
+	deleteRequest.AddCookie(cookie)
+	deleteResponse := httptest.NewRecorder()
+	router.ServeHTTP(deleteResponse, deleteRequest)
+	if deleteResponse.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/themes/soft-paper status = %d body=%s", deleteResponse.Code, deleteResponse.Body.String())
+	}
+}
+
+func TestThemesAPIRejectsInvalidThemeAndBuiltinDelete(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+	if err := os.MkdirAll(vaultDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "index.md"), []byte("# Home\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	authService := buildTestAuthService(t, dataDir, "alex", "secret-pass")
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Auth: authService,
+	})
+	cookie := loginTestUser(t, router, "alex", "secret-pass")
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "broken.json")
+	if err != nil {
+		t.Fatalf("CreateFormFile() error = %v", err)
+	}
+	if _, err := io.WriteString(part, `{"version":1,"name":"Broken","kind":"dark","tokens":{"bg":"#111111"}}`); err != nil {
+		t.Fatalf("WriteString() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close() error = %v", err)
+	}
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/themes", &body)
+	createRequest.Header.Set("Content-Type", writer.FormDataContentType())
+	createRequest.AddCookie(cookie)
+	createResponse := httptest.NewRecorder()
+	router.ServeHTTP(createResponse, createRequest)
+	if createResponse.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/themes invalid status = %d body=%s", createResponse.Code, createResponse.Body.String())
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/themes/noterious-night", nil)
+	deleteRequest.AddCookie(cookie)
+	deleteResponse := httptest.NewRecorder()
+	router.ServeHTTP(deleteResponse, deleteRequest)
+	if deleteResponse.Code != http.StatusConflict {
+		t.Fatalf("DELETE /api/themes/noterious-night status = %d body=%s", deleteResponse.Code, deleteResponse.Body.String())
 	}
 }
 
@@ -10923,6 +11089,13 @@ func buildTestRouterWithDeps(t *testing.T, vaultDir, dataDir string, deps Depend
 			}
 		}
 		deps.Vaults = vaultRegistry
+	}
+	if deps.Themes == nil {
+		themeService, err := themes.NewService(dataDir)
+		if err != nil {
+			t.Fatalf("themes.NewService() error = %v", err)
+		}
+		deps.Themes = themeService
 	}
 
 	return NewRouter(deps)
