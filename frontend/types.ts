@@ -140,7 +140,7 @@ export interface VaultHealth {
   message?: string;
 }
 
-export interface WorkspaceRecord {
+export interface VaultRecord {
   id: number;
   key: string;
   name: string;
@@ -153,11 +153,10 @@ export interface WorkspaceRecord {
 export interface MetaResponse {
   name: string;
   listenAddr: string;
-  workspace?: WorkspaceRecord;
-  vaultPath: string;
+  runtimeVault: VaultSettings;
+  currentVault?: VaultRecord;
   vaultHealth: VaultHealth;
   dataDir: string;
-  homePage: string;
   database: string;
   serverTime: string;
   serverFirst: boolean;
@@ -167,7 +166,6 @@ export interface MetaResponse {
 export interface AuthenticatedUser {
   id: number;
   username: string;
-  role: string;
   createdAt: string;
   lastLoginAt?: string;
   mustChangePassword: boolean;
@@ -176,8 +174,20 @@ export interface AuthenticatedUser {
 export interface AuthSessionResponse {
   authenticated: boolean;
   user?: AuthenticatedUser;
-  workspace?: WorkspaceRecord;
+  vault?: VaultRecord;
   setupRequired?: boolean;
+}
+
+export interface AuthVaultsResponse {
+  rootVault?: VaultRecord;
+  vaults: VaultRecord[];
+  count: number;
+  currentVault?: VaultRecord;
+}
+
+export interface VaultListResponse {
+  vaults: VaultRecord[];
+  count: number;
 }
 
 export interface Hotkeys {
@@ -194,6 +204,7 @@ export interface Hotkeys {
 export interface Preferences {
   hotkeys: Hotkeys;
   ui: UISettings;
+  vaults: VaultPreferences;
 }
 
 export interface UISettings {
@@ -202,7 +213,11 @@ export interface UISettings {
   dateTimeFormat: "browser" | "iso" | "de";
 }
 
-export interface WorkspaceSettings {
+export interface VaultPreferences {
+  topLevelFoldersAsVaults: boolean;
+}
+
+export interface VaultSettings {
   vaultPath: string;
   homePage: string;
 }
@@ -222,7 +237,7 @@ export interface UserSettings {
 }
 
 export interface ServerSettings {
-  workspace: WorkspaceSettings;
+  vault: VaultSettings;
   notifications: ServerNotificationSettings;
 }
 
@@ -233,7 +248,7 @@ export interface AppSettings extends ServerSettings {
 
 export interface SettingsResponse {
   settings: ServerSettings;
-  appliedWorkspace: WorkspaceSettings;
+  appliedVault: VaultSettings;
   restartRequired: boolean;
 }
 

@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/carnager/noterious/internal/vault"
-	"github.com/carnager/noterious/internal/workspaces"
+	"github.com/carnager/noterious/internal/vaults"
 )
 
 type Service struct {
@@ -57,14 +57,14 @@ func (s *Service) Close() error {
 }
 
 func (s *Service) DatabasePath() string {
-	return s.DatabasePathForWorkspace(workspaces.LegacyWorkspaceID)
+	return s.DatabasePathForVault(vaults.ConfiguredVaultID)
 }
 
-func (s *Service) DatabasePathForWorkspace(workspaceID int64) string {
-	if workspaceID <= 0 {
-		return filepath.Join(s.dataDir, "noterious.db")
+func (s *Service) DatabasePathForVault(vaultID int64) string {
+	if vaultID <= 0 {
+		return filepath.Join(s.dataDir, "index", "default.db")
 	}
-	return filepath.Join(s.dataDir, "index", fmt.Sprintf("workspace-%d.db", workspaceID))
+	return filepath.Join(s.dataDir, "index", fmt.Sprintf("vault-%d.db", vaultID))
 }
 
 func (s *Service) RebuildFromVault(ctx context.Context, vaultService *vault.Service) error {
@@ -137,7 +137,7 @@ func (s *Service) GetPage(ctx context.Context, pagePath string) (PageRecord, err
 	if err != nil {
 		return PageRecord{}, err
 	}
-	record.WorkspaceID = workspaces.WorkspaceIDFromContext(ctx)
+	record.VaultID = vaults.VaultIDFromContext(ctx)
 	return record, nil
 }
 
@@ -150,9 +150,9 @@ func (s *Service) GetBacklinks(ctx context.Context, pagePath string) ([]Backlink
 	if err != nil {
 		return nil, err
 	}
-	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	vaultID := vaults.VaultIDFromContext(ctx)
 	for idx := range backlinks {
-		backlinks[idx].WorkspaceID = workspaceID
+		backlinks[idx].VaultID = vaultID
 	}
 	return backlinks, nil
 }
@@ -166,9 +166,9 @@ func (s *Service) ListTasks(ctx context.Context) ([]Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	vaultID := vaults.VaultIDFromContext(ctx)
 	for idx := range tasks {
-		tasks[idx].WorkspaceID = workspaceID
+		tasks[idx].VaultID = vaultID
 	}
 	return tasks, nil
 }
@@ -182,7 +182,7 @@ func (s *Service) GetTask(ctx context.Context, ref string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	task.WorkspaceID = workspaces.WorkspaceIDFromContext(ctx)
+	task.VaultID = vaults.VaultIDFromContext(ctx)
 	return task, nil
 }
 
@@ -195,9 +195,9 @@ func (s *Service) ListPages(ctx context.Context) ([]PageSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	vaultID := vaults.VaultIDFromContext(ctx)
 	for idx := range pages {
-		pages[idx].WorkspaceID = workspaceID
+		pages[idx].VaultID = vaultID
 	}
 	return pages, nil
 }
@@ -211,9 +211,9 @@ func (s *Service) ListLinks(ctx context.Context) ([]Link, error) {
 	if err != nil {
 		return nil, err
 	}
-	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	vaultID := vaults.VaultIDFromContext(ctx)
 	for idx := range links {
-		links[idx].WorkspaceID = workspaceID
+		links[idx].VaultID = vaultID
 	}
 	return links, nil
 }
@@ -227,9 +227,9 @@ func (s *Service) ListSavedQueries(ctx context.Context) ([]SavedQuery, error) {
 	if err != nil {
 		return nil, err
 	}
-	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	vaultID := vaults.VaultIDFromContext(ctx)
 	for idx := range queries {
-		queries[idx].WorkspaceID = workspaceID
+		queries[idx].VaultID = vaultID
 	}
 	return queries, nil
 }
@@ -243,7 +243,7 @@ func (s *Service) GetSavedQuery(ctx context.Context, name string) (SavedQuery, e
 	if err != nil {
 		return SavedQuery{}, err
 	}
-	query.WorkspaceID = workspaces.WorkspaceIDFromContext(ctx)
+	query.VaultID = vaults.VaultIDFromContext(ctx)
 	return query, nil
 }
 
@@ -256,7 +256,7 @@ func (s *Service) PutSavedQuery(ctx context.Context, query SavedQuery) (SavedQue
 	if err != nil {
 		return SavedQuery{}, err
 	}
-	saved.WorkspaceID = workspaces.WorkspaceIDFromContext(ctx)
+	saved.VaultID = vaults.VaultIDFromContext(ctx)
 	return saved, nil
 }
 
@@ -285,9 +285,9 @@ func (s *Service) GetQueryBlocks(ctx context.Context, pagePath string) ([]QueryB
 	if err != nil {
 		return nil, err
 	}
-	workspaceID := workspaces.WorkspaceIDFromContext(ctx)
+	vaultID := vaults.VaultIDFromContext(ctx)
 	for idx := range blocks {
-		blocks[idx].WorkspaceID = workspaceID
+		blocks[idx].VaultID = vaultID
 	}
 	return blocks, nil
 }
@@ -309,89 +309,37 @@ func (s *Service) ListQueryPagesByDatasetAndPage(ctx context.Context, datasets [
 }
 
 func (s *Service) storeForContext(ctx context.Context) (*SQLiteStore, error) {
-	return s.storeForWorkspace(ctx, workspaces.WorkspaceIDFromContext(ctx))
+	return s.storeForVault(ctx, vaults.VaultIDFromContext(ctx))
 }
 
-func (s *Service) storeForWorkspace(ctx context.Context, workspaceID int64) (*SQLiteStore, error) {
+func (s *Service) storeForVault(ctx context.Context, vaultID int64) (*SQLiteStore, error) {
 	s.mu.Lock()
-	if store := s.stores[workspaceID]; store != nil {
+	if store := s.stores[vaultID]; store != nil {
 		s.mu.Unlock()
 		return store, nil
 	}
 	s.mu.Unlock()
 
-	dbPath := s.DatabasePathForWorkspace(workspaceID)
+	dbPath := s.DatabasePathForVault(vaultID)
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		return nil, fmt.Errorf("create index workspace dir: %w", err)
+		return nil, fmt.Errorf("create index vault dir: %w", err)
 	}
-	targetMissing := true
-	if _, err := os.Stat(dbPath); err == nil {
-		targetMissing = false
-	} else if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("stat workspace index db: %w", err)
+	if _, err := os.Stat(dbPath); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("stat vault index db: %w", err)
 	}
 
 	store, err := OpenSQLitePath(ctx, dbPath)
 	if err != nil {
 		return nil, err
 	}
-	if workspaceID > workspaces.LegacyWorkspaceID && targetMissing {
-		if err := cloneLegacyWorkspaceData(ctx, store, filepath.Join(s.dataDir, "noterious.db")); err != nil {
-			_ = store.Close()
-			return nil, err
-		}
-	}
 
 	s.mu.Lock()
-	if existing := s.stores[workspaceID]; existing != nil {
+	if existing := s.stores[vaultID]; existing != nil {
 		s.mu.Unlock()
 		_ = store.Close()
 		return existing, nil
 	}
-	s.stores[workspaceID] = store
+	s.stores[vaultID] = store
 	s.mu.Unlock()
 	return store, nil
-}
-
-func cloneLegacyWorkspaceData(ctx context.Context, store *SQLiteStore, legacyPath string) error {
-	if store == nil || store.db == nil {
-		return nil
-	}
-	if _, err := os.Stat(legacyPath); os.IsNotExist(err) {
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("stat legacy index db: %w", err)
-	}
-	if legacyPath == store.Path() {
-		return nil
-	}
-
-	legacy, err := OpenSQLitePath(ctx, legacyPath)
-	if err != nil {
-		return nil
-	}
-	defer func() {
-		_ = legacy.Close()
-	}()
-
-	documents, err := legacy.listDocuments(ctx)
-	if err != nil {
-		return err
-	}
-	if len(documents) > 0 {
-		if err := store.ReplaceAll(ctx, documents); err != nil {
-			return err
-		}
-	}
-
-	savedQueries, err := legacy.ListSavedQueries(ctx)
-	if err != nil {
-		return nil
-	}
-	for _, savedQuery := range savedQueries {
-		if _, err := store.PutSavedQuery(ctx, savedQuery); err != nil {
-			return fmt.Errorf("migrate saved query %q: %w", savedQuery.Name, err)
-		}
-	}
-	return nil
 }

@@ -69,9 +69,9 @@ func TestPollSendsAndDeduplicatesDueNotifications(t *testing.T) {
 	defer func() {
 		_ = authService.Close()
 	}()
-	user, err := authService.CreateInitialAdmin(context.Background(), "ralf", "secret-pass")
+	user, err := authService.CreateInitialAccount(context.Background(), "ralf", "secret-pass")
 	if err != nil {
-		t.Fatalf("CreateInitialAdmin() error = %v", err)
+		t.Fatalf("CreateInitialAccount() error = %v", err)
 	}
 
 	requests := 0
@@ -118,5 +118,49 @@ func TestPollSendsAndDeduplicatesDueNotifications(t *testing.T) {
 	}
 	if requests != 1 {
 		t.Fatalf("requests after second poll = %d, want 1", requests)
+	}
+}
+
+func TestPollSkipsWhenIndexDatabaseDoesNotExist(t *testing.T) {
+	tempDir := t.TempDir()
+	indexDataDir := filepath.Join(tempDir, "index-data")
+	authDataDir := filepath.Join(tempDir, "auth-data")
+	notifyDataDir := filepath.Join(tempDir, "notify-data")
+
+	indexService := index.NewService(indexDataDir)
+	if err := indexService.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer func() {
+		_ = indexService.Close()
+	}()
+
+	authService, err := auth.NewService(context.Background(), authDataDir, "test_session", time.Hour)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	defer func() {
+		_ = authService.Close()
+	}()
+	if _, err := authService.CreateInitialAccount(context.Background(), "admin", "secret-pass"); err != nil {
+		t.Fatalf("CreateInitialAccount() error = %v", err)
+	}
+
+	service, err := NewService(notifyDataDir, indexService, authService)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	defaultIndexDB := indexService.DatabasePath()
+	if _, err := os.Stat(defaultIndexDB); !os.IsNotExist(err) {
+		t.Fatalf("default index db exists before Poll(): %v", err)
+	}
+
+	if err := service.Poll(context.Background()); err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+
+	if _, err := os.Stat(defaultIndexDB); !os.IsNotExist(err) {
+		t.Fatalf("default index db exists after Poll(): %v", err)
 	}
 }

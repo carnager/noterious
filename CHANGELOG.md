@@ -2,12 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.7] - 2026-04-26
+
+### Added
+- Shared vault-resolution flow for auth and request handling, plus regression coverage for first-use index creation when switching into an unindexed top-level vault.
+- Focused frontend regression coverage for settings persistence so client-preference rerenders no longer wipe unsaved notification fields.
+
+### Changed
+- Collapsed the runtime model back to one configured vault root with optional top-level folder switching, removing the old per-user-root vault layout.
+- Simplified auth toward a single-account deployment model, including setup wording, session/runtime terminology, and settings flow.
+- Separated `/api/meta` runtime-vault state from current session-vault state so server config and active request scope are exposed distinctly.
+- Startup indexing and notification polling now stay lazy around the configured root instead of eagerly creating index state on boot.
+- Split large frontend UI surfaces out of `frontend/app.ts` into dedicated modules for session UI, settings, help, palettes, history/trash, page tree operations, client preferences, and inline editors.
+
+### Fixed
+- User notification settings now persist correctly when saving from the settings dialog, including ntfy topic/token fields.
+- Rendered table editing now matches the visual table metrics more closely, uses a softer active-cell fill, and supports consistent `Enter`/`Escape` finish and cancel shortcuts.
+- Rendered table navigation no longer exposes raw markdown as part of the upward movement workaround attempts; table editing stays behind the dedicated table editor UI.
+
 ## [v0.1.6] - 2026-04-25
 
 ### Added
-- First-run admin setup with `Create The First Admin` flow for fresh installs, plus forced bootstrap password rotation before normal API access is restored.
+- First-run account setup with `Create The First Account` flow for fresh installs, plus forced bootstrap password rotation before normal API access is restored.
 - Per-user notification settings backed by the auth store and exposed through `/api/user/settings`.
-- Separate `User Settings` and `Admin Settings` entry points with a sidebar-based settings layout.
+- Sidebar settings layout with separate account and runtime sections.
 
 ### Changed
 - Appearance and hotkey preferences now stay in the browser instead of being stored as shared server settings.
@@ -18,19 +36,19 @@ All notable changes to this project will be documented in this file.
 - Auth bootstrap/setup state now reaches the UI correctly, so fresh servers show setup instead of the generic login form.
 - Graceful shutdown no longer times out when SSE clients are connected.
 - Fresh empty vaults now still show the root row in the file tree, so the first note can be created immediately.
-- Saving user or admin settings now closes the dialog consistently.
+- Saving settings now closes the dialog consistently.
 
 ## [v0.1.5] - 2026-04-25
 
 ### Added
-- Session-cookie authentication with bootstrap admin creation, login/logout/session endpoints, and API protection for non-public routes.
-- A default workspace wrapper around the existing single-vault runtime, exposed through auth and meta responses.
+- Session-cookie authentication with bootstrap account creation, login/logout/session endpoints, and API protection for non-public routes.
+- A runtime vault-selection layer around the existing single-vault runtime, exposed through auth and meta responses.
 - Vault health detection in backend metadata so missing or unreadable vault paths are surfaced explicitly.
 - Structured server logging for startup, shutdown, watcher/notifier lifecycle, ntfy deliveries, and noteworthy HTTP requests.
 
 ### Changed
-- Backend internals are now workspace-aware: index, query refresh, history/trash, watcher invalidation, and SSE all resolve within the active workspace boundary.
-- Workspace-scoped backend storage now keeps the filesystem model intact: one workspace still maps to one real vault directory with real markdown pages and attachments.
+- Backend internals are now vault-aware: index, query refresh, history/trash, watcher invalidation, and SSE all resolve within the active vault boundary.
+- Vault-scoped backend storage now keeps the filesystem model intact: one vault still maps to one real vault directory with real markdown pages and attachments.
 - `/due` and `/remind` now open the inline picker immediately after insertion instead of only inserting text.
 - Quote rendering now uses clearer indentation, spacing, italics, and a proper left rule.
 
@@ -38,7 +56,7 @@ All notable changes to this project will be documented in this file.
 - Due/remind picker apply no longer visibly snaps the editor to line 1 before focus is restored.
 - Task-date picker interactions now participate in the same note-focus restore flow as the rest of the UI.
 - Firefox quote styling now respects the intended spacing instead of collapsing against the text.
-- Default-workspace indexing/history state now migrates cleanly into workspace-scoped storage instead of being stranded in legacy global paths.
+- Default-vault indexing/history state now migrates cleanly into vault-scoped storage instead of being stranded in legacy global paths.
 
 ## [v0.1.4] - 2026-04-24
 
@@ -92,7 +110,7 @@ All notable changes to this project will be documented in this file.
 ## [v0.1.1] - 2026-04-24
 
 ### Added
-- Persistent settings API and settings UI for workspace path, home page, hotkeys, and basic UI preferences.
+- Persistent settings API and settings UI for vault path, home page, hotkeys, and basic UI preferences.
 - Built-in help modal with discoverable shortcuts and command-surface explanations.
 - Quick switcher, command palette, full search, and document picker as separate browser-safe surfaces.
 - Vault-native document attachments with upload, picker, slash command support, and relative markdown links.

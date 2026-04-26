@@ -15,6 +15,7 @@ import (
 
 	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/index"
+	"github.com/carnager/noterious/internal/vaults"
 )
 
 type Service struct {
@@ -80,6 +81,9 @@ func (s *Service) Poll(ctx context.Context) error {
 	if !s.Enabled() {
 		return nil
 	}
+	if !s.indexDatabaseExists(ctx) {
+		return nil
+	}
 
 	tasks, err := s.index.ListTasks(ctx)
 	if err != nil {
@@ -139,6 +143,18 @@ func (s *Service) Poll(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) indexDatabaseExists(ctx context.Context) bool {
+	if s == nil || s.index == nil {
+		return false
+	}
+	dbPath := s.index.DatabasePathForVault(vaults.VaultIDFromContext(ctx))
+	if strings.TrimSpace(dbPath) == "" {
+		return false
+	}
+	_, err := os.Stat(dbPath)
+	return err == nil
 }
 
 type stateFile struct {

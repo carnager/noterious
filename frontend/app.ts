@@ -1,4 +1,11 @@
-import { normalizePageDraftPath, pageTitleFromPath, renderCommandPaletteResults as renderCommandPaletteResultsUI } from "./commands";
+import { normalizePageDraftPath, pageTitleFromPath } from "./commands";
+import {
+  cloneClientPreferences,
+  defaultClientPreferences,
+  loadStoredClientPreferences,
+  normalizeClientPreferences,
+  saveStoredClientPreferences,
+} from "./clientPreferences";
 import {
   deleteTask as deleteTaskRequest,
   loadPageDetailData,
@@ -7,14 +14,9 @@ import {
   saveTask,
   toggleTaskDone as toggleTaskDoneRequest,
 } from "./details";
-import { markdownLinkForDocument, renderDocumentsResults as renderDocumentsResultsUI } from "./documents";
 import {
   formatDateTimeValue,
-  formatEditableDateTimeValue,
-  formatEditableDateValue,
   formatTimeValue,
-  parseEditableDateTimeValue,
-  parseEditableDateValue,
   setDateTimeDisplayFormat,
 } from "./datetime";
 import { clearNode, focusWithoutScroll, optionalElement, optionalQuery, renderEmpty, requiredElement } from "./dom";
@@ -41,22 +43,74 @@ import {
 } from "./editorState";
 import { fetchJSON, requireOK } from "./http";
 import {
+  applyInlineTableEditor as applyInlineTableEditorUI,
+  anchorInlineTableEditorToRenderedTable as anchorInlineTableEditorToRenderedTableUI,
+  closeInlineTableEditor as closeInlineTableEditorUI,
+  closeTaskPickers as closeTaskPickersUI,
+  defaultTaskPickerState,
+  inlineTableEditorHasFocus as inlineTableEditorHasFocusUI,
+  inlineTableEditorOpen as inlineTableEditorOpenUI,
+  openInlineTableEditor as openInlineTableEditorUI,
+  openInlineTaskPicker as openInlineTaskPickerUI,
+  positionInlineTableEditorPanel as positionInlineTableEditorPanelUI,
+  renderInlineTableEditor as renderInlineTableEditorUI,
+  renderTaskPicker as renderTaskPickerUI,
+  restoreInlineTableEditorFocus as restoreInlineTableEditorFocusUI,
+  setTaskDateApplySuppressed as setTaskDateApplySuppressedUI,
+  type TableEditorState,
+  type TaskPickerState,
+} from "./inlineEditors";
+import {
   bodyPositionFromRawOffset,
   editableBody,
   escapeHTML,
   findDerivedQueryBlock,
   findMarkdownTableBlockForLine,
-  markdownTableRowsForLine,
   parseQueryFenceOptions,
   rawOffsetForBodyPosition,
   rawOffsetForLineNumber,
   renderInline,
-  formatMarkdownTableRow,
   splitFrontmatter,
   wikiLinkAtCaret,
 } from "./markdown";
 import { hotkeyLabel, matchesHotkey } from "./hotkeys";
+import {
+  historyDiffContent,
+  renderPageHistory as renderPageHistoryUI,
+  renderPageHistoryPreview as renderPageHistoryPreviewUI,
+  renderTrash as renderTrashUI,
+  selectedPageHistoryRevision as selectedPageHistoryRevisionUI,
+  setPageHistoryOpen as setPageHistoryOpenUI,
+  setTrashOpen as setTrashOpenUI,
+} from "./historyTrashUi";
+import { renderHelpShortcuts as renderHelpShortcutsUI } from "./helpUi";
 import { currentPageView as buildCurrentPageView, renderedQueryBlocksForEditor, renderedTasksForEditor } from "./noteView";
+import {
+  createPage as createPageRequest,
+  deleteFolder as deleteFolderRequest,
+  deletePage as deletePageRequest,
+  moveFolder as moveFolderRequest,
+  movePage as movePageRequest,
+  movePageToFolder as movePageToFolderRequest,
+  renameFolder as renameFolderRequest,
+  renamePage as renamePageRequest,
+} from "./pageOperations";
+import {
+  documentLinkForSelection,
+  movePaletteModalSelection,
+  paletteModalButtons,
+  renderCommandResults,
+  renderDocumentResults as renderDocumentResultsUI,
+  renderQuickSwitcherResults as renderQuickSwitcherResultsUI2,
+  renderSearchEmptyState,
+  renderSearchResults as renderSearchResultsUI2,
+  setCommandPaletteOpen as setCommandPaletteOpenUI,
+  setDocumentsOpen as setDocumentsOpenUI,
+  setQuickSwitcherOpen as setQuickSwitcherOpenUI,
+  setSearchOpen as setSearchOpenUI,
+  triggerPaletteModalSelection,
+  updatePaletteModalSelection,
+} from "./paletteModals";
 import {
   moveSelection as movePaletteSelection,
   resultButtons as paletteResultButtons,
@@ -70,8 +124,13 @@ import {
   renderPageContext as renderPageContextUI,
   renderPageTags as renderPageTagsUI,
   renderPageTasks as renderPageTasksUI,
-  renderPagesTree,
 } from "./pageViews";
+import {
+  closeTreeContextMenu as closeTreeContextMenuUI,
+  openTreeContextMenu as openTreeContextMenuUI,
+  renderPagesSection,
+} from "./pageTreeUi";
+import { prepareSettingsSave } from "./settingsPersistence";
 import {
   coercePropertyValue,
   makePropertyDraft,
@@ -79,13 +138,24 @@ import {
   renderPageProperties as renderPagePropertiesUI,
 } from "./properties";
 import { renderSavedQueryTree as renderSavedQueryTreeUI } from "./queryTree";
-import { renderQuickSwitcherResults as renderQuickSwitcherResultsUI } from "./quickSwitcher";
 import { applyURLState as applyURLStateUI, buildSelectionURL, navigateToPageSelection } from "./routing";
-import { renderGlobalSearchResults as renderGlobalSearchResultsUI } from "./search";
+import {
+  applyAuthSessionResponse,
+  renderAuthGate as renderAuthGateUI,
+  renderSessionState as renderSessionStateUI,
+  setAuthGateOpen as setAuthGateOpenUI,
+  setSessionMenuOpen as setSessionMenuOpenUI,
+  setVaultSwitcherOpen as setVaultSwitcherOpenUI,
+} from "./sessionUi";
+import {
+  defaultSettingsSection,
+  renderSettingsForm as renderSettingsFormUI,
+} from "./settingsUi";
 import { closeSlashMenu, documentCommandsForText, maybeOpenSlashMenu, moveSlashSelection, openSlashMenuWithCommands, wikilinkCommandsForContext } from "./slashMenu";
 import type {
   AppSettings as SettingsModel,
   AuthSessionResponse,
+  AuthVaultsResponse,
   AuthenticatedUser,
   BacklinkRecord,
   DocumentListResponse,
@@ -116,9 +186,12 @@ import type {
   TrashListResponse,
   TrashPageRecord,
   UserSettingsResponse,
-  WorkspaceSettings,
+  VaultRecord,
+  VaultSettings,
 } from "./types";
 import type { PropertyRow } from "./properties";
+import type { AuthGateMode } from "./sessionUi";
+import type { SettingsSection } from "./settingsUi";
 
 interface PageLinkDetail {
   page?: string;
@@ -162,17 +235,6 @@ interface TableOpenDetail {
   left?: number | string;
   top?: number | string;
   width?: number | string;
-}
-
-interface TableEditorState {
-  startLine: number;
-  row: number;
-  col: number;
-  rows: string[][];
-  dirty: boolean;
-  left: number;
-  top: number;
-  width: number;
 }
 
 interface DocumentDownloadDetail {
@@ -230,12 +292,13 @@ interface AppState {
   railTab: string;
   sourceOpen: boolean;
   settings: SettingsModel;
-  appliedWorkspace: WorkspaceSettings;
+  appliedVault: VaultSettings;
   settingsRestartRequired: boolean;
   settingsLoaded: boolean;
   userSettingsLoaded: boolean;
   configHomePage: string;
   homePage: string;
+  topLevelFoldersAsVaults: boolean;
   markdownEditorApi: NoteriousEditorApi | null;
   windowBlurred: boolean;
   restoreFocusSpec: FocusRestoreSpec | null;
@@ -254,23 +317,14 @@ interface AppState {
   trashPages: TrashPageRecord[];
   authenticated: boolean;
   currentUser: AuthenticatedUser | null;
+  currentVault: VaultRecord | null;
+  availableVaults: VaultRecord[];
+  vaultSwitchPending: boolean;
+  vaultSwitcherOpen: boolean;
   mustChangePassword: boolean;
   setupRequired: boolean;
-  authGateMode: "login" | "setup" | "changePassword";
-  settingsModalMode: "user" | "admin";
-  settingsSection: "appearance" | "notifications" | "workspace";
-}
-
-interface TaskPickerState {
-  mode: "" | "due" | "remind";
-  ref: string;
-  left: number;
-  top: number;
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
+  authGateMode: AuthGateMode;
+  settingsSection: SettingsSection;
 }
 
 interface TreeContextMenuState {
@@ -279,103 +333,8 @@ interface TreeContextMenuState {
   top: number;
 }
 
-const clientPreferencesStorageKey = "noterious.client-preferences";
-
-function defaultClientPreferences(): ClientPreferences {
-  return {
-    hotkeys: {
-      quickSwitcher: "Mod+K",
-      globalSearch: "Mod+Shift+K",
-      commandPalette: "Mod+Shift+P",
-      quickNote: "",
-      help: "?",
-      saveCurrentPage: "Mod+S",
-      toggleRawMode: "Mod+E",
-      toggleTaskDone: "Mod+Enter",
-    },
-    ui: {
-      fontFamily: "mono",
-      fontSize: "16",
-      dateTimeFormat: "browser",
-    },
-  };
-}
-
 (function () {
   let pwaRegistrationPromise: Promise<void> | null = null;
-
-  function cloneClientPreferences(input: ClientPreferences): ClientPreferences {
-    return {
-      hotkeys: {
-        quickSwitcher: input.hotkeys.quickSwitcher,
-        globalSearch: input.hotkeys.globalSearch,
-        commandPalette: input.hotkeys.commandPalette,
-        quickNote: input.hotkeys.quickNote,
-        help: input.hotkeys.help,
-        saveCurrentPage: input.hotkeys.saveCurrentPage,
-        toggleRawMode: input.hotkeys.toggleRawMode,
-        toggleTaskDone: input.hotkeys.toggleTaskDone,
-      },
-      ui: {
-        fontFamily: input.ui.fontFamily,
-        fontSize: input.ui.fontSize,
-        dateTimeFormat: input.ui.dateTimeFormat,
-      },
-    };
-  }
-
-  function normalizeClientPreferences(input: unknown): ClientPreferences {
-    const defaults = defaultClientPreferences();
-    const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
-    const hotkeysSource = source.hotkeys && typeof source.hotkeys === "object"
-      ? source.hotkeys as Record<string, unknown>
-      : {};
-    const uiSource = source.ui && typeof source.ui === "object"
-      ? source.ui as Record<string, unknown>
-      : {};
-
-    const fontFamily = String(uiSource.fontFamily ?? defaults.ui.fontFamily).trim();
-    const fontSize = String(uiSource.fontSize ?? defaults.ui.fontSize).trim();
-    const dateTimeFormat = String(uiSource.dateTimeFormat ?? defaults.ui.dateTimeFormat).trim();
-
-    return {
-      hotkeys: {
-        quickSwitcher: typeof hotkeysSource.quickSwitcher === "string" ? hotkeysSource.quickSwitcher.trim() : defaults.hotkeys.quickSwitcher,
-        globalSearch: typeof hotkeysSource.globalSearch === "string" ? hotkeysSource.globalSearch.trim() : defaults.hotkeys.globalSearch,
-        commandPalette: typeof hotkeysSource.commandPalette === "string" ? hotkeysSource.commandPalette.trim() : defaults.hotkeys.commandPalette,
-        quickNote: typeof hotkeysSource.quickNote === "string" ? hotkeysSource.quickNote.trim() : defaults.hotkeys.quickNote,
-        help: typeof hotkeysSource.help === "string" ? hotkeysSource.help.trim() : defaults.hotkeys.help,
-        saveCurrentPage: typeof hotkeysSource.saveCurrentPage === "string" ? hotkeysSource.saveCurrentPage.trim() : defaults.hotkeys.saveCurrentPage,
-        toggleRawMode: typeof hotkeysSource.toggleRawMode === "string" ? hotkeysSource.toggleRawMode.trim() : defaults.hotkeys.toggleRawMode,
-        toggleTaskDone: typeof hotkeysSource.toggleTaskDone === "string" ? hotkeysSource.toggleTaskDone.trim() : defaults.hotkeys.toggleTaskDone,
-      },
-      ui: {
-        fontFamily: fontFamily === "sans" || fontFamily === "serif" ? fontFamily : "mono",
-        fontSize: ["14", "15", "16", "17", "18", "19", "20"].includes(fontSize) ? fontSize : defaults.ui.fontSize,
-        dateTimeFormat: dateTimeFormat === "iso" || dateTimeFormat === "de" ? dateTimeFormat : "browser",
-      },
-    };
-  }
-
-  function loadStoredClientPreferences(): ClientPreferences {
-    try {
-      const raw = window.localStorage.getItem(clientPreferencesStorageKey);
-      if (!raw) {
-        return defaultClientPreferences();
-      }
-      return normalizeClientPreferences(JSON.parse(raw));
-    } catch (_error) {
-      return defaultClientPreferences();
-    }
-  }
-
-  function saveStoredClientPreferences(preferences: ClientPreferences): void {
-    try {
-      window.localStorage.setItem(clientPreferencesStorageKey, JSON.stringify(preferences));
-    } catch (_error) {
-      // Ignore storage failures and continue with in-memory preferences.
-    }
-  }
 
   function registerPWA(): Promise<void> {
     if (pwaRegistrationPromise) {
@@ -432,7 +391,7 @@ function defaultClientPreferences(): ClientPreferences {
     sourceOpen: false,
     settings: {
       preferences: cloneClientPreferences(defaultClientPreferences()),
-      workspace: {
+      vault: {
         vaultPath: "./vault",
         homePage: "",
       },
@@ -444,7 +403,7 @@ function defaultClientPreferences(): ClientPreferences {
         ntfyToken: "",
       },
     },
-    appliedWorkspace: {
+    appliedVault: {
       vaultPath: "./vault",
       homePage: "",
     },
@@ -453,6 +412,7 @@ function defaultClientPreferences(): ClientPreferences {
     userSettingsLoaded: false,
     configHomePage: "",
     homePage: "",
+    topLevelFoldersAsVaults: false,
     markdownEditorApi: null,
     windowBlurred: false,
     restoreFocusSpec: null,
@@ -471,10 +431,13 @@ function defaultClientPreferences(): ClientPreferences {
     trashPages: [],
     authenticated: false,
     currentUser: null,
+    currentVault: null,
+    availableVaults: [],
+    vaultSwitchPending: false,
+    vaultSwitcherOpen: false,
     mustChangePassword: false,
     setupRequired: false,
     authGateMode: "login",
-    settingsModalMode: "user",
     settingsSection: "appearance",
   };
 
@@ -529,7 +492,7 @@ function defaultClientPreferences(): ClientPreferences {
     queryOutput: requiredElement<HTMLElement>("query-output"),
     eventStatus: requiredElement<HTMLElement>("event-status"),
     eventLog: requiredElement<HTMLDivElement>("event-log"),
-    workspace: optionalQuery<HTMLElement>(".workspace"),
+    appLayout: optionalQuery<HTMLElement>(".app-layout"),
     rail: requiredElement<HTMLElement>("rail"),
     railTabFiles: requiredElement<HTMLButtonElement>("rail-tab-files"),
     railTabContext: requiredElement<HTMLButtonElement>("rail-tab-context"),
@@ -556,8 +519,12 @@ function defaultClientPreferences(): ClientPreferences {
     openTrash: requiredElement<HTMLButtonElement>("open-trash"),
     openHelp: requiredElement<HTMLButtonElement>("open-help"),
     openSettings: requiredElement<HTMLButtonElement>("open-settings"),
-    openAdminSettings: requiredElement<HTMLButtonElement>("open-admin-settings"),
     logoutSession: requiredElement<HTMLButtonElement>("logout-session"),
+    vaultSwitcher: requiredElement<HTMLElement>("vault-switcher"),
+    openVaultSwitcher: requiredElement<HTMLButtonElement>("open-vault-switcher"),
+    currentVaultName: requiredElement<HTMLElement>("current-vault-name"),
+    vaultSwitcherPanel: requiredElement<HTMLElement>("vault-switcher-panel"),
+    vaultSwitcherList: requiredElement<HTMLDivElement>("vault-switcher-list"),
     reloadPages: optionalElement<HTMLButtonElement>("reload-pages"),
     reloadQueries: optionalElement<HTMLButtonElement>("reload-queries"),
     toggleDebug: optionalElement<HTMLButtonElement>("toggle-debug"),
@@ -606,7 +573,7 @@ function defaultClientPreferences(): ClientPreferences {
     settingsTitle: requiredElement<HTMLElement>("settings-title"),
     settingsNavAppearance: requiredElement<HTMLButtonElement>("settings-nav-appearance"),
     settingsNavNotifications: requiredElement<HTMLButtonElement>("settings-nav-notifications"),
-    settingsNavWorkspace: requiredElement<HTMLButtonElement>("settings-nav-workspace"),
+    settingsNavVault: requiredElement<HTMLButtonElement>("settings-nav-vault"),
     settingsGroupServer: requiredElement<HTMLElement>("settings-group-server"),
     settingsGroupSession: requiredElement<HTMLElement>("settings-group-session"),
     settingsGroupUserNotifications: requiredElement<HTMLElement>("settings-group-user-notifications"),
@@ -616,6 +583,7 @@ function defaultClientPreferences(): ClientPreferences {
     settingsNtfyInterval: requiredElement<HTMLInputElement>("settings-ntfy-interval"),
     settingsUserNtfyTopicUrl: requiredElement<HTMLInputElement>("settings-user-ntfy-topic-url"),
     settingsUserNtfyToken: requiredElement<HTMLInputElement>("settings-user-ntfy-token"),
+    settingsUserTopLevelVaults: requiredElement<HTMLInputElement>("settings-user-top-level-vaults"),
     settingsFontFamily: requiredElement<HTMLSelectElement>("settings-ui-font-family"),
     settingsFontSize: requiredElement<HTMLSelectElement>("settings-ui-font-size"),
     settingsDateTimeFormat: requiredElement<HTMLSelectElement>("settings-ui-date-time-format"),
@@ -632,17 +600,7 @@ function defaultClientPreferences(): ClientPreferences {
     slashMenuResults: requiredElement<HTMLDivElement>("slash-menu-results"),
   };
 
-  const taskPickerState: TaskPickerState = {
-    mode: "",
-    ref: "",
-    left: 0,
-    top: 0,
-    year: 0,
-    month: 0,
-    day: 0,
-    hour: 9,
-    minute: 0,
-  };
+  const taskPickerState: TaskPickerState = defaultTaskPickerState();
 
   const treeContextMenuState: TreeContextMenuState = {
     target: null,
@@ -650,55 +608,12 @@ function defaultClientPreferences(): ClientPreferences {
     top: 0,
   };
 
-  function canonicalDate(year: number, month: number, day: number): string {
-    return [
-      String(year).padStart(4, "0"),
-      String(month).padStart(2, "0"),
-      String(day).padStart(2, "0"),
-    ].join("-");
-  }
-
-  function canonicalDateTime(year: number, month: number, day: number, hour: number, minute: number): string {
-    return canonicalDate(year, month, day) + " " + [hour, minute].map(function (value) {
-      return String(value).padStart(2, "0");
-    }).join(":");
-  }
-
-  function taskPickerPartsFromValue(mode: "due" | "remind", rawValue: string): { year: number; month: number; day: number; hour: number; minute: number } {
-    const fallback = new Date();
-    try {
-      const canonical = mode === "due" ? parseEditableDateValue(rawValue) : parseEditableDateTimeValue(rawValue);
-      if (!canonical) {
-        throw new Error("empty");
-      }
-      const datePart = canonical.slice(0, 10);
-      const timePart = canonical.slice(11, 16);
-      const [year, month, day] = datePart.split("-").map(Number);
-      const [hour, minute] = timePart ? timePart.split(":").map(Number) : [9, 0];
-      if (![year, month, day, hour, minute].every(Number.isFinite)) {
-        throw new Error("invalid");
-      }
-      return { year, month, day, hour, minute };
-    } catch (_error) {
-      return {
-        year: fallback.getFullYear(),
-        month: fallback.getMonth() + 1,
-        day: fallback.getDate(),
-        hour: 9,
-        minute: 0,
-      };
-    }
-  }
-
   function currentPickerTask(): TaskRecord | null {
     return taskPickerState.ref ? findCurrentTask(taskPickerState.ref) : null;
   }
 
   function setTaskDateApplySuppressed(active: boolean): void {
-    if (!state.markdownEditorApi || !state.markdownEditorApi.host) {
-      return;
-    }
-    state.markdownEditorApi.host.classList.toggle("task-date-apply-active", active);
+    setTaskDateApplySuppressedUI(state.markdownEditorApi, active);
   }
 
   async function saveTaskDateField(task: TaskRecord, field: "due" | "remind", value: string): Promise<void> {
@@ -733,648 +648,75 @@ function defaultClientPreferences(): ClientPreferences {
     await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
   }
 
-  function positionInlineTaskPicker(): void {
-    const picker = els.inlineTaskPicker;
-    const width = picker.offsetWidth || 320;
-    const maxLeft = Math.max(12, window.innerWidth - width - 12);
-    picker.style.left = Math.max(12, Math.min(taskPickerState.left, maxLeft)) + "px";
-    picker.style.top = Math.max(12, taskPickerState.top) + "px";
-  }
-
   function closeTaskPickers(): void {
-    taskPickerState.mode = "";
-    taskPickerState.ref = "";
-    els.inlineTaskPicker.classList.add("hidden");
-    clearNode(els.inlineTaskPicker);
-  }
-
-  function buildTableEditorRows(startLineNumber: number): string[][] | null {
-    const lines = String(state.currentMarkdown || "").replace(/\r\n/g, "\n").split("\n");
-    const table = markdownTableRowsForLine(lines, startLineNumber);
-    if (!table) {
-      return null;
-    }
-    const width = Math.max(2, table.header.length);
-    const normalizeRow = function (cells: string[]): string[] {
-      const next = new Array(width).fill("");
-      for (let index = 0; index < width; index += 1) {
-        next[index] = String(cells[index] || "");
-      }
-      return next;
-    };
-    const rows = [normalizeRow(table.header)].concat(table.rows.map(normalizeRow));
-    if (rows.length < 2) {
-      rows.push(new Array(width).fill(""));
-    }
-    return rows;
+    closeTaskPickersUI(taskPickerState, els);
   }
 
   function closeInlineTableEditor(): void {
-    state.tableEditor = null;
-    els.inlineTablePanel.classList.add("hidden");
-    els.inlineTablePanel.style.left = "";
-    els.inlineTablePanel.style.top = "";
-    els.inlineTablePanel.style.width = "";
-    clearNode(els.inlineTablePanel);
+    closeInlineTableEditorUI(state, els);
   }
 
   function inlineTableEditorHasFocus(): boolean {
-    const active = document.activeElement instanceof Node ? document.activeElement : null;
-    return Boolean(active && els.inlineTablePanel.contains(active));
+    return inlineTableEditorHasFocusUI(els);
   }
 
   function inlineTableEditorOpen(): boolean {
-    return Boolean(state.tableEditor && !els.inlineTablePanel.classList.contains("hidden"));
-  }
-
-  function focusInlineTableEditorCell(rowIndex: number, colIndex: number): void {
-    window.requestAnimationFrame(function () {
-      const input = els.inlineTablePanel.querySelector('[data-inline-table-row="' + String(rowIndex) + '"][data-inline-table-col="' + String(colIndex) + '"]');
-      if (input instanceof HTMLInputElement) {
-        input.focus({ preventScroll: true });
-        input.select();
-      }
-    });
-  }
-
-  function appendInlineTableEditorRow(editorState: TableEditorState): void {
-    const cols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
-    editorState.rows.push(new Array(cols).fill(""));
-    editorState.dirty = true;
-  }
-
-  function insertInlineTableEditorRowAfter(editorState: TableEditorState, rowIndex: number): void {
-    const cols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
-    const nextRow = new Array(cols).fill("");
-    const insertAt = Math.max(0, Math.min(rowIndex + 1, editorState.rows.length));
-    editorState.rows.splice(insertAt, 0, nextRow);
-    editorState.dirty = true;
-    editorState.row = insertAt;
-    editorState.col = Math.max(0, Math.min(editorState.col, cols - 1));
-  }
-
-  function insertInlineTableEditorColumnAfter(editorState: TableEditorState, colIndex: number): void {
-    const insertAt = Math.max(0, colIndex + 1);
-    editorState.rows = editorState.rows.map(function (row) {
-      const next = row.slice();
-      next.splice(insertAt, 0, "");
-      return next;
-    });
-    editorState.dirty = true;
-    editorState.col = insertAt;
-  }
-
-  function moveInlineTableEditorFocus(editorState: TableEditorState, rowIndex: number, colIndex: number, backward: boolean): void {
-    const rowCount = editorState.rows.length;
-    const colCount = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
-    if (backward) {
-      if (colIndex > 0) {
-        editorState.row = rowIndex;
-        editorState.col = colIndex - 1;
-      } else if (rowIndex > 0) {
-        editorState.row = rowIndex - 1;
-        editorState.col = colCount - 1;
-      } else {
-        editorState.row = 0;
-        editorState.col = 0;
-      }
-      focusInlineTableEditorCell(editorState.row, editorState.col);
-      return;
-    }
-    if (colIndex < colCount - 1) {
-      editorState.row = rowIndex;
-      editorState.col = colIndex + 1;
-      focusInlineTableEditorCell(editorState.row, editorState.col);
-      return;
-    }
-    if (rowIndex < rowCount - 1) {
-      editorState.row = rowIndex + 1;
-      editorState.col = 0;
-      focusInlineTableEditorCell(editorState.row, editorState.col);
-      return;
-    }
-    appendInlineTableEditorRow(editorState);
-    editorState.row = editorState.rows.length - 1;
-    editorState.col = 0;
-    renderInlineTableEditor();
-    focusInlineTableEditorCell(editorState.row, editorState.col);
-  }
-
-  function restoreInlineTableEditorFocus(): void {
-    if (!state.tableEditor || els.inlineTablePanel.classList.contains("hidden")) {
-      return;
-    }
-    const row = state.tableEditor.row;
-    const col = state.tableEditor.col;
-    focusInlineTableEditorCell(row, col);
-    window.setTimeout(function () {
-      if (state.tableEditor && !els.inlineTablePanel.classList.contains("hidden")) {
-        focusInlineTableEditorCell(state.tableEditor.row, state.tableEditor.col);
-      }
-    }, 50);
-    window.setTimeout(function () {
-      if (state.tableEditor && !els.inlineTablePanel.classList.contains("hidden")) {
-        focusInlineTableEditorCell(state.tableEditor.row, state.tableEditor.col);
-      }
-    }, 180);
-  }
-
-  function clampTableEditorWidth(width: number): number {
-    const viewportWidth = Math.max(320, window.innerWidth || 0);
-    return Math.max(320, Math.min(Math.round(width || 0), viewportWidth - 24, 900));
+    return inlineTableEditorOpenUI(state, els);
   }
 
   function positionInlineTableEditorPanel(): void {
-    if (!state.tableEditor) {
-      return;
-    }
-    if (els.inlineTablePanel.classList.contains("hidden")) {
-      return;
-    }
-    const viewportWidth = Math.max(320, window.innerWidth || 0);
-    const viewportHeight = Math.max(320, window.innerHeight || 0);
-    const width = clampTableEditorWidth(state.tableEditor.width || 0);
-    const rect = els.inlineTablePanel.getBoundingClientRect();
-    const panelHeight = rect.height || 0;
-    let left = Math.round(state.tableEditor.left || 12);
-    let top = Math.round(state.tableEditor.top || 12);
-    left = Math.max(12, Math.min(left, viewportWidth - width - 12));
-    if (panelHeight > 0 && top + panelHeight > viewportHeight - 12) {
-      top = Math.max(12, viewportHeight - panelHeight - 12);
-    }
-    els.inlineTablePanel.style.left = String(left) + "px";
-    els.inlineTablePanel.style.top = String(top) + "px";
-    els.inlineTablePanel.style.width = String(width) + "px";
-  }
-
-  function anchorInlineTableEditorToRenderedTable(startLineNumber: number): void {
-    const host = state.markdownEditorApi && state.markdownEditorApi.host ? state.markdownEditorApi.host : null;
-    if (!host || !state.tableEditor) {
-      return;
-    }
-    const anchor = host.querySelector('[data-table-start-line="' + String(startLineNumber) + '"]');
-    const rect = anchor instanceof HTMLElement ? anchor.getBoundingClientRect() : null;
-    if (!rect) {
-      return;
-    }
-    state.tableEditor.left = Math.round(rect.left);
-    state.tableEditor.top = Math.round(rect.top);
-    state.tableEditor.width = Math.round(rect.width);
-    positionInlineTableEditorPanel();
+    positionInlineTableEditorPanelUI(state, els);
   }
 
   function applyInlineTableEditor(closeAfter: boolean): void {
-    if (!state.tableEditor || !state.selectedPage || !state.currentPage) {
-      if (closeAfter) {
-        closeInlineTableEditor();
-      }
-      return;
-    }
-    const editorState = state.tableEditor;
-    const width = Math.max(2, ...editorState.rows.map(function (row) { return row.length; }));
-    const normalizedRows = editorState.rows.map(function (row) {
-      const next = new Array(width).fill("");
-      for (let index = 0; index < width; index += 1) {
-        next[index] = String(row[index] || "");
-      }
-      return next;
+    applyInlineTableEditorUI(state, els, {
+      closeAfter: closeAfter,
+      refreshLivePageChrome: refreshLivePageChrome,
+      scheduleAutosave: scheduleAutosave,
     });
-    if (normalizedRows.length < 2) {
-      normalizedRows.push(new Array(width).fill(""));
+    if (!closeAfter && state.tableEditor) {
+      renderInlineTableEditor();
     }
-    const lines = String(state.currentMarkdown || "").replace(/\r\n/g, "\n").split("\n");
-    const block = findMarkdownTableBlockForLine(lines, editorState.startLine);
-    if (!block) {
-      closeInlineTableEditor();
-      return;
-    }
-    const replaceFrom = lines.slice(0, block.startLineIndex).reduce(function (sum, line) {
-      return sum + line.length + 1;
-    }, 0);
-    const replaceTo = lines.slice(0, block.endLineIndex + 1).reduce(function (sum, line) {
-      return sum + line.length + 1;
-    }, 0) - (block.endLineIndex + 1 < lines.length ? 1 : 0);
-    const hasFollowingLine = block.endLineIndex + 1 < lines.length;
-    const replacementLines = [
-      formatMarkdownTableRow(normalizedRows[0]),
-      formatMarkdownTableRow(new Array(width).fill("---")),
-    ].concat(normalizedRows.slice(1).map(formatMarkdownTableRow));
-    const replacement = replacementLines.join("\n");
-    lines.splice(block.startLineIndex, block.endLineIndex - block.startLineIndex + 1, ...replacementLines);
-    const nextMarkdown = lines.join("\n");
-    const scrollTop = markdownEditorScrollTop(state, els);
-    if (state.markdownEditorApi) {
-      state.markdownEditorApi.replaceRange(replaceFrom, replaceTo, replacement);
-    } else {
-      setMarkdownEditorValue(state, els, nextMarkdown);
-    }
-    setMarkdownEditorScrollTop(state, els, scrollTop);
-    state.currentMarkdown = nextMarkdown;
-    state.tableEditor.rows = normalizedRows;
-    state.tableEditor.dirty = false;
-    els.rawView.textContent = nextMarkdown;
-    refreshLivePageChrome();
-    scheduleAutosave();
-    if (closeAfter) {
-      closeInlineTableEditor();
-      const focusOffset = Math.max(0, Math.min(nextMarkdown.length, replaceFrom + replacement.length + (hasFollowingLine ? 1 : 0)));
-      window.requestAnimationFrame(function () {
-        focusMarkdownEditor(state, els, {preventScroll: true});
-        setMarkdownEditorSelection(state, els, focusOffset, focusOffset, true);
-      });
-      return;
-    }
-    renderInlineTableEditor();
-    focusInlineTableEditorCell(editorState.row, editorState.col);
   }
 
   function renderInlineTableEditor(): void {
-    clearNode(els.inlineTablePanel);
-    if (!state.tableEditor || state.sourceOpen) {
-      els.inlineTablePanel.classList.add("hidden");
-      els.inlineTablePanel.style.left = "";
-      els.inlineTablePanel.style.top = "";
-      els.inlineTablePanel.style.width = "";
-      return;
-    }
-    const editorState = state.tableEditor;
-    const cols = editorState.rows[0] ? editorState.rows[0].length : 0;
-
-    const head = document.createElement("div");
-    head.className = "table-editor-head";
-
-    const title = document.createElement("h3");
-    title.textContent = editorState.dirty ? "Table Editor • Unsaved" : "Table Editor";
-    head.appendChild(title);
-
-    const actions = document.createElement("div");
-    actions.className = "table-editor-actions";
-
-    const addRow = document.createElement("button");
-    addRow.type = "button";
-    addRow.textContent = "+ Row";
-    addRow.addEventListener("click", function () {
-      insertInlineTableEditorRowAfter(editorState, editorState.row);
-      renderInlineTableEditor();
-      focusInlineTableEditorCell(editorState.row, editorState.col);
+    renderInlineTableEditorUI(state, els, {
+      applyInlineTableEditor: applyInlineTableEditor,
+      closeInlineTableEditor: closeInlineTableEditor,
     });
-    actions.appendChild(addRow);
-
-    const addCol = document.createElement("button");
-    addCol.type = "button";
-    addCol.textContent = "+ Col";
-    addCol.addEventListener("click", function () {
-      insertInlineTableEditorColumnAfter(editorState, editorState.col);
-      renderInlineTableEditor();
-      focusInlineTableEditorCell(editorState.row, editorState.col);
-    });
-    actions.appendChild(addCol);
-
-    const apply = document.createElement("button");
-    apply.type = "button";
-    apply.textContent = "Apply";
-    apply.addEventListener("click", function () {
-      applyInlineTableEditor(false);
-    });
-    actions.appendChild(apply);
-
-    const done = document.createElement("button");
-    done.type = "button";
-    done.textContent = "Done";
-    done.addEventListener("click", function () {
-      applyInlineTableEditor(true);
-    });
-    actions.appendChild(done);
-
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.textContent = "Cancel";
-    cancel.addEventListener("click", function () {
-      closeInlineTableEditor();
-    });
-    actions.appendChild(cancel);
-
-    head.appendChild(actions);
-    els.inlineTablePanel.appendChild(head);
-
-    const grid = document.createElement("div");
-    grid.className = "table-editor-grid";
-
-    editorState.rows.forEach(function (row, rowIndex) {
-      const rowNode = document.createElement("div");
-      rowNode.className = "table-editor-row" + (rowIndex === 0 ? " table-editor-header" : "");
-      rowNode.style.gridTemplateColumns = "repeat(" + String(Math.max(1, cols)) + ", minmax(0, 1fr))";
-      row.forEach(function (cell, colIndex) {
-        const input = document.createElement("input");
-        input.type = "text";
-        input.value = cell;
-        input.setAttribute("data-inline-table-row", String(rowIndex));
-        input.setAttribute("data-inline-table-col", String(colIndex));
-        input.addEventListener("focus", function () {
-          editorState.row = rowIndex;
-          editorState.col = colIndex;
-        });
-        input.addEventListener("input", function () {
-          editorState.rows[rowIndex][colIndex] = input.value;
-          editorState.dirty = true;
-        });
-        input.addEventListener("keydown", function (rawEvent) {
-          const event = rawEvent as KeyboardEvent;
-          if (event.key !== "Tab") {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              closeInlineTableEditor();
-              return;
-            }
-            if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
-              event.preventDefault();
-              editorState.rows[rowIndex][colIndex] = input.value;
-              applyInlineTableEditor(true);
-            }
-            return;
-          }
-          event.preventDefault();
-          editorState.rows[rowIndex][colIndex] = input.value;
-          moveInlineTableEditorFocus(editorState, rowIndex, colIndex, event.shiftKey);
-        });
-        rowNode.appendChild(input);
-      });
-      grid.appendChild(rowNode);
-    });
-
-    els.inlineTablePanel.appendChild(grid);
-    els.inlineTablePanel.classList.remove("hidden");
-    positionInlineTableEditorPanel();
   }
 
   function openInlineTableEditor(startLineNumber: number, rowIndex: number, colIndex: number, anchor?: { left: number; top: number; width: number }): void {
-    if (state.tableEditor && state.tableEditor.startLine === startLineNumber) {
-      state.tableEditor.row = rowIndex;
-      state.tableEditor.col = colIndex;
-      if (anchor) {
-        state.tableEditor.left = anchor.left;
-        state.tableEditor.top = anchor.top;
-        state.tableEditor.width = anchor.width;
-      }
-      renderInlineTableEditor();
-      restoreInlineTableEditorFocus();
-      return;
-    }
-    const rows = buildTableEditorRows(startLineNumber);
-    if (!rows) {
-      closeInlineTableEditor();
-      return;
-    }
-    state.tableEditor = {
-      startLine: startLineNumber,
-      row: Math.max(0, rowIndex),
-      col: Math.max(0, colIndex),
-      rows: rows,
-      dirty: false,
-      left: anchor ? anchor.left : 12,
-      top: anchor ? anchor.top : 12,
-      width: anchor ? anchor.width : 520,
-    };
-    renderInlineTableEditor();
-    if (!anchor) {
-      window.requestAnimationFrame(function () {
-        anchorInlineTableEditorToRenderedTable(startLineNumber);
-        restoreInlineTableEditorFocus();
-      });
-    }
-    restoreInlineTableEditorFocus();
-  }
-
-  function renderTaskPickerCalendar(target: HTMLDivElement, mode: "due" | "remind"): void {
-    clearNode(target);
-
-    const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
-    const firstWeekday = (monthStart.getDay() + 6) % 7;
-    const gridStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1 - firstWeekday);
-    const monthLabel = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(monthStart);
-
-    const head = document.createElement("div");
-    head.className = "task-picker-head";
-
-    const title = document.createElement("strong");
-    title.textContent = monthLabel;
-    head.appendChild(title);
-
-    const nav = document.createElement("div");
-    nav.className = "task-picker-nav";
-
-    const prev = document.createElement("button");
-    prev.type = "button";
-    prev.textContent = "<";
-    prev.addEventListener("click", function () {
-      taskPickerState.month -= 1;
-      if (taskPickerState.month < 1) {
-        taskPickerState.month = 12;
-        taskPickerState.year -= 1;
-      }
-      renderTaskPicker();
+    openInlineTableEditorUI(state, els, {
+      startLineNumber: startLineNumber,
+      rowIndex: rowIndex,
+      colIndex: colIndex,
+      anchor: anchor,
+      renderInlineTableEditor: renderInlineTableEditor,
     });
-    nav.appendChild(prev);
-
-    const next = document.createElement("button");
-    next.type = "button";
-    next.textContent = ">";
-    next.addEventListener("click", function () {
-      taskPickerState.month += 1;
-      if (taskPickerState.month > 12) {
-        taskPickerState.month = 1;
-        taskPickerState.year += 1;
-      }
-      renderTaskPicker();
-    });
-    nav.appendChild(next);
-
-    head.appendChild(nav);
-    target.appendChild(head);
-
-    if (mode === "remind") {
-      const timeRow = document.createElement("div");
-      timeRow.className = "task-picker-time";
-
-      const hourSelect = document.createElement("select");
-      for (let hour = 0; hour < 24; hour += 1) {
-        const option = document.createElement("option");
-        option.value = String(hour);
-        option.textContent = String(hour).padStart(2, "0");
-        option.selected = hour === taskPickerState.hour;
-        hourSelect.appendChild(option);
-      }
-      hourSelect.addEventListener("change", function () {
-        taskPickerState.hour = Number(hourSelect.value) || 0;
-      });
-      timeRow.appendChild(hourSelect);
-
-      const minuteSelect = document.createElement("select");
-      for (let minute = 0; minute < 60; minute += 5) {
-        const option = document.createElement("option");
-        option.value = String(minute);
-        option.textContent = String(minute).padStart(2, "0");
-        option.selected = minute === taskPickerState.minute;
-        minuteSelect.appendChild(option);
-      }
-      minuteSelect.addEventListener("change", function () {
-        taskPickerState.minute = Number(minuteSelect.value) || 0;
-      });
-      timeRow.appendChild(minuteSelect);
-
-      const apply = document.createElement("button");
-      apply.type = "button";
-      apply.className = "task-picker-apply";
-      apply.textContent = "Apply";
-      apply.addEventListener("click", function () {
-        const task = currentPickerTask();
-        if (!task) {
-          closeTaskPickers();
-          return;
-        }
-        saveTaskDateField(
-          task,
-          "remind",
-          canonicalDateTime(
-            taskPickerState.year,
-            taskPickerState.month,
-            taskPickerState.day,
-            taskPickerState.hour,
-            taskPickerState.minute
-          )
-        ).catch(function (error) {
-          setNoteStatus("Reminder update failed: " + errorMessage(error));
-        });
-      });
-      timeRow.appendChild(apply);
-
-      target.appendChild(timeRow);
-    }
-
-    const weekdays = document.createElement("div");
-    weekdays.className = "task-picker-weekdays";
-    ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].forEach(function (label) {
-      const cell = document.createElement("span");
-      cell.textContent = label;
-      weekdays.appendChild(cell);
-    });
-    target.appendChild(weekdays);
-
-    const grid = document.createElement("div");
-    grid.className = "task-picker-grid";
-    for (let index = 0; index < 42; index += 1) {
-      const current = new Date(gridStart);
-      current.setDate(gridStart.getDate() + index);
-
-      const dayButton = document.createElement("button");
-      dayButton.type = "button";
-      dayButton.className = "task-picker-day";
-      if (current.getMonth() !== taskPickerState.month - 1) {
-        dayButton.classList.add("is-faded");
-      }
-      if (
-        current.getFullYear() === taskPickerState.year &&
-        current.getMonth() === taskPickerState.month - 1 &&
-        current.getDate() === taskPickerState.day
-      ) {
-        dayButton.classList.add("is-selected");
-      }
-      dayButton.textContent = String(current.getDate());
-      dayButton.addEventListener("click", function () {
-        taskPickerState.year = current.getFullYear();
-        taskPickerState.month = current.getMonth() + 1;
-        taskPickerState.day = current.getDate();
-        if (mode === "due") {
-          const task = currentPickerTask();
-          if (!task) {
-            closeTaskPickers();
-            return;
-          }
-          saveTaskDateField(task, "due", canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day)).catch(function (error) {
-            setNoteStatus("Due date update failed: " + errorMessage(error));
-          });
-          return;
-        }
-        renderTaskPicker();
-      });
-      grid.appendChild(dayButton);
-    }
-    target.appendChild(grid);
-
-    const footer = document.createElement("div");
-    footer.className = "task-picker-footer";
-
-    const status = document.createElement("span");
-    status.textContent = mode === "due"
-      ? formatEditableDateValue(canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day))
-      : formatEditableDateTimeValue(canonicalDateTime(
-        taskPickerState.year,
-        taskPickerState.month,
-        taskPickerState.day,
-        taskPickerState.hour,
-        taskPickerState.minute
-      ));
-    footer.appendChild(status);
-
-    const actions = document.createElement("div");
-    actions.className = "task-picker-footer-actions";
-
-    const clear = document.createElement("button");
-    clear.type = "button";
-      clear.textContent = "Clear";
-      clear.addEventListener("click", function () {
-        const task = currentPickerTask();
-        if (!task) {
-          closeTaskPickers();
-          return;
-        }
-        saveTaskDateField(task, mode, "").catch(function (error) {
-          setNoteStatus("Date update failed: " + errorMessage(error));
-        });
-      });
-    actions.appendChild(clear);
-
-    const close = document.createElement("button");
-    close.type = "button";
-    close.textContent = "Close";
-    close.addEventListener("click", closeTaskPickers);
-    actions.appendChild(close);
-
-    footer.appendChild(actions);
-    target.appendChild(footer);
   }
 
   function renderTaskPicker(): void {
-    if (taskPickerState.mode === "due" || taskPickerState.mode === "remind") {
-      renderTaskPickerCalendar(els.inlineTaskPicker, taskPickerState.mode);
-      els.inlineTaskPicker.classList.remove("hidden");
-      window.requestAnimationFrame(positionInlineTaskPicker);
-      return;
-    }
-    closeTaskPickers();
+    renderTaskPickerUI(taskPickerState, els, {
+      currentPickerTask: currentPickerTask,
+      saveTaskDateField: saveTaskDateField,
+      closeTaskPickers: closeTaskPickers,
+      setNoteStatus: setNoteStatus,
+      errorMessage: errorMessage,
+    });
   }
 
   function openInlineTaskPicker(ref: string, mode: "due" | "remind", left: number, top: number): void {
-    if (taskPickerState.mode === mode && taskPickerState.ref === ref) {
-      closeTaskPickers();
-      return;
-    }
-    const task = ref ? findCurrentTask(ref) : null;
-    if (!task) {
-      return;
-    }
-    rememberNoteFocus();
-    const parts = taskPickerPartsFromValue(mode, mode === "due" ? (task.due || "") : (task.remind || ""));
-    taskPickerState.mode = mode;
-    taskPickerState.ref = ref;
-    taskPickerState.left = left;
-    taskPickerState.top = top;
-    taskPickerState.year = parts.year;
-    taskPickerState.month = parts.month;
-    taskPickerState.day = parts.day;
-    taskPickerState.hour = parts.hour;
-    taskPickerState.minute = parts.minute - (parts.minute % 5);
-    renderTaskPicker();
+    openInlineTaskPickerUI(taskPickerState, {
+      ref: ref,
+      mode: mode,
+      left: left,
+      top: top,
+      task: ref ? findCurrentTask(ref) : null,
+      rememberNoteFocus: rememberNoteFocus,
+      closeTaskPickers: closeTaskPickers,
+      renderTaskPicker: renderTaskPicker,
+    });
   }
 
   function setMetaPills(values: string[]): void {
@@ -1492,120 +834,33 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function setSessionMenuOpen(open: boolean): void {
-    if (!state.authenticated) {
-      open = false;
-    }
-    els.sessionMenuPanel.classList.toggle("hidden", !open);
-    els.openSessionMenu.setAttribute("aria-expanded", open ? "true" : "false");
+    setSessionMenuOpenUI(state, els, open);
   }
 
   function renderSessionState(): void {
-    const username = state.currentUser && state.currentUser.username
-      ? state.currentUser.username
-      : "Sign In";
-    els.sessionUser.textContent = username;
-    els.openAdminSettings.classList.toggle("hidden", !(state.authenticated && currentUserIsAdmin()));
-    els.logoutSession.classList.toggle("hidden", !state.authenticated);
-    els.openSessionMenu.title = state.authenticated
-      ? "Session menu"
-      : "Open sign in";
-    if (!state.authenticated) {
-      setSessionMenuOpen(false);
-    }
+    renderSessionStateUI(state, els, function (vaultID) {
+      switchVault(vaultID).catch(function (error) {
+        setNoteStatus("Vault switch failed: " + errorMessage(error));
+      });
+    });
+  }
+
+  function setVaultSwitcherOpen(open: boolean): void {
+    setVaultSwitcherOpenUI(state, els, open);
   }
 
   function renderAuthGate(): void {
-    const setupRequired = state.authGateMode === "setup";
-    const mustChangePassword = state.authGateMode === "changePassword";
-
-    if (mustChangePassword) {
-      els.authEyebrow.textContent = "Password Rotation";
-      els.authTitle.textContent = "Rotate Bootstrap Password";
-      els.authCopy.textContent = "This session is using a generated bootstrap credential. Set a new password before loading notes, queries, documents, history, or live events.";
-    } else if (setupRequired) {
-      els.authEyebrow.textContent = "Initial Setup";
-      els.authTitle.textContent = "Create The First Admin";
-      els.authCopy.textContent = "This server does not have any users yet. Create the initial admin account with the username and password you want to keep using.";
-    } else {
-      els.authEyebrow.textContent = "Auth Required";
-      els.authTitle.textContent = "Sign In To Noterious";
-      els.authCopy.textContent = "The server now requires a session before loading notes, queries, documents, history, or live events.";
-    }
-
-    els.authIdentity.classList.toggle("hidden", !mustChangePassword);
-    if (mustChangePassword && state.currentUser) {
-      els.authIdentity.textContent = "Signed in as " + state.currentUser.username + ".";
-    } else {
-      els.authIdentity.textContent = "";
-    }
-
-    els.authUsernameRow.classList.toggle("hidden", mustChangePassword);
-    els.authPasswordRow.classList.toggle("hidden", mustChangePassword);
-    els.authSetupConfirmRow.classList.toggle("hidden", !setupRequired);
-    els.authChangeFields.classList.toggle("hidden", !mustChangePassword);
-    els.authSubmit.textContent = mustChangePassword
-      ? "Update Password"
-      : (setupRequired ? "Create Admin" : "Sign In");
+    renderAuthGateUI(state, els);
   }
 
   function setAuthSession(session: AuthSessionResponse): void {
-    state.authenticated = Boolean(session.authenticated);
-    state.currentUser = state.authenticated && session.user
-      ? session.user
-      : null;
-    state.mustChangePassword = Boolean(state.currentUser && state.currentUser.mustChangePassword);
-    state.setupRequired = Boolean(!state.authenticated && session.setupRequired);
-    state.authGateMode = state.mustChangePassword
-      ? "changePassword"
-      : (state.setupRequired ? "setup" : "login");
+    applyAuthSessionResponse(state, session);
     renderSessionState();
     renderAuthGate();
   }
 
-  function currentUserIsAdmin(): boolean {
-    return Boolean(state.currentUser && state.currentUser.role === "admin");
-  }
-
   function setAuthGateOpen(open: boolean, status?: string): void {
-    renderAuthGate();
-    els.authShell.classList.toggle("hidden", !open);
-    if (els.appShell) {
-      if (open) {
-        els.appShell.setAttribute("inert", "");
-      } else {
-        els.appShell.removeAttribute("inert");
-      }
-    }
-    if (typeof status === "string") {
-      els.authStatus.textContent = status;
-    } else if (!open) {
-      els.authStatus.textContent = "";
-    }
-    if (open) {
-      window.setTimeout(function () {
-        if (state.authGateMode === "changePassword") {
-          if (els.authCurrentPassword.value.trim()) {
-            els.authNewPassword.focus();
-            return;
-          }
-          els.authCurrentPassword.focus();
-          return;
-        }
-        if (state.authGateMode === "setup") {
-          if (els.authUsername.value.trim()) {
-            els.authPassword.focus();
-            return;
-          }
-          els.authUsername.focus();
-          return;
-        }
-        if (els.authUsername.value.trim()) {
-          els.authPassword.focus();
-          return;
-        }
-        els.authUsername.focus();
-      }, 0);
-    }
+    setAuthGateOpenUI(state, els, open, status);
   }
 
   async function loadSession() {
@@ -1658,7 +913,7 @@ function defaultClientPreferences(): ClientPreferences {
       return;
     }
 
-    els.authStatus.textContent = "Creating admin account…";
+    els.authStatus.textContent = "Setting up account…";
     try {
       const session = await fetchJSON<AuthSessionResponse>("/api/auth/setup", {
         method: "POST",
@@ -1726,6 +981,9 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   async function loadAuthenticatedApp() {
+    await loadAuthVaults().catch(function (error) {
+      setNoteStatus("Vault list failed: " + errorMessage(error));
+    });
     await Promise.all([
       loadSettings(),
       loadUserSettings().catch(function (error) {
@@ -1738,6 +996,85 @@ function defaultClientPreferences(): ClientPreferences {
     ]);
     applyURLState();
     connectEvents();
+  }
+
+  function setVisibleVaultState(availableVaults: VaultRecord[], currentVault: VaultRecord | null): void {
+    state.availableVaults = Array.isArray(availableVaults) ? availableVaults.slice() : [];
+    if (currentVault) {
+      state.currentVault = currentVault;
+    } else if (!state.availableVaults.some(function (vaultRecord) {
+      return Boolean(state.currentVault && vaultRecord.id === state.currentVault.id);
+    })) {
+      state.currentVault = state.availableVaults[0] || null;
+    }
+    state.vaultSwitchPending = false;
+    state.vaultSwitcherOpen = false;
+    renderSessionState();
+  }
+
+  async function selectCurrentVault(vaultID: number): Promise<AuthSessionResponse> {
+    return fetchJSON<AuthSessionResponse>("/api/auth/vault", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vaultId: vaultID }),
+    }, true);
+  }
+
+  async function loadAuthVaults(): Promise<void> {
+    const snapshot = await fetchJSON<AuthVaultsResponse>("/api/auth/vaults");
+    const rootVault = snapshot.rootVault || null;
+    const discoveredVaults = Array.isArray(snapshot.vaults) ? snapshot.vaults.slice() : [];
+    const currentVault = snapshot.currentVault || rootVault;
+    if (!state.topLevelFoldersAsVaults) {
+      if (rootVault && currentVault && currentVault.id !== rootVault.id) {
+        const session = await selectCurrentVault(rootVault.id);
+        setAuthSession(session);
+        setVisibleVaultState([rootVault], session.vault || rootVault);
+        return;
+      }
+      setVisibleVaultState(rootVault ? [rootVault] : [], currentVault);
+      return;
+    }
+
+    const desiredVault = discoveredVaults.length === 0
+      ? rootVault
+      : discoveredVaults.find(function (vault) {
+        return Boolean(currentVault && vault.id === currentVault.id);
+      }) || discoveredVaults[0];
+    const visibleVaults = discoveredVaults.length > 0
+      ? discoveredVaults
+      : (rootVault ? [rootVault] : []);
+
+    if (desiredVault && (!currentVault || currentVault.id !== desiredVault.id)) {
+      const session = await selectCurrentVault(desiredVault.id);
+      setAuthSession(session);
+      setVisibleVaultState(visibleVaults, session.vault || desiredVault);
+      return;
+    }
+
+    setVisibleVaultState(visibleVaults, desiredVault || currentVault);
+  }
+
+  async function switchVault(vaultID: number): Promise<void> {
+    if (!Number.isFinite(vaultID) || vaultID <= 0) {
+      return;
+    }
+    if (state.currentVault && vaultID === state.currentVault.id) {
+      return;
+    }
+    state.vaultSwitchPending = true;
+    renderSessionState();
+    try {
+      const session = await selectCurrentVault(vaultID);
+      setAuthSession(session);
+      setVaultSwitcherOpen(false);
+      setSessionMenuOpen(false);
+      window.location.reload();
+    } catch (error) {
+      state.vaultSwitchPending = false;
+      renderSessionState();
+      setNoteStatus("Vault switch failed: " + errorMessage(error));
+    }
   }
 
   function setPageSearchOpen(open: boolean): void {
@@ -2546,174 +1883,19 @@ function defaultClientPreferences(): ClientPreferences {
     els.rawView.textContent = raw || "";
   }
 
-  function shortcutRow(label: string, hotkey: string): HTMLDivElement {
-    const row = document.createElement("div");
-    row.className = "shortcut-row";
-
-    const title = document.createElement("span");
-    title.textContent = label;
-    row.appendChild(title);
-
-    const keys = document.createElement("span");
-    keys.className = "shortcut-keys";
-    hotkeyLabel(hotkey).split("+").forEach(function (part) {
-      const key = document.createElement("kbd");
-      key.textContent = part;
-      keys.appendChild(key);
-    });
-    row.appendChild(keys);
-    return row;
-  }
-
   function renderHelpShortcuts() {
-    clearNode(els.helpShortcutCore);
-    clearNode(els.helpShortcutEditor);
-
-    [
-      ["Quick Switcher", state.settings.preferences.hotkeys.quickSwitcher],
-      ["Full Search", state.settings.preferences.hotkeys.globalSearch],
-      ["Command Palette", state.settings.preferences.hotkeys.commandPalette],
-      ["Open Daily Note", state.settings.preferences.hotkeys.quickNote],
-      ["Back", "Alt+Left"],
-      ["Forward", "Alt+Right"],
-      ["Save Current Note", state.settings.preferences.hotkeys.saveCurrentPage],
-      ["Toggle Raw Mode", state.settings.preferences.hotkeys.toggleRawMode],
-      ["Open Help", state.settings.preferences.hotkeys.help],
-    ].forEach(function (entry) {
-      els.helpShortcutCore.appendChild(shortcutRow(entry[0], entry[1]));
-    });
-
-    [
-      ["Toggle Task Done", state.settings.preferences.hotkeys.toggleTaskDone],
-      ["Slash Commands", "/"],
-      ["Open Link Under Caret", "Shift+Enter"],
-      ["Close Menus or Modals", "Esc"],
-    ].forEach(function (entry) {
-      els.helpShortcutEditor.appendChild(shortcutRow(entry[0], entry[1]));
-    });
-  }
-
-  function defaultSettingsSectionForMode(mode: "user" | "admin"): "appearance" | "notifications" | "workspace" {
-    return mode === "admin" ? "workspace" : "appearance";
-  }
-
-  function availableSettingsSections(): Array<"appearance" | "notifications" | "workspace"> {
-    return state.settingsModalMode === "admin"
-      ? ["workspace"]
-      : ["appearance", "notifications"];
-  }
-
-  function normalizeSettingsSection(): void {
-    if (!availableSettingsSections().includes(state.settingsSection)) {
-      state.settingsSection = defaultSettingsSectionForMode(state.settingsModalMode);
-    }
-  }
-
-  function renderSettingsModal(): void {
-    const adminMode = state.settingsModalMode === "admin";
-    normalizeSettingsSection();
-
-    els.settingsEyebrow.textContent = adminMode ? "Admin" : "User";
-    els.settingsTitle.textContent = "Settings";
-
-    const activeSection = state.settingsSection;
-    const navButtons: Array<{ button: HTMLButtonElement; section: "appearance" | "notifications" | "workspace" }> = [
-      { button: els.settingsNavAppearance, section: "appearance" },
-      { button: els.settingsNavNotifications, section: "notifications" },
-      { button: els.settingsNavWorkspace, section: "workspace" },
-    ];
-
-    navButtons.forEach(function (entry) {
-      const visible = availableSettingsSections().includes(entry.section);
-      entry.button.classList.toggle("hidden", !visible);
-      entry.button.classList.toggle("active", visible && activeSection === entry.section);
-      entry.button.setAttribute("aria-current", visible && activeSection === entry.section ? "page" : "false");
-    });
-
-    els.settingsGroupSession.classList.toggle("hidden", activeSection !== "appearance");
-    els.settingsGroupUserNotifications.classList.toggle("hidden", activeSection !== "notifications");
-    els.settingsGroupServer.classList.toggle("hidden", activeSection !== "workspace");
-    els.saveSettings.textContent = adminMode ? "Save Admin Settings" : "Save User Settings";
+    renderHelpShortcutsUI(els, state.settings.preferences);
   }
 
   function renderSettingsForm() {
-    renderSettingsModal();
-
-    const serverFields: Array<HTMLInputElement | HTMLSelectElement> = [
-      els.settingsVaultPath,
-      els.settingsNtfyInterval,
-    ];
-    const userFields: Array<HTMLInputElement | HTMLSelectElement> = [
-      els.settingsUserNtfyTopicUrl,
-      els.settingsUserNtfyToken,
-      els.settingsFontFamily,
-      els.settingsFontSize,
-      els.settingsDateTimeFormat,
-      els.settingsQuickSwitcher,
-      els.settingsGlobalSearch,
-      els.settingsCommandPalette,
-      els.settingsQuickNote,
-      els.settingsHelp,
-      els.settingsSaveCurrentPage,
-      els.settingsToggleRawMode,
-      els.settingsToggleTaskDone,
-    ];
-
-    serverFields.forEach(function (field) {
-      field.disabled = state.settingsModalMode === "admin" && !state.settingsLoaded;
-    });
-    userFields.forEach(function (field) {
-      field.disabled = false;
-    });
-
-    if (state.settingsModalMode === "admin" && !state.settingsLoaded) {
-      els.saveSettings.disabled = true;
-      els.settingsStatus.textContent = "Loading server runtime settings…";
-      return;
-    }
-
-    els.saveSettings.disabled = false;
-    els.settingsVaultPath.value = state.settings.workspace.vaultPath || "";
-    els.settingsNtfyInterval.value = state.settings.notifications.ntfyInterval || "1m";
-    els.settingsUserNtfyTopicUrl.value = state.settings.userNotifications.ntfyTopicUrl || "";
-    els.settingsUserNtfyToken.value = state.settings.userNotifications.ntfyToken || "";
-    els.settingsFontFamily.value = state.settings.preferences.ui.fontFamily || "mono";
-    els.settingsFontSize.value = state.settings.preferences.ui.fontSize || "16";
-    els.settingsDateTimeFormat.value = state.settings.preferences.ui.dateTimeFormat || "browser";
-    els.settingsQuickSwitcher.value = state.settings.preferences.hotkeys.quickSwitcher || "";
-    els.settingsGlobalSearch.value = state.settings.preferences.hotkeys.globalSearch || "";
-    els.settingsCommandPalette.value = state.settings.preferences.hotkeys.commandPalette || "";
-    els.settingsQuickNote.value = state.settings.preferences.hotkeys.quickNote || "";
-    els.settingsHelp.value = state.settings.preferences.hotkeys.help || "";
-    els.settingsSaveCurrentPage.value = state.settings.preferences.hotkeys.saveCurrentPage || "";
-    els.settingsToggleRawMode.value = state.settings.preferences.hotkeys.toggleRawMode || "";
-    els.settingsToggleTaskDone.value = state.settings.preferences.hotkeys.toggleTaskDone || "";
-    if (state.settingsModalMode !== "admin") {
-      els.settingsStatus.textContent = state.userSettingsLoaded
-        ? "Appearance and hotkeys stay in this browser. Personal ntfy delivery is saved with your account."
-        : "Appearance and hotkeys stay in this browser. Loading your personal ntfy delivery settings…";
-      return;
-    }
-    if (
-      state.settingsRestartRequired
-      || state.settings.workspace.vaultPath !== state.appliedWorkspace.vaultPath
-    ) {
-      els.settingsStatus.textContent =
-        "Server runtime changes are saved but not yet applied. Current runtime vault: "
-        + (state.appliedWorkspace.vaultPath || "(none)")
-        + ". Restart the server to apply workspace settings. Client experience settings still apply immediately.";
-      return;
-    }
-    els.settingsStatus.textContent =
-      "Server runtime settings save to this server. Personal ntfy targets live per user. Current runtime vault: "
-      + (state.appliedWorkspace.vaultPath || "(none)")
-      + ".";
+    renderSettingsFormUI(state, els);
+    els.settingsStatus.textContent = "";
   }
 
   function setSettingsSnapshot(snapshot: SettingsResponse): void {
-    state.settings.workspace = snapshot.settings.workspace;
+    state.settings.vault = snapshot.settings.vault;
     state.settings.notifications = snapshot.settings.notifications;
-    state.appliedWorkspace = snapshot.appliedWorkspace;
+    state.appliedVault = snapshot.appliedVault;
     state.settingsRestartRequired = snapshot.restartRequired;
     state.settingsLoaded = true;
     renderHomeButton();
@@ -2786,12 +1968,18 @@ function defaultClientPreferences(): ClientPreferences {
   async function loadMeta() {
     try {
       const meta = await fetchJSON<MetaResponse>("/api/meta");
+      const runtimeVaultPath = meta.runtimeVault && meta.runtimeVault.vaultPath
+        ? meta.runtimeVault.vaultPath
+        : "(none)";
       const pills = [
         "Listening " + meta.listenAddr,
-        "Vault " + meta.vaultPath,
+        "Runtime vault " + runtimeVaultPath,
         "DB " + meta.database,
         "Time " + formatDateTimeValue(meta.serverTime),
       ];
+      if (meta.currentVault && meta.currentVault.vaultPath && meta.currentVault.vaultPath !== runtimeVaultPath) {
+        pills.splice(2, 0, "Current vault " + meta.currentVault.vaultPath);
+      }
       if (meta.restartRequired) {
         pills.splice(2, 0, "Restart required");
       }
@@ -2820,115 +2008,27 @@ function defaultClientPreferences(): ClientPreferences {
     }
   }
 
-  function updatePageListScrollState(): void {
-    window.requestAnimationFrame(function () {
-      const overflow = els.pageList.scrollHeight - els.pageList.clientHeight;
-      els.pageList.classList.toggle("no-scroll", overflow <= 8);
-    });
-  }
-
   function renderPages() {
-    if (state.selectedPage) {
-      ensureExpandedPageAncestors(state.selectedPage, state.expandedPageFolders);
-    }
-
-    renderPagesTree(
-      els.pageList,
-      state.pages,
-      state.selectedPage,
-      state.expandedPageFolders,
-      els.pageSearch.value.trim(),
-      function (folderKey) {
-        state.expandedPageFolders[folderKey] = !state.expandedPageFolders[folderKey];
-        renderPages();
-      },
-      function (pagePath) {
-        navigateToPage(pagePath, false);
-      },
-      function (folderKey) {
-        const name = window.prompt('New note in "' + folderKey + '"', "");
-        const normalizedName = normalizePageDraftPath(name || "");
-        if (!normalizedName) {
-          return;
-        }
-        createPage(folderKey + "/" + normalizedName).catch(function (error) {
-          setNoteStatus("Create page failed: " + errorMessage(error));
-        });
-      },
-      function (folderKey) {
-        const subfolder = normalizePageDraftPath(window.prompt('New subfolder in "' + folderKey + '"', "") || "");
-        if (!subfolder) {
-          return;
-        }
-        const initialNote = normalizePageDraftPath(window.prompt('Initial note inside "' + subfolder + '"', "index") || "");
-        if (!initialNote) {
-          return;
-        }
-        createPage(folderKey + "/" + subfolder + "/" + initialNote).catch(function (error) {
-          setNoteStatus("Create folder failed: " + errorMessage(error));
-        });
-      },
-      function (folderKey) {
-        const currentName = pageTitleFromPath(folderKey);
-        const nextName = normalizePageDraftPath(window.prompt('Rename folder "' + currentName + '"', currentName) || "");
-        if (!nextName || nextName === currentName) {
-          return;
-        }
-        renameFolder(folderKey, nextName).catch(function (error) {
-          setNoteStatus("Rename folder failed: " + errorMessage(error));
-        });
-      },
-      function (folderKey) {
-        deleteFolder(folderKey).catch(function (error) {
-          setNoteStatus("Delete folder failed: " + errorMessage(error));
-        });
-      },
-      function (pagePath) {
-        const currentName = pageTitleFromPath(pagePath);
-        const nextName = normalizePageDraftPath(window.prompt('Rename note "' + currentName + '"', currentName) || "");
-        if (!nextName || nextName === currentName) {
-          return;
-        }
-        renamePage(pagePath, nextName).catch(function (error) {
-          setNoteStatus("Rename note failed: " + errorMessage(error));
-        });
-      },
-      function (pagePath) {
-        deletePage(pagePath).catch(function (error) {
-          setNoteStatus("Delete page failed: " + errorMessage(error));
-        });
-      },
-      function (target, left, top) {
-        openTreeContextMenu(target, left, top);
-      },
-      function (pagePath, folderKey) {
-        movePageToFolder(pagePath, folderKey).catch(function (error) {
-          setNoteStatus("Move page failed: " + errorMessage(error));
-        });
-      },
-      function (folderKey, targetFolder) {
-        moveFolder(folderKey, targetFolder).catch(function (error) {
-          setNoteStatus("Move folder failed: " + errorMessage(error));
-        });
-      }
-    );
-    updatePageListScrollState();
+    renderPagesSection(state, els, {
+      navigateToPage: navigateToPage,
+      createPage: createPage,
+      renameFolder: renameFolder,
+      deleteFolder: deleteFolder,
+      renamePage: renamePage,
+      deletePage: deletePage,
+      movePageToFolder: movePageToFolder,
+      moveFolder: moveFolder,
+      openPageHistory: openPageHistoryFor,
+      currentHomePage: currentHomePage,
+      setHomePage: setHomePage,
+      setNoteStatus: setNoteStatus,
+      errorMessage: errorMessage,
+    }, openTreeContextMenu);
   }
 
   function closeTreeContextMenu(): void {
     treeContextMenuState.target = null;
-    els.treeContextMenu.classList.add("hidden");
-    clearNode(els.treeContextMenu);
-  }
-
-  function positionTreeContextMenu(): void {
-    const menu = els.treeContextMenu;
-    const width = menu.offsetWidth || 220;
-    const height = menu.offsetHeight || 200;
-    const maxLeft = Math.max(12, window.innerWidth - width - 12);
-    const maxTop = Math.max(12, window.innerHeight - height - 12);
-    menu.style.left = Math.max(12, Math.min(treeContextMenuState.left, maxLeft)) + "px";
-    menu.style.top = Math.max(12, Math.min(treeContextMenuState.top, maxTop)) + "px";
+    closeTreeContextMenuUI(els.treeContextMenu);
   }
 
   function openPageHistoryFor(pagePath: string): void {
@@ -2945,128 +2045,25 @@ function defaultClientPreferences(): ClientPreferences {
     }, 0);
   }
 
-  function appendTreeContextMenuItem(
-    label: string,
-    iconPath: string,
-    onSelect: () => void,
-    danger?: boolean
-  ): void {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = danger ? "tree-context-menu-item danger" : "tree-context-menu-item";
-    button.setAttribute("role", "menuitem");
-
-    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    icon.setAttribute("viewBox", "0 0 16 16");
-    icon.setAttribute("aria-hidden", "true");
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", iconPath);
-    path.setAttribute("fill", "currentColor");
-    icon.appendChild(path);
-    button.appendChild(icon);
-
-    const text = document.createElement("span");
-    text.textContent = label;
-    button.appendChild(text);
-
-    button.addEventListener("click", function () {
-      closeTreeContextMenu();
-      onSelect();
-    });
-    els.treeContextMenu.appendChild(button);
-  }
-
-  function appendTreeContextMenuDivider(): void {
-    const divider = document.createElement("div");
-    divider.className = "tree-context-menu-divider";
-    els.treeContextMenu.appendChild(divider);
-  }
-
   function openTreeContextMenu(target: PageTreeMenuTarget, left: number, top: number): void {
     treeContextMenuState.target = target;
     treeContextMenuState.left = left;
     treeContextMenuState.top = top;
-    clearNode(els.treeContextMenu);
-
-    if (target.kind === "page") {
-      appendTreeContextMenuItem("Open note", "M3 2.5h5.7L13 6.8V13a1 1 0 0 1-1 1H3.9a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Zm5 .9v3.2h3.2", function () {
-        navigateToPage(target.path, false);
-      });
-      appendTreeContextMenuItem(
-        currentHomePage().toLowerCase() === target.path.toLowerCase() ? "Home Page Already Set" : "Set as Homepage",
-        "M8 1.8 14.2 7H13v6.2a1 1 0 0 1-1 1H9V10H7v4.2H4a1 1 0 0 1-1-1V7H1.8L8 1.8Z",
-        function () {
-          if (currentHomePage().toLowerCase() === target.path.toLowerCase()) {
-            setNoteStatus("Home page already set to " + target.path + ".");
-            return;
-          }
-          setHomePage(target.path);
-          setNoteStatus("Home page set to " + target.path + ".");
-        }
-      );
-      appendTreeContextMenuItem("Show version history", "M8 2.2a5.8 5.8 0 1 0 4.1 1.7l.9-.9v2.8H10l1.1-1.1A4.4 4.4 0 1 1 8 3.6v1.1l2.3 1.4-.7 1.1L7.4 6V2.2H8Z", function () {
-        openPageHistoryFor(target.path);
-      });
-      appendTreeContextMenuDivider();
-      appendTreeContextMenuItem("Rename…", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function () {
-        const currentName = pageTitleFromPath(target.path);
-        const nextName = normalizePageDraftPath(window.prompt('Rename note "' + currentName + '"', currentName) || "");
-        if (!nextName || nextName === currentName) {
-          return;
-        }
-        renamePage(target.path, nextName).catch(function (error) {
-          setNoteStatus("Rename note failed: " + errorMessage(error));
-        });
-      });
-      appendTreeContextMenuItem("Delete", "M5.2 3h5.6l.4 1.2H14v1.2H2V4.2h2.8L5.2 3Zm-1 3.2h7.6l-.5 6.1a1 1 0 0 1-1 .9H5.7a1 1 0 0 1-1-.9L4.2 6.2Z", function () {
-        deletePage(target.path).catch(function (error) {
-          setNoteStatus("Delete page failed: " + errorMessage(error));
-        });
-      }, true);
-    } else {
-      appendTreeContextMenuItem("New note", "M8 2.5v11M2.5 8h11", function () {
-        const name = window.prompt('New note in "' + target.name + '"', "");
-        const normalizedName = normalizePageDraftPath(name || "");
-        if (!normalizedName) {
-          return;
-        }
-        createPage(target.path + "/" + normalizedName).catch(function (error) {
-          setNoteStatus("Create page failed: " + errorMessage(error));
-        });
-      });
-      appendTreeContextMenuItem("New subfolder", "M8 2.5v11M2.5 8h11", function () {
-        const subfolder = normalizePageDraftPath(window.prompt('New subfolder in "' + target.name + '"', "") || "");
-        if (!subfolder) {
-          return;
-        }
-        const initialNote = normalizePageDraftPath(window.prompt('Initial note inside "' + subfolder + '"', "index") || "");
-        if (!initialNote) {
-          return;
-        }
-        createPage(target.path + "/" + subfolder + "/" + initialNote).catch(function (error) {
-          setNoteStatus("Create folder failed: " + errorMessage(error));
-        });
-      });
-      appendTreeContextMenuDivider();
-      appendTreeContextMenuItem("Rename…", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function () {
-        const currentName = pageTitleFromPath(target.path);
-        const nextName = normalizePageDraftPath(window.prompt('Rename folder "' + currentName + '"', currentName) || "");
-        if (!nextName || nextName === currentName) {
-          return;
-        }
-        renameFolder(target.path, nextName).catch(function (error) {
-          setNoteStatus("Rename folder failed: " + errorMessage(error));
-        });
-      });
-      appendTreeContextMenuItem("Delete", "M5.2 3h5.6l.4 1.2H14v1.2H2V4.2h2.8L5.2 3Zm-1 3.2h7.6l-.5 6.1a1 1 0 0 1-1 .9H5.7a1 1 0 0 1-1-.9L4.2 6.2Z", function () {
-        deleteFolder(target.path).catch(function (error) {
-          setNoteStatus("Delete folder failed: " + errorMessage(error));
-        });
-      }, true);
-    }
-
-    els.treeContextMenu.classList.remove("hidden");
-    window.requestAnimationFrame(positionTreeContextMenu);
+    openTreeContextMenuUI(els.treeContextMenu, target, left, top, {
+      navigateToPage: navigateToPage,
+      createPage: createPage,
+      renameFolder: renameFolder,
+      deleteFolder: deleteFolder,
+      renamePage: renamePage,
+      deletePage: deletePage,
+      movePageToFolder: movePageToFolder,
+      moveFolder: moveFolder,
+      openPageHistory: openPageHistoryFor,
+      currentHomePage: currentHomePage,
+      setHomePage: setHomePage,
+      setNoteStatus: setNoteStatus,
+      errorMessage: errorMessage,
+    });
   }
 
   async function loadSavedQueryTree() {
@@ -3366,16 +2363,7 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function setSearchOpen(open: boolean): void {
-    if (open) {
-      rememberNoteFocus();
-      els.commandModalShell.classList.add("hidden");
-      els.quickSwitcherModalShell.classList.add("hidden");
-      els.documentsModalShell.classList.add("hidden");
-      els.helpModalShell.classList.add("hidden");
-      els.pageHistoryModalShell.classList.add("hidden");
-      els.trashModalShell.classList.add("hidden");
-    }
-    setPaletteOpen(els.searchModalShell, els.globalSearchInput, open);
+    setSearchOpenUI(els, open, rememberNoteFocus);
   }
 
   function closeSearchModal() {
@@ -3405,7 +2393,7 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function searchResultButtons(): HTMLButtonElement[] {
-    return paletteResultButtons(els.globalSearchResults);
+    return paletteModalButtons(els.globalSearchResults);
   }
 
   function commandResultButtons(): HTMLButtonElement[] {
@@ -3413,15 +2401,15 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function quickSwitcherResultButtons(): HTMLButtonElement[] {
-    return paletteResultButtons(els.quickSwitcherResults);
+    return paletteModalButtons(els.quickSwitcherResults);
   }
 
   function documentResultButtons(): HTMLButtonElement[] {
-    return paletteResultButtons(els.documentsResults);
+    return paletteModalButtons(els.documentsResults);
   }
 
   function updateSearchSelection() {
-    updatePaletteSelection(els.globalSearchResults, state.searchSelectionIndex);
+    updatePaletteModalSelection(els.globalSearchResults, state.searchSelectionIndex);
   }
 
   function updateCommandSelection() {
@@ -3429,15 +2417,15 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function updateQuickSwitcherSelection() {
-    updatePaletteSelection(els.quickSwitcherResults, state.quickSwitcherSelectionIndex);
+    updatePaletteModalSelection(els.quickSwitcherResults, state.quickSwitcherSelectionIndex);
   }
 
   function updateDocumentSelection() {
-    updatePaletteSelection(els.documentsResults, state.documentSelectionIndex);
+    updatePaletteModalSelection(els.documentsResults, state.documentSelectionIndex);
   }
 
   function moveSearchSelection(delta: number): void {
-    state.searchSelectionIndex = movePaletteSelection(els.globalSearchResults, state.searchSelectionIndex, delta);
+    state.searchSelectionIndex = movePaletteModalSelection(els.globalSearchResults, state.searchSelectionIndex, delta);
   }
 
   function moveCommandSelection(delta: number): void {
@@ -3445,7 +2433,7 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function moveQuickSwitcherSelection(delta: number): void {
-    state.quickSwitcherSelectionIndex = movePaletteSelection(
+    state.quickSwitcherSelectionIndex = movePaletteModalSelection(
       els.quickSwitcherResults,
       state.quickSwitcherSelectionIndex,
       delta
@@ -3453,11 +2441,11 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function moveDocumentSelection(delta: number): void {
-    state.documentSelectionIndex = movePaletteSelection(els.documentsResults, state.documentSelectionIndex, delta);
+    state.documentSelectionIndex = movePaletteModalSelection(els.documentsResults, state.documentSelectionIndex, delta);
   }
 
   function triggerSearchSelection() {
-    triggerPaletteSelection(els.globalSearchResults, state.searchSelectionIndex);
+    triggerPaletteModalSelection(els.globalSearchResults, state.searchSelectionIndex);
   }
 
   function triggerCommandSelection() {
@@ -3465,24 +2453,15 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function triggerQuickSwitcherSelection() {
-    triggerPaletteSelection(els.quickSwitcherResults, state.quickSwitcherSelectionIndex);
+    triggerPaletteModalSelection(els.quickSwitcherResults, state.quickSwitcherSelectionIndex);
   }
 
   function triggerDocumentSelection() {
-    triggerPaletteSelection(els.documentsResults, state.documentSelectionIndex);
+    triggerPaletteModalSelection(els.documentsResults, state.documentSelectionIndex);
   }
 
   function setCommandPaletteOpen(open: boolean): void {
-    if (open) {
-      rememberNoteFocus();
-      els.searchModalShell.classList.add("hidden");
-      els.quickSwitcherModalShell.classList.add("hidden");
-      els.documentsModalShell.classList.add("hidden");
-      els.helpModalShell.classList.add("hidden");
-      els.pageHistoryModalShell.classList.add("hidden");
-      els.trashModalShell.classList.add("hidden");
-    }
-    setPaletteOpen(els.commandModalShell, els.commandPaletteInput, open);
+    setCommandPaletteOpenUI(els, open, rememberNoteFocus);
   }
 
   function closeCommandPalette() {
@@ -3490,16 +2469,7 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function setQuickSwitcherOpen(open: boolean): void {
-    if (open) {
-      rememberNoteFocus();
-      els.searchModalShell.classList.add("hidden");
-      els.commandModalShell.classList.add("hidden");
-      els.documentsModalShell.classList.add("hidden");
-      els.helpModalShell.classList.add("hidden");
-      els.pageHistoryModalShell.classList.add("hidden");
-      els.trashModalShell.classList.add("hidden");
-    }
-    setPaletteOpen(els.quickSwitcherModalShell, els.quickSwitcherInput, open);
+    setQuickSwitcherOpenUI(els, open, rememberNoteFocus);
   }
 
   function closeQuickSwitcher() {
@@ -3507,112 +2477,19 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function setDocumentsOpen(open: boolean): void {
-    if (open) {
-      rememberNoteFocus();
-      els.searchModalShell.classList.add("hidden");
-      els.commandModalShell.classList.add("hidden");
-      els.quickSwitcherModalShell.classList.add("hidden");
-      els.helpModalShell.classList.add("hidden");
-      els.pageHistoryModalShell.classList.add("hidden");
-      els.trashModalShell.classList.add("hidden");
-    }
-    setPaletteOpen(els.documentsModalShell, els.documentsInput, open);
+    setDocumentsOpenUI(els, open, rememberNoteFocus);
   }
 
   function closeDocumentsModal() {
     setDocumentsOpen(false);
   }
 
-  function firstContentLine(rawMarkdown: string): string {
-    const line = String(rawMarkdown || "")
-      .split(/\r?\n/)
-      .map(function (part) {
-        return part.trim();
-      })
-      .find(Boolean);
-    return line || "Empty note";
-  }
-
-  function historyChangePreview(rawMarkdown: string, previousMarkdown: string): string {
-    const currentLines = String(rawMarkdown || "").split(/\r?\n/);
-    const previousLines = String(previousMarkdown || "").split(/\r?\n/);
-    const changes: string[] = [];
-    const limit = Math.max(currentLines.length, previousLines.length);
-
-    for (let index = 0; index < limit; index += 1) {
-      const currentLine = String(currentLines[index] || "").trim();
-      const previousLine = String(previousLines[index] || "").trim();
-      if (currentLine === previousLine) {
-        continue;
-      }
-      if (previousLine) {
-        changes.push("- " + previousLine);
-      }
-      if (currentLine) {
-        changes.push("+ " + currentLine);
-      }
-      if (changes.length >= 2) {
-        break;
-      }
-    }
-
-    if (!changes.length) {
-      return firstContentLine(rawMarkdown);
-    }
-    return changes.slice(0, 2).join(" · ");
-  }
-
-  function historyDiffContent(rawMarkdown: string, previousMarkdown: string): string {
-    const currentLines = String(rawMarkdown || "").split(/\r?\n/);
-    const previousLines = String(previousMarkdown || "").split(/\r?\n/);
-    const result: string[] = [];
-    const limit = Math.max(currentLines.length, previousLines.length);
-
-    for (let index = 0; index < limit; index += 1) {
-      const currentLine = currentLines[index];
-      const previousLine = previousLines[index];
-      if (currentLine === previousLine) {
-        continue;
-      }
-      if (typeof previousLine === "string") {
-        result.push("- " + previousLine);
-      }
-      if (typeof currentLine === "string") {
-        result.push("+ " + currentLine);
-      }
-    }
-
-    return result.join("\n").trim() || "No changes.";
-  }
-
   function selectedPageHistoryRevision(): PageRevisionRecord | null {
-    if (!state.pageHistory.length) {
-      return null;
-    }
-    return state.pageHistory.find(function (revision) {
-      return revision.id === state.selectedHistoryRevisionId;
-    }) || state.pageHistory[0] || null;
+    return selectedPageHistoryRevisionUI(state);
   }
 
   function renderPageHistoryPreview(): void {
-    const revision = selectedPageHistoryRevision();
-    if (!revision) {
-      els.pageHistoryPreview.textContent = "Select a revision to preview it.";
-      els.copyPageHistory.disabled = true;
-      els.restorePageHistory.disabled = true;
-      return;
-    }
-    const index = state.pageHistory.findIndex(function (entry) {
-      return entry.id === revision.id;
-    });
-    const previousMarkdown = index >= 0 && index + 1 < state.pageHistory.length
-      ? state.pageHistory[index + 1].rawMarkdown
-      : "";
-    els.pageHistoryPreview.textContent = state.historyShowChanges
-      ? historyDiffContent(revision.rawMarkdown, previousMarkdown)
-      : String(revision.rawMarkdown || "");
-    els.copyPageHistory.disabled = false;
-    els.restorePageHistory.disabled = false;
+    renderPageHistoryPreviewUI(state, els);
   }
 
   function restorePageHistoryRevision(revision: PageRevisionRecord): void {
@@ -3634,23 +2511,7 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function setPageHistoryOpen(open: boolean): void {
-    if (open) {
-      rememberNoteFocus();
-      els.searchModalShell.classList.add("hidden");
-      els.commandModalShell.classList.add("hidden");
-      els.quickSwitcherModalShell.classList.add("hidden");
-      els.documentsModalShell.classList.add("hidden");
-      els.helpModalShell.classList.add("hidden");
-      els.settingsModalShell.classList.add("hidden");
-      els.trashModalShell.classList.add("hidden");
-      els.pageHistoryModalShell.classList.remove("hidden");
-      els.pageHistoryShowChanges.checked = state.historyShowChanges;
-      window.requestAnimationFrame(function () {
-        focusWithoutScroll(els.closePageHistoryModal);
-      });
-      return;
-    }
-    els.pageHistoryModalShell.classList.add("hidden");
+    setPageHistoryOpenUI(state, els, open, rememberNoteFocus);
   }
 
   function closePageHistoryModal(): void {
@@ -3658,44 +2519,7 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function renderPageHistory(): void {
-    clearNode(els.pageHistoryResults);
-    if (!state.pageHistory.length) {
-      state.selectedHistoryRevisionId = "";
-      renderEmpty(els.pageHistoryResults, "No saved revisions for this page yet.");
-      renderPageHistoryPreview();
-      return;
-    }
-    if (!selectedPageHistoryRevision()) {
-      state.selectedHistoryRevisionId = state.pageHistory[0].id;
-    }
-
-    state.pageHistory.forEach(function (revision, index) {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "history-item";
-      if (revision.id === state.selectedHistoryRevisionId) {
-        item.classList.add("active");
-      }
-      item.addEventListener("click", function () {
-        state.selectedHistoryRevisionId = revision.id;
-        renderPageHistory();
-      });
-
-      const meta = document.createElement("div");
-      meta.className = "history-item-meta";
-      meta.textContent = formatDateTimeValue(revision.savedAt);
-
-      const snippet = document.createElement("div");
-      snippet.className = "history-item-snippet";
-      snippet.textContent = historyChangePreview(
-        revision.rawMarkdown,
-        index + 1 < state.pageHistory.length ? state.pageHistory[index + 1].rawMarkdown : ""
-      );
-      item.appendChild(meta);
-      item.appendChild(snippet);
-      els.pageHistoryResults.appendChild(item);
-    });
-    renderPageHistoryPreview();
+    renderPageHistoryUI(state, els, renderPageHistory);
   }
 
   async function loadPageHistory(): Promise<void> {
@@ -3728,22 +2552,7 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function setTrashOpen(open: boolean): void {
-    if (open) {
-      rememberNoteFocus();
-      els.searchModalShell.classList.add("hidden");
-      els.commandModalShell.classList.add("hidden");
-      els.quickSwitcherModalShell.classList.add("hidden");
-      els.documentsModalShell.classList.add("hidden");
-      els.helpModalShell.classList.add("hidden");
-      els.settingsModalShell.classList.add("hidden");
-      els.pageHistoryModalShell.classList.add("hidden");
-      els.trashModalShell.classList.remove("hidden");
-      window.requestAnimationFrame(function () {
-        focusWithoutScroll(els.closeTrashModal);
-      });
-      return;
-    }
-    els.trashModalShell.classList.add("hidden");
+    setTrashOpenUI(els, open, rememberNoteFocus);
   }
 
   function closeTrashModal(): void {
@@ -3751,30 +2560,8 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function renderTrash(): void {
-    clearNode(els.trashResults);
-    if (!state.trashPages.length) {
-      renderEmpty(els.trashResults, "Trash is empty.");
-      return;
-    }
-    state.trashPages.forEach(function (entry) {
-      const item = document.createElement("div");
-      item.className = "history-item";
-
-      const meta = document.createElement("div");
-      meta.className = "history-item-meta";
-      meta.textContent = pageTitleFromPath(entry.page) + " · deleted " + formatDateTimeValue(entry.deletedAt);
-
-      const snippet = document.createElement("div");
-      snippet.className = "history-item-snippet";
-      snippet.textContent = firstContentLine(entry.rawMarkdown);
-
-      const actions = document.createElement("div");
-      actions.className = "history-item-actions";
-
-      const restoreButton = document.createElement("button");
-      restoreButton.type = "button";
-      restoreButton.textContent = "Restore";
-      restoreButton.addEventListener("click", function () {
+    renderTrashUI(state, els, {
+      onRestore: function (entry) {
         fetchJSON<PageRecord>("/api/trash/pages/" + encodePath(entry.page) + "/restore", {
           method: "POST",
         }).then(function (payload) {
@@ -3789,13 +2576,8 @@ function defaultClientPreferences(): ClientPreferences {
         }).catch(function (error) {
           setNoteStatus("Restore failed: " + errorMessage(error));
         });
-      });
-
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button";
-      deleteButton.className = "danger-button";
-      deleteButton.textContent = "Delete Permanently";
-      deleteButton.addEventListener("click", function () {
+      },
+      onDelete: function (entry) {
         if (!window.confirm('Permanently delete "' + entry.page + '" and its history?')) {
           return;
         }
@@ -3810,14 +2592,7 @@ function defaultClientPreferences(): ClientPreferences {
         }).catch(function (error) {
           setNoteStatus("Permanent delete failed: " + errorMessage(error));
         });
-      });
-
-      actions.appendChild(restoreButton);
-      actions.appendChild(deleteButton);
-      item.appendChild(meta);
-      item.appendChild(snippet);
-      item.appendChild(actions);
-      els.trashResults.appendChild(item);
+      },
     });
   }
 
@@ -3864,16 +2639,8 @@ function defaultClientPreferences(): ClientPreferences {
     setHelpOpen(false);
   }
 
-  function setSettingsOpen(open: boolean, mode?: "user" | "admin"): void {
-    if (mode) {
-      state.settingsModalMode = mode;
-      state.settingsSection = defaultSettingsSectionForMode(mode);
-    }
+  function setSettingsOpen(open: boolean): void {
     if (open) {
-      if (state.settingsModalMode === "admin" && !currentUserIsAdmin()) {
-        setNoteStatus("Admin settings require an admin session.");
-        return;
-      }
       rememberNoteFocus();
       els.searchModalShell.classList.add("hidden");
       els.commandModalShell.classList.add("hidden");
@@ -3884,11 +2651,11 @@ function defaultClientPreferences(): ClientPreferences {
       els.trashModalShell.classList.add("hidden");
       els.settingsModalShell.classList.remove("hidden");
       renderSettingsForm();
-      if (state.settingsModalMode === "admin" && !state.settingsLoaded) {
+      if (!state.settingsLoaded) {
         loadSettings();
       }
       window.requestAnimationFrame(function () {
-        if (state.settingsSection === "workspace" && state.settingsLoaded) {
+        if (state.settingsSection === "vault" && state.settingsLoaded) {
           focusWithoutScroll(els.settingsVaultPath);
           return;
         }
@@ -3913,9 +2680,9 @@ function defaultClientPreferences(): ClientPreferences {
 
   function collectServerSettingsForm(): ServerSettings {
     return {
-      workspace: {
+      vault: {
         vaultPath: String(els.settingsVaultPath.value || "").trim(),
-        homePage: state.settings.workspace.homePage || "",
+        homePage: state.settings.vault.homePage || "",
       },
       notifications: {
         ntfyInterval: String(els.settingsNtfyInterval.value || "1m").trim(),
@@ -3971,6 +2738,9 @@ function defaultClientPreferences(): ClientPreferences {
         fontSize: String(els.settingsFontSize.value || "16").trim(),
         dateTimeFormat: String(els.settingsDateTimeFormat.value || "browser").trim(),
       },
+      vaults: {
+        topLevelFoldersAsVaults: Boolean(els.settingsUserTopLevelVaults.checked),
+      },
       hotkeys: {
         quickSwitcher: String(els.settingsQuickSwitcher.value || "").trim(),
         globalSearch: String(els.settingsGlobalSearch.value || "").trim(),
@@ -3986,6 +2756,7 @@ function defaultClientPreferences(): ClientPreferences {
 
   function applyClientPreferences(preferences: ClientPreferences): void {
     state.settings.preferences = cloneClientPreferences(preferences);
+    state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
     saveStoredClientPreferences(state.settings.preferences);
     renderHelpShortcuts();
     renderSettingsForm();
@@ -4001,55 +2772,53 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   async function persistSettings() {
-    if (state.settingsModalMode === "admin" && !state.settingsLoaded) {
+    if (!state.settingsLoaded) {
       els.settingsStatus.textContent = "Settings are still loading. Try again in a moment.";
       return;
     }
-    if (state.settingsModalMode !== "admin") {
-      applyClientPreferences(collectClientPreferencesForm());
-      els.settingsStatus.textContent = "Saving user settings…";
-      try {
-        const snapshot = await fetchJSON<UserSettingsResponse>("/api/user/settings", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(collectUserSettingsForm()),
-        });
-        setUserSettingsSnapshot(snapshot);
-        closeSettingsModal();
-        restoreNoteFocus();
-        setNoteStatus("User settings saved.");
-      } catch (error) {
-        els.settingsStatus.textContent =
-          "Local preferences updated in this browser, but personal ntfy delivery settings failed to save: " + errorMessage(error);
-      }
-      return;
-    }
-
-    els.settingsStatus.textContent = "Saving admin settings…";
+    const previousTopLevelFoldersAsVaults = state.topLevelFoldersAsVaults;
+    const nextSettings = prepareSettingsSave(
+      collectClientPreferencesForm,
+      collectUserSettingsForm,
+      collectServerSettingsForm,
+      applyClientPreferences,
+    );
+    els.settingsStatus.textContent = "Saving settings…";
     try {
-      const snapshot = await fetchJSON<SettingsResponse>("/api/settings", {
+      const userSnapshot = await fetchJSON<UserSettingsResponse>("/api/user/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(collectServerSettingsForm()),
+        body: JSON.stringify(nextSettings.userSettings),
       });
-      setSettingsSnapshot(snapshot);
+      setUserSettingsSnapshot(userSnapshot);
+      const settingsSnapshot = await fetchJSON<SettingsResponse>("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nextSettings.serverSettings),
+      });
+      setSettingsSnapshot(settingsSnapshot);
       await loadMeta();
+      await loadAuthVaults();
       if (state.selectedPage || state.selectedSavedQuery) {
         syncURLState(true);
       }
+      if (previousTopLevelFoldersAsVaults !== state.topLevelFoldersAsVaults) {
+        window.location.reload();
+        return;
+      }
       closeSettingsModal();
       restoreNoteFocus();
-      setNoteStatus(snapshot.restartRequired
-        ? "Admin settings saved. Restart required to apply runtime changes."
-        : "Admin settings saved.");
+      setNoteStatus(settingsSnapshot.restartRequired
+        ? "Settings saved. Restart required to apply runtime changes."
+        : "Settings saved.");
     } catch (error) {
-      els.settingsStatus.textContent = errorMessage(error);
+      els.settingsStatus.textContent = "Settings save failed: " + errorMessage(error);
     }
   }
 
   function renderGlobalSearchResults(payload: SearchPayload): void {
-    state.searchSelectionIndex = renderGlobalSearchResultsUI({
-      container: els.globalSearchResults,
+    state.searchSelectionIndex = renderSearchResultsUI2({
+      els: els,
       payload: payload,
       onClose: closeSearchModal,
       onOpenPage: function (pagePath) {
@@ -4070,17 +2839,6 @@ function defaultClientPreferences(): ClientPreferences {
         loadSavedQueryDetail(name);
       },
     });
-    if (state.searchSelectionIndex >= 0) {
-      updateSearchSelection();
-    }
-
-    if (els.searchModalShell && !els.searchModalShell.classList.contains("hidden") && els.globalSearchInput) {
-      window.requestAnimationFrame(function () {
-        if (document.activeElement !== els.globalSearchInput) {
-          els.globalSearchInput.focus({preventScroll: true});
-        }
-      });
-    }
   }
 
   async function runGlobalSearch() {
@@ -4089,7 +2847,7 @@ function defaultClientPreferences(): ClientPreferences {
     }
     const query = els.globalSearchInput.value.trim();
     if (!query) {
-      renderEmpty(els.globalSearchResults, "Type to search pages, tasks, and saved queries.");
+      renderSearchEmptyState(els, "Type to search pages, tasks, and saved queries.");
       return;
     }
     els.globalSearchResults.textContent = "Searching…";
@@ -4102,8 +2860,8 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function renderQuickSwitcherResults() {
-    state.quickSwitcherSelectionIndex = renderQuickSwitcherResultsUI({
-      container: els.quickSwitcherResults,
+    state.quickSwitcherSelectionIndex = renderQuickSwitcherResultsUI2({
+      els: els,
       inputValue: els.quickSwitcherInput ? els.quickSwitcherInput.value : "",
       pages: state.pages,
       selectedPage: state.selectedPage,
@@ -4117,23 +2875,12 @@ function defaultClientPreferences(): ClientPreferences {
         });
       },
     });
-    if (state.quickSwitcherSelectionIndex >= 0) {
-      updateQuickSwitcherSelection();
-    }
-
-    if (els.quickSwitcherModalShell && !els.quickSwitcherModalShell.classList.contains("hidden") && els.quickSwitcherInput) {
-      window.requestAnimationFrame(function () {
-        if (document.activeElement !== els.quickSwitcherInput) {
-          els.quickSwitcherInput.focus({preventScroll: true});
-        }
-      });
-    }
   }
 
   function handleDocumentSelection(document: DocumentRecord): void {
     closeDocumentsModal();
     if (state.selectedPage && state.currentPage) {
-      insertTextAtEditorSelection(markdownLinkForDocument(document, state.selectedPage));
+      insertTextAtEditorSelection(documentLinkForSelection(document, state.selectedPage));
       setNoteStatus("Inserted document link for " + document.name + ".");
       return;
     }
@@ -4168,23 +2915,12 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   function renderDocumentResults() {
-    state.documentSelectionIndex = renderDocumentsResultsUI({
-      container: els.documentsResults,
+    state.documentSelectionIndex = renderDocumentResultsUI({
+      els: els,
       inputValue: els.documentsInput ? els.documentsInput.value : "",
       documents: state.documents,
       onSelectDocument: handleDocumentSelection,
     });
-    if (state.documentSelectionIndex >= 0) {
-      updateDocumentSelection();
-    }
-
-    if (els.documentsModalShell && !els.documentsModalShell.classList.contains("hidden") && els.documentsInput) {
-      window.requestAnimationFrame(function () {
-        if (document.activeElement !== els.documentsInput) {
-          els.documentsInput.focus({preventScroll: true});
-        }
-      });
-    }
   }
 
   async function loadDocuments() {
@@ -4219,22 +2955,12 @@ function defaultClientPreferences(): ClientPreferences {
   }
 
   async function createPage(pagePath: string): Promise<void> {
-    const normalized = normalizePageDraftPath(pagePath);
-    if (!normalized) {
-      return;
-    }
-
-    const leaf = pageTitleFromPath(normalized);
-    const initialMarkdown = leaf ? "# " + leaf + "\n" : "";
-
-    await fetchJSON<unknown>("/api/pages/" + encodePath(normalized), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rawMarkdown: initialMarkdown }),
+    return createPageRequest(pagePath, {
+      encodePath: encodePath,
+      fetchJSON: fetchJSON,
+      loadPages: loadPages,
+      navigateToPage: navigateToPage,
     });
-
-    await loadPages();
-    navigateToPage(normalized, false);
   }
 
   async function uploadDocument(file: File): Promise<DocumentRecord> {
@@ -4279,216 +3005,95 @@ function defaultClientPreferences(): ClientPreferences {
       return;
     }
     insertTextAtEditorSelection(documents.map(function (document) {
-      return markdownLinkForDocument(document, state.selectedPage);
+      return documentLinkForSelection(document, state.selectedPage);
     }).join("\n"));
     setNoteStatus("Uploaded " + String(documents.length) + " document" + (documents.length === 1 ? "" : "s") + ".");
   }
 
   async function deletePage(pagePath: string): Promise<void> {
-    const normalized = normalizePageDraftPath(pagePath);
-    if (!normalized) {
-      return;
-    }
-    const deletingSelectedPage = state.selectedPage === normalized;
-    const currentIndex = state.pages.findIndex(function (page) {
-      return normalizePageDraftPath(page.path) === normalized;
+    return deletePageRequest(pagePath, state, {
+      encodePath: encodePath,
+      fetchJSON: fetchJSON,
+      loadPages: loadPages,
+      currentHomePage: currentHomePage,
+      clearHomePage: clearHomePage,
+      clearPageSelection: clearPageSelection,
+      navigateToPage: navigateToPage,
+      setNoteStatus: setNoteStatus,
     });
-    const fallbackPage = currentIndex >= 0
-      ? (
-          state.pages[currentIndex - 1]
-          || state.pages[currentIndex + 1]
-          || null
-        )
-      : null;
-    const fallbackPath = fallbackPage ? normalizePageDraftPath(fallbackPage.path) : "";
-
-    if (!window.confirm('Move page "' + normalized + '" to trash?')) {
-      return;
-    }
-
-    await fetchJSON<unknown>("/api/pages/" + encodePath(normalized), {
-      method: "DELETE",
-    });
-    setNoteStatus("Moved " + normalized + " to trash.");
-
-    if (currentHomePage().toLowerCase() === normalized.toLowerCase()) {
-      clearHomePage();
-    }
-    await loadPages();
-    if (deletingSelectedPage) {
-      if (fallbackPath && state.pages.some(function (page) { return normalizePageDraftPath(page.path) === fallbackPath; })) {
-        navigateToPage(fallbackPath, true);
-      } else {
-        clearPageSelection();
-      }
-    }
   }
 
   async function deleteFolder(folderKey: string): Promise<void> {
-    const normalized = normalizePageDraftPath(folderKey);
-    if (!normalized) {
-      return;
-    }
-    const pageCount = state.pages.filter(function (page) {
-      const path = String(page.path || "");
-      return path === normalized || path.startsWith(normalized + "/");
-    }).length;
-    if (!window.confirm('Delete folder "' + normalized + '" and everything inside it?\n\n' + String(pageCount) + " note(s) will be removed.")) {
-      return;
-    }
-    await fetchJSON<unknown>("/api/folders/" + encodePath(normalized), {
-      method: "DELETE",
+    return deleteFolderRequest(folderKey, state, {
+      encodePath: encodePath,
+      fetchJSON: fetchJSON,
+      loadPages: loadPages,
+      currentHomePage: currentHomePage,
+      clearHomePage: clearHomePage,
+      clearPageSelection: clearPageSelection,
     });
-    if (state.selectedPage && (state.selectedPage === normalized || state.selectedPage.startsWith(normalized + "/"))) {
-      clearPageSelection();
-    }
-    if (currentHomePage().toLowerCase() === normalized.toLowerCase() || currentHomePage().startsWith(normalized.toLowerCase() + "/")) {
-      clearHomePage();
-    }
-    await loadPages();
-  }
-
-  function remapPathPrefix(value: string, fromPrefix: string, toPrefix: string): string {
-    const source = normalizePageDraftPath(value);
-    if (!source) {
-      return "";
-    }
-    if (source === fromPrefix) {
-      return toPrefix;
-    }
-    if (source.startsWith(fromPrefix + "/")) {
-      return toPrefix + source.slice(fromPrefix.length);
-    }
-    return source;
-  }
-
-  function remapExpandedFolderKeys(fromPrefix: string, toPrefix: string): void {
-    const next: Record<string, boolean> = {};
-    Object.keys(state.expandedPageFolders).forEach(function (key) {
-      if (!state.expandedPageFolders[key]) {
-        return;
-      }
-      const remapped = remapPathPrefix(key, fromPrefix, toPrefix);
-      next[remapped || key] = true;
-    });
-    state.expandedPageFolders = next;
   }
 
   async function movePage(pagePath: string, targetPage: string): Promise<void> {
-    const fromPath = normalizePageDraftPath(pagePath);
-    const toPath = normalizePageDraftPath(targetPage);
-    if (!fromPath || !toPath || fromPath === toPath) {
-      return;
-    }
-
-    const payload = await fetchJSON<{ page: string }>("/api/pages/" + encodePath(fromPath) + "/move", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetPage: toPath }),
+    return movePageRequest(pagePath, targetPage, {
+      encodePath: encodePath,
+      fetchJSON: fetchJSON,
+      loadPages: loadPages,
+      currentHomePage: currentHomePage,
+      setHomePage: setHomePage,
+      navigateToPage: navigateToPage,
     });
-
-    if (currentHomePage().toLowerCase() === fromPath.toLowerCase()) {
-      setHomePage(toPath);
-    }
-    await loadPages();
-    navigateToPage(payload.page || toPath, false);
   }
 
   async function renamePage(pagePath: string, nextLeafName: string): Promise<void> {
-    const fromPath = normalizePageDraftPath(pagePath);
-    const nextLeaf = normalizePageDraftPath(nextLeafName);
-    if (!fromPath || !nextLeaf) {
-      return;
-    }
-    const slash = fromPath.lastIndexOf("/");
-    const parent = slash >= 0 ? fromPath.slice(0, slash) : "";
-    const targetPath = parent ? (parent + "/" + nextLeaf) : nextLeaf;
-    await movePage(fromPath, targetPath);
+    return renamePageRequest(pagePath, nextLeafName, {
+      encodePath: encodePath,
+      fetchJSON: fetchJSON,
+      loadPages: loadPages,
+      currentHomePage: currentHomePage,
+      setHomePage: setHomePage,
+      navigateToPage: navigateToPage,
+    });
   }
 
   async function movePageToFolder(pagePath: string, folderKey: string): Promise<void> {
-    const fromPath = normalizePageDraftPath(pagePath);
-    if (!fromPath) {
-      return;
-    }
-    const leaf = pageTitleFromPath(fromPath);
-    const targetFolder = normalizePageDraftPath(folderKey);
-    const toPath = targetFolder ? (targetFolder + "/" + leaf) : leaf;
-    await movePage(fromPath, toPath);
+    return movePageToFolderRequest(pagePath, folderKey, {
+      encodePath: encodePath,
+      fetchJSON: fetchJSON,
+      loadPages: loadPages,
+      currentHomePage: currentHomePage,
+      setHomePage: setHomePage,
+      navigateToPage: navigateToPage,
+    });
   }
 
   async function moveFolder(folderKey: string, targetFolder: string): Promise<void> {
-    const sourceFolder = normalizePageDraftPath(folderKey);
-    const destinationParent = normalizePageDraftPath(targetFolder);
-    if (!sourceFolder) {
-      return;
-    }
-    const folderName = pageTitleFromPath(sourceFolder);
-    const destinationFolder = destinationParent ? (destinationParent + "/" + folderName) : folderName;
-    if (destinationFolder === sourceFolder || destinationParent.startsWith(sourceFolder + "/")) {
-      return;
-    }
-
-    const payload = await fetchJSON<{ folder?: string }>("/api/folders/" + encodePath(sourceFolder) + "/move", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetFolder: destinationParent, name: "" }),
+    return moveFolderRequest(folderKey, targetFolder, state, {
+      encodePath: encodePath,
+      fetchJSON: fetchJSON,
+      loadPages: loadPages,
+      currentHomePage: currentHomePage,
+      setHomePage: setHomePage,
+      navigateToPage: navigateToPage,
+      renderPages: renderPages,
     });
-    const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
-    const movedSelectedPage = state.selectedPage ? remapPathPrefix(state.selectedPage, sourceFolder, movedFolder) : "";
-    const movedHomePage = currentHomePage() ? remapPathPrefix(currentHomePage(), sourceFolder, movedFolder) : "";
-
-    remapExpandedFolderKeys(sourceFolder, movedFolder);
-    if (movedHomePage) {
-      setHomePage(movedHomePage);
-    }
-
-    await loadPages();
-    if (movedSelectedPage && movedSelectedPage !== state.selectedPage) {
-      navigateToPage(movedSelectedPage, false);
-      return;
-    }
-    renderPages();
   }
 
   async function renameFolder(folderKey: string, nextLeafName: string): Promise<void> {
-    const sourceFolder = normalizePageDraftPath(folderKey);
-    const nextLeaf = normalizePageDraftPath(nextLeafName);
-    if (!sourceFolder || !nextLeaf) {
-      return;
-    }
-    const slash = sourceFolder.lastIndexOf("/");
-    const parentFolder = slash >= 0 ? sourceFolder.slice(0, slash) : "";
-    const destinationFolder = parentFolder ? (parentFolder + "/" + nextLeaf) : nextLeaf;
-    if (destinationFolder === sourceFolder || destinationFolder.startsWith(sourceFolder + "/")) {
-      return;
-    }
-
-    const payload = await fetchJSON<{ folder?: string }>("/api/folders/" + encodePath(sourceFolder) + "/move", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetFolder: parentFolder, name: nextLeaf }),
+    return renameFolderRequest(folderKey, nextLeafName, state, {
+      encodePath: encodePath,
+      fetchJSON: fetchJSON,
+      loadPages: loadPages,
+      currentHomePage: currentHomePage,
+      setHomePage: setHomePage,
+      navigateToPage: navigateToPage,
+      renderPages: renderPages,
     });
-    const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
-    const movedSelectedPage = state.selectedPage ? remapPathPrefix(state.selectedPage, sourceFolder, movedFolder) : "";
-    const movedHomePage = currentHomePage() ? remapPathPrefix(currentHomePage(), sourceFolder, movedFolder) : "";
-
-    remapExpandedFolderKeys(sourceFolder, movedFolder);
-    if (movedHomePage) {
-      setHomePage(movedHomePage);
-    }
-
-    await loadPages();
-    if (movedSelectedPage && movedSelectedPage !== state.selectedPage) {
-      navigateToPage(movedSelectedPage, false);
-      return;
-    }
-    renderPages();
   }
 
   function renderCommandPaletteResults() {
-    state.commandSelectionIndex = renderCommandPaletteResultsUI({
-      container: els.commandPaletteResults,
+    state.commandSelectionIndex = renderCommandResults({
+      els: els,
       inputValue: els.commandPaletteInput ? els.commandPaletteInput.value : "",
       selectedPage: state.selectedPage,
       sourceOpen: state.sourceOpen,
@@ -4504,7 +3109,7 @@ function defaultClientPreferences(): ClientPreferences {
       },
       onOpenSettings: function () {
         closeCommandPalette();
-        setSettingsOpen(true, "user");
+        setSettingsOpen(true);
       },
       onOpenDocuments: function () {
         closeCommandPalette();
@@ -4559,17 +3164,6 @@ function defaultClientPreferences(): ClientPreferences {
         setNoteStatus("Home page cleared.");
       },
     });
-    if (state.commandSelectionIndex >= 0) {
-      updateCommandSelection();
-    }
-
-    if (els.commandModalShell && !els.commandModalShell.classList.contains("hidden") && els.commandPaletteInput) {
-      window.requestAnimationFrame(function () {
-        if (document.activeElement !== els.commandPaletteInput) {
-          els.commandPaletteInput.focus({preventScroll: true});
-        }
-      });
-    }
   }
 
   function scheduleCommandPaletteRefresh() {
@@ -4622,8 +3216,8 @@ function defaultClientPreferences(): ClientPreferences {
     if (els.rail) {
       els.rail.classList.toggle("open", state.railOpen);
     }
-    if (els.workspace) {
-      els.workspace.classList.toggle("rail-collapsed", !mobileLayout && !state.railOpen);
+    if (els.appLayout) {
+      els.appLayout.classList.toggle("rail-collapsed", !mobileLayout && !state.railOpen);
     }
     if (els.toggleRail) {
       els.toggleRail.classList.toggle("active", state.railOpen);
@@ -4786,6 +3380,12 @@ function defaultClientPreferences(): ClientPreferences {
       const nextOpen = els.sessionMenuPanel.classList.contains("hidden");
       setSessionMenuOpen(nextOpen);
     });
+    on(els.openVaultSwitcher, "click", function () {
+      if (els.openVaultSwitcher.disabled) {
+        return;
+      }
+      setVaultSwitcherOpen(!state.vaultSwitcherOpen);
+    });
     on(els.logoutSession, "click", function () {
       setSessionMenuOpen(false);
       logout();
@@ -4803,11 +3403,7 @@ function defaultClientPreferences(): ClientPreferences {
     });
     on(els.openSettings, "click", function () {
       setSessionMenuOpen(false);
-      setSettingsOpen(true, "user");
-    });
-    on(els.openAdminSettings, "click", function () {
-      setSessionMenuOpen(false);
-      setSettingsOpen(true, "admin");
+      setSettingsOpen(true);
     });
     on(els.settingsNavAppearance, "click", function () {
       state.settingsSection = "appearance";
@@ -4817,8 +3413,8 @@ function defaultClientPreferences(): ClientPreferences {
       state.settingsSection = "notifications";
       renderSettingsForm();
     });
-    on(els.settingsNavWorkspace, "click", function () {
-      state.settingsSection = "workspace";
+    on(els.settingsNavVault, "click", function () {
+      state.settingsSection = "vault";
       renderSettingsForm();
     });
     on(els.openQuickSwitcher, "click", function () {
@@ -5271,6 +3867,9 @@ function defaultClientPreferences(): ClientPreferences {
       if (!target || !target.closest("#session-menu")) {
         setSessionMenuOpen(false);
       }
+      if (!target || !target.closest("#vault-switcher")) {
+        setVaultSwitcherOpen(false);
+      }
       if (!target || !target.closest("#tree-context-menu")) {
         closeTreeContextMenu();
       }
@@ -5294,6 +3893,10 @@ function defaultClientPreferences(): ClientPreferences {
       }
       if (event.key === "Escape" && !els.sessionMenuPanel.classList.contains("hidden")) {
         setSessionMenuOpen(false);
+        return;
+      }
+      if (event.key === "Escape" && state.vaultSwitcherOpen) {
+        setVaultSwitcherOpen(false);
         return;
       }
       if (!event.ctrlKey && !event.metaKey && !event.shiftKey && event.altKey && event.key === "ArrowLeft") {
@@ -5406,7 +4009,7 @@ function defaultClientPreferences(): ClientPreferences {
     window.addEventListener("focus", function () {
       state.windowBlurred = false;
       if (state.tableEditor && !els.inlineTablePanel.classList.contains("hidden")) {
-        restoreInlineTableEditorFocus();
+        restoreInlineTableEditorFocusUI(state, els);
         return;
       }
       restoreNoteFocus();
@@ -5419,7 +4022,7 @@ function defaultClientPreferences(): ClientPreferences {
       }
       state.windowBlurred = false;
       if (state.tableEditor && !els.inlineTablePanel.classList.contains("hidden")) {
-        restoreInlineTableEditorFocus();
+        restoreInlineTableEditorFocusUI(state, els);
         return;
       }
       restoreNoteFocus();
@@ -5535,7 +4138,7 @@ function defaultClientPreferences(): ClientPreferences {
     });
     on(window, "scroll", function () {
       if (state.tableEditor) {
-        anchorInlineTableEditorToRenderedTable(state.tableEditor.startLine);
+        anchorInlineTableEditorToRenderedTableUI(state, els, state.tableEditor.startLine);
       }
     });
     setDebugOpen(false);
@@ -5544,6 +4147,7 @@ function defaultClientPreferences(): ClientPreferences {
     setPageSearchOpen(false);
     setSourceOpen(false);
     state.settings.preferences = loadStoredClientPreferences();
+    state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
     applyUIPreferences();
     renderNoteStudio();
     renderPageTasks([]);
@@ -5556,7 +4160,7 @@ function defaultClientPreferences(): ClientPreferences {
       const session = await loadSession();
       setAuthSession(session);
       if (session.setupRequired) {
-        setAuthGateOpen(true, "Create the first admin account to continue.");
+        setAuthGateOpen(true, "Set up your account to continue.");
         return;
       }
       if (!session.authenticated) {

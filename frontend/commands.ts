@@ -85,7 +85,7 @@ function buildCommandEntries(options: RenderCommandPaletteOptions): CommandEntry
     {
       title: "Open Settings",
       meta: "Settings",
-      keywords: "settings preferences hotkeys workspace",
+      keywords: "settings preferences hotkeys vault",
       run: options.onOpenSettings,
     },
     {

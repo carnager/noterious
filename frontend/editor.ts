@@ -492,6 +492,16 @@ function codeBlockEndingAtLine(lines: string[], endLineIndex: number) {
   return null;
 }
 
+function tableBlockEndingAtLine(lines: string[], endLineIndex: number) {
+  for (let index = Math.max(0, endLineIndex); index >= 0; index -= 1) {
+    const block = markdownTableBlockAt(lines, index);
+    if (block && block.endLineIndex === endLineIndex) {
+      return block;
+    }
+  }
+  return null;
+}
+
 function revealRenderedCodeBlockByArrow(view: EditorView, key: string): boolean {
   if (!view.state.field(renderModeField, false)) {
     return false;
@@ -540,6 +550,52 @@ function revealRenderedCodeBlockByArrow(view: EditorView, key: string): boolean 
       scrollIntoView: true,
     });
     return true;
+  }
+
+  return false;
+}
+
+function moveCursorToLine(view: EditorView, lineNumber: number): boolean {
+  if (lineNumber < 1 || lineNumber > view.state.doc.lines) {
+    return false;
+  }
+  const selection = view.state.selection.main;
+  const currentLine = view.state.doc.lineAt(selection.head);
+  const column = Math.max(0, selection.head - currentLine.from);
+  const targetLine = view.state.doc.line(lineNumber);
+  view.dispatch({
+    selection: {
+      anchor: Math.min(targetLine.from + column, targetLine.to),
+    },
+    scrollIntoView: true,
+  });
+  return true;
+}
+
+function handleRenderedTableArrowUp(view: EditorView): boolean {
+  if (!view.state.field(renderModeField, false)) {
+    return false;
+  }
+
+  const selection = view.state.selection.main;
+  if (!selection.empty) {
+    return false;
+  }
+
+  const currentLine = view.state.doc.lineAt(selection.head);
+  const lines = view.state.doc.toString().split("\n");
+  if (currentLine.number <= 1) {
+    return false;
+  }
+
+  const tableEndingOnPreviousLine = tableBlockEndingAtLine(lines, currentLine.number - 2);
+  if (tableEndingOnPreviousLine) {
+    return moveCursorToLine(view, tableEndingOnPreviousLine.startLineIndex);
+  }
+
+  const tableEndingTwoLinesAbove = tableBlockEndingAtLine(lines, currentLine.number - 3);
+  if (tableEndingTwoLinesAbove) {
+    return moveCursorToLine(view, currentLine.number - 1);
   }
 
   return false;
@@ -989,7 +1045,16 @@ window.NoteriousCodeEditor = {
           history(),
           drawSelection(),
           highlightActiveLine(),
-          keymap.of([...defaultKeymap, ...historyKeymap]),
+          keymap.of([
+            {
+              key: "ArrowUp",
+              run(view) {
+                return handleRenderedTableArrowUp(view);
+              },
+            },
+            ...defaultKeymap,
+            ...historyKeymap,
+          ]),
           EditorView.lineWrapping,
           markdown({
             codeLanguages,

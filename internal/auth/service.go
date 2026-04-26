@@ -23,14 +23,14 @@ const (
 	defaultCookieName        = "noterious_session"
 	defaultSessionTTL        = 30 * 24 * time.Hour
 	sessionHeartbeatInterval = 5 * time.Minute
-	bootstrapSecretFileName  = "bootstrap-admin.txt"
+	bootstrapSecretFileName  = "bootstrap-account.txt"
 )
 
 var (
 	ErrAuthenticationRequired = errors.New("authentication required")
 	ErrInvalidCredentials     = errors.New("invalid username or password")
 	ErrPasswordChangeRejected = errors.New("password change rejected")
-	ErrSetupRejected          = errors.New("initial admin setup rejected")
+	ErrInitialAccountRejected = errors.New("initial account setup rejected")
 )
 
 type BootstrapConfig struct {
@@ -64,7 +64,6 @@ type NotificationTarget struct {
 type User struct {
 	ID                 int64      `json:"id"`
 	Username           string     `json:"username"`
-	Role               string     `json:"role"`
 	CreatedAt          time.Time  `json:"createdAt"`
 	LastLoginAt        *time.Time `json:"lastLoginAt,omitempty"`
 	MustChangePassword bool       `json:"mustChangePassword"`
@@ -176,10 +175,10 @@ func (s *Service) EnsureBootstrap(ctx context.Context, cfg BootstrapConfig) (Boo
 
 	username := normalizeUsername(cfg.Username)
 	if username == "" {
-		username = "admin"
+		username = "owner"
 	}
 
-	if _, err := s.createUser(ctx, username, password, "admin", false); err != nil {
+	if _, err := s.createUser(ctx, username, password, false); err != nil {
 		return BootstrapResult{}, err
 	}
 
@@ -189,7 +188,7 @@ func (s *Service) EnsureBootstrap(ctx context.Context, cfg BootstrapConfig) (Boo
 	}, nil
 }
 
-func (s *Service) CreateInitialAdmin(ctx context.Context, username string, password string) (User, error) {
+func (s *Service) CreateInitialAccount(ctx context.Context, username string, password string) (User, error) {
 	if s == nil {
 		return User{}, fmt.Errorf("auth service unavailable")
 	}
@@ -199,14 +198,10 @@ func (s *Service) CreateInitialAdmin(ctx context.Context, username string, passw
 		return User{}, err
 	}
 	if count > 0 {
-		return User{}, fmt.Errorf("%w: users already exist", ErrSetupRejected)
+		return User{}, fmt.Errorf("%w: users already exist", ErrInitialAccountRejected)
 	}
 
-	user, err := s.createUser(ctx, username, password, "admin", false)
-	if err != nil {
-		return User{}, err
-	}
-	return user, nil
+	return s.createUser(ctx, username, password, false)
 }
 
 func (s *Service) Login(ctx context.Context, username string, password string) (Session, error) {
@@ -220,7 +215,7 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 	}
 
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, username, password_hash, role, created_at, last_login_at, must_change_password
+		SELECT id, username, password_hash, created_at, last_login_at, must_change_password
 		FROM users
 		WHERE username = ?;
 	`, normalized)
@@ -230,7 +225,7 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 	var createdAtMillis int64
 	var lastLoginMillis sql.NullInt64
 	var mustChangePassword bool
-	if err := row.Scan(&user.ID, &user.Username, &passwordHash, &user.Role, &createdAtMillis, &lastLoginMillis, &mustChangePassword); err != nil {
+	if err := row.Scan(&user.ID, &user.Username, &passwordHash, &createdAtMillis, &lastLoginMillis, &mustChangePassword); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Session{}, ErrInvalidCredentials
 		}
@@ -268,8 +263,8 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 		return Session{}, fmt.Errorf("cleanup expired sessions: %w", err)
 	}
 	if _, err = tx.ExecContext(ctx, `
-		INSERT INTO sessions(token_hash, user_id, created_at, expires_at, last_seen_at)
-		VALUES(?, ?, ?, ?, ?);
+		INSERT INTO sessions(token_hash, user_id, created_at, expires_at, last_seen_at, current_vault_id)
+		VALUES(?, ?, ?, ?, ?, NULL);
 	`, hashToken(token), user.ID, now.UnixMilli(), expiresAt.UnixMilli(), now.UnixMilli()); err != nil {
 		return Session{}, fmt.Errorf("create session: %w", err)
 	}
@@ -306,6 +301,65 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 	return nil
 }
 
+func (s *Service) CurrentVaultIDByToken(ctx context.Context, token string) (int64, error) {
+	if s == nil {
+		return 0, ErrAuthenticationRequired
+	}
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		return 0, ErrAuthenticationRequired
+	}
+
+	row := s.db.QueryRowContext(ctx, `
+		SELECT current_vault_id
+		FROM sessions
+		WHERE token_hash = ?;
+	`, hashToken(trimmed))
+
+	var currentVaultID sql.NullInt64
+	if err := row.Scan(&currentVaultID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrAuthenticationRequired
+		}
+		return 0, fmt.Errorf("load current vault id: %w", err)
+	}
+	if !currentVaultID.Valid || currentVaultID.Int64 <= 0 {
+		return 0, nil
+	}
+	return currentVaultID.Int64, nil
+}
+
+func (s *Service) SetCurrentVaultID(ctx context.Context, token string, vaultID int64) error {
+	if s == nil {
+		return ErrAuthenticationRequired
+	}
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		return ErrAuthenticationRequired
+	}
+
+	var value any
+	if vaultID > 0 {
+		value = vaultID
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE sessions
+		SET current_vault_id = ?, last_seen_at = ?
+		WHERE token_hash = ?;
+	`, value, time.Now().UTC().UnixMilli(), hashToken(trimmed))
+	if err != nil {
+		return fmt.Errorf("set current vault id: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read updated session rows: %w", err)
+	}
+	if rowsAffected == 0 {
+		return ErrAuthenticationRequired
+	}
+	return nil
+}
+
 func (s *Service) CurrentUserByToken(ctx context.Context, token string) (User, error) {
 	if s == nil {
 		return User{}, ErrAuthenticationRequired
@@ -316,7 +370,7 @@ func (s *Service) CurrentUserByToken(ctx context.Context, token string) (User, e
 	}
 
 	row := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.username, u.role, u.created_at, u.last_login_at, u.must_change_password, s.expires_at, s.last_seen_at
+		SELECT u.id, u.username, u.created_at, u.last_login_at, u.must_change_password, s.expires_at, s.last_seen_at
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.token_hash = ?;
@@ -328,7 +382,7 @@ func (s *Service) CurrentUserByToken(ctx context.Context, token string) (User, e
 	var mustChangePassword bool
 	var expiresAtMillis int64
 	var lastSeenMillis int64
-	if err := row.Scan(&user.ID, &user.Username, &user.Role, &createdAtMillis, &lastLoginMillis, &mustChangePassword, &expiresAtMillis, &lastSeenMillis); err != nil {
+	if err := row.Scan(&user.ID, &user.Username, &createdAtMillis, &lastLoginMillis, &mustChangePassword, &expiresAtMillis, &lastSeenMillis); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return User{}, ErrAuthenticationRequired
 		}
@@ -380,7 +434,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID int64, currentPassw
 	}
 
 	row := s.db.QueryRowContext(ctx, `
-		SELECT username, password_hash, role, created_at, last_login_at, must_change_password
+		SELECT username, password_hash, created_at, last_login_at, must_change_password
 		FROM users
 		WHERE id = ?;
 	`, userID)
@@ -389,7 +443,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID int64, currentPassw
 	var passwordHash string
 	var createdAtMillis int64
 	var lastLoginMillis sql.NullInt64
-	if err := row.Scan(&user.Username, &passwordHash, &user.Role, &createdAtMillis, &lastLoginMillis, &user.MustChangePassword); err != nil {
+	if err := row.Scan(&user.Username, &passwordHash, &createdAtMillis, &lastLoginMillis, &user.MustChangePassword); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return User{}, ErrAuthenticationRequired
 		}
@@ -569,13 +623,20 @@ func (s *Service) ClearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Service) createUser(ctx context.Context, username string, password string, role string, mustChangePassword bool) (User, error) {
+func (s *Service) createUser(ctx context.Context, username string, password string, mustChangePassword bool) (User, error) {
 	normalized := normalizeUsername(username)
 	if normalized == "" {
 		return User{}, fmt.Errorf("username is required")
 	}
 	if strings.TrimSpace(password) == "" {
 		return User{}, fmt.Errorf("password is required")
+	}
+	count, err := s.userCount(ctx)
+	if err != nil {
+		return User{}, err
+	}
+	if count > 0 {
+		return User{}, fmt.Errorf("%w: user already exists", ErrInitialAccountRejected)
 	}
 
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -585,10 +646,13 @@ func (s *Service) createUser(ctx context.Context, username string, password stri
 
 	now := time.Now().UTC()
 	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO users(username, password_hash, role, created_at, updated_at, must_change_password)
-		VALUES(?, ?, ?, ?, ?, ?);
-	`, normalized, string(passwordHash), strings.TrimSpace(role), now.UnixMilli(), now.UnixMilli(), mustChangePassword)
+		INSERT INTO users(username, password_hash, created_at, updated_at, must_change_password)
+		VALUES(?, ?, ?, ?, ?);
+	`, normalized, string(passwordHash), now.UnixMilli(), now.UnixMilli(), mustChangePassword)
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed: users.username") {
+			return User{}, fmt.Errorf("username already exists")
+		}
 		return User{}, fmt.Errorf("create user: %w", err)
 	}
 	id, err := result.LastInsertId()
@@ -599,7 +663,6 @@ func (s *Service) createUser(ctx context.Context, username string, password stri
 	return User{
 		ID:                 id,
 		Username:           normalized,
-		Role:               strings.TrimSpace(role),
 		CreatedAt:          now,
 		MustChangePassword: mustChangePassword,
 	}, nil
@@ -613,7 +676,6 @@ func (s *Service) migrate(ctx context.Context) error {
 			id INTEGER PRIMARY KEY,
 			username TEXT NOT NULL UNIQUE,
 			password_hash TEXT NOT NULL,
-			role TEXT NOT NULL DEFAULT 'admin',
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL,
 			must_change_password INTEGER NOT NULL DEFAULT 0,
@@ -629,6 +691,7 @@ func (s *Service) migrate(ctx context.Context) error {
 			created_at INTEGER NOT NULL,
 			expires_at INTEGER NOT NULL,
 			last_seen_at INTEGER NOT NULL,
+			current_vault_id INTEGER,
 			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);`,
@@ -646,6 +709,9 @@ func (s *Service) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := s.ensureUsersHomePageColumn(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureSessionsCurrentVaultColumn(ctx); err != nil {
 		return err
 	}
 	return nil
@@ -720,6 +786,46 @@ func (s *Service) userColumnSet(ctx context.Context) (map[string]struct{}, error
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate users schema: %w", err)
+	}
+	return columns, nil
+}
+
+func (s *Service) ensureSessionsCurrentVaultColumn(ctx context.Context) error {
+	columns, err := s.sessionColumnSet(ctx)
+	if err != nil {
+		return err
+	}
+	if _, ok := columns["current_vault_id"]; ok {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE sessions ADD COLUMN current_vault_id INTEGER;`); err != nil {
+		return fmt.Errorf("add sessions.current_vault_id column: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) sessionColumnSet(ctx context.Context) (map[string]struct{}, error) {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(sessions);`)
+	if err != nil {
+		return nil, fmt.Errorf("inspect sessions schema: %w", err)
+	}
+	defer rows.Close()
+
+	columns := make(map[string]struct{})
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue sql.NullString
+		var primaryKey int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return nil, fmt.Errorf("scan sessions schema: %w", err)
+		}
+		columns[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sessions schema: %w", err)
 	}
 	return columns, nil
 }

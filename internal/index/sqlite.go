@@ -401,7 +401,7 @@ func (s *SQLiteStore) RemovePage(ctx context.Context, pagePath string) error {
 }
 
 type PageRecord struct {
-	WorkspaceID int64
+	VaultID     int64
 	Path        string
 	Title       string
 	RawMarkdown string
@@ -413,7 +413,7 @@ type PageRecord struct {
 }
 
 type PageSummary struct {
-	WorkspaceID       int64          `json:"workspaceId,omitempty"`
+	VaultID           int64          `json:"vaultId,omitempty"`
 	Path              string         `json:"path"`
 	Title             string         `json:"title"`
 	Tags              []string       `json:"tags,omitempty"`
@@ -429,7 +429,7 @@ type PageSummary struct {
 }
 
 type QueryBlock struct {
-	WorkspaceID int64    `json:"workspaceId,omitempty"`
+	VaultID     int64    `json:"vaultId,omitempty"`
 	Source      string   `json:"source"`
 	Line        int      `json:"line"`
 	ID          string   `json:"id,omitempty"`
@@ -450,7 +450,7 @@ type QueryBlock struct {
 }
 
 type BacklinkRecord struct {
-	WorkspaceID int64  `json:"workspaceId,omitempty"`
+	VaultID     int64  `json:"vaultId,omitempty"`
 	SourcePage  string `json:"sourcePage"`
 	SourceTitle string `json:"sourceTitle"`
 	LinkText    string `json:"linkText"`
@@ -459,7 +459,7 @@ type BacklinkRecord struct {
 }
 
 type SavedQuery struct {
-	WorkspaceID int64    `json:"workspaceId,omitempty"`
+	VaultID     int64    `json:"vaultId,omitempty"`
 	Name        string   `json:"name"`
 	Title       string   `json:"title"`
 	Description string   `json:"description,omitempty"`

@@ -57,7 +57,7 @@ func LoadFromEnv() (Config, error) {
 	return cfg, nil
 }
 
-func ApplyCLIOverrides(cfg Config, listenAddr string, port int, dataDir string) (Config, error) {
+func ApplyCLIOverrides(cfg Config, listenAddr string, port int, dataDir string, vaultPath string) (Config, error) {
 	if strings.TrimSpace(listenAddr) != "" {
 		cfg.ListenAddr = strings.TrimSpace(listenAddr)
 	}
@@ -69,6 +69,12 @@ func ApplyCLIOverrides(cfg Config, listenAddr string, port int, dataDir string) 
 	}
 	if strings.TrimSpace(dataDir) != "" {
 		cfg.DataDir = strings.TrimSpace(dataDir)
+	}
+	if strings.TrimSpace(vaultPath) != "" {
+		cfg.VaultPath = strings.TrimSpace(vaultPath)
+	}
+	if cfg.VaultPath == "" {
+		return Config{}, fmt.Errorf("vault path must not be empty")
 	}
 	return cfg, nil
 }
