@@ -5219,9 +5219,17 @@
     });
   }
   function findWikilinkTrigger(lineText, caretInLine) {
-    const beforeCaret = String(lineText || "").slice(0, Math.max(0, caretInLine));
+    const source = String(lineText || "");
+    const safeCaret = Math.max(0, Math.min(source.length, caretInLine));
+    const beforeCaret = source.slice(0, safeCaret);
     const match = beforeCaret.match(/(!?)\[\[([^\]\n]*)$/);
     if (!match) {
+      return null;
+    }
+    const afterCaret = source.slice(safeCaret);
+    const nextClose = afterCaret.indexOf("]]");
+    const nextOpen = afterCaret.indexOf("[[");
+    if (nextClose >= 0 && (nextOpen === -1 || nextClose < nextOpen)) {
       return null;
     }
     return {

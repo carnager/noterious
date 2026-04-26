@@ -116,6 +116,14 @@ describe("slash menu", function () {
     expect(commands[0].hint).toBe("![[");
   });
 
+  it("does not reopen wikilink creation while editing inside a closed wikilink", function () {
+    const commands = wikilinkCommandsForContext("[[foao]]", 5, [
+      page("notes/foo", "Foo"),
+    ]);
+
+    expect(commands).toEqual([]);
+  });
+
   it("offers document links from slash commands", function () {
     const commands = documentCommandsForText("/document meeting", [
       document("doc-1", "meeting-notes.pdf"),
