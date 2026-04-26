@@ -15,7 +15,7 @@ Noterious currently behaves as a single-account deployment:
 
 - `{"authenticated": false}` when there is no valid session
 - `{"authenticated": false, "setupRequired": true}` on first-run setup when no account exists yet
-- the authenticated user payload plus the current resolved `vault` when a session is active
+- the authenticated user payload plus the configured runtime `vault` when a session is active
 
 When auth is enabled, every API endpoint except:
 
@@ -34,14 +34,22 @@ requires a valid session cookie and otherwise returns `401`.
 `GET /api/meta` returns server runtime metadata, including:
 
 - `runtimeVault`: the configured runtime vault root (`vaultPath`, `homePage`)
-- `currentVault`: the currently resolved request/session vault
+- `currentVault`: the currently resolved request scope
 - `vaultHealth`: `healthy`, `reason`, and `message`
 - `dataDir`
 - `database`
 - `serverTime`
 - `restartRequired`
 
-This separation matters: the configured runtime root and the current request vault are not always the same thing.
+This separation matters: the configured runtime root and the current request scope are not always the same thing.
+
+When the UI is using top-level folders as scopes, API requests carry the active
+scope as:
+
+- `X-Noterious-Scope: <top-level-folder>` for normal JSON/file requests
+- `GET /api/events?scope=<top-level-folder>` for SSE
+
+If the scope is omitted or invalid, the server falls back to the configured root.
 
 ## Settings
 
@@ -104,28 +112,9 @@ Built-in themes cannot be deleted and return `409`.
 
 ## Vault Selection And Top-Level Vault Management
 
-- `GET /api/auth/vaults`
-- `PUT /api/auth/vault`
 - `GET /api/user/vaults`
 - `POST /api/user/vaults`
 - `PUT /api/user/vaults/{id}`
-
-`GET /api/auth/vaults` returns the current vault-selection snapshot:
-
-- `rootVault`
-- discovered top-level `vaults`
-- `count`
-- `currentVault`
-
-`PUT /api/auth/vault` accepts:
-
-```json
-{
-  "vaultId": 123
-}
-```
-
-and changes the current session vault selection.
 
 `GET /api/user/vaults` returns the discovered top-level vault list for the configured vault root.
 

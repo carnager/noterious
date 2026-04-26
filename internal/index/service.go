@@ -5,22 +5,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/carnager/noterious/internal/vault"
-	"github.com/carnager/noterious/internal/vaults"
 )
 
 type Service struct {
 	dataDir string
 	mu      sync.Mutex
-	stores  map[int64]*SQLiteStore
+	store   *SQLiteStore
 }
 
 func NewService(dataDir string) *Service {
 	return &Service{
 		dataDir: dataDir,
-		stores:  make(map[int64]*SQLiteStore),
 	}
 }
 
@@ -40,31 +39,22 @@ func (s *Service) Open(ctx context.Context) error {
 
 func (s *Service) Close() error {
 	s.mu.Lock()
-	stores := make([]*SQLiteStore, 0, len(s.stores))
-	for _, store := range s.stores {
-		stores = append(stores, store)
-	}
-	s.stores = make(map[int64]*SQLiteStore)
+	store := s.store
+	s.store = nil
 	s.mu.Unlock()
 
-	var closeErr error
-	for _, store := range stores {
-		if err := store.Close(); err != nil && closeErr == nil {
-			closeErr = err
-		}
+	if store == nil {
+		return nil
 	}
-	return closeErr
+	return store.Close()
 }
 
 func (s *Service) DatabasePath() string {
-	return s.DatabasePathForVault(vaults.ConfiguredVaultID)
+	return filepath.Join(s.dataDir, "index", "default.db")
 }
 
 func (s *Service) DatabasePathForVault(vaultID int64) string {
-	if vaultID <= 0 {
-		return filepath.Join(s.dataDir, "index", "default.db")
-	}
-	return filepath.Join(s.dataDir, "index", fmt.Sprintf("vault-%d.db", vaultID))
+	return s.DatabasePath()
 }
 
 func (s *Service) RebuildFromVault(ctx context.Context, vaultService *vault.Service) error {
@@ -133,12 +123,7 @@ func (s *Service) GetPage(ctx context.Context, pagePath string) (PageRecord, err
 	if err != nil {
 		return PageRecord{}, err
 	}
-	record, err := store.GetPage(ctx, pagePath)
-	if err != nil {
-		return PageRecord{}, err
-	}
-	record.VaultID = vaults.VaultIDFromContext(ctx)
-	return record, nil
+	return store.GetPage(ctx, pagePath)
 }
 
 func (s *Service) GetBacklinks(ctx context.Context, pagePath string) ([]BacklinkRecord, error) {
@@ -146,15 +131,7 @@ func (s *Service) GetBacklinks(ctx context.Context, pagePath string) ([]Backlink
 	if err != nil {
 		return nil, err
 	}
-	backlinks, err := store.GetBacklinks(ctx, pagePath)
-	if err != nil {
-		return nil, err
-	}
-	vaultID := vaults.VaultIDFromContext(ctx)
-	for idx := range backlinks {
-		backlinks[idx].VaultID = vaultID
-	}
-	return backlinks, nil
+	return store.GetBacklinks(ctx, pagePath)
 }
 
 func (s *Service) ListTasks(ctx context.Context) ([]Task, error) {
@@ -166,11 +143,7 @@ func (s *Service) ListTasks(ctx context.Context) ([]Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	vaultID := vaults.VaultIDFromContext(ctx)
-	for idx := range tasks {
-		tasks[idx].VaultID = vaultID
-	}
-	return tasks, nil
+	return filterTasksByScopePrefix(tasks, vault.ScopePrefixFromContext(ctx)), nil
 }
 
 func (s *Service) GetTask(ctx context.Context, ref string) (Task, error) {
@@ -178,12 +151,7 @@ func (s *Service) GetTask(ctx context.Context, ref string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	task, err := store.GetTask(ctx, ref)
-	if err != nil {
-		return Task{}, err
-	}
-	task.VaultID = vaults.VaultIDFromContext(ctx)
-	return task, nil
+	return store.GetTask(ctx, ref)
 }
 
 func (s *Service) ListPages(ctx context.Context) ([]PageSummary, error) {
@@ -195,11 +163,7 @@ func (s *Service) ListPages(ctx context.Context) ([]PageSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	vaultID := vaults.VaultIDFromContext(ctx)
-	for idx := range pages {
-		pages[idx].VaultID = vaultID
-	}
-	return pages, nil
+	return filterPagesByScopePrefix(pages, vault.ScopePrefixFromContext(ctx)), nil
 }
 
 func (s *Service) ListLinks(ctx context.Context) ([]Link, error) {
@@ -211,11 +175,7 @@ func (s *Service) ListLinks(ctx context.Context) ([]Link, error) {
 	if err != nil {
 		return nil, err
 	}
-	vaultID := vaults.VaultIDFromContext(ctx)
-	for idx := range links {
-		links[idx].VaultID = vaultID
-	}
-	return links, nil
+	return filterLinksByScopePrefix(links, vault.ScopePrefixFromContext(ctx)), nil
 }
 
 func (s *Service) ListSavedQueries(ctx context.Context) ([]SavedQuery, error) {
@@ -223,15 +183,7 @@ func (s *Service) ListSavedQueries(ctx context.Context) ([]SavedQuery, error) {
 	if err != nil {
 		return nil, err
 	}
-	queries, err := store.ListSavedQueries(ctx)
-	if err != nil {
-		return nil, err
-	}
-	vaultID := vaults.VaultIDFromContext(ctx)
-	for idx := range queries {
-		queries[idx].VaultID = vaultID
-	}
-	return queries, nil
+	return store.ListSavedQueries(ctx)
 }
 
 func (s *Service) GetSavedQuery(ctx context.Context, name string) (SavedQuery, error) {
@@ -239,12 +191,7 @@ func (s *Service) GetSavedQuery(ctx context.Context, name string) (SavedQuery, e
 	if err != nil {
 		return SavedQuery{}, err
 	}
-	query, err := store.GetSavedQuery(ctx, name)
-	if err != nil {
-		return SavedQuery{}, err
-	}
-	query.VaultID = vaults.VaultIDFromContext(ctx)
-	return query, nil
+	return store.GetSavedQuery(ctx, name)
 }
 
 func (s *Service) PutSavedQuery(ctx context.Context, query SavedQuery) (SavedQuery, error) {
@@ -252,12 +199,7 @@ func (s *Service) PutSavedQuery(ctx context.Context, query SavedQuery) (SavedQue
 	if err != nil {
 		return SavedQuery{}, err
 	}
-	saved, err := store.PutSavedQuery(ctx, query)
-	if err != nil {
-		return SavedQuery{}, err
-	}
-	saved.VaultID = vaults.VaultIDFromContext(ctx)
-	return saved, nil
+	return store.PutSavedQuery(ctx, query)
 }
 
 func (s *Service) DeleteSavedQuery(ctx context.Context, name string) error {
@@ -281,15 +223,7 @@ func (s *Service) GetQueryBlocks(ctx context.Context, pagePath string) ([]QueryB
 	if err != nil {
 		return nil, err
 	}
-	blocks, err := store.GetQueryBlocks(ctx, pagePath)
-	if err != nil {
-		return nil, err
-	}
-	vaultID := vaults.VaultIDFromContext(ctx)
-	for idx := range blocks {
-		blocks[idx].VaultID = vaultID
-	}
-	return blocks, nil
+	return store.GetQueryBlocks(ctx, pagePath)
 }
 
 func (s *Service) ListQueryPagesByDataset(ctx context.Context, datasets []string) ([]string, error) {
@@ -309,23 +243,20 @@ func (s *Service) ListQueryPagesByDatasetAndPage(ctx context.Context, datasets [
 }
 
 func (s *Service) storeForContext(ctx context.Context) (*SQLiteStore, error) {
-	return s.storeForVault(ctx, vaults.VaultIDFromContext(ctx))
-}
-
-func (s *Service) storeForVault(ctx context.Context, vaultID int64) (*SQLiteStore, error) {
 	s.mu.Lock()
-	if store := s.stores[vaultID]; store != nil {
+	if s.store != nil {
+		store := s.store
 		s.mu.Unlock()
 		return store, nil
 	}
 	s.mu.Unlock()
 
-	dbPath := s.DatabasePathForVault(vaultID)
+	dbPath := s.DatabasePath()
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		return nil, fmt.Errorf("create index vault dir: %w", err)
+		return nil, fmt.Errorf("create index dir: %w", err)
 	}
 	if _, err := os.Stat(dbPath); err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("stat vault index db: %w", err)
+		return nil, fmt.Errorf("stat index db: %w", err)
 	}
 
 	store, err := OpenSQLitePath(ctx, dbPath)
@@ -334,12 +265,60 @@ func (s *Service) storeForVault(ctx context.Context, vaultID int64) (*SQLiteStor
 	}
 
 	s.mu.Lock()
-	if existing := s.stores[vaultID]; existing != nil {
+	if existing := s.store; existing != nil {
 		s.mu.Unlock()
 		_ = store.Close()
 		return existing, nil
 	}
-	s.stores[vaultID] = store
+	s.store = store
 	s.mu.Unlock()
 	return store, nil
+}
+
+func hasScopePrefix(pagePath string, prefix string) bool {
+	normalizedPrefix := strings.Trim(strings.TrimSpace(prefix), "/")
+	if normalizedPrefix == "" {
+		return true
+	}
+	normalizedPath := strings.Trim(strings.TrimSpace(pagePath), "/")
+	return normalizedPath == normalizedPrefix || strings.HasPrefix(normalizedPath, normalizedPrefix+"/")
+}
+
+func filterPagesByScopePrefix(pages []PageSummary, prefix string) []PageSummary {
+	if strings.TrimSpace(prefix) == "" {
+		return pages
+	}
+	filtered := make([]PageSummary, 0, len(pages))
+	for _, page := range pages {
+		if hasScopePrefix(page.Path, prefix) {
+			filtered = append(filtered, page)
+		}
+	}
+	return filtered
+}
+
+func filterTasksByScopePrefix(tasks []Task, prefix string) []Task {
+	if strings.TrimSpace(prefix) == "" {
+		return tasks
+	}
+	filtered := make([]Task, 0, len(tasks))
+	for _, task := range tasks {
+		if hasScopePrefix(task.Page, prefix) {
+			filtered = append(filtered, task)
+		}
+	}
+	return filtered
+}
+
+func filterLinksByScopePrefix(links []Link, prefix string) []Link {
+	if strings.TrimSpace(prefix) == "" {
+		return links
+	}
+	filtered := make([]Link, 0, len(links))
+	for _, link := range links {
+		if hasScopePrefix(link.SourcePage, prefix) || hasScopePrefix(link.TargetPage, prefix) {
+			filtered = append(filtered, link)
+		}
+	}
+	return filtered
 }

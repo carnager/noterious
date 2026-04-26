@@ -27,7 +27,6 @@ import (
 	"github.com/carnager/noterious/internal/settings"
 	"github.com/carnager/noterious/internal/themes"
 	"github.com/carnager/noterious/internal/vault"
-	"github.com/carnager/noterious/internal/vaults"
 )
 
 func TestGetPageReturnsIndexedContent(t *testing.T) {
@@ -453,9 +452,6 @@ func TestMetaIncludesConfiguredHomePage(t *testing.T) {
 	if payload.RuntimeVault.VaultPath != vaultDir {
 		t.Fatalf("runtimeVault.vaultPath = %q want %q", payload.RuntimeVault.VaultPath, vaultDir)
 	}
-	if payload.CurrentVault.ID == 0 {
-		t.Fatal("currentVault.id = 0")
-	}
 	if payload.CurrentVault.Key != "default" {
 		t.Fatalf("currentVault.key = %q", payload.CurrentVault.Key)
 	}
@@ -571,7 +567,7 @@ func TestAuthLoginMeLogoutFlow(t *testing.T) {
 	if !mePayload.Authenticated || mePayload.User.Username != "admin" {
 		t.Fatalf("me payload = %#v", mePayload)
 	}
-	if mePayload.Vault.ID == 0 || mePayload.Vault.Key != "default" {
+	if mePayload.Vault.ID != 0 || mePayload.Vault.Key != "default" {
 		t.Fatalf("vault payload = %#v", mePayload.Vault)
 	}
 
@@ -609,32 +605,11 @@ func TestAuthVaultSelectionListsSwitchesAndScopesRequests(t *testing.T) {
 	}
 
 	authService := buildTestAuthService(t, dataDir, "alex", "secret-pass")
-	vaultRegistry, err := vaults.NewService(context.Background(), dataDir)
-	if err != nil {
-		t.Fatalf("vaults.NewService() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = vaultRegistry.Close()
-	})
-	if _, err := vaultRegistry.EnsureRuntimeRoot(context.Background(), vaults.RuntimeRootConfig{
-		VaultPath: vaultRoot,
-		HomePage:  "",
-	}); err != nil {
-		t.Fatalf("EnsureRuntimeRoot() error = %v", err)
-	}
-	mainVault, err := vaultRegistry.CreateTopLevel(context.Background(), vaults.TopLevelCreateConfig{
-		VaultRoot: vaultRoot,
-		Name:      "Main",
-		HomePage:  "notes/main",
-	})
+	mainVault, err := vault.CreateTopLevel(vaultRoot, "Main", "notes/main")
 	if err != nil {
 		t.Fatalf("CreateTopLevel(main) error = %v", err)
 	}
-	workVault, err := vaultRegistry.CreateTopLevel(context.Background(), vaults.TopLevelCreateConfig{
-		VaultRoot: vaultRoot,
-		Name:      "Work",
-		HomePage:  "notes/work",
-	})
+	workVault, err := vault.CreateTopLevel(vaultRoot, "Work", "notes/work")
 	if err != nil {
 		t.Fatalf("CreateTopLevel(work) error = %v", err)
 	}
@@ -659,11 +634,11 @@ func TestAuthVaultSelectionListsSwitchesAndScopesRequests(t *testing.T) {
 	t.Cleanup(func() {
 		_ = indexService.Close()
 	})
-	mainCtx := vaults.WithVault(context.Background(), mainVault)
+	mainCtx := vault.WithVault(context.Background(), mainVault)
 	if err := indexService.RebuildFromVault(mainCtx, vault.NewService(mainVault.VaultPath)); err != nil {
 		t.Fatalf("RebuildFromVault(main) error = %v", err)
 	}
-	workCtx := vaults.WithVault(context.Background(), workVault)
+	workCtx := vault.WithVault(context.Background(), workVault)
 	if err := indexService.RebuildFromVault(workCtx, vault.NewService(workVault.VaultPath)); err != nil {
 		t.Fatalf("RebuildFromVault(work) error = %v", err)
 	}
@@ -674,49 +649,33 @@ func TestAuthVaultSelectionListsSwitchesAndScopesRequests(t *testing.T) {
 			VaultPath:  vaultRoot,
 			DataDir:    dataDir,
 		},
-		Auth:   authService,
-		Vaults: vaultRegistry,
-		Index:  indexService,
-		Query:  query.NewService(),
+		Auth:  authService,
+		Index: indexService,
+		Query: query.NewService(),
 	})
 
 	alexCookie := loginTestUser(t, router, "alex", "secret-pass")
 
-	vaultsRequest := httptest.NewRequest(http.MethodGet, "/api/auth/vaults", nil)
-	vaultsRequest.AddCookie(alexCookie)
-	vaultsResponse := httptest.NewRecorder()
-	router.ServeHTTP(vaultsResponse, vaultsRequest)
-	if vaultsResponse.Code != http.StatusOK {
-		t.Fatalf("GET /api/auth/vaults status = %d body=%s", vaultsResponse.Code, vaultsResponse.Body.String())
+	userVaultsRequest := httptest.NewRequest(http.MethodGet, "/api/user/vaults", nil)
+	userVaultsRequest.AddCookie(alexCookie)
+	userVaultsResponse := httptest.NewRecorder()
+	router.ServeHTTP(userVaultsResponse, userVaultsRequest)
+	if userVaultsResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/user/vaults status = %d body=%s", userVaultsResponse.Code, userVaultsResponse.Body.String())
 	}
 
-	var vaultsPayload struct {
-		RootVault    *vaults.Vault `json:"rootVault"`
-		Count        int           `json:"count"`
-		CurrentVault struct {
-			ID        int64  `json:"id"`
-			VaultPath string `json:"vaultPath"`
-		} `json:"currentVault"`
-		Vaults []struct {
-			ID  int64  `json:"id"`
-			Key string `json:"key"`
-		} `json:"vaults"`
+	var userVaultsPayload struct {
+		Count  int           `json:"count"`
+		Vaults []vault.Vault `json:"vaults"`
 	}
-	if err := json.NewDecoder(vaultsResponse.Body).Decode(&vaultsPayload); err != nil {
-		t.Fatalf("Decode(vaults) error = %v", err)
+	if err := json.NewDecoder(userVaultsResponse.Body).Decode(&userVaultsPayload); err != nil {
+		t.Fatalf("Decode(user vaults) error = %v", err)
 	}
-	rootPath := vaultRoot
-	if vaultsPayload.RootVault == nil || vaultsPayload.RootVault.VaultPath != rootPath {
-		t.Fatalf("root vault payload = %#v want path %q", vaultsPayload.RootVault, rootPath)
+	if userVaultsPayload.Count != 2 || len(userVaultsPayload.Vaults) != 2 {
+		t.Fatalf("vault payload count = %#v", userVaultsPayload)
 	}
-	if vaultsPayload.Count != 2 || len(vaultsPayload.Vaults) != 2 {
-		t.Fatalf("vault payload count = %#v", vaultsPayload)
-	}
-	if vaultsPayload.CurrentVault.ID == 0 || vaultsPayload.CurrentVault.VaultPath != rootPath {
-		t.Fatalf("vault payload = %#v", vaultsPayload)
-	}
-	if vaultsPayload.Vaults[0].ID != mainVault.ID || vaultsPayload.Vaults[1].ID != workVault.ID {
-		t.Fatalf("available vaults = %#v want [%d %d]", vaultsPayload.Vaults, mainVault.ID, workVault.ID)
+	if userVaultsPayload.Vaults[0].VaultPath != mainVault.VaultPath || userVaultsPayload.Vaults[1].VaultPath != workVault.VaultPath {
+		t.Fatalf("available vaults = %#v want [%q %q]", userVaultsPayload.Vaults, mainVault.VaultPath, workVault.VaultPath)
 	}
 
 	beforePagesRequest := httptest.NewRequest(http.MethodGet, "/api/pages", nil)
@@ -739,16 +698,6 @@ func TestAuthVaultSelectionListsSwitchesAndScopesRequests(t *testing.T) {
 		t.Fatalf("before pages payload = %#v", beforePagesPayload)
 	}
 
-	switchBody := strings.NewReader(fmt.Sprintf(`{"vaultId":%d}`, workVault.ID))
-	switchRequest := httptest.NewRequest(http.MethodPut, "/api/auth/vault", switchBody)
-	switchRequest.Header.Set("Content-Type", "application/json")
-	switchRequest.AddCookie(alexCookie)
-	switchResponse := httptest.NewRecorder()
-	router.ServeHTTP(switchResponse, switchRequest)
-	if switchResponse.Code != http.StatusOK {
-		t.Fatalf("PUT /api/auth/vault status = %d body=%s", switchResponse.Code, switchResponse.Body.String())
-	}
-
 	meRequest := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
 	meRequest.AddCookie(alexCookie)
 	meResponse := httptest.NewRecorder()
@@ -763,38 +712,41 @@ func TestAuthVaultSelectionListsSwitchesAndScopesRequests(t *testing.T) {
 		} `json:"vault"`
 	}
 	if err := json.NewDecoder(meResponse.Body).Decode(&mePayload); err != nil {
-		t.Fatalf("Decode(me after switch) error = %v", err)
+		t.Fatalf("Decode(me) error = %v", err)
 	}
-	if mePayload.Vault.ID != workVault.ID || mePayload.Vault.Key != workVault.Key {
-		t.Fatalf("me vault after switch = %#v", mePayload.Vault)
+	if mePayload.Vault.ID != 0 || mePayload.Vault.Key != "default" {
+		t.Fatalf("me vault = %#v", mePayload.Vault)
 	}
 
 	metaRequest := httptest.NewRequest(http.MethodGet, "/api/meta", nil)
+	metaRequest.Header.Set(requestScopeHeader, "work")
 	metaRequest.AddCookie(alexCookie)
 	metaResponse := httptest.NewRecorder()
 	router.ServeHTTP(metaResponse, metaRequest)
 	if metaResponse.Code != http.StatusOK {
-		t.Fatalf("GET /api/meta after switch status = %d body=%s", metaResponse.Code, metaResponse.Body.String())
+		t.Fatalf("GET /api/meta scoped status = %d body=%s", metaResponse.Code, metaResponse.Body.String())
 	}
 	var metaPayload struct {
 		CurrentVault struct {
-			ID  int64  `json:"id"`
-			Key string `json:"key"`
+			ID        int64  `json:"id"`
+			Key       string `json:"key"`
+			VaultPath string `json:"vaultPath"`
 		} `json:"currentVault"`
 	}
 	if err := json.NewDecoder(metaResponse.Body).Decode(&metaPayload); err != nil {
-		t.Fatalf("Decode(meta after switch) error = %v", err)
+		t.Fatalf("Decode(meta scoped) error = %v", err)
 	}
-	if metaPayload.CurrentVault.ID != workVault.ID || metaPayload.CurrentVault.Key != workVault.Key {
-		t.Fatalf("meta currentVault after switch = %#v", metaPayload.CurrentVault)
+	if metaPayload.CurrentVault.VaultPath != workVault.VaultPath {
+		t.Fatalf("meta currentVault = %#v", metaPayload.CurrentVault)
 	}
 
 	afterPagesRequest := httptest.NewRequest(http.MethodGet, "/api/pages", nil)
+	afterPagesRequest.Header.Set(requestScopeHeader, "work")
 	afterPagesRequest.AddCookie(alexCookie)
 	afterPagesResponse := httptest.NewRecorder()
 	router.ServeHTTP(afterPagesResponse, afterPagesRequest)
 	if afterPagesResponse.Code != http.StatusOK {
-		t.Fatalf("GET /api/pages after switch status = %d body=%s", afterPagesResponse.Code, afterPagesResponse.Body.String())
+		t.Fatalf("GET /api/pages scoped status = %d body=%s", afterPagesResponse.Code, afterPagesResponse.Body.String())
 	}
 	var afterPagesPayload struct {
 		Count int `json:"count"`
@@ -805,7 +757,7 @@ func TestAuthVaultSelectionListsSwitchesAndScopesRequests(t *testing.T) {
 	if err := json.NewDecoder(afterPagesResponse.Body).Decode(&afterPagesPayload); err != nil {
 		t.Fatalf("Decode(after pages) error = %v", err)
 	}
-	if afterPagesPayload.Count != 1 || afterPagesPayload.Pages[0].Path != "notes/work" {
+	if afterPagesPayload.Count != 1 || afterPagesPayload.Pages[0].Path != "work/notes/work" {
 		t.Fatalf("after pages payload = %#v", afterPagesPayload)
 	}
 }
@@ -819,24 +771,13 @@ func TestCurrentVaultFallsBackToConfiguredRootWhenSelectedChildVaultDisappears(t
 
 	authService := buildTestAuthService(t, dataDir, "alex", "secret-pass")
 
-	vaultRegistry, err := vaults.NewService(context.Background(), dataDir)
-	if err != nil {
-		t.Fatalf("vaults.NewService() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = vaultRegistry.Close()
-	})
-
-	mainVault, err := vaultRegistry.EnsureRuntimeRoot(context.Background(), vaults.RuntimeRootConfig{
+	mainVault := vault.Vault{
+		ID:        vault.ConfiguredVaultID,
+		Key:       "default",
+		Name:      "Configured Vault",
 		VaultPath: vaultRoot,
-	})
-	if err != nil {
-		t.Fatalf("EnsureRuntimeRoot() error = %v", err)
 	}
-	workVault, err := vaultRegistry.CreateTopLevel(context.Background(), vaults.TopLevelCreateConfig{
-		VaultRoot: vaultRoot,
-		Name:      "Work",
-	})
+	workVault, err := vault.CreateTopLevel(vaultRoot, "Work", "")
 	if err != nil {
 		t.Fatalf("CreateTopLevel(work) error = %v", err)
 	}
@@ -861,10 +802,10 @@ func TestCurrentVaultFallsBackToConfiguredRootWhenSelectedChildVaultDisappears(t
 	t.Cleanup(func() {
 		_ = indexService.Close()
 	})
-	if err := indexService.RebuildFromVault(vaults.WithVault(context.Background(), mainVault), vault.NewService(mainVault.VaultPath)); err != nil {
+	if err := indexService.RebuildFromVault(vault.WithVault(context.Background(), mainVault), vault.NewService(mainVault.VaultPath)); err != nil {
 		t.Fatalf("RebuildFromVault(main) error = %v", err)
 	}
-	if err := indexService.RebuildFromVault(vaults.WithVault(context.Background(), workVault), vault.NewService(workVault.VaultPath)); err != nil {
+	if err := indexService.RebuildFromVault(vault.WithVault(context.Background(), workVault), vault.NewService(workVault.VaultPath)); err != nil {
 		t.Fatalf("RebuildFromVault(work) error = %v", err)
 	}
 
@@ -874,22 +815,12 @@ func TestCurrentVaultFallsBackToConfiguredRootWhenSelectedChildVaultDisappears(t
 			VaultPath:  vaultRoot,
 			DataDir:    dataDir,
 		},
-		Auth:   authService,
-		Vaults: vaultRegistry,
-		Index:  indexService,
-		Query:  query.NewService(),
+		Auth:  authService,
+		Index: indexService,
+		Query: query.NewService(),
 	})
 
 	alexCookie := loginTestUser(t, router, "alex", "secret-pass")
-
-	switchRequest := httptest.NewRequest(http.MethodPut, "/api/auth/vault", strings.NewReader(fmt.Sprintf(`{"vaultId":%d}`, workVault.ID)))
-	switchRequest.Header.Set("Content-Type", "application/json")
-	switchRequest.AddCookie(alexCookie)
-	switchResponse := httptest.NewRecorder()
-	router.ServeHTTP(switchResponse, switchRequest)
-	if switchResponse.Code != http.StatusOK {
-		t.Fatalf("PUT /api/auth/vault status = %d body=%s", switchResponse.Code, switchResponse.Body.String())
-	}
 
 	if err := os.RemoveAll(workVault.VaultPath); err != nil {
 		t.Fatalf("RemoveAll(workVault) error = %v", err)
@@ -911,11 +842,12 @@ func TestCurrentVaultFallsBackToConfiguredRootWhenSelectedChildVaultDisappears(t
 	if err := json.NewDecoder(meResponse.Body).Decode(&mePayload); err != nil {
 		t.Fatalf("Decode(me after fallback) error = %v", err)
 	}
-	if mePayload.Vault.ID != mainVault.ID || mePayload.Vault.VaultPath != mainVault.VaultPath {
+	if mePayload.Vault.ID != 0 || mePayload.Vault.VaultPath != mainVault.VaultPath {
 		t.Fatalf("me vault after fallback = %#v want root %#v", mePayload.Vault, mainVault)
 	}
 
 	pagesRequest := httptest.NewRequest(http.MethodGet, "/api/pages", nil)
+	pagesRequest.Header.Set(requestScopeHeader, "work")
 	pagesRequest.AddCookie(alexCookie)
 	pagesResponse := httptest.NewRecorder()
 	router.ServeHTTP(pagesResponse, pagesRequest)
@@ -932,24 +864,7 @@ func TestFirstIndexedRequestBuildsDatabaseForNewlySelectedVault(t *testing.T) {
 	dataDir := filepath.Join(rootDir, "data")
 
 	authService := buildTestAuthService(t, dataDir, "alex", "secret-pass")
-
-	vaultRegistry, err := vaults.NewService(context.Background(), dataDir)
-	if err != nil {
-		t.Fatalf("vaults.NewService() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = vaultRegistry.Close()
-	})
-
-	if _, err := vaultRegistry.EnsureRuntimeRoot(context.Background(), vaults.RuntimeRootConfig{
-		VaultPath: vaultRoot,
-	}); err != nil {
-		t.Fatalf("EnsureRuntimeRoot() error = %v", err)
-	}
-	workVault, err := vaultRegistry.CreateTopLevel(context.Background(), vaults.TopLevelCreateConfig{
-		VaultRoot: vaultRoot,
-		Name:      "Work",
-	})
+	workVault, err := vault.CreateTopLevel(vaultRoot, "Work", "")
 	if err != nil {
 		t.Fatalf("CreateTopLevel(work) error = %v", err)
 	}
@@ -977,7 +892,6 @@ func TestFirstIndexedRequestBuildsDatabaseForNewlySelectedVault(t *testing.T) {
 			DataDir:    dataDir,
 		},
 		Auth:   authService,
-		Vaults: vaultRegistry,
 		Index:  indexService,
 		Query:  queryService,
 		Events: NewEventBroker(),
@@ -985,21 +899,12 @@ func TestFirstIndexedRequestBuildsDatabaseForNewlySelectedVault(t *testing.T) {
 
 	alexCookie := loginTestUser(t, router, "alex", "secret-pass")
 
-	childIndexDB := indexService.DatabasePathForVault(workVault.ID)
-	if _, err := os.Stat(childIndexDB); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("child vault index db exists before first indexed request: %v", err)
-	}
-
-	switchRequest := httptest.NewRequest(http.MethodPut, "/api/auth/vault", strings.NewReader(fmt.Sprintf(`{"vaultId":%d}`, workVault.ID)))
-	switchRequest.Header.Set("Content-Type", "application/json")
-	switchRequest.AddCookie(alexCookie)
-	switchResponse := httptest.NewRecorder()
-	router.ServeHTTP(switchResponse, switchRequest)
-	if switchResponse.Code != http.StatusOK {
-		t.Fatalf("PUT /api/auth/vault status = %d body=%s", switchResponse.Code, switchResponse.Body.String())
+	if got, want := indexService.DatabasePathForVault(workVault.ID), indexService.DatabasePath(); got != want {
+		t.Fatalf("DatabasePathForVault(work) = %q want %q", got, want)
 	}
 
 	pagesRequest := httptest.NewRequest(http.MethodGet, "/api/pages", nil)
+	pagesRequest.Header.Set(requestScopeHeader, "work")
 	pagesRequest.AddCookie(alexCookie)
 	pagesResponse := httptest.NewRecorder()
 	router.ServeHTTP(pagesResponse, pagesRequest)
@@ -1016,12 +921,8 @@ func TestFirstIndexedRequestBuildsDatabaseForNewlySelectedVault(t *testing.T) {
 	if err := json.NewDecoder(pagesResponse.Body).Decode(&pagesPayload); err != nil {
 		t.Fatalf("Decode(pages) error = %v", err)
 	}
-	if pagesPayload.Count != 1 || len(pagesPayload.Pages) != 1 || pagesPayload.Pages[0].Path != "notes/alpha" {
+	if pagesPayload.Count != 1 || len(pagesPayload.Pages) != 1 || pagesPayload.Pages[0].Path != "work/notes/alpha" {
 		t.Fatalf("pages payload = %#v", pagesPayload)
-	}
-
-	if _, err := os.Stat(childIndexDB); err != nil {
-		t.Fatalf("child vault index db missing after first indexed request: %v", err)
 	}
 }
 
@@ -1033,30 +934,8 @@ func TestAuthVaultSelectionRejectsNonTopLevelVault(t *testing.T) {
 	dataDir := filepath.Join(rootDir, "data")
 
 	authService := buildTestAuthService(t, dataDir, "alex", "secret-pass")
-
-	vaultRegistry, err := vaults.NewService(context.Background(), dataDir)
-	if err != nil {
-		t.Fatalf("vaults.NewService() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = vaultRegistry.Close()
-	})
-	if _, err := vaultRegistry.EnsureRuntimeRoot(context.Background(), vaults.RuntimeRootConfig{
-		VaultPath: vaultRoot,
-	}); err != nil {
-		t.Fatalf("EnsureRuntimeRoot() error = %v", err)
-	}
 	if err := os.MkdirAll(filepath.Join(vaultRoot, "team-alpha", "secret"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(secret) error = %v", err)
-	}
-	teamVault, err := vaultRegistry.Create(context.Background(), vaults.CreateConfig{
-		Key:       "secret-scope",
-		Name:      "Secret Scope",
-		VaultPath: filepath.Join(vaultRoot, "team-alpha", "secret"),
-		HomePage:  "index",
-	})
-	if err != nil {
-		t.Fatalf("Create(hidden scope) error = %v", err)
 	}
 
 	router := buildTestRouterWithDeps(t, vaultRoot, dataDir, Dependencies{
@@ -1065,20 +944,27 @@ func TestAuthVaultSelectionRejectsNonTopLevelVault(t *testing.T) {
 			VaultPath:  vaultRoot,
 			DataDir:    dataDir,
 		},
-		Auth:   authService,
-		Vaults: vaultRegistry,
+		Auth: authService,
 	})
 
 	alexCookie := loginTestUser(t, router, "alex", "secret-pass")
 
-	switchBody := strings.NewReader(fmt.Sprintf(`{"vaultId":%d}`, teamVault.ID))
-	switchRequest := httptest.NewRequest(http.MethodPut, "/api/auth/vault", switchBody)
-	switchRequest.Header.Set("Content-Type", "application/json")
-	switchRequest.AddCookie(alexCookie)
-	switchResponse := httptest.NewRecorder()
-	router.ServeHTTP(switchResponse, switchRequest)
-	if switchResponse.Code != http.StatusNotFound {
-		t.Fatalf("PUT /api/auth/vault non-top-level status = %d body=%s", switchResponse.Code, switchResponse.Body.String())
+	metaRequest := httptest.NewRequest(http.MethodGet, "/api/meta", nil)
+	metaRequest.Header.Set(requestScopeHeader, "team-alpha/secret")
+	metaRequest.AddCookie(alexCookie)
+	metaResponse := httptest.NewRecorder()
+	router.ServeHTTP(metaResponse, metaRequest)
+	if metaResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/meta non-top-level scope status = %d body=%s", metaResponse.Code, metaResponse.Body.String())
+	}
+	var metaPayload struct {
+		CurrentVault *vault.Vault `json:"currentVault"`
+	}
+	if err := json.NewDecoder(metaResponse.Body).Decode(&metaPayload); err != nil {
+		t.Fatalf("Decode(meta non-top-level scope) error = %v", err)
+	}
+	if metaPayload.CurrentVault == nil || metaPayload.CurrentVault.VaultPath != vaultRoot {
+		t.Fatalf("meta non-top-level scope payload = %#v", metaPayload)
 	}
 }
 
@@ -1093,13 +979,6 @@ func TestUserVaultsAPICreatesVaultUnderVaultRoot(t *testing.T) {
 	}
 
 	authService := buildTestAuthService(t, dataDir, "alex", "secret-pass")
-	vaultRegistry, err := vaults.NewService(context.Background(), dataDir)
-	if err != nil {
-		t.Fatalf("vaults.NewService() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = vaultRegistry.Close()
-	})
 
 	router := buildTestRouterWithDeps(t, vaultRoot, dataDir, Dependencies{
 		Config: config.Config{
@@ -1107,8 +986,7 @@ func TestUserVaultsAPICreatesVaultUnderVaultRoot(t *testing.T) {
 			VaultPath:  vaultRoot,
 			DataDir:    dataDir,
 		},
-		Auth:   authService,
-		Vaults: vaultRegistry,
+		Auth: authService,
 	})
 
 	alexCookie := loginTestUser(t, router, "alex", "secret-pass")
@@ -1124,7 +1002,7 @@ func TestUserVaultsAPICreatesVaultUnderVaultRoot(t *testing.T) {
 		t.Fatalf("POST /api/user/vaults status = %d body=%s", createResponse.Code, createResponse.Body.String())
 	}
 
-	var created vaults.Vault
+	var created vault.Vault
 	if err := json.NewDecoder(createResponse.Body).Decode(&created); err != nil {
 		t.Fatalf("Decode(created vault) error = %v", err)
 	}
@@ -1144,8 +1022,8 @@ func TestUserVaultsAPICreatesVaultUnderVaultRoot(t *testing.T) {
 		t.Fatalf("GET /api/user/vaults status = %d body=%s", listResponse.Code, listResponse.Body.String())
 	}
 	var listPayload struct {
-		Vaults []vaults.Vault `json:"vaults"`
-		Count  int            `json:"count"`
+		Vaults []vault.Vault `json:"vaults"`
+		Count  int           `json:"count"`
 	}
 	if err := json.NewDecoder(listResponse.Body).Decode(&listPayload); err != nil {
 		t.Fatalf("Decode(vault list) error = %v", err)
@@ -1154,31 +1032,59 @@ func TestUserVaultsAPICreatesVaultUnderVaultRoot(t *testing.T) {
 		t.Fatalf("vault list payload = %#v", listPayload)
 	}
 
-	authListRequest := httptest.NewRequest(http.MethodGet, "/api/auth/vaults", nil)
-	authListRequest.AddCookie(alexCookie)
-	authListResponse := httptest.NewRecorder()
-	router.ServeHTTP(authListResponse, authListRequest)
-	if authListResponse.Code != http.StatusOK {
-		t.Fatalf("GET /api/auth/vaults status = %d body=%s", authListResponse.Code, authListResponse.Body.String())
+	meRequest := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	meRequest.AddCookie(alexCookie)
+	meResponse := httptest.NewRecorder()
+	router.ServeHTTP(meResponse, meRequest)
+	if meResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/auth/me status = %d body=%s", meResponse.Code, meResponse.Body.String())
 	}
-	var authListPayload struct {
-		RootVault    *vaults.Vault  `json:"rootVault"`
-		CurrentVault *vaults.Vault  `json:"currentVault"`
-		Vaults       []vaults.Vault `json:"vaults"`
-		Count        int            `json:"count"`
+	var mePayload struct {
+		Vault *vault.Vault `json:"vault"`
 	}
-	if err := json.NewDecoder(authListResponse.Body).Decode(&authListPayload); err != nil {
-		t.Fatalf("Decode(auth vault list) error = %v", err)
+	if err := json.NewDecoder(meResponse.Body).Decode(&mePayload); err != nil {
+		t.Fatalf("Decode(me payload) error = %v", err)
 	}
-	expectedRootPath := vaultRoot
-	if authListPayload.RootVault == nil || authListPayload.RootVault.VaultPath != expectedRootPath {
-		t.Fatalf("auth root vault payload = %#v", authListPayload)
+	if mePayload.Vault == nil || mePayload.Vault.VaultPath != vaultRoot {
+		t.Fatalf("me payload = %#v", mePayload)
 	}
-	if authListPayload.Count != 1 || len(authListPayload.Vaults) != 1 || authListPayload.Vaults[0].ID != created.ID {
-		t.Fatalf("auth available vault payload = %#v", authListPayload)
+}
+
+func TestUserVaultsAPIReturnsConflictWhenVaultAlreadyExists(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultRoot := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+	if err := os.MkdirAll(filepath.Join(vaultRoot, "work"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(work) error = %v", err)
 	}
-	if authListPayload.CurrentVault == nil || authListPayload.CurrentVault.VaultPath != expectedRootPath {
-		t.Fatalf("auth vault payload = %#v", authListPayload)
+
+	authService := buildTestAuthService(t, dataDir, "alex", "secret-pass")
+	router := buildTestRouterWithDeps(t, vaultRoot, dataDir, Dependencies{
+		Config: config.Config{
+			ListenAddr: ":8080",
+			VaultPath:  vaultRoot,
+			DataDir:    dataDir,
+		},
+		Auth: authService,
+	})
+
+	alexCookie := loginTestUser(t, router, "alex", "secret-pass")
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/user/vaults", strings.NewReader(`{
+	  "name": "Work"
+	}`))
+	createRequest.Header.Set("Content-Type", "application/json")
+	createRequest.AddCookie(alexCookie)
+	createResponse := httptest.NewRecorder()
+	router.ServeHTTP(createResponse, createRequest)
+
+	if createResponse.Code != http.StatusConflict {
+		t.Fatalf("POST /api/user/vaults status = %d body=%s", createResponse.Code, createResponse.Body.String())
+	}
+	if !strings.Contains(createResponse.Body.String(), "already exists") {
+		t.Fatalf("body = %s, want conflict detail", createResponse.Body.String())
 	}
 }
 
@@ -1193,20 +1099,9 @@ func TestUserVaultsAPIUpdatesOwnedVaultMetadata(t *testing.T) {
 	}
 
 	authService := buildTestAuthService(t, dataDir, "alex", "secret-pass")
-	vaultRegistry, err := vaults.NewService(context.Background(), dataDir)
-	if err != nil {
-		t.Fatalf("vaults.NewService() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = vaultRegistry.Close()
-	})
-	createdVault, err := vaultRegistry.CreateTopLevel(context.Background(), vaults.TopLevelCreateConfig{
-		VaultRoot: vaultRoot,
-		Name:      "Private",
-		HomePage:  "notes/start",
-	})
-	if err != nil {
-		t.Fatalf("CreateTopLevel() error = %v", err)
+	createdVaultPath := filepath.Join(vaultRoot, "private")
+	if err := os.MkdirAll(createdVaultPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(private) error = %v", err)
 	}
 
 	router := buildTestRouterWithDeps(t, vaultRoot, dataDir, Dependencies{
@@ -1215,11 +1110,29 @@ func TestUserVaultsAPIUpdatesOwnedVaultMetadata(t *testing.T) {
 			VaultPath:  vaultRoot,
 			DataDir:    dataDir,
 		},
-		Auth:   authService,
-		Vaults: vaultRegistry,
+		Auth: authService,
 	})
 
 	alexCookie := loginTestUser(t, router, "alex", "secret-pass")
+
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/user/vaults", nil)
+	listRequest.AddCookie(alexCookie)
+	listResponse := httptest.NewRecorder()
+	router.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/user/vaults status = %d body=%s", listResponse.Code, listResponse.Body.String())
+	}
+	var listPayload struct {
+		Vaults []vault.Vault `json:"vaults"`
+		Count  int           `json:"count"`
+	}
+	if err := json.NewDecoder(listResponse.Body).Decode(&listPayload); err != nil {
+		t.Fatalf("Decode(vault list) error = %v", err)
+	}
+	if listPayload.Count != 1 || len(listPayload.Vaults) != 1 {
+		t.Fatalf("vault list payload = %#v", listPayload)
+	}
+	createdVault := listPayload.Vaults[0]
 
 	updateRequest := httptest.NewRequest(http.MethodPut, "/api/user/vaults/"+fmt.Sprintf("%d", createdVault.ID), strings.NewReader(`{
 	  "name": "Private Vault"
@@ -1232,18 +1145,18 @@ func TestUserVaultsAPIUpdatesOwnedVaultMetadata(t *testing.T) {
 		t.Fatalf("PUT /api/user/vaults/{id} status = %d body=%s", updateResponse.Code, updateResponse.Body.String())
 	}
 
-	var updated vaults.Vault
+	var updated vault.Vault
 	if err := json.NewDecoder(updateResponse.Body).Decode(&updated); err != nil {
 		t.Fatalf("Decode(updated vault) error = %v", err)
 	}
 	expectedVaultPath := filepath.Join(vaultRoot, "private-vault")
-	if updated.Name != "Private Vault" || updated.HomePage != "notes/start" || updated.VaultPath != expectedVaultPath {
+	if updated.Name != "Private Vault" || updated.VaultPath != expectedVaultPath {
 		t.Fatalf("updated vault = %#v", updated)
 	}
 	if _, err := os.Stat(expectedVaultPath); err != nil {
 		t.Fatalf("Stat(updated vault path) error = %v", err)
 	}
-	if _, err := os.Stat(createdVault.VaultPath); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(createdVaultPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("old vault path still exists: %v", err)
 	}
 }
@@ -1272,42 +1185,9 @@ func TestTopLevelFoldersAsVaultsDiscoverAndSwitch(t *testing.T) {
 	})
 
 	alexCookie := loginTestUser(t, router, "alex", "secret-pass")
-
-	vaultsRequest := httptest.NewRequest(http.MethodGet, "/api/auth/vaults", nil)
-	vaultsRequest.AddCookie(alexCookie)
-	vaultsResponse := httptest.NewRecorder()
-	router.ServeHTTP(vaultsResponse, vaultsRequest)
-	if vaultsResponse.Code != http.StatusOK {
-		t.Fatalf("GET /api/auth/vaults status = %d body=%s", vaultsResponse.Code, vaultsResponse.Body.String())
-	}
-
-	var vaultsPayload struct {
-		RootVault    *vaults.Vault  `json:"rootVault"`
-		Vaults       []vaults.Vault `json:"vaults"`
-		Count        int            `json:"count"`
-		CurrentVault *vaults.Vault  `json:"currentVault"`
-	}
-	if err := json.NewDecoder(vaultsResponse.Body).Decode(&vaultsPayload); err != nil {
-		t.Fatalf("Decode(vaults payload) error = %v", err)
-	}
-	if vaultsPayload.CurrentVault == nil {
-		t.Fatal("currentVault = nil")
-	}
 	privatePath := filepath.Join(vaultRoot, "private")
 	workPath := filepath.Join(vaultRoot, "work")
 	rootPath := vaultRoot
-	if vaultsPayload.RootVault == nil || vaultsPayload.RootVault.VaultPath != rootPath {
-		t.Fatalf("root vault = %#v want path %q", vaultsPayload.RootVault, rootPath)
-	}
-	if vaultsPayload.Count != 2 || len(vaultsPayload.Vaults) != 2 {
-		t.Fatalf("count = %d len = %d want 2", vaultsPayload.Count, len(vaultsPayload.Vaults))
-	}
-	if vaultsPayload.CurrentVault.VaultPath != rootPath {
-		t.Fatalf("current vault = %#v want path %q", vaultsPayload.CurrentVault, rootPath)
-	}
-	if vaultsPayload.Vaults[0].VaultPath != privatePath || vaultsPayload.Vaults[1].VaultPath != workPath {
-		t.Fatalf("auth vaults = %#v", vaultsPayload.Vaults)
-	}
 
 	userVaultsRequest := httptest.NewRequest(http.MethodGet, "/api/user/vaults", nil)
 	userVaultsRequest.AddCookie(alexCookie)
@@ -1317,8 +1197,8 @@ func TestTopLevelFoldersAsVaultsDiscoverAndSwitch(t *testing.T) {
 		t.Fatalf("GET /api/user/vaults status = %d body=%s", userVaultsResponse.Code, userVaultsResponse.Body.String())
 	}
 	var userVaultsPayload struct {
-		Vaults []vaults.Vault `json:"vaults"`
-		Count  int            `json:"count"`
+		Vaults []vault.Vault `json:"vaults"`
+		Count  int           `json:"count"`
 	}
 	if err := json.NewDecoder(userVaultsResponse.Body).Decode(&userVaultsPayload); err != nil {
 		t.Fatalf("Decode(user vaults payload) error = %v", err)
@@ -1339,7 +1219,7 @@ func TestTopLevelFoldersAsVaultsDiscoverAndSwitch(t *testing.T) {
 	}
 	var metaPayload struct {
 		RuntimeVault settings.Vault `json:"runtimeVault"`
-		CurrentVault *vaults.Vault  `json:"currentVault"`
+		CurrentVault *vault.Vault   `json:"currentVault"`
 	}
 	if err := json.NewDecoder(metaResponse.Body).Decode(&metaPayload); err != nil {
 		t.Fatalf("Decode(meta payload) error = %v", err)
@@ -1351,16 +1231,8 @@ func TestTopLevelFoldersAsVaultsDiscoverAndSwitch(t *testing.T) {
 		t.Fatalf("meta currentVault = %#v want path %q", metaPayload.CurrentVault, rootPath)
 	}
 
-	switchRequest := httptest.NewRequest(http.MethodPut, "/api/auth/vault", strings.NewReader(fmt.Sprintf(`{"vaultId":%d}`, userVaultsPayload.Vaults[1].ID)))
-	switchRequest.Header.Set("Content-Type", "application/json")
-	switchRequest.AddCookie(alexCookie)
-	switchResponse := httptest.NewRecorder()
-	router.ServeHTTP(switchResponse, switchRequest)
-	if switchResponse.Code != http.StatusOK {
-		t.Fatalf("PUT /api/auth/vault status = %d body=%s", switchResponse.Code, switchResponse.Body.String())
-	}
-
 	metaAfterSwitchRequest := httptest.NewRequest(http.MethodGet, "/api/meta", nil)
+	metaAfterSwitchRequest.Header.Set(requestScopeHeader, "work")
 	metaAfterSwitchRequest.AddCookie(alexCookie)
 	metaAfterSwitchResponse := httptest.NewRecorder()
 	router.ServeHTTP(metaAfterSwitchResponse, metaAfterSwitchRequest)
@@ -1369,7 +1241,7 @@ func TestTopLevelFoldersAsVaultsDiscoverAndSwitch(t *testing.T) {
 	}
 	var metaAfterSwitchPayload struct {
 		RuntimeVault settings.Vault `json:"runtimeVault"`
-		CurrentVault *vaults.Vault  `json:"currentVault"`
+		CurrentVault *vault.Vault   `json:"currentVault"`
 	}
 	if err := json.NewDecoder(metaAfterSwitchResponse.Body).Decode(&metaAfterSwitchPayload); err != nil {
 		t.Fatalf("Decode(meta after switch payload) error = %v", err)
@@ -1414,30 +1286,21 @@ func TestConfiguredRootIsDefaultVaultAndListsTopLevelFolders(t *testing.T) {
 
 	rasiCookie := loginTestUser(t, router, "rasi", "secret-pass")
 
-	authListRequest := httptest.NewRequest(http.MethodGet, "/api/auth/vaults", nil)
-	authListRequest.AddCookie(rasiCookie)
-	authListResponse := httptest.NewRecorder()
-	router.ServeHTTP(authListResponse, authListRequest)
-	if authListResponse.Code != http.StatusOK {
-		t.Fatalf("GET /api/auth/vaults status = %d body=%s", authListResponse.Code, authListResponse.Body.String())
+	meRequest := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	meRequest.AddCookie(rasiCookie)
+	meResponse := httptest.NewRecorder()
+	router.ServeHTTP(meResponse, meRequest)
+	if meResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/auth/me status = %d body=%s", meResponse.Code, meResponse.Body.String())
 	}
-	var authListPayload struct {
-		RootVault    *vaults.Vault  `json:"rootVault"`
-		CurrentVault *vaults.Vault  `json:"currentVault"`
-		Vaults       []vaults.Vault `json:"vaults"`
-		Count        int            `json:"count"`
+	var mePayload struct {
+		Vault *vault.Vault `json:"vault"`
 	}
-	if err := json.NewDecoder(authListResponse.Body).Decode(&authListPayload); err != nil {
-		t.Fatalf("Decode(auth vault list) error = %v", err)
+	if err := json.NewDecoder(meResponse.Body).Decode(&mePayload); err != nil {
+		t.Fatalf("Decode(me payload) error = %v", err)
 	}
-	if authListPayload.RootVault == nil || authListPayload.RootVault.VaultPath != vaultRoot {
-		t.Fatalf("auth root vault payload = %#v want root %q", authListPayload, vaultRoot)
-	}
-	if authListPayload.Count != 2 || len(authListPayload.Vaults) != 2 {
-		t.Fatalf("auth vault list count = %#v want 2 discovered vaults", authListPayload)
-	}
-	if authListPayload.CurrentVault == nil || authListPayload.CurrentVault.VaultPath != vaultRoot {
-		t.Fatalf("auth vault payload = %#v want root %q", authListPayload, vaultRoot)
+	if mePayload.Vault == nil || mePayload.Vault.VaultPath != vaultRoot {
+		t.Fatalf("me payload = %#v want root %q", mePayload, vaultRoot)
 	}
 
 	pagesRequest := httptest.NewRequest(http.MethodGet, "/api/pages", nil)
@@ -1471,8 +1334,8 @@ func TestConfiguredRootIsDefaultVaultAndListsTopLevelFolders(t *testing.T) {
 		t.Fatalf("GET /api/user/vaults status = %d body=%s", userVaultsResponse.Code, userVaultsResponse.Body.String())
 	}
 	var userVaultsPayload struct {
-		Vaults []vaults.Vault `json:"vaults"`
-		Count  int            `json:"count"`
+		Vaults []vault.Vault `json:"vaults"`
+		Count  int           `json:"count"`
 	}
 	if err := json.NewDecoder(userVaultsResponse.Body).Decode(&userVaultsPayload); err != nil {
 		t.Fatalf("Decode(user vaults) error = %v", err)
@@ -1720,23 +1583,8 @@ func TestVaultProtectedAPIUsesConfiguredRootByDefault(t *testing.T) {
 	dataDir := filepath.Join(rootDir, "data")
 
 	authService := buildTestAuthService(t, dataDir, "alex", "secret-pass")
-
-	vaultRegistry, err := vaults.NewService(context.Background(), dataDir)
-	if err != nil {
-		t.Fatalf("vaults.NewService() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = vaultRegistry.Close()
-	})
-	if _, err := vaultRegistry.EnsureRuntimeRoot(context.Background(), vaults.RuntimeRootConfig{
-		VaultPath: vaultDir,
-		HomePage:  "index",
-	}); err != nil {
-		t.Fatalf("EnsureRuntimeRoot() error = %v", err)
-	}
 	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
-		Auth:   authService,
-		Vaults: vaultRegistry,
+		Auth: authService,
 	})
 
 	loginRequest := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"username":"alex","password":"secret-pass"}`))
@@ -1760,9 +1608,9 @@ func TestVaultProtectedAPIUsesConfiguredRootByDefault(t *testing.T) {
 	}
 
 	var mePayload struct {
-		Authenticated bool          `json:"authenticated"`
-		User          auth.User     `json:"user"`
-		Vault         *vaults.Vault `json:"vault"`
+		Authenticated bool         `json:"authenticated"`
+		User          auth.User    `json:"user"`
+		Vault         *vault.Vault `json:"vault"`
 	}
 	if err := json.NewDecoder(meResponse.Body).Decode(&mePayload); err != nil {
 		t.Fatalf("Decode(me) error = %v", err)
@@ -1783,7 +1631,7 @@ func TestVaultProtectedAPIUsesConfiguredRootByDefault(t *testing.T) {
 		t.Fatalf("GET /api/meta status = %d body=%s", metaResponse.Code, metaResponse.Body.String())
 	}
 	var metaPayload struct {
-		CurrentVault *vaults.Vault `json:"currentVault"`
+		CurrentVault *vault.Vault `json:"currentVault"`
 	}
 	if err := json.NewDecoder(metaResponse.Body).Decode(&metaPayload); err != nil {
 		t.Fatalf("Decode(meta) error = %v", err)
@@ -1801,20 +1649,6 @@ func TestVaultSettingsRequireAuthenticatedSession(t *testing.T) {
 	dataDir := filepath.Join(rootDir, "data")
 
 	authService := buildTestAuthService(t, dataDir, "alex", "secret-pass")
-
-	vaultRegistry, err := vaults.NewService(context.Background(), dataDir)
-	if err != nil {
-		t.Fatalf("vaults.NewService() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = vaultRegistry.Close()
-	})
-	if _, err := vaultRegistry.EnsureRuntimeRoot(context.Background(), vaults.RuntimeRootConfig{
-		VaultPath: vaultDir,
-		HomePage:  "index",
-	}); err != nil {
-		t.Fatalf("EnsureRuntimeRoot() error = %v", err)
-	}
 	cfg := config.Config{
 		ListenAddr: ":8080",
 		VaultPath:  vaultDir,
@@ -1830,7 +1664,6 @@ func TestVaultSettingsRequireAuthenticatedSession(t *testing.T) {
 		Config:   cfg,
 		Settings: settingsStore,
 		Auth:     authService,
-		Vaults:   vaultRegistry,
 	})
 
 	putRequest := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{
@@ -10620,30 +10453,29 @@ func TestPublishInvalidationEventsRefreshesOnlyAffectedBlocksOnQueryPage(t *test
 	if received[2].Type != "query-block.changed" {
 		t.Fatalf("third event = %#v", received[2])
 	}
-	payload, ok := received[2].Data.(map[string]any)
+	payload, ok := received[2].Data.(queryBlockChangedPayload)
 	if !ok {
 		t.Fatalf("query-block payload = %#v", received[2].Data)
 	}
-	if payload["page"] != "dashboards/mixed" || payload["key"] != afterBlocks[1].BlockKey {
+	if payload.Page != "dashboards/mixed" || payload.Key != afterBlocks[1].BlockKey {
 		t.Fatalf("query-block payload = %#v", payload)
 	}
-	if payload["rowCount"] != 1 || payload["renderHint"] != "list" || payload["stale"] != false {
+	if payload.RowCount != 1 || payload.RenderHint != "list" || payload.Stale != false {
 		t.Fatalf("query-block payload = %#v", payload)
 	}
 
 	if received[4].Type != "query.changed" {
 		t.Fatalf("fifth event = %#v", received[4])
 	}
-	queryPayload, ok := received[4].Data.(map[string]any)
+	queryPayload, ok := received[4].Data.(queryChangedPayload)
 	if !ok {
 		t.Fatalf("query payload = %#v", received[4].Data)
 	}
-	if queryPayload["page"] != "dashboards/mixed" || queryPayload["triggerPage"] != "daily/today" || queryPayload["blockCount"] != 1 || queryPayload["key"] != afterBlocks[1].BlockKey {
+	if queryPayload.Page != "dashboards/mixed" || queryPayload.TriggerPage != "daily/today" || queryPayload.BlockCount != 1 || queryPayload.Key != afterBlocks[1].BlockKey {
 		t.Fatalf("query payload = %#v", queryPayload)
 	}
-	blocks, ok := queryPayload["blocks"].([]map[string]any)
-	if !ok || len(blocks) != 1 || blocks[0]["key"] != afterBlocks[1].BlockKey || blocks[0]["renderHint"] != "list" {
-		t.Fatalf("query blocks payload = %#v", queryPayload["blocks"])
+	if len(queryPayload.Blocks) != 1 || queryPayload.Blocks[0].Key != afterBlocks[1].BlockKey || queryPayload.Blocks[0].RenderHint != "list" {
+		t.Fatalf("query blocks payload = %#v", queryPayload.Blocks)
 	}
 }
 
@@ -11055,40 +10887,25 @@ func buildTestRouterWithDeps(t *testing.T, vaultDir, dataDir string, deps Depend
 	if deps.Events == nil {
 		deps.Events = NewEventBroker()
 	}
-	if deps.Vaults == nil {
-		vaultRegistry, err := vaults.NewService(context.Background(), dataDir)
-		if err != nil {
-			t.Fatalf("vaults.NewService() error = %v", err)
+	configuredVaultHomePage := deps.Config.HomePage
+	if configuredVaultHomePage == "" {
+		configuredVaultHomePage = "index"
+	}
+	configuredVault := vault.Vault{
+		ID:        vault.ConfiguredVaultID,
+		Key:       "default",
+		Name:      "Configured Vault",
+		VaultPath: deps.Config.VaultPath,
+		HomePage:  configuredVaultHomePage,
+	}
+	configuredVaultCtx := vault.WithVault(context.Background(), configuredVault)
+	if err := deps.Index.RebuildFromVault(configuredVaultCtx, deps.Vault); err != nil {
+		t.Fatalf("RebuildFromVault(vault) error = %v", err)
+	}
+	if deps.Query != nil {
+		if err := deps.Query.RefreshAll(configuredVaultCtx, deps.Index); err != nil {
+			t.Fatalf("RefreshAll(vault) error = %v", err)
 		}
-		t.Cleanup(func() {
-			_ = vaultRegistry.Close()
-		})
-		configuredVaultHomePage := deps.Config.HomePage
-		if configuredVaultHomePage == "" {
-			configuredVaultHomePage = "index"
-		}
-		configuredVault, err := vaultRegistry.EnsureRuntimeRoot(context.Background(), vaults.RuntimeRootConfig{
-			VaultPath: deps.Config.VaultPath,
-			HomePage:  configuredVaultHomePage,
-		})
-		if err != nil {
-			t.Fatalf("EnsureRuntimeRoot() error = %v", err)
-		}
-		configuredVaultCtx := vaults.WithVault(context.Background(), configuredVault)
-		if err := deps.Index.RebuildFromVault(configuredVaultCtx, deps.Vault); err != nil {
-			t.Fatalf("RebuildFromVault(vault) error = %v", err)
-		}
-		if deps.Query != nil {
-			if err := deps.Query.RefreshAll(configuredVaultCtx, deps.Index); err != nil {
-				t.Fatalf("RefreshAll(vault) error = %v", err)
-			}
-		}
-		if deps.History != nil {
-			if err := deps.History.AdoptDefaultVaultHistory(configuredVault.ID); err != nil {
-				t.Fatalf("AdoptDefaultVaultHistory() error = %v", err)
-			}
-		}
-		deps.Vaults = vaultRegistry
 	}
 	if deps.Themes == nil {
 		themeService, err := themes.NewService(dataDir)
@@ -11176,6 +10993,32 @@ func TestEventBrokerCloseClosesSubscribers(t *testing.T) {
 	event, ok := <-events
 	if ok {
 		t.Fatalf("events channel still open, received %#v", event)
+	}
+}
+
+func TestEventBrokerUnsubscribeAfterCloseDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	broker := NewEventBroker()
+	_, unsubscribe := broker.Subscribe()
+
+	broker.Close()
+	unsubscribe()
+}
+
+func TestEventBrokerCountsDroppedEvents(t *testing.T) {
+	t.Parallel()
+
+	broker := NewEventBroker()
+	_, unsubscribe := broker.Subscribe()
+	defer unsubscribe()
+
+	for idx := 0; idx < 32; idx++ {
+		broker.Publish(Event{Type: "page.changed", Data: pageEventData{Page: fmt.Sprintf("notes/%d", idx)}})
+	}
+
+	if broker.DroppedEvents() == 0 {
+		t.Fatal("DroppedEvents() = 0, want at least one dropped event")
 	}
 }
 

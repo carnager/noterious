@@ -8,6 +8,69 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Noterious">
     <title>Noterious</title>
+    <script>
+      (function () {
+        try {
+          var raw = window.localStorage.getItem("noterious.theme-last");
+          if (!raw) {
+            return;
+          }
+          var theme = JSON.parse(raw);
+          if (!theme || !theme.tokens) {
+            return;
+          }
+          var root = document.documentElement;
+          var tokens = theme.tokens;
+          var cssVarMap = {
+            bg: "--bg",
+            bgGradientStart: "--bg-gradient-start",
+            bgGradientEnd: "--bg-gradient-end",
+            bgGlowA: "--bg-glow-a",
+            bgGlowB: "--bg-glow-b",
+            sidebar: "--sidebar",
+            sidebarSoft: "--sidebar-soft",
+            panel: "--panel",
+            panelStrong: "--panel-strong",
+            surface: "--surface",
+            surfaceSoft: "--surface-soft",
+            overlay: "--overlay",
+            overlaySoft: "--overlay-soft",
+            table: "--table",
+            tableHeader: "--table-header",
+            editorOverlay: "--editor-overlay",
+            ink: "--ink",
+            muted: "--muted",
+            accent: "--accent",
+            accentSoft: "--accent-soft",
+            warn: "--warn",
+            line: "--line",
+            lineStrong: "--line-strong",
+            focusRing: "--focus-ring",
+            selection: "--selection",
+            shadow: "--shadow",
+            themeColor: "--theme-color"
+          };
+          Object.keys(cssVarMap).forEach(function (key) {
+            if (typeof tokens[key] === "string" && tokens[key]) {
+              root.style.setProperty(cssVarMap[key], tokens[key]);
+            }
+          });
+          if (typeof theme.kind === "string" && theme.kind) {
+            root.style.colorScheme = theme.kind;
+            root.setAttribute("data-theme-kind", theme.kind);
+          }
+          if (typeof theme.id === "string" && theme.id) {
+            root.setAttribute("data-theme-id", theme.id);
+          }
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta && tokens.themeColor) {
+            meta.setAttribute("content", tokens.themeColor);
+          }
+        } catch (_error) {
+          // Ignore bootstrap theme failures and continue with default CSS.
+        }
+      })();
+    </script>
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/app.css">
@@ -116,13 +179,13 @@
                 <h2>Tasks</h2>
               </div>
               <div class="task-filters" id="task-filters">
-                <button type="button" class="task-filter active" data-task-filter="not-done">Not Done</button>
+                <button type="button" class="task-filter" data-task-filter="current-page">Current Page</button>
+                <button type="button" class="task-filter" data-task-filter="not-done">Not Done</button>
                 <button type="button" class="task-filter" data-task-filter="has-due">Has Due</button>
                 <button type="button" class="task-filter" data-task-filter="has-reminder">Reminders</button>
-                <button type="button" class="task-filter" data-task-filter="all">All</button>
               </div>
               <div class="page-task-list" id="page-task-list">
-                <div class="empty">Tasks inside the note will show up here too.</div>
+                <div class="empty">Tasks across the current scope will show up here.</div>
               </div>
             </section>
           </section>

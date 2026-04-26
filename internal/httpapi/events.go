@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
-	"github.com/carnager/noterious/internal/vaults"
 )
 
 type Event struct {
@@ -17,72 +17,101 @@ type Event struct {
 	Data any    `json:"data,omitempty"`
 }
 
+type pageEventData struct {
+	Page string `json:"page"`
+}
+
+type queryBlockChangedPayload struct {
+	Page       string   `json:"page"`
+	Key        string   `json:"key"`
+	ID         string   `json:"id,omitempty"`
+	Datasets   []string `json:"datasets,omitempty"`
+	MatchPage  string   `json:"matchPage,omitempty"`
+	RowCount   int      `json:"rowCount"`
+	RenderHint string   `json:"renderHint"`
+	UpdatedAt  string   `json:"updatedAt"`
+	Stale      bool     `json:"stale"`
+	Error      string   `json:"error,omitempty"`
+}
+
+type queryChangedPayload struct {
+	Page        string                     `json:"page"`
+	TriggerPage string                     `json:"triggerPage"`
+	BlockCount  int                        `json:"blockCount"`
+	Blocks      []queryBlockChangedPayload `json:"blocks"`
+	Key         string                     `json:"key,omitempty"`
+	ID          string                     `json:"id,omitempty"`
+}
+
+type eventSubscriber struct {
+	ch     chan Event
+	closed bool
+}
+
 type EventBroker struct {
 	mu          sync.Mutex
-	subscribers map[int64]map[chan Event]struct{}
+	subscribers map[*eventSubscriber]struct{}
 	closed      bool
+	dropped     uint64
 }
 
 func NewEventBroker() *EventBroker {
 	return &EventBroker{
-		subscribers: make(map[int64]map[chan Event]struct{}),
+		subscribers: make(map[*eventSubscriber]struct{}),
 	}
 }
 
 func (b *EventBroker) Publish(event Event) {
-	b.PublishToVault(vaults.ConfiguredVaultID, event)
-}
-
-func (b *EventBroker) PublishToVault(vaultID int64, event Event) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	if b.closed {
+		b.mu.Unlock()
 		return
 	}
 
-	subscribers := b.subscribers[vaultID]
-	for subscriber := range subscribers {
+	dropped := 0
+	for subscriber := range b.subscribers {
+		if subscriber.closed {
+			continue
+		}
 		select {
-		case subscriber <- event:
+		case subscriber.ch <- event:
 		default:
+			dropped++
 		}
 	}
+	if dropped > 0 {
+		b.dropped += uint64(dropped)
+		totalDropped := b.dropped
+		b.mu.Unlock()
+		if totalDropped == uint64(dropped) || totalDropped%100 == 0 {
+			slog.Warn("event broker dropped events", "event_type", event.Type, "dropped_now", dropped, "dropped_total", totalDropped)
+		}
+		return
+	}
+	b.mu.Unlock()
 }
 
 func (b *EventBroker) Subscribe() (<-chan Event, func()) {
-	return b.SubscribeVault(vaults.ConfiguredVaultID)
-}
-
-func (b *EventBroker) SubscribeVault(vaultID int64) (<-chan Event, func()) {
-	ch := make(chan Event, 16)
+	subscriber := &eventSubscriber{
+		ch: make(chan Event, 16),
+	}
 
 	b.mu.Lock()
 	if b.closed {
-		close(ch)
+		close(subscriber.ch)
 		b.mu.Unlock()
-		return ch, func() {}
+		return subscriber.ch, func() {}
 	}
-	if b.subscribers[vaultID] == nil {
-		b.subscribers[vaultID] = make(map[chan Event]struct{})
-	}
-	b.subscribers[vaultID][ch] = struct{}{}
+	b.subscribers[subscriber] = struct{}{}
 	b.mu.Unlock()
 
 	cancel := func() {
 		b.mu.Lock()
-		if subscribers := b.subscribers[vaultID]; subscribers != nil {
-			if _, ok := subscribers[ch]; ok {
-				delete(subscribers, ch)
-			}
-			if len(subscribers) == 0 {
-				delete(b.subscribers, vaultID)
-			}
-			close(ch)
-		}
+		b.closeSubscriberLocked(subscriber)
 		b.mu.Unlock()
 	}
 
-	return ch, cancel
+	return subscriber.ch, cancel
 }
 
 func (b *EventBroker) Close() {
@@ -97,15 +126,37 @@ func (b *EventBroker) Close() {
 	}
 	b.closed = true
 
-	subscribersByVault := b.subscribers
-	b.subscribers = make(map[int64]map[chan Event]struct{})
+	subscribers := b.subscribers
+	b.subscribers = make(map[*eventSubscriber]struct{})
 	b.mu.Unlock()
 
-	for _, subscribers := range subscribersByVault {
-		for subscriber := range subscribers {
-			close(subscriber)
-		}
+	for subscriber := range subscribers {
+		b.closeSubscriber(subscriber)
 	}
+}
+
+func (b *EventBroker) DroppedEvents() uint64 {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.dropped
+}
+
+func (b *EventBroker) closeSubscriber(subscriber *eventSubscriber) {
+	b.mu.Lock()
+	b.closeSubscriberLocked(subscriber)
+	b.mu.Unlock()
+}
+
+func (b *EventBroker) closeSubscriberLocked(subscriber *eventSubscriber) {
+	if subscriber == nil || subscriber.closed {
+		return
+	}
+	delete(b.subscribers, subscriber)
+	subscriber.closed = true
+	close(subscriber.ch)
 }
 
 func serveEvents(w http.ResponseWriter, r *http.Request, broker *EventBroker) {
@@ -119,7 +170,7 @@ func serveEvents(w http.ResponseWriter, r *http.Request, broker *EventBroker) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	events, unsubscribe := broker.SubscribeVault(vaults.VaultIDFromContext(r.Context()))
+	events, unsubscribe := broker.Subscribe()
 	defer unsubscribe()
 
 	if _, err := fmt.Fprint(w, ": connected\n\n"); err != nil {
@@ -162,71 +213,34 @@ func PublishInvalidationEvents(ctx context.Context, broker *EventBroker, indexSe
 	if broker == nil {
 		return
 	}
-	vaultID := vaults.VaultIDFromContext(ctx)
-	broker.PublishToVault(vaultID, Event{
+	broker.Publish(Event{
 		Type: "page.changed",
-		Data: map[string]any{"page": pagePath},
+		Data: pageEventData{Page: pagePath},
 	})
-	broker.PublishToVault(vaultID, Event{
+	broker.Publish(Event{
 		Type: "derived.changed",
-		Data: map[string]any{"page": pagePath},
+		Data: pageEventData{Page: pagePath},
 	})
 
 	if indexService == nil {
 		return
 	}
 
-	pageCandidates := []query.QueryPageRefresh(nil)
-	taskCandidates := []query.QueryPageRefresh(nil)
-	linkCandidates := []query.QueryPageRefresh(nil)
-	var err error
-	if queryService != nil {
-		pageCandidates, err = queryService.RefreshAffectedPageQueryPages(ctx, indexService, pagePath, pageChanges)
-		if err != nil {
-			return
-		}
-		taskCandidates, err = queryService.RefreshAffectedTaskQueryPages(ctx, indexService, pagePath, taskChanges)
-		if err != nil {
-			return
-		}
-		linkCandidates, err = queryService.RefreshAffectedLinkQueryPages(ctx, indexService, pagePath)
-		if err != nil {
-			return
-		}
+	candidates, err := refreshAffectedQueryPages(ctx, indexService, queryService, pagePath, pageChanges, taskChanges)
+	if err != nil {
+		return
 	}
-	candidates := mergeQueryPageRefreshes(pageCandidates, taskCandidates, linkCandidates)
-
-	for _, candidate := range candidates {
-		for _, block := range candidate.Blocks {
-			broker.PublishToVault(vaultID, Event{
-				Type: "query-block.changed",
-				Data: queryBlockChangedData(candidate.Page, block),
-			})
-		}
-
-		if candidate.Page != pagePath {
-			broker.PublishToVault(vaultID, Event{
-				Type: "derived.changed",
-				Data: map[string]any{"page": candidate.Page},
-			})
-		}
-
-		broker.PublishToVault(vaultID, Event{
-			Type: "query.changed",
-			Data: queryChangedData(candidate.Page, pagePath, candidate.Blocks),
-		})
-	}
+	publishQueryPageRefreshEvents(broker, candidates, pagePath, nil)
 }
 
 func PublishDeletionEvents(ctx context.Context, broker *EventBroker, indexService *index.Service, queryService *query.Service, pagePath string, dependentPages []string, pageChanges []query.PageChange, taskChanges []query.TaskChange) {
 	if broker == nil {
 		return
 	}
-	vaultID := vaults.VaultIDFromContext(ctx)
 
-	broker.PublishToVault(vaultID, Event{
+	broker.Publish(Event{
 		Type: "page.deleted",
-		Data: map[string]any{"page": pagePath},
+		Data: pageEventData{Page: pagePath},
 	})
 
 	if indexService == nil {
@@ -243,51 +257,70 @@ func PublishDeletionEvents(ctx context.Context, broker *EventBroker, indexServic
 		}
 		seen[dependentPage] = struct{}{}
 
-		broker.PublishToVault(vaultID, Event{
+		broker.Publish(Event{
 			Type: "derived.changed",
-			Data: map[string]any{"page": dependentPage},
+			Data: pageEventData{Page: dependentPage},
 		})
+	}
+
+	candidates, err := refreshAffectedQueryPages(ctx, indexService, queryService, pagePath, pageChanges, taskChanges)
+	if err != nil {
+		return
+	}
+	publishQueryPageRefreshEvents(broker, candidates, pagePath, seen)
+}
+
+func refreshAffectedQueryPages(ctx context.Context, indexService *index.Service, queryService *query.Service, pagePath string, pageChanges []query.PageChange, taskChanges []query.TaskChange) ([]query.QueryPageRefresh, error) {
+	if indexService == nil || queryService == nil {
+		return nil, nil
 	}
 
 	pageCandidates := []query.QueryPageRefresh(nil)
 	taskCandidates := []query.QueryPageRefresh(nil)
 	linkCandidates := []query.QueryPageRefresh(nil)
 	var err error
-	if queryService != nil {
-		pageCandidates, err = queryService.RefreshAffectedPageQueryPages(ctx, indexService, pagePath, pageChanges)
-		if err != nil {
-			return
-		}
-		taskCandidates, err = queryService.RefreshAffectedTaskQueryPages(ctx, indexService, pagePath, taskChanges)
-		if err != nil {
-			return
-		}
-		linkCandidates, err = queryService.RefreshAffectedLinkQueryPages(ctx, indexService, pagePath)
-		if err != nil {
-			return
-		}
+	pageCandidates, err = queryService.RefreshAffectedPageQueryPages(ctx, indexService, pagePath, pageChanges)
+	if err != nil {
+		return nil, err
 	}
-	candidates := mergeQueryPageRefreshes(pageCandidates, taskCandidates, linkCandidates)
+	taskCandidates, err = queryService.RefreshAffectedTaskQueryPages(ctx, indexService, pagePath, taskChanges)
+	if err != nil {
+		return nil, err
+	}
+	linkCandidates, err = queryService.RefreshAffectedLinkQueryPages(ctx, indexService, pagePath)
+	if err != nil {
+		return nil, err
+	}
+	return mergeQueryPageRefreshes(pageCandidates, taskCandidates, linkCandidates), nil
+}
 
+func publishQueryPageRefreshEvents(broker *EventBroker, candidates []query.QueryPageRefresh, triggerPage string, seenDerived map[string]struct{}) {
 	for _, dependentPage := range candidates {
 		for _, block := range dependentPage.Blocks {
-			broker.PublishToVault(vaultID, Event{
+			broker.Publish(Event{
 				Type: "query-block.changed",
 				Data: queryBlockChangedData(dependentPage.Page, block),
 			})
 		}
 
-		if _, ok := seen[dependentPage.Page]; !ok {
-			seen[dependentPage.Page] = struct{}{}
-			broker.PublishToVault(vaultID, Event{
+		if seenDerived != nil {
+			if _, ok := seenDerived[dependentPage.Page]; !ok {
+				seenDerived[dependentPage.Page] = struct{}{}
+				broker.Publish(Event{
+					Type: "derived.changed",
+					Data: pageEventData{Page: dependentPage.Page},
+				})
+			}
+		} else if dependentPage.Page != triggerPage {
+			broker.Publish(Event{
 				Type: "derived.changed",
-				Data: map[string]any{"page": dependentPage.Page},
+				Data: pageEventData{Page: dependentPage.Page},
 			})
 		}
 
-		broker.PublishToVault(vaultID, Event{
+		broker.Publish(Event{
 			Type: "query.changed",
-			Data: queryChangedData(dependentPage.Page, pagePath, dependentPage.Blocks),
+			Data: queryChangedData(dependentPage.Page, triggerPage, dependentPage.Blocks),
 		})
 	}
 }
@@ -310,38 +343,38 @@ func mergePages(groups ...[]string) []string {
 	return pages
 }
 
-func queryBlockChangedData(page string, block index.QueryBlock) map[string]any {
+func queryBlockChangedData(page string, block index.QueryBlock) queryBlockChangedPayload {
 	rowCount, renderHint := summarizeQueryBlockResult(block)
-	data := map[string]any{
-		"page":       page,
-		"key":        block.BlockKey,
-		"id":         block.ID,
-		"datasets":   block.Datasets,
-		"matchPage":  block.MatchPage,
-		"rowCount":   rowCount,
-		"renderHint": renderHint,
-		"updatedAt":  block.UpdatedAt,
-		"stale":      false,
+	data := queryBlockChangedPayload{
+		Page:       page,
+		Key:        block.BlockKey,
+		ID:         block.ID,
+		Datasets:   block.Datasets,
+		MatchPage:  block.MatchPage,
+		RowCount:   rowCount,
+		RenderHint: renderHint,
+		UpdatedAt:  block.UpdatedAt,
+		Stale:      false,
 	}
 	if block.Error != "" {
-		data["error"] = block.Error
+		data.Error = block.Error
 	}
 	return data
 }
 
-func queryChangedData(page string, triggerPage string, blocks []index.QueryBlock) map[string]any {
-	data := map[string]any{
-		"page":        page,
-		"triggerPage": triggerPage,
-		"blockCount":  len(blocks),
-		"blocks":      make([]map[string]any, 0, len(blocks)),
+func queryChangedData(page string, triggerPage string, blocks []index.QueryBlock) queryChangedPayload {
+	data := queryChangedPayload{
+		Page:        page,
+		TriggerPage: triggerPage,
+		BlockCount:  len(blocks),
+		Blocks:      make([]queryBlockChangedPayload, 0, len(blocks)),
 	}
 	for _, block := range blocks {
-		data["blocks"] = append(data["blocks"].([]map[string]any), queryBlockChangedData(page, block))
+		data.Blocks = append(data.Blocks, queryBlockChangedData(page, block))
 	}
 	if len(blocks) == 1 {
-		data["key"] = blocks[0].BlockKey
-		data["id"] = blocks[0].ID
+		data.Key = blocks[0].BlockKey
+		data.ID = blocks[0].ID
 	}
 	return data
 }

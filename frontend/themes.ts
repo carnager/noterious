@@ -2,6 +2,7 @@ import type { ThemeListResponse, ThemeRecord, ThemeTokens } from "./types";
 
 export const defaultThemeId = "noterious-night";
 export const themeCacheStorageKey = "noterious.theme-cache";
+export const appliedThemeStorageKey = "noterious.theme-last";
 
 const builtinThemes: ThemeRecord[] = [
   {
@@ -770,5 +771,10 @@ export function applyTheme(theme: ThemeRecord): void {
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta && typeof meta === "object" && "content" in meta) {
     (meta as { content: string }).content = theme.tokens.themeColor || theme.tokens.bg || "#11131d";
+  }
+  try {
+    window.localStorage.setItem(appliedThemeStorageKey, JSON.stringify(theme));
+  } catch (_error) {
+    // Ignore storage failures and continue with in-memory theme state.
   }
 }

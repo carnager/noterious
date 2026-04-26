@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -195,16 +196,16 @@ func (s *Service) MoveFolder(fromFolderPath string, targetFolderPath string, tar
 	targetNormalized := normalizePagePath(targetFolderPath)
 	nameNormalized := normalizePagePath(targetName)
 	if fromNormalized == "" || fromNormalized == "." || strings.HasPrefix(fromNormalized, "../") || fromNormalized == ".." {
-		return "", fmt.Errorf("invalid folder path %q", fromFolderPath)
+		return "", fmt.Errorf("%w: %q", ErrInvalidFolderPath, fromFolderPath)
 	}
 	if targetNormalized == "." {
 		targetNormalized = ""
 	}
 	if strings.HasPrefix(targetNormalized, "../") || targetNormalized == ".." {
-		return "", fmt.Errorf("invalid target folder path %q", targetFolderPath)
+		return "", fmt.Errorf("%w: %q", ErrInvalidTargetFolderPath, targetFolderPath)
 	}
 	if strings.Contains(nameNormalized, "/") {
-		return "", fmt.Errorf("invalid target folder name %q", targetName)
+		return "", fmt.Errorf("%w: %q", ErrInvalidTargetFolderName, targetName)
 	}
 
 	folderName := path.Base(fromNormalized)
@@ -216,7 +217,7 @@ func (s *Service) MoveFolder(fromFolderPath string, targetFolderPath string, tar
 		destination = normalizePagePath(path.Join(targetNormalized, folderName))
 	}
 	if destination == fromNormalized || strings.HasPrefix(targetNormalized+"/", fromNormalized+"/") {
-		return "", fmt.Errorf("invalid folder move %q to %q", fromNormalized, targetFolderPath)
+		return "", fmt.Errorf("%w: %q to %q", ErrInvalidFolderMove, fromNormalized, targetFolderPath)
 	}
 
 	fromFullPath := filepath.Join(s.rootPath, filepath.FromSlash(fromNormalized))
@@ -225,11 +226,14 @@ func (s *Service) MoveFolder(fromFolderPath string, targetFolderPath string, tar
 		return "", fmt.Errorf("create folder dir for %q: %w", destination, err)
 	}
 	if _, err := os.Stat(toFullPath); err == nil {
-		return "", fmt.Errorf("target folder %q already exists", destination)
+		return "", fmt.Errorf("%w: %q", ErrFolderAlreadyExists, destination)
 	} else if !os.IsNotExist(err) {
 		return "", fmt.Errorf("stat target folder %q: %w", destination, err)
 	}
 	if err := os.Rename(fromFullPath, toFullPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("%w: %s", os.ErrNotExist, fromNormalized)
+		}
 		return "", fmt.Errorf("move folder %q to %q: %w", fromNormalized, destination, err)
 	}
 	return destination, nil

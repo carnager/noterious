@@ -40,7 +40,6 @@ type FrontmatterField struct {
 }
 
 type Link struct {
-	VaultID    int64  `json:"vaultId,omitempty"`
 	SourcePage string `json:"sourcePage"`
 	TargetPage string `json:"targetPage"`
 	LinkText   string `json:"linkText"`
@@ -49,16 +48,15 @@ type Link struct {
 }
 
 type Task struct {
-	VaultID int64    `json:"vaultId,omitempty"`
-	Ref     string   `json:"ref"`
-	Page    string   `json:"page"`
-	Line    int      `json:"line"`
-	Text    string   `json:"text"`
-	State   string   `json:"state"`
-	Done    bool     `json:"done"`
-	Due     *string  `json:"due,omitempty"`
-	Remind  *string  `json:"remind,omitempty"`
-	Who     []string `json:"who,omitempty"`
+	Ref    string   `json:"ref"`
+	Page   string   `json:"page"`
+	Line   int      `json:"line"`
+	Text   string   `json:"text"`
+	State  string   `json:"state"`
+	Done   bool     `json:"done"`
+	Due    *string  `json:"due,omitempty"`
+	Remind *string  `json:"remind,omitempty"`
+	Who    []string `json:"who,omitempty"`
 }
 
 type Heading struct {

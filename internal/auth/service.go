@@ -263,8 +263,8 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 		return Session{}, fmt.Errorf("cleanup expired sessions: %w", err)
 	}
 	if _, err = tx.ExecContext(ctx, `
-		INSERT INTO sessions(token_hash, user_id, created_at, expires_at, last_seen_at, current_vault_id)
-		VALUES(?, ?, ?, ?, ?, NULL);
+		INSERT INTO sessions(token_hash, user_id, created_at, expires_at, last_seen_at)
+		VALUES(?, ?, ?, ?, ?);
 	`, hashToken(token), user.ID, now.UnixMilli(), expiresAt.UnixMilli(), now.UnixMilli()); err != nil {
 		return Session{}, fmt.Errorf("create session: %w", err)
 	}
@@ -297,65 +297,6 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?;`, hashToken(trimmed)); err != nil {
 		return fmt.Errorf("delete session: %w", err)
-	}
-	return nil
-}
-
-func (s *Service) CurrentVaultIDByToken(ctx context.Context, token string) (int64, error) {
-	if s == nil {
-		return 0, ErrAuthenticationRequired
-	}
-	trimmed := strings.TrimSpace(token)
-	if trimmed == "" {
-		return 0, ErrAuthenticationRequired
-	}
-
-	row := s.db.QueryRowContext(ctx, `
-		SELECT current_vault_id
-		FROM sessions
-		WHERE token_hash = ?;
-	`, hashToken(trimmed))
-
-	var currentVaultID sql.NullInt64
-	if err := row.Scan(&currentVaultID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, ErrAuthenticationRequired
-		}
-		return 0, fmt.Errorf("load current vault id: %w", err)
-	}
-	if !currentVaultID.Valid || currentVaultID.Int64 <= 0 {
-		return 0, nil
-	}
-	return currentVaultID.Int64, nil
-}
-
-func (s *Service) SetCurrentVaultID(ctx context.Context, token string, vaultID int64) error {
-	if s == nil {
-		return ErrAuthenticationRequired
-	}
-	trimmed := strings.TrimSpace(token)
-	if trimmed == "" {
-		return ErrAuthenticationRequired
-	}
-
-	var value any
-	if vaultID > 0 {
-		value = vaultID
-	}
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE sessions
-		SET current_vault_id = ?, last_seen_at = ?
-		WHERE token_hash = ?;
-	`, value, time.Now().UTC().UnixMilli(), hashToken(trimmed))
-	if err != nil {
-		return fmt.Errorf("set current vault id: %w", err)
-	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("read updated session rows: %w", err)
-	}
-	if rowsAffected == 0 {
-		return ErrAuthenticationRequired
 	}
 	return nil
 }
@@ -691,7 +632,6 @@ func (s *Service) migrate(ctx context.Context) error {
 			created_at INTEGER NOT NULL,
 			expires_at INTEGER NOT NULL,
 			last_seen_at INTEGER NOT NULL,
-			current_vault_id INTEGER,
 			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);`,
@@ -709,9 +649,6 @@ func (s *Service) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := s.ensureUsersHomePageColumn(ctx); err != nil {
-		return err
-	}
-	if err := s.ensureSessionsCurrentVaultColumn(ctx); err != nil {
 		return err
 	}
 	return nil
@@ -786,46 +723,6 @@ func (s *Service) userColumnSet(ctx context.Context) (map[string]struct{}, error
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate users schema: %w", err)
-	}
-	return columns, nil
-}
-
-func (s *Service) ensureSessionsCurrentVaultColumn(ctx context.Context) error {
-	columns, err := s.sessionColumnSet(ctx)
-	if err != nil {
-		return err
-	}
-	if _, ok := columns["current_vault_id"]; ok {
-		return nil
-	}
-	if _, err := s.db.ExecContext(ctx, `ALTER TABLE sessions ADD COLUMN current_vault_id INTEGER;`); err != nil {
-		return fmt.Errorf("add sessions.current_vault_id column: %w", err)
-	}
-	return nil
-}
-
-func (s *Service) sessionColumnSet(ctx context.Context) (map[string]struct{}, error) {
-	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(sessions);`)
-	if err != nil {
-		return nil, fmt.Errorf("inspect sessions schema: %w", err)
-	}
-	defer rows.Close()
-
-	columns := make(map[string]struct{})
-	for rows.Next() {
-		var cid int
-		var name string
-		var columnType string
-		var notNull int
-		var defaultValue sql.NullString
-		var primaryKey int
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return nil, fmt.Errorf("scan sessions schema: %w", err)
-		}
-		columns[name] = struct{}{}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate sessions schema: %w", err)
 	}
 	return columns, nil
 }

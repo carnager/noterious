@@ -447,6 +447,47 @@
   });
 
   // frontend/http.ts
+  function normalizeScopePrefix(value) {
+    const trimmed = String(value || "").trim().replace(/^\/+|\/+$/g, "");
+    if (!trimmed) {
+      return "";
+    }
+    const segments = trimmed.split("/").filter(Boolean);
+    if (segments.some(function(segment) {
+      return segment === "." || segment === "..";
+    })) {
+      return "";
+    }
+    return segments.join("/");
+  }
+  function mergeScopeHeaders(headers) {
+    const merged = new Headers(headers);
+    if (activeScopePrefix) {
+      merged.set(scopeHeaderName, activeScopePrefix);
+    } else {
+      merged.delete(scopeHeaderName);
+    }
+    return merged;
+  }
+  function setActiveScopePrefix(prefix) {
+    activeScopePrefix = normalizeScopePrefix(prefix);
+  }
+  function currentActiveScopePrefix() {
+    return activeScopePrefix;
+  }
+  function scopedRequestInit(options) {
+    return {
+      ...options,
+      headers: mergeScopeHeaders(options && options.headers ? options.headers : void 0)
+    };
+  }
+  function scopedEventSourceURL(url) {
+    if (!activeScopePrefix) {
+      return url;
+    }
+    const separator = url.indexOf("?") >= 0 ? "&" : "?";
+    return url + separator + "scope=" + encodeURIComponent(activeScopePrefix);
+  }
   function dispatchAuthRequired() {
     window.dispatchEvent(new CustomEvent("noterious:auth-required"));
   }
@@ -461,11 +502,11 @@
     return response;
   }
   async function fetchJSON(url, options, suppressAuthEvent = false) {
-    const response = await fetch(url, options);
+    const response = await fetch(url, scopedRequestInit(options));
     await requireOK(response, suppressAuthEvent);
     return response.json();
   }
-  var HTTPError;
+  var HTTPError, scopeHeaderName, activeScopePrefix;
   var init_http = __esm({
     "frontend/http.ts"() {
       "use strict";
@@ -476,6 +517,8 @@
           this.status = status;
         }
       };
+      scopeHeaderName = "X-Noterious-Scope";
+      activeScopePrefix = "";
     }
   });
 
@@ -2445,14 +2488,14 @@
         return '<span class="query-result-empty">\u2014</span>';
       }
       return '<div class="query-result-lines">' + items.map(function(item) {
-        return '<span class="query-result-line">' + escapeHTML(String(item)) + "</span>";
+        return '<span class="query-result-line">' + renderInline(String(item)) + "</span>";
       }).join("") + "</div>";
     }
     if (isPhoneLikeColumn && typeof value === "string") {
       const lines = splitPhoneLines(value);
       if (lines.length > 1) {
         return '<div class="query-result-lines">' + lines.map(function(line) {
-          return '<span class="query-result-line">' + escapeHTML(line) + "</span>";
+          return '<span class="query-result-line">' + renderInline(line) + "</span>";
         }).join("") + "</div>";
       }
     }
@@ -2462,7 +2505,7 @@
     if (typeof value === "boolean") {
       return value ? "true" : "false";
     }
-    return escapeHTML(formatMaybeDateValue(column, String(value)));
+    return renderInline(formatMaybeDateValue(column, String(value)));
   }
   function queryResultDisplayColumns(columns, rows) {
     if (!Array.isArray(columns)) {
@@ -2496,10 +2539,10 @@
     if (linkSpec && pagePathValue) {
       const pagePath = String(pagePathValue);
       if (linkSpec.mode === "synthetic" && column === linkSpec.column) {
-        return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + escapeHTML(linkSpec.text) + "</button>";
+        return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + renderInline(linkSpec.text) + "</button>";
       }
       if (linkSpec.mode === "column" && Array.isArray(linkSpec.columns) && linkSpec.columns.indexOf(column) !== -1) {
-        return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + escapeHTML(String(row?.[column])) + "</button>";
+        return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + renderInline(String(row?.[column] || "")) + "</button>";
       }
     }
     if ((column === "text" || column === "task" && row && row.__taskRef) && pagePathValue) {
@@ -2507,7 +2550,7 @@
       const lineAttr = pageLineValue !== null && typeof pageLineValue !== "undefined" ? ' data-page-line="' + escapeHTML(String(pageLineValue)) + '"' : "";
       const refValue = row && row.__taskRef ? String(row.__taskRef) : "";
       const refAttr = refValue ? ' data-task-ref="' + escapeHTML(refValue) + '"' : "";
-      return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '"' + lineAttr + refAttr + ">" + escapeHTML(String(row ? row[column] || "" : "")) + "</button>";
+      return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '"' + lineAttr + refAttr + ">" + renderInline(String(row ? row[column] || "" : "")) + "</button>";
     }
     return renderQueryResultCell(column, row ? row[column] : void 0);
   }
@@ -3536,33 +3579,45 @@
     };
     container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
   }
-  function filterTasks(tasks, filter) {
+  function filterTasks(tasks, filters, currentPagePath) {
     if (!tasks || !tasks.length) {
       return [];
     }
-    switch (filter) {
-      case "not-done":
-        return tasks.filter(function(task) {
-          return !task.done;
-        });
-      case "has-due":
-        return tasks.filter(function(task) {
-          return Boolean(task.due);
-        });
-      case "has-reminder":
-        return tasks.filter(function(task) {
-          return Boolean(task.remind);
-        });
-      default:
-        return tasks;
-    }
+    return tasks.filter(function(task) {
+      if (filters.currentPage && (!currentPagePath || task.page !== currentPagePath)) {
+        return false;
+      }
+      if (filters.notDone && task.done) {
+        return false;
+      }
+      if (filters.hasDue && !task.due) {
+        return false;
+      }
+      if (filters.hasReminder && !task.remind) {
+        return false;
+      }
+      return true;
+    });
   }
-  function renderPageTasks(container, tasks, onSelectTask, onToggleTask, filter) {
+  function renderPageTasks(container, tasks, onSelectTask, onToggleTask, filters, currentPagePath) {
     clearNode(container);
-    const filtered = filterTasks(tasks, filter || "not-done");
+    const filtered = filterTasks(tasks, filters, currentPagePath);
     if (!filtered.length) {
-      const label = filter === "all" ? "No tasks on this page." : "No matching tasks.";
-      renderEmpty(container, tasks.length ? label : "No indexed tasks on this page.");
+      const activeFilters = [
+        filters.currentPage,
+        filters.notDone,
+        filters.hasDue,
+        filters.hasReminder
+      ].filter(Boolean).length;
+      if (!tasks.length) {
+        renderEmpty(container, "No indexed tasks in this vault.");
+        return;
+      }
+      if (filters.currentPage && !currentPagePath) {
+        renderEmpty(container, "Select a page to filter tasks to the current page.");
+        return;
+      }
+      renderEmpty(container, activeFilters ? "No matching tasks." : "No indexed tasks in this vault.");
       return;
     }
     filtered.forEach(function(task) {
@@ -3682,22 +3737,74 @@
       pageList.classList.toggle("no-scroll", overflow <= 8);
     });
   }
+  function normalizeScopePrefix2(scopePrefix) {
+    return normalizePageDraftPath(scopePrefix || "");
+  }
+  function toDisplayPath(path, scopePrefix) {
+    const normalizedPath = normalizePageDraftPath(path || "");
+    const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
+    if (!normalizedPath || !normalizedScopePrefix) {
+      return normalizedPath;
+    }
+    if (normalizedPath === normalizedScopePrefix) {
+      return "";
+    }
+    if (normalizedPath.startsWith(normalizedScopePrefix + "/")) {
+      return normalizedPath.slice(normalizedScopePrefix.length + 1);
+    }
+    return normalizedPath;
+  }
+  function toScopedPath(path, scopePrefix, rootMeansScope) {
+    const normalizedPath = normalizePageDraftPath(path || "");
+    const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
+    if (!normalizedScopePrefix) {
+      return normalizedPath;
+    }
+    if (!normalizedPath) {
+      return rootMeansScope ? normalizedScopePrefix : "";
+    }
+    if (normalizedPath === normalizedScopePrefix || normalizedPath.startsWith(normalizedScopePrefix + "/")) {
+      return normalizedPath;
+    }
+    return normalizedScopePrefix + "/" + normalizedPath;
+  }
   function renderPagesSection(state, els, actions, openTreeContextMenu2) {
-    if (state.selectedPage) {
-      ensureExpandedPageAncestors(state.selectedPage, state.expandedPageFolders);
+    const scopePrefix = normalizeScopePrefix2(state.scopePrefix || "");
+    const displaySelectedPage = toDisplayPath(state.selectedPage, scopePrefix);
+    const displayPages = state.pages.map(function(page) {
+      return {
+        ...page,
+        path: toDisplayPath(page.path, scopePrefix)
+      };
+    }).filter(function(page) {
+      return Boolean(page.path);
+    });
+    const displayExpandedPageFolders = {};
+    Object.keys(state.expandedPageFolders).forEach(function(key) {
+      if (!state.expandedPageFolders[key]) {
+        return;
+      }
+      const displayKey = toDisplayPath(key, scopePrefix);
+      if (displayKey) {
+        displayExpandedPageFolders[displayKey] = true;
+      }
+    });
+    if (displaySelectedPage) {
+      ensureExpandedPageAncestors(displaySelectedPage, displayExpandedPageFolders);
     }
     renderPagesTree(
       els.pageList,
-      state.pages,
-      state.selectedPage,
-      state.expandedPageFolders,
+      displayPages,
+      displaySelectedPage,
+      displayExpandedPageFolders,
       els.pageSearch.value.trim(),
       function(folderKey) {
-        state.expandedPageFolders[folderKey] = !state.expandedPageFolders[folderKey];
+        const scopedFolderKey = toScopedPath(folderKey, scopePrefix, true);
+        state.expandedPageFolders[scopedFolderKey] = !state.expandedPageFolders[scopedFolderKey];
         renderPagesSection(state, els, actions, openTreeContextMenu2);
       },
       function(pagePath) {
-        actions.navigateToPage(pagePath, false);
+        actions.navigateToPage(toScopedPath(pagePath, scopePrefix, false), false);
       },
       function(folderKey) {
         const name = window.prompt('New note in "' + folderKey + '"', "");
@@ -3705,7 +3812,8 @@
         if (!normalizedName) {
           return;
         }
-        actions.createPage(folderKey + "/" + normalizedName).catch(function(error) {
+        const basePath = folderKey ? folderKey + "/" : "";
+        actions.createPage(basePath + normalizedName).catch(function(error) {
           actions.setNoteStatus("Create page failed: " + actions.errorMessage(error));
         });
       },
@@ -3718,7 +3826,8 @@
         if (!initialNote) {
           return;
         }
-        actions.createPage(folderKey + "/" + subfolder + "/" + initialNote).catch(function(error) {
+        const basePath = folderKey ? folderKey + "/" : "";
+        actions.createPage(basePath + subfolder + "/" + initialNote).catch(function(error) {
           actions.setNoteStatus("Create folder failed: " + actions.errorMessage(error));
         });
       },
@@ -3728,12 +3837,12 @@
         if (!nextName || nextName === currentName) {
           return;
         }
-        actions.renameFolder(folderKey, nextName).catch(function(error) {
+        actions.renameFolder(toScopedPath(folderKey, scopePrefix, true), nextName).catch(function(error) {
           actions.setNoteStatus("Rename folder failed: " + actions.errorMessage(error));
         });
       },
       function(folderKey) {
-        actions.deleteFolder(folderKey).catch(function(error) {
+        actions.deleteFolder(toScopedPath(folderKey, scopePrefix, true)).catch(function(error) {
           actions.setNoteStatus("Delete folder failed: " + actions.errorMessage(error));
         });
       },
@@ -3743,25 +3852,34 @@
         if (!nextName || nextName === currentName) {
           return;
         }
-        actions.renamePage(pagePath, nextName).catch(function(error) {
+        actions.renamePage(toScopedPath(pagePath, scopePrefix, false), nextName).catch(function(error) {
           actions.setNoteStatus("Rename note failed: " + actions.errorMessage(error));
         });
       },
       function(pagePath) {
-        actions.deletePage(pagePath).catch(function(error) {
+        actions.deletePage(toScopedPath(pagePath, scopePrefix, false)).catch(function(error) {
           actions.setNoteStatus("Delete page failed: " + actions.errorMessage(error));
         });
       },
       function(target, left, top) {
-        openTreeContextMenu2(target, left, top);
+        openTreeContextMenu2({
+          ...target,
+          path: toScopedPath(target.path, scopePrefix, target.kind === "folder")
+        }, left, top);
       },
       function(pagePath, folderKey) {
-        actions.movePageToFolder(pagePath, folderKey).catch(function(error) {
+        actions.movePageToFolder(
+          toScopedPath(pagePath, scopePrefix, false),
+          toScopedPath(folderKey, scopePrefix, true)
+        ).catch(function(error) {
           actions.setNoteStatus("Move page failed: " + actions.errorMessage(error));
         });
       },
       function(folderKey, targetFolder) {
-        actions.moveFolder(folderKey, targetFolder).catch(function(error) {
+        actions.moveFolder(
+          toScopedPath(folderKey, scopePrefix, true),
+          toScopedPath(targetFolder, scopePrefix, true)
+        ).catch(function(error) {
           actions.setNoteStatus("Move folder failed: " + actions.errorMessage(error));
         });
       }
@@ -5366,13 +5484,18 @@
     if (meta && typeof meta === "object" && "content" in meta) {
       meta.content = theme.tokens.themeColor || theme.tokens.bg || "#11131d";
     }
+    try {
+      window.localStorage.setItem(appliedThemeStorageKey, JSON.stringify(theme));
+    } catch (_error) {
+    }
   }
-  var defaultThemeId, themeCacheStorageKey, builtinThemes, tokenKeys, cssVarMap;
+  var defaultThemeId, themeCacheStorageKey, appliedThemeStorageKey, builtinThemes, tokenKeys, cssVarMap;
   var init_themes = __esm({
     "frontend/themes.ts"() {
       "use strict";
       defaultThemeId = "noterious-night";
       themeCacheStorageKey = "noterious.theme-cache";
+      appliedThemeStorageKey = "noterious.theme-last";
       builtinThemes = [
         {
           version: 1,
@@ -6111,7 +6234,12 @@
           pendingPageLineFocus: null,
           pendingPageTaskRef: "",
           renamingPageTitle: false,
-          taskFilter: "not-done",
+          taskFilters: {
+            currentPage: false,
+            notDone: false,
+            hasDue: false,
+            hasReminder: false
+          },
           tableEditor: null,
           pageHistory: [],
           selectedHistoryRevisionId: "",
@@ -6119,6 +6247,7 @@
           trashPages: [],
           authenticated: false,
           currentUser: null,
+          rootVault: null,
           currentVault: null,
           availableVaults: [],
           vaultSwitchPending: false,
@@ -6314,7 +6443,7 @@
             who: Array.isArray(task.who) ? task.who.slice() : []
           });
           closeTaskPickers2();
-          await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
+          await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
           restoreNoteFocus();
           window.requestAnimationFrame(function() {
             window.requestAnimationFrame(function() {
@@ -6332,7 +6461,7 @@
           }
           await deleteTask(ref);
           closeTaskPickers2();
-          await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
+          await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
         }
         function closeTaskPickers2() {
           closeTaskPickers(taskPickerState, els);
@@ -6444,6 +6573,7 @@
           window.clearTimeout(state.refreshTimer ?? void 0);
           state.refreshTimer = window.setTimeout(function() {
             loadPages();
+            loadTasks();
             loadSavedQueryTree();
             if (!markdownEditorHasFocus(state, els)) {
               refreshCurrentDetail(false);
@@ -6509,6 +6639,7 @@
         }
         function setAuthSession(session) {
           applyAuthSessionResponse(state, session);
+          state.rootVault = state.authenticated && session.vault ? session.vault : null;
           renderSessionState2();
           renderAuthGate2();
         }
@@ -6625,7 +6756,7 @@
           window.location.reload();
         }
         async function loadAuthenticatedApp() {
-          await loadAuthVaults().catch(function(error) {
+          await loadAvailableVaults().catch(function(error) {
             setNoteStatus("Vault list failed: " + errorMessage(error));
           });
           await Promise.all([
@@ -6640,6 +6771,7 @@
             }),
             loadMeta(),
             loadPages(),
+            loadTasks(),
             loadSavedQueryTree(),
             loadDocuments()
           ]);
@@ -6655,43 +6787,47 @@
           })) {
             state.currentVault = state.availableVaults[0] || null;
           }
+          setActiveScopePrefix(currentScopePrefix());
           state.vaultSwitchPending = false;
           state.vaultSwitcherOpen = false;
           renderSessionState2();
         }
-        async function selectCurrentVault(vaultID) {
-          return fetchJSON("/api/auth/vault", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ vaultId: vaultID })
-          }, true);
+        const scopeStorageKey = "noterious.scope-prefix";
+        function loadStoredScopePrefix() {
+          try {
+            return normalizePageDraftPath(window.localStorage.getItem(scopeStorageKey) || "");
+          } catch (_error) {
+            return "";
+          }
         }
-        async function loadAuthVaults() {
-          const snapshot = await fetchJSON("/api/auth/vaults");
-          const rootVault = snapshot.rootVault || null;
-          const discoveredVaults = Array.isArray(snapshot.vaults) ? snapshot.vaults.slice() : [];
-          const currentVault = snapshot.currentVault || rootVault;
-          if (!state.topLevelFoldersAsVaults) {
-            if (rootVault && currentVault && currentVault.id !== rootVault.id) {
-              const session = await selectCurrentVault(rootVault.id);
-              setAuthSession(session);
-              setVisibleVaultState([rootVault], session.vault || rootVault);
-              return;
+        function storeScopePrefix(prefix) {
+          const normalized = normalizePageDraftPath(prefix);
+          try {
+            if (normalized) {
+              window.localStorage.setItem(scopeStorageKey, normalized);
+            } else {
+              window.localStorage.removeItem(scopeStorageKey);
             }
-            setVisibleVaultState(rootVault ? [rootVault] : [], currentVault);
+          } catch (_error) {
+          }
+        }
+        async function loadAvailableVaults() {
+          const rootVault = state.rootVault;
+          const snapshot = await fetchJSON("/api/user/vaults");
+          const discoveredVaults = Array.isArray(snapshot.vaults) ? snapshot.vaults.slice() : [];
+          const storedScopePrefix = loadStoredScopePrefix();
+          if (!state.topLevelFoldersAsVaults) {
+            storeScopePrefix("");
+            setVisibleVaultState(rootVault ? [rootVault] : [], rootVault);
             return;
           }
-          const desiredVault = discoveredVaults.length === 0 ? rootVault : discoveredVaults.find(function(vault) {
-            return Boolean(currentVault && vault.id === currentVault.id);
-          }) || discoveredVaults[0];
+          const desiredVault = discoveredVaults.find(function(vault) {
+            const relativePath = rootVault ? normalizePageDraftPath(normalizeVaultPath(vault.vaultPath).slice(normalizeVaultPath(rootVault.vaultPath).length + 1)) : "";
+            return relativePath === storedScopePrefix;
+          }) || discoveredVaults[0] || rootVault;
           const visibleVaults = discoveredVaults.length > 0 ? discoveredVaults : rootVault ? [rootVault] : [];
-          if (desiredVault && (!currentVault || currentVault.id !== desiredVault.id)) {
-            const session = await selectCurrentVault(desiredVault.id);
-            setAuthSession(session);
-            setVisibleVaultState(visibleVaults, session.vault || desiredVault);
-            return;
-          }
-          setVisibleVaultState(visibleVaults, desiredVault || currentVault);
+          storeScopePrefix(rootVault && desiredVault ? scopePrefixForVaultSelection(rootVault, desiredVault) : "");
+          setVisibleVaultState(visibleVaults, desiredVault);
         }
         async function switchVault(vaultID) {
           if (!Number.isFinite(vaultID) || vaultID <= 0) {
@@ -6703,8 +6839,14 @@
           state.vaultSwitchPending = true;
           renderSessionState2();
           try {
-            const session = await selectCurrentVault(vaultID);
-            setAuthSession(session);
+            const nextVault = state.availableVaults.find(function(vault) {
+              return vault.id === vaultID;
+            }) || null;
+            if (!nextVault) {
+              throw new Error("Selected vault is unavailable.");
+            }
+            storeScopePrefix(state.rootVault ? scopePrefixForVaultSelection(state.rootVault, nextVault) : "");
+            setActiveScopePrefix(state.rootVault ? scopePrefixForVaultSelection(state.rootVault, nextVault) : "");
             setVaultSwitcherOpen2(false);
             setSessionMenuOpen2(false);
             window.location.reload();
@@ -6789,16 +6931,64 @@
             return String(page.path || "").toLowerCase() === normalized;
           });
         }
+        function normalizeVaultPath(path) {
+          return String(path || "").replace(/\\/g, "/").replace(/\/+$/, "").trim();
+        }
+        function scopePrefixForVaultSelection(rootVault, selectedVault) {
+          const rootPath = normalizeVaultPath(rootVault.vaultPath || "");
+          const currentPath = normalizeVaultPath(selectedVault.vaultPath || "");
+          if (!rootPath || !currentPath || rootPath === currentPath) {
+            return "";
+          }
+          if (!currentPath.startsWith(rootPath + "/")) {
+            return "";
+          }
+          return normalizePageDraftPath(currentPath.slice(rootPath.length + 1)) || "";
+        }
+        function currentScopePrefix() {
+          if (!state.topLevelFoldersAsVaults || !state.rootVault || !state.currentVault) {
+            return "";
+          }
+          const requestScopePrefix = currentActiveScopePrefix();
+          if (requestScopePrefix) {
+            return requestScopePrefix;
+          }
+          const rootPath = normalizeVaultPath(state.rootVault.vaultPath || "");
+          const currentPath = normalizeVaultPath(state.currentVault.vaultPath || "");
+          if (!rootPath || !currentPath || rootPath === currentPath) {
+            return "";
+          }
+          if (!currentPath.startsWith(rootPath + "/")) {
+            return "";
+          }
+          return normalizePageDraftPath(currentPath.slice(rootPath.length + 1)) || "";
+        }
+        function applyCurrentScopePrefix(pagePath) {
+          const normalized = normalizePageDraftPath(pagePath);
+          if (!normalized) {
+            return "";
+          }
+          const scopePrefix = currentScopePrefix();
+          if (!scopePrefix || normalized === scopePrefix || normalized.startsWith(scopePrefix + "/")) {
+            return normalized;
+          }
+          return scopePrefix + "/" + normalized;
+        }
         function openOrCreatePage(pagePath, replace) {
           const normalized = normalizePageDraftPath(pagePath);
           if (!normalized) {
+            return;
+          }
+          const scopedPath = applyCurrentScopePrefix(normalized);
+          if (hasPage(scopedPath)) {
+            navigateToPage(scopedPath, replace);
             return;
           }
           if (hasPage(normalized)) {
             navigateToPage(normalized, replace);
             return;
           }
-          createPage2(normalized).catch(function(error) {
+          createPage2(scopedPath || normalized).catch(function(error) {
             setNoteStatus("Create page failed: " + errorMessage(error));
           });
         }
@@ -7255,8 +7445,8 @@
             saveCurrentPage();
           }, 700);
         }
-        function renderPageTasks2(tasks) {
-          renderPageTasks(els.pageTaskList, Array.isArray(tasks) ? tasks : [], function(task) {
+        function renderPageTasks2() {
+          renderPageTasks(els.pageTaskList, Array.isArray(state.tasks) ? state.tasks : [], function(task) {
             if (!task || !task.page) {
               return;
             }
@@ -7265,7 +7455,7 @@
             toggleTaskDone2(task).catch(function(error) {
               setNoteStatus("Task toggle failed: " + errorMessage(error));
             });
-          }, state.taskFilter);
+          }, state.taskFilters, state.currentPage ? state.currentPage.page || state.currentPage.path || "" : "");
         }
         function renderPageContext2() {
           renderPageContext(els.pageContext, state.currentPage, state.currentDerived);
@@ -7338,7 +7528,7 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
           });
-          await Promise.all([loadPages(), loadPageDetail(state.selectedPage, true)]);
+          await Promise.all([loadPages(), loadTasks(), loadPageDetail(state.selectedPage, true)]);
         }
         function startAddProperty() {
           setPropertyDraft("", "", "__new__");
@@ -7434,7 +7624,7 @@
           renderNoteStudio();
           renderSourceModeButton();
           renderPageHistoryButton();
-          renderPageTasks2([]);
+          renderPageTasks2();
           renderPageTags2();
           renderPageContext2();
           renderPageProperties2();
@@ -7468,7 +7658,7 @@
           loadMeta();
           if (state.currentPage) {
             renderNoteStudio();
-            renderPageTasks2(state.currentPage.tasks || []);
+            renderPageTasks2();
             renderPageContext2();
             renderPageProperties2();
           } else if (state.selectedSavedQuery) {
@@ -7657,8 +7847,23 @@
             els.pageList.classList.add("no-scroll");
           }
         }
+        async function loadTasks() {
+          try {
+            const payload = await fetchJSON("/api/tasks");
+            state.tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
+            renderPageTasks2();
+          } catch (error) {
+            state.tasks = [];
+            renderEmpty(els.pageTaskList, errorMessage(error));
+          }
+        }
         function renderPages() {
-          renderPagesSection(state, els, {
+          renderPagesSection({
+            selectedPage: state.selectedPage,
+            pages: state.pages,
+            expandedPageFolders: state.expandedPageFolders,
+            scopePrefix: currentScopePrefix()
+          }, els, {
             navigateToPage,
             createPage: createPage2,
             renameFolder: renameFolder2,
@@ -7771,7 +7976,7 @@
             setTaskDateApplySuppressed2(true);
             rememberNoteFocus();
             await toggleTaskDone(task);
-            await Promise.all([state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
+            await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
             restoreNoteFocus();
             window.requestAnimationFrame(function() {
               window.requestAnimationFrame(function() {
@@ -7856,7 +8061,7 @@
                 }
               }, 0);
             }
-            renderPageTasks2(page.tasks || []);
+            renderPageTasks2();
             renderPageTags2();
             renderPageContext2();
             renderPageProperties2();
@@ -8096,7 +8301,7 @@
             body: JSON.stringify({ revisionId: revision.id })
           }).then(function() {
             closePageHistoryModal();
-            return Promise.all([loadPages(), loadPageDetail(state.selectedPage, true)]);
+            return Promise.all([loadPages(), loadTasks(), loadPageDetail(state.selectedPage, true)]);
           }).then(function() {
             setNoteStatus("Restored revision for " + state.selectedPage + ".");
           }).catch(function(error) {
@@ -8347,7 +8552,7 @@
           renderPageHistoryButton();
           if (state.currentPage) {
             renderNoteStudio();
-            renderPageTasks2(state.currentPage.tasks || []);
+            renderPageTasks2();
             renderPageContext2();
             renderPageProperties2();
           }
@@ -8379,7 +8584,7 @@
             });
             setSettingsSnapshot(settingsSnapshot);
             await loadMeta();
-            await loadAuthVaults();
+            await loadAvailableVaults();
             if (state.selectedPage || state.selectedSavedQuery) {
               syncURLState(true);
             }
@@ -8523,7 +8728,7 @@
           state.searchTimer = window.setTimeout(runGlobalSearch, 120);
         }
         async function createPage2(pagePath) {
-          return createPage(pagePath, {
+          return createPage(applyCurrentScopePrefix(pagePath), {
             encodePath,
             fetchJSON,
             loadPages,
@@ -8536,10 +8741,10 @@
           if (state.selectedPage) {
             formData.append("page", state.selectedPage);
           }
-          const response = await fetch("/api/documents", {
+          const response = await fetch("/api/documents", scopedRequestInit({
             method: "POST",
             body: formData
-          });
+          }));
           await requireOK(response);
           const document2 = await response.json();
           state.documents = [document2].concat(state.documents.filter(function(item) {
@@ -8836,7 +9041,7 @@
           if (state.eventSource) {
             state.eventSource.close();
           }
-          const source = new EventSource("/api/events");
+          const source = new EventSource(scopedEventSourceURL("/api/events"));
           state.eventSource = source;
           const markLive = function(label, live) {
             els.eventStatus.textContent = label;
@@ -9079,12 +9284,24 @@
             if (!button) {
               return;
             }
-            const filter = button.getAttribute("data-task-filter") || "not-done";
-            state.taskFilter = filter;
+            const filter = button.getAttribute("data-task-filter") || "";
+            if (filter === "current-page") {
+              state.taskFilters.currentPage = !state.taskFilters.currentPage;
+            } else if (filter === "not-done") {
+              state.taskFilters.notDone = !state.taskFilters.notDone;
+            } else if (filter === "has-due") {
+              state.taskFilters.hasDue = !state.taskFilters.hasDue;
+            } else if (filter === "has-reminder") {
+              state.taskFilters.hasReminder = !state.taskFilters.hasReminder;
+            }
             els.taskFilters.querySelectorAll(".task-filter").forEach(function(btn) {
-              btn.classList.toggle("active", btn.getAttribute("data-task-filter") === filter);
+              const key = btn.getAttribute("data-task-filter") || "";
+              btn.classList.toggle(
+                "active",
+                key === "current-page" && state.taskFilters.currentPage || key === "not-done" && state.taskFilters.notDone || key === "has-due" && state.taskFilters.hasDue || key === "has-reminder" && state.taskFilters.hasReminder
+              );
             });
-            renderPageTasks2(state.currentPage ? state.currentPage.tasks || [] : []);
+            renderPageTasks2();
           });
           on(els.toggleDebug, "click", function() {
             setDebugOpen(!state.debugOpen);
@@ -9723,7 +9940,7 @@
           state.previewThemeId = currentThemeID();
           applyUIPreferences();
           renderNoteStudio();
-          renderPageTasks2([]);
+          renderPageTasks2();
           renderPageContext2();
           renderPageProperties2();
           renderHelpShortcuts2();

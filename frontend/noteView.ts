@@ -83,14 +83,14 @@ function renderQueryResultCell(column: string, value: unknown): string {
       return '<span class="query-result-empty">—</span>';
     }
     return '<div class="query-result-lines">' + items.map(function (item) {
-      return '<span class="query-result-line">' + escapeHTML(String(item)) + "</span>";
+      return '<span class="query-result-line">' + renderInline(String(item)) + "</span>";
     }).join("") + "</div>";
   }
   if (isPhoneLikeColumn && typeof value === "string") {
     const lines = splitPhoneLines(value);
     if (lines.length > 1) {
       return '<div class="query-result-lines">' + lines.map(function (line) {
-        return '<span class="query-result-line">' + escapeHTML(line) + "</span>";
+        return '<span class="query-result-line">' + renderInline(line) + "</span>";
       }).join("") + "</div>";
     }
   }
@@ -100,7 +100,7 @@ function renderQueryResultCell(column: string, value: unknown): string {
   if (typeof value === "boolean") {
     return value ? "true" : "false";
   }
-  return escapeHTML(formatMaybeDateValue(column, String(value)));
+  return renderInline(formatMaybeDateValue(column, String(value)));
 }
 
 function queryResultDisplayColumns(columns: string[], rows: QueryRow[]): string[] {
@@ -140,10 +140,10 @@ function renderQueryResultDisplayCell(column: string, row: QueryRow | null, colu
   if (linkSpec && pagePathValue) {
     const pagePath = String(pagePathValue);
     if (linkSpec.mode === "synthetic" && column === linkSpec.column) {
-      return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + escapeHTML(linkSpec.text) + "</button>";
+      return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + renderInline(linkSpec.text) + "</button>";
     }
     if (linkSpec.mode === "column" && Array.isArray(linkSpec.columns) && linkSpec.columns.indexOf(column) !== -1) {
-      return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + escapeHTML(String(row?.[column])) + "</button>";
+      return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + renderInline(String(row?.[column] || "")) + "</button>";
     }
   }
   if ((column === "text" || (column === "task" && row && row.__taskRef)) && pagePathValue) {
@@ -154,7 +154,7 @@ function renderQueryResultDisplayCell(column: string, row: QueryRow | null, colu
     const refValue = row && row.__taskRef ? String(row.__taskRef) : "";
     const refAttr = refValue ? ' data-task-ref="' + escapeHTML(refValue) + '"' : "";
     return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '"' + lineAttr + refAttr + '>' +
-      escapeHTML(String(row ? row[column] || "" : "")) +
+      renderInline(String(row ? row[column] || "" : "")) +
       "</button>";
   }
   return renderQueryResultCell(column, row ? row[column] : undefined);

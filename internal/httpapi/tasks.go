@@ -9,25 +9,50 @@ import (
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/markdown"
 	"github.com/carnager/noterious/internal/query"
-	"github.com/carnager/noterious/internal/vaults"
 )
 
+type taskSummaryResponse struct {
+	Total      int `json:"total"`
+	Open       int `json:"open"`
+	Done       int `json:"done"`
+	WithDue    int `json:"withDue"`
+	WithoutDue int `json:"withoutDue"`
+}
+
+type tasksResponse struct {
+	Query   string              `json:"query"`
+	State   string              `json:"state"`
+	Who     string              `json:"who"`
+	Tasks   []index.Task        `json:"tasks"`
+	Count   int                 `json:"count"`
+	Summary taskSummaryResponse `json:"summary"`
+}
+
+type taskEventData struct {
+	Ref  string `json:"ref"`
+	Page string `json:"page"`
+}
+
+type deletedTaskResponse struct {
+	Deleted bool   `json:"deleted"`
+	Ref     string `json:"ref"`
+	Page    string `json:"page"`
+}
+
 func mountTaskEndpoints(mux *http.ServeMux, deps Dependencies) {
-	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/tasks", func(w http.ResponseWriter, r *http.Request) {
 		handleTasksRequest(w, r, deps)
 	})
 
-	mux.HandleFunc("/api/tasks/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("PATCH /api/tasks/{ref...}", func(w http.ResponseWriter, r *http.Request) {
+		handleTaskRequest(w, r, deps)
+	})
+	mux.HandleFunc("DELETE /api/tasks/{ref...}", func(w http.ResponseWriter, r *http.Request) {
 		handleTaskRequest(w, r, deps)
 	})
 }
 
 func handleTasksRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
-	if r.Method != http.MethodGet {
-		writeMethodNotAllowed(w, http.MethodGet)
-		return
-	}
-
 	tasks, err := deps.Index.ListTasks(r.Context())
 	if err != nil {
 		http.Error(w, "failed to list tasks", http.StatusInternalServerError)
@@ -48,25 +73,19 @@ func handleTasksRequest(w http.ResponseWriter, r *http.Request, deps Dependencie
 		tasks = filterTasksByWho(tasks, whoFilter)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"query":   queryText,
-		"state":   stateFilter,
-		"who":     whoFilter,
-		"tasks":   tasks,
-		"count":   len(tasks),
-		"summary": summarizeTasks(tasks),
+	writeJSON(w, http.StatusOK, tasksResponse{
+		Query:   queryText,
+		State:   stateFilter,
+		Who:     whoFilter,
+		Tasks:   tasks,
+		Count:   len(tasks),
+		Summary: summarizeTasks(tasks),
 	})
 }
 
 func handleTaskRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
-	vaultID := vaults.VaultIDFromContext(r.Context())
 	vaultService := currentVault(r.Context(), deps)
-	if r.Method != http.MethodPatch && r.Method != http.MethodDelete {
-		writeMethodNotAllowed(w, http.MethodPatch, http.MethodDelete)
-		return
-	}
-
-	ref := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/tasks/"))
+	ref := strings.TrimSpace(r.PathValue("ref"))
 	if ref == "" {
 		http.NotFound(w, r)
 		return
@@ -135,7 +154,7 @@ func handleTaskRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 		return
 	}
 	if deps.History != nil {
-		if _, err := deps.History.SaveRevisionForVault(vaultID, task.Page, []byte(updatedMarkdown)); err != nil {
+		if _, err := deps.History.SaveRevision(task.Page, []byte(updatedMarkdown)); err != nil {
 			http.Error(w, "failed to save page history", http.StatusInternalServerError)
 			return
 		}
@@ -145,12 +164,9 @@ func handleTaskRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 		return
 	}
 	if deps.Events != nil {
-		deps.Events.PublishToVault(vaultID, Event{
+		deps.Events.Publish(Event{
 			Type: map[bool]string{true: "task.deleted", false: "task.changed"}[r.Method == http.MethodDelete],
-			Data: map[string]any{
-				"ref":  ref,
-				"page": task.Page,
-			},
+			Data: taskEventData{Ref: ref, Page: task.Page},
 		})
 	}
 	var updatedPageSummary *index.PageSummary
@@ -184,11 +200,7 @@ func handleTaskRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 	}
 
 	if r.Method == http.MethodDelete {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"deleted": true,
-			"ref":     ref,
-			"page":    task.Page,
-		})
+		writeJSON(w, http.StatusOK, deletedTaskResponse{Deleted: true, Ref: ref, Page: task.Page})
 		return
 	}
 
@@ -269,24 +281,20 @@ func filterTasksByWho(tasks []index.Task, whoFilter string) []index.Task {
 	return filtered
 }
 
-func summarizeTasks(tasks []index.Task) map[string]int {
-	summary := map[string]int{
-		"total":      len(tasks),
-		"open":       0,
-		"done":       0,
-		"withDue":    0,
-		"withoutDue": 0,
+func summarizeTasks(tasks []index.Task) taskSummaryResponse {
+	summary := taskSummaryResponse{
+		Total: len(tasks),
 	}
 	for _, task := range tasks {
 		if task.Done {
-			summary["done"]++
+			summary.Done++
 		} else {
-			summary["open"]++
+			summary.Open++
 		}
 		if task.Due != nil && strings.TrimSpace(*task.Due) != "" {
-			summary["withDue"]++
+			summary.WithDue++
 		} else {
-			summary["withoutDue"]++
+			summary.WithoutDue++
 		}
 	}
 	return summary

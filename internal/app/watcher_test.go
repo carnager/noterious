@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/query"
 	"github.com/carnager/noterious/internal/vault"
-	"github.com/carnager/noterious/internal/vaults"
 )
 
 func TestVaultWatcherPollReindexesExternalEdit(t *testing.T) {
@@ -59,7 +59,7 @@ func TestVaultWatcherPollReindexesExternalEdit(t *testing.T) {
 	}
 
 	broker := httpapi.NewEventBroker()
-	watcher, err := NewVaultWatcher(context.Background(), vaults.Vault{}, vaultService, indexService, queryService, broker)
+	watcher, err := NewVaultWatcher(context.Background(), vault.Vault{}, vaultService, indexService, queryService, broker)
 	if err != nil {
 		t.Fatalf("NewVaultWatcher() error = %v", err)
 	}
@@ -126,16 +126,27 @@ func TestVaultWatcherPollReindexesExternalEdit(t *testing.T) {
 	if received[4].Type != "query.changed" {
 		t.Fatalf("fifth event = %#v", received[4])
 	}
-	queryPayload, ok := received[4].Data.(map[string]any)
-	if !ok {
-		t.Fatalf("query payload = %#v", received[4].Data)
+	var queryPayload struct {
+		Page        string `json:"page"`
+		TriggerPage string `json:"triggerPage"`
+		BlockCount  int    `json:"blockCount"`
+		Blocks      []struct {
+			Page       string `json:"page"`
+			RenderHint string `json:"renderHint"`
+		} `json:"blocks"`
 	}
-	if queryPayload["page"] != "dashboards/tasks" || queryPayload["triggerPage"] != "daily/today" || queryPayload["blockCount"] != 1 {
+	queryPayloadBytes, err := json.Marshal(received[4].Data)
+	if err != nil {
+		t.Fatalf("Marshal(query payload) error = %v", err)
+	}
+	if err := json.Unmarshal(queryPayloadBytes, &queryPayload); err != nil {
+		t.Fatalf("Unmarshal(query payload) error = %v", err)
+	}
+	if queryPayload.Page != "dashboards/tasks" || queryPayload.TriggerPage != "daily/today" || queryPayload.BlockCount != 1 {
 		t.Fatalf("query payload = %#v", queryPayload)
 	}
-	blocks, ok := queryPayload["blocks"].([]map[string]any)
-	if !ok || len(blocks) != 1 || blocks[0]["page"] != "dashboards/tasks" || blocks[0]["renderHint"] != "empty" {
-		t.Fatalf("query blocks = %#v", queryPayload["blocks"])
+	if len(queryPayload.Blocks) != 1 || queryPayload.Blocks[0].Page != "dashboards/tasks" || queryPayload.Blocks[0].RenderHint != "empty" {
+		t.Fatalf("query blocks = %#v", queryPayload.Blocks)
 	}
 }
 
@@ -183,7 +194,7 @@ func TestVaultWatcherPollRemovesDeletedPage(t *testing.T) {
 	}
 
 	broker := httpapi.NewEventBroker()
-	watcher, err := NewVaultWatcher(context.Background(), vaults.Vault{}, vaultService, indexService, queryService, broker)
+	watcher, err := NewVaultWatcher(context.Background(), vault.Vault{}, vaultService, indexService, queryService, broker)
 	if err != nil {
 		t.Fatalf("NewVaultWatcher() error = %v", err)
 	}

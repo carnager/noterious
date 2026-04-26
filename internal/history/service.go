@@ -21,7 +21,6 @@ type Service struct {
 const revisionCoalesceWindow = time.Minute
 
 type Revision struct {
-	VaultID     int64     `json:"vaultId,omitempty"`
 	ID          string    `json:"id"`
 	Page        string    `json:"page"`
 	SavedAt     time.Time `json:"savedAt"`
@@ -29,7 +28,6 @@ type Revision struct {
 }
 
 type TrashEntry struct {
-	VaultID     int64     `json:"vaultId,omitempty"`
 	Page        string    `json:"page"`
 	DeletedAt   time.Time `json:"deletedAt"`
 	RawMarkdown string    `json:"rawMarkdown"`
@@ -48,132 +46,7 @@ func NewService(dataDir string) (*Service, error) {
 	if err := os.MkdirAll(service.trashRoot, 0o755); err != nil {
 		return nil, fmt.Errorf("create trash dir: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, "vaults"), 0o755); err != nil {
-		return nil, fmt.Errorf("create vault history dir: %w", err)
-	}
 	return service, nil
-}
-
-func (s *Service) EnsureVault(vaultID int64) error {
-	scoped := s.scoped(vaultID)
-	if err := os.MkdirAll(scoped.revisionsRoot, 0o755); err != nil {
-		return fmt.Errorf("create vault revisions dir: %w", err)
-	}
-	if err := os.MkdirAll(scoped.trashRoot, 0o755); err != nil {
-		return fmt.Errorf("create vault trash dir: %w", err)
-	}
-	return nil
-}
-
-func (s *Service) AdoptDefaultVaultHistory(vaultID int64) error {
-	if vaultID <= 0 {
-		return nil
-	}
-	if err := s.EnsureVault(vaultID); err != nil {
-		return err
-	}
-
-	scoped := s.scoped(vaultID)
-	if hasFiles(scoped.revisionsRoot) || hasFiles(scoped.trashRoot) {
-		return nil
-	}
-	if err := s.moveTree(s.revisionsRoot, scoped.revisionsRoot); err != nil {
-		return fmt.Errorf("move existing revisions into vault %d: %w", vaultID, err)
-	}
-	if err := s.moveTree(s.trashRoot, scoped.trashRoot); err != nil {
-		return fmt.Errorf("move existing trash into vault %d: %w", vaultID, err)
-	}
-	return nil
-}
-
-func (s *Service) SaveRevisionForVault(vaultID int64, pagePath string, rawMarkdown []byte) (bool, error) {
-	if err := s.EnsureVault(vaultID); err != nil {
-		return false, err
-	}
-	return s.scoped(vaultID).SaveRevision(pagePath, rawMarkdown)
-}
-
-func (s *Service) ListRevisionsForVault(vaultID int64, pagePath string) ([]Revision, error) {
-	revisions, err := s.scoped(vaultID).ListRevisions(pagePath)
-	if err != nil {
-		return nil, err
-	}
-	for idx := range revisions {
-		revisions[idx].VaultID = vaultID
-	}
-	return revisions, nil
-}
-
-func (s *Service) GetRevisionForVault(vaultID int64, pagePath string, revisionID string) (Revision, error) {
-	revision, err := s.scoped(vaultID).GetRevision(pagePath, revisionID)
-	if err != nil {
-		return Revision{}, err
-	}
-	revision.VaultID = vaultID
-	return revision, nil
-}
-
-func (s *Service) MovePageForVault(vaultID int64, fromPath string, toPath string) error {
-	return s.scoped(vaultID).MovePage(fromPath, toPath)
-}
-
-func (s *Service) MovePrefixForVault(vaultID int64, fromPrefix string, toPrefix string) error {
-	return s.scoped(vaultID).MovePrefix(fromPrefix, toPrefix)
-}
-
-func (s *Service) DeletePageHistoryForVault(vaultID int64, pagePath string) error {
-	return s.scoped(vaultID).DeletePageHistory(pagePath)
-}
-
-func (s *Service) DeleteHistoryPrefixForVault(vaultID int64, prefix string) error {
-	return s.scoped(vaultID).DeleteHistoryPrefix(prefix)
-}
-
-func (s *Service) MoveToTrashForVault(vaultID int64, pagePath string, rawMarkdown []byte) error {
-	if err := s.EnsureVault(vaultID); err != nil {
-		return err
-	}
-	return s.scoped(vaultID).MoveToTrash(pagePath, rawMarkdown)
-}
-
-func (s *Service) ListTrashForVault(vaultID int64) ([]TrashEntry, error) {
-	entries, err := s.scoped(vaultID).ListTrash()
-	if err != nil {
-		return nil, err
-	}
-	for idx := range entries {
-		entries[idx].VaultID = vaultID
-	}
-	return entries, nil
-}
-
-func (s *Service) EmptyTrashForVault(vaultID int64) error {
-	return s.scoped(vaultID).EmptyTrash()
-}
-
-func (s *Service) RestoreFromTrashForVault(vaultID int64, pagePath string) (TrashEntry, error) {
-	entry, err := s.scoped(vaultID).RestoreFromTrash(pagePath)
-	if err != nil {
-		return TrashEntry{}, err
-	}
-	entry.VaultID = vaultID
-	return entry, nil
-}
-
-func (s *Service) PermanentlyDeleteForVault(vaultID int64, pagePath string) error {
-	return s.scoped(vaultID).PermanentlyDelete(pagePath)
-}
-
-func (s *Service) scoped(vaultID int64) *Service {
-	if s == nil || vaultID <= 0 {
-		return s
-	}
-	base := filepath.Join(s.historyRoot, "vaults", fmt.Sprintf("%d", vaultID))
-	return &Service{
-		historyRoot:   s.historyRoot,
-		revisionsRoot: filepath.Join(base, "revisions"),
-		trashRoot:     filepath.Join(base, "trash"),
-	}
 }
 
 func (s *Service) SaveRevision(pagePath string, rawMarkdown []byte) (bool, error) {

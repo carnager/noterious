@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"path"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,7 +18,6 @@ import (
 	"github.com/carnager/noterious/internal/settings"
 	"github.com/carnager/noterious/internal/themes"
 	"github.com/carnager/noterious/internal/vault"
-	"github.com/carnager/noterious/internal/vaults"
 )
 
 type Dependencies struct {
@@ -27,13 +26,29 @@ type Dependencies struct {
 	Documents     *documents.Service
 	History       *history.Service
 	Themes        *themes.Service
-	Vaults        *vaults.Service
 	Vault         *vault.Service
 	Index         *index.Service
 	Query         *query.Service
 	Events        *EventBroker
 	Auth          *auth.Service
 	OnPageChanged func(pagePath string)
+}
+
+type okStatusResponse struct {
+	OK bool `json:"ok"`
+}
+
+type metaResponse struct {
+	Name            string         `json:"name"`
+	ListenAddr      string         `json:"listenAddr"`
+	RuntimeVault    settings.Vault `json:"runtimeVault"`
+	CurrentVault    *vault.Vault   `json:"currentVault,omitempty"`
+	VaultHealth     any            `json:"vaultHealth"`
+	DataDir         string         `json:"dataDir"`
+	Database        string         `json:"database"`
+	ServerTime      string         `json:"serverTime"`
+	ServerFirst     bool           `json:"serverFirst"`
+	RestartRequired bool           `json:"restartRequired"`
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -43,21 +58,19 @@ func NewRouter(deps Dependencies) http.Handler {
 
 	mux := http.NewServeMux()
 	mountUI(mux)
-	mountAuthEndpoints(mux, deps.Auth, deps.Vaults, deps.Settings, deps.Config)
+	mountAuthEndpoints(mux, deps.Auth, deps.Settings, deps.Config)
 
-	mux.HandleFunc("/api/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"ok": true,
-		})
+	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, okStatusResponse{OK: true})
 	})
 
-	mux.HandleFunc("/api/meta", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/meta", func(w http.ResponseWriter, r *http.Request) {
 		runtimeVault := settings.Vault{
 			VaultPath: deps.Config.VaultPath,
 			HomePage:  deps.Config.HomePage,
 		}
 		activeVaultRecord := currentVaultRecord(r.Context(), deps)
-		var currentVaultPayload *vaults.Vault
+		var currentVaultPayload *vault.Vault
 		restartRequired := false
 		if deps.Settings != nil {
 			snapshot := deps.Settings.Snapshot()
@@ -68,21 +81,21 @@ func NewRouter(deps Dependencies) http.Handler {
 			currentVaultPayload = &activeVaultRecord
 		}
 		vaultHealth := currentVault(r.Context(), deps).Health()
-		writeJSON(w, http.StatusOK, map[string]any{
-			"name":            "noterious",
-			"listenAddr":      deps.Config.ListenAddr,
-			"runtimeVault":    runtimeVault,
-			"currentVault":    currentVaultPayload,
-			"vaultHealth":     vaultHealth,
-			"dataDir":         deps.Config.DataDir,
-			"database":        deps.Index.DatabasePathForVault(activeVaultRecord.ID),
-			"serverTime":      time.Now().UTC().Format(time.RFC3339),
-			"serverFirst":     true,
-			"restartRequired": restartRequired,
+		writeJSON(w, http.StatusOK, metaResponse{
+			Name:            "noterious",
+			ListenAddr:      deps.Config.ListenAddr,
+			RuntimeVault:    runtimeVault,
+			CurrentVault:    currentVaultPayload,
+			VaultHealth:     vaultHealth,
+			DataDir:         deps.Config.DataDir,
+			Database:        deps.Index.DatabasePath(),
+			ServerTime:      time.Now().UTC().Format(time.RFC3339),
+			ServerFirst:     true,
+			RestartRequired: restartRequired,
 		})
 	})
 
-	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) {
 		if deps.Settings == nil {
 			http.Error(w, "settings unavailable", http.StatusInternalServerError)
 			return
@@ -94,37 +107,38 @@ func NewRouter(deps Dependencies) http.Handler {
 				return
 			}
 		}
-		switch r.Method {
-		case http.MethodGet:
-			writeJSON(w, http.StatusOK, deps.Settings.Snapshot())
-		case http.MethodPut:
-			var payload settings.AppSettings
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				http.Error(w, "invalid request body", http.StatusBadRequest)
-				return
-			}
-			snapshot, err := deps.Settings.Update(payload)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			writeJSON(w, http.StatusOK, snapshot)
-		default:
-			writeMethodNotAllowed(w, http.MethodGet, http.MethodPut)
+		writeJSON(w, http.StatusOK, deps.Settings.Snapshot())
+	})
+	mux.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Settings == nil {
+			http.Error(w, "settings unavailable", http.StatusInternalServerError)
+			return
 		}
+		if deps.Auth != nil {
+			user, ok := auth.UserFromContext(r.Context())
+			if !ok || user.ID == 0 {
+				http.Error(w, auth.ErrAuthenticationRequired.Error(), http.StatusUnauthorized)
+				return
+			}
+		}
+		var payload settings.AppSettings
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		snapshot, err := deps.Settings.Update(payload)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusOK, snapshot)
 	})
 	mountThemeEndpoints(mux, deps)
 	mountDocumentAndFolderEndpoints(mux, deps)
 
-	mux.HandleFunc("/api/pages/", func(w http.ResponseWriter, r *http.Request) {
-		handlePageRequest(w, r, deps)
-	})
+	mountPageEndpoints(mux, deps)
 	mountQueryEndpoints(mux, deps)
-	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
+	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) {
 		serveEvents(w, r, deps.Events)
 	})
 	mountTaskEndpoints(mux, deps)
@@ -142,7 +156,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		handleTrashPageRequest(w, r, deps)
 	})
 
-	return wrapWithAPIAuth(wrapWithVault(mux, deps.Vaults, deps.Auth, deps.Settings, deps.Config, deps.Index, deps.Query), deps.Auth)
+	return wrapWithAPIAuth(wrapWithVault(mux, deps.Settings, deps.Config, deps.Index, deps.Query), deps.Auth)
 }
 
 func relevantQueryUpdatedAt(parsed query.ParsedQuery, pageUpdates map[string]time.Time, latestAny time.Time) (time.Time, string, bool) {
@@ -294,80 +308,19 @@ func normalizeAPIPagePath(pagePath string) (string, bool) {
 	return normalized, true
 }
 
-func splitPageSubresource(rawPath string) (string, string, bool) {
-	trimmed := strings.Trim(strings.TrimSpace(rawPath), "/")
-	if trimmed == "" {
-		return "", "", false
-	}
-
-	parts := strings.Split(trimmed, "/")
-	if len(parts) >= 2 && parts[len(parts)-2] == "query-blocks" && parts[len(parts)-1] == "refresh" {
-		pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-2], "/"))
-		return pagePath, "query-blocks", ok
-	}
-	if len(parts) > 2 && parts[len(parts)-2] == "query-blocks" {
-		pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-2], "/"))
-		return pagePath, "query-blocks", ok
-	}
-	if len(parts) > 3 && parts[len(parts)-3] == "query-blocks" && parts[len(parts)-2] == "id" {
-		pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-3], "/"))
-		return pagePath, "query-blocks", ok
-	}
-	if len(parts) > 3 && parts[len(parts)-3] == "query-blocks" && parts[len(parts)-1] == "refresh" {
-		pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-3], "/"))
-		return pagePath, "query-blocks", ok
-	}
-	if len(parts) > 4 && parts[len(parts)-4] == "query-blocks" && parts[len(parts)-3] == "id" && parts[len(parts)-1] == "refresh" {
-		pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-4], "/"))
-		return pagePath, "query-blocks", ok
-	}
-	if len(parts) > 1 && parts[len(parts)-1] == "query-blocks" {
-		pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-1], "/"))
-		return pagePath, "query-blocks", ok
-	}
-	if len(parts) > 1 {
-		last := parts[len(parts)-1]
-		switch last {
-		case "backlinks", "derived", "frontmatter", "move":
-			pagePath, ok := normalizeAPIPagePath(strings.Join(parts[:len(parts)-1], "/"))
-			return pagePath, last, ok
-		}
-	}
-
-	pagePath, ok := normalizeAPIPagePath(trimmed)
-	return pagePath, "", ok
-}
-
-func parseVaultPath(rawPath string) (int64, string, bool) {
-	trimmed := strings.Trim(strings.TrimSpace(rawPath), "/")
-	if trimmed == "" {
-		return 0, "", false
-	}
-	parts := strings.Split(trimmed, "/")
-	vaultID, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil || vaultID <= 0 {
-		return 0, "", false
-	}
-	if len(parts) == 1 {
-		return vaultID, "", true
-	}
-	if len(parts) == 2 {
-		return vaultID, parts[1], true
-	}
-	return 0, "", false
-}
-
 func statusForFolderMoveError(err error) int {
 	if err == nil {
 		return http.StatusOK
 	}
-	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {
-	case strings.Contains(message, "already exists"):
+	case errors.Is(err, vault.ErrFolderAlreadyExists):
 		return http.StatusConflict
-	case strings.Contains(message, "invalid "):
+	case errors.Is(err, vault.ErrInvalidFolderPath),
+		errors.Is(err, vault.ErrInvalidTargetFolderPath),
+		errors.Is(err, vault.ErrInvalidTargetFolderName),
+		errors.Is(err, vault.ErrInvalidFolderMove):
 		return http.StatusBadRequest
-	case strings.Contains(message, "not exist"), strings.Contains(message, "no such file"):
+	case errors.Is(err, os.ErrNotExist):
 		return http.StatusNotFound
 	default:
 		return http.StatusInternalServerError
@@ -379,14 +332,13 @@ func statusForVaultError(err error) int {
 		return http.StatusOK
 	}
 	switch {
-	case errors.Is(err, vaults.ErrVaultNotFound):
+	case errors.Is(err, vault.ErrVaultNotFound):
 		return http.StatusNotFound
-	}
-	message := strings.ToLower(strings.TrimSpace(err.Error()))
-	switch {
-	case strings.Contains(message, "already exists"), strings.Contains(message, "reserved"), strings.Contains(message, "managed through runtime settings"):
+	case errors.Is(err, vault.ErrVaultAlreadyExists):
 		return http.StatusConflict
-	case strings.Contains(message, "required"), strings.Contains(message, "invalid"):
+	case errors.Is(err, vault.ErrVaultNameRequired),
+		errors.Is(err, vault.ErrInvalidVaultName),
+		errors.Is(err, vault.ErrVaultRootRequired):
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError
@@ -397,68 +349,13 @@ func currentVaultRoot(deps Dependencies) string {
 	return configuredVaultRoot(deps.Settings, deps.Config)
 }
 
-func parseQueryBlockPath(rawPath string) (string, string, string, bool) {
-	trimmed := strings.Trim(strings.TrimSpace(strings.TrimPrefix(rawPath, "/api/pages/")), "/")
-	if trimmed == "" {
-		return "", "", "", false
-	}
-	parts := strings.Split(trimmed, "/")
-	if len(parts) >= 2 && parts[len(parts)-2] == "query-blocks" && parts[len(parts)-1] == "refresh" {
-		return "", "", "refresh", true
-	}
-	if len(parts) >= 2 && parts[len(parts)-1] == "query-blocks" {
-		return "", "", "", true
-	}
-	if len(parts) >= 4 && parts[len(parts)-3] == "query-blocks" && parts[len(parts)-2] == "id" {
-		id := strings.TrimSpace(parts[len(parts)-1])
-		if id == "" || id == "." || id == "id" || id == "query-blocks" {
-			return "", "", "", false
-		}
-		return id, "id", "", false
-	}
-	if len(parts) >= 5 && parts[len(parts)-4] == "query-blocks" && parts[len(parts)-3] == "id" && parts[len(parts)-1] == "refresh" {
-		id := strings.TrimSpace(parts[len(parts)-2])
-		if id == "" || id == "." || id == "id" || id == "query-blocks" {
-			return "", "", "", false
-		}
-		return id, "id", "refresh", false
-	}
-	if len(parts) < 3 {
-		return "", "", "", false
-	}
-	if parts[len(parts)-2] == "query-blocks" {
-		key := strings.TrimSpace(parts[len(parts)-1])
-		if key == "" || key == "." || key == "query-blocks" {
-			return "", "", "", false
-		}
-		return key, "key", "", false
-	}
-	if len(parts) >= 4 && parts[len(parts)-3] == "query-blocks" && parts[len(parts)-1] == "refresh" {
-		key := strings.TrimSpace(parts[len(parts)-2])
-		if key == "" || key == "." || key == "query-blocks" {
-			return "", "", "", false
-		}
-		return key, "key", "refresh", false
-	}
-	return "", "", "", false
-}
-
-func countOpenTasks(tasks []index.Task) int {
-	count := 0
-	for _, task := range tasks {
-		if !task.Done {
-			count++
-		}
-	}
-	return count
-}
-
-func countDoneTasks(tasks []index.Task) int {
-	count := 0
+func countTaskStates(tasks []index.Task) (open int, done int) {
 	for _, task := range tasks {
 		if task.Done {
-			count++
+			done++
+			continue
 		}
+		open++
 	}
-	return count
+	return open, done
 }
