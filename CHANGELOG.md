@@ -2,11 +2,6 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v0.1.9] - 2026-04-26
-
-### Fixed
-- The page-tree right-click context menu now follows the active theme instead of keeping a hard-coded dark overlay style.
-
 ## [v0.1.8] - 2026-04-26
 
 ### Added
@@ -21,6 +16,8 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Code blocks, active-line highlighting, modal controls, and topbar path styling now follow the selected theme instead of leaking static dark-theme styling.
 - The desktop sidebar no longer grows with long page content and now scrolls within its own fixed viewport height.
+- The page-tree right-click context menu, slash menu, embedded query edit button, and other overlay controls now follow the active theme instead of keeping hard-coded dark styling.
+- Embedded query blocks now read as derived content with a soft themed shell and label, while active-line markup reveals for headings, links, and inline task properties now adapt better across light and dark themes.
 
 ## [v0.1.7] - 2026-04-26
 

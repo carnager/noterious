@@ -1,7 +1,16 @@
 #!/bin/bash
 
-npm run build:ui
-go build -o noterious ./cmd/noterious
-ssh proteus killall noterious
+set -e
+
+echo "Building UI"
+npm run build:ui >/dev/null 2>&1
+
+echo "Building Backend"
+go build -o noterious ./cmd/noterious >/dev/null 2>&1
+
+echo "Stopping Remote Instance"
+ssh proteus killall noterious >/dev/null 2>&1 || true
 sleep 2
-scp noterious proteus:~/
+
+echo "Uplading Binary"
+scp noterious proteus:~/ >/dev/null 2>&1
