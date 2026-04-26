@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - The page-tree right-click context menu, slash menu, embedded query edit button, and other overlay controls now follow the active theme instead of keeping hard-coded dark styling.
 - Embedded query blocks now read as derived content with a soft themed shell and label, while active-line markup reveals for headings, links, and inline task properties now adapt better across light and dark themes.
 - Calendar and task-date popup controls now follow the active theme instead of keeping dark fixed button and day-cell styling.
+- Editor syntax highlighting now derives from the active theme instead of using a hard-coded Solarized palette, so markup tokens like headings and inline property syntax no longer stay cyan across every theme.
 
 ## [v0.1.7] - 2026-04-26
 

@@ -27553,27 +27553,27 @@
         LanguageDescription.of({ name: "YAML", alias: ["yaml", "yml"], extensions: ["yaml", "yml"], support: yaml() }),
         LanguageDescription.of({ name: "SQL", alias: ["sql"], extensions: ["sql"], support: sql() })
       ];
-      var solarizedDarkHighlight = HighlightStyle.define([
-        { tag: tags.keyword, color: "#859900" },
-        { tag: [tags.name, tags.deleted, tags.character, tags.propertyName, tags.macroName], color: "#b58900" },
-        { tag: [tags.variableName], color: "#268bd2" },
-        { tag: [tags.function(tags.variableName), tags.labelName], color: "#268bd2" },
-        { tag: [tags.color, tags.constant(tags.name), tags.standard(tags.name)], color: "#cb4b16" },
-        { tag: [tags.definition(tags.name), tags.separator], color: "#b58900" },
-        { tag: [tags.brace, tags.squareBracket, tags.angleBracket], color: "#93a1a1" },
-        { tag: [tags.number, tags.changed, tags.annotation, tags.modifier, tags.self, tags.namespace], color: "#d33682" },
-        { tag: [tags.typeName, tags.className], color: "#b58900" },
-        { tag: [tags.operator, tags.operatorKeyword], color: "#6c71c4" },
-        { tag: [tags.tagName, tags.attributeName], color: "#268bd2" },
-        { tag: [tags.special(tags.variableName), tags.special(tags.string)], color: "#2aa198" },
-        { tag: [tags.regexp, tags.escape, tags.link, tags.url], color: "#2aa198" },
-        { tag: [tags.meta, tags.comment], color: "#586e75", fontStyle: "italic" },
-        { tag: [tags.strong], fontWeight: "700", color: "#93a1a1" },
-        { tag: [tags.emphasis], fontStyle: "italic", color: "#93a1a1" },
+      var themedHighlight = HighlightStyle.define([
+        { tag: tags.keyword, color: "color-mix(in srgb, var(--accent) 72%, var(--ink))" },
+        { tag: [tags.name, tags.deleted, tags.character, tags.propertyName, tags.macroName], color: "color-mix(in srgb, var(--accent) 62%, var(--muted))" },
+        { tag: [tags.variableName], color: "var(--accent)" },
+        { tag: [tags.function(tags.variableName), tags.labelName], color: "var(--accent)" },
+        { tag: [tags.color, tags.constant(tags.name), tags.standard(tags.name)], color: "color-mix(in srgb, var(--warn) 70%, var(--accent))" },
+        { tag: [tags.definition(tags.name), tags.separator], color: "color-mix(in srgb, var(--accent) 62%, var(--muted))" },
+        { tag: [tags.brace, tags.squareBracket, tags.angleBracket], color: "color-mix(in srgb, var(--muted) 84%, var(--ink))" },
+        { tag: [tags.number, tags.changed, tags.annotation, tags.modifier, tags.self, tags.namespace], color: "color-mix(in srgb, var(--accent) 54%, var(--warn))" },
+        { tag: [tags.typeName, tags.className], color: "color-mix(in srgb, var(--accent) 58%, var(--ink))" },
+        { tag: [tags.operator, tags.operatorKeyword], color: "color-mix(in srgb, var(--accent) 72%, var(--muted))" },
+        { tag: [tags.tagName, tags.attributeName], color: "var(--accent)" },
+        { tag: [tags.special(tags.variableName), tags.special(tags.string)], color: "color-mix(in srgb, var(--accent) 82%, var(--ink))" },
+        { tag: [tags.regexp, tags.escape, tags.link, tags.url], color: "color-mix(in srgb, var(--accent) 82%, var(--ink))" },
+        { tag: [tags.meta, tags.comment], color: "var(--muted)", fontStyle: "italic" },
+        { tag: [tags.strong], fontWeight: "700", color: "color-mix(in srgb, var(--ink) 92%, white 8%)" },
+        { tag: [tags.emphasis], fontStyle: "italic", color: "color-mix(in srgb, var(--ink) 88%, var(--muted))" },
         { tag: [tags.strikethrough], textDecoration: "line-through" },
-        { tag: [tags.atom, tags.bool, tags.special(tags.brace)], color: "#cb4b16" },
-        { tag: [tags.processingInstruction, tags.string, tags.inserted], color: "#2aa198" },
-        { tag: [tags.invalid], color: "#dc322f" }
+        { tag: [tags.atom, tags.bool, tags.special(tags.brace)], color: "color-mix(in srgb, var(--warn) 62%, var(--accent))" },
+        { tag: [tags.processingInstruction, tags.string, tags.inserted], color: "color-mix(in srgb, var(--accent) 78%, var(--ink))" },
+        { tag: [tags.invalid], color: "var(--warn)" }
       ]);
       function normalizeRelativePath(value) {
         return String(value || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/").trim();
@@ -28415,7 +28415,7 @@
                 markdown({
                   codeLanguages
                 }),
-                syntaxHighlighting(solarizedDarkHighlight, { fallback: true }),
+                syntaxHighlighting(themedHighlight, { fallback: true }),
                 renderModeField,
                 pagePathField,
                 highlightedLineField,
