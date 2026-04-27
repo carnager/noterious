@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.12] - 2026-04-27
+
+### Fixed
+- Editing inside an already closed wikilink like `[[foo]]` no longer reopens the create-link slash menu mid-word.
+
 ## [v0.1.11] - 2026-04-27
 
 ### Added
