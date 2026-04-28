@@ -1,7 +1,6 @@
 import { normalizePageDraftPath, pageTitleFromPath } from "./commands";
 import { clearNode } from "./dom";
 import {
-  ensureExpandedPageAncestors,
   renderPagesTree,
   type PageTreeMenuTarget,
 } from "./pageViews";
@@ -34,6 +33,12 @@ export interface PageTreeActions {
   setHomePage: (pagePath: string) => void;
   setNoteStatus: (message: string) => void;
   errorMessage: (error: unknown) => string;
+}
+
+export interface PageTreeDisplayState {
+  selectedPage: string;
+  pages: PageSummary[];
+  expandedPageFolders: Record<string, boolean>;
 }
 
 function updatePageListScrollState(pageList: HTMLDivElement): void {
@@ -77,10 +82,10 @@ function toScopedPath(path: string, scopePrefix: string, rootMeansScope: boolean
   return normalizedScopePrefix + "/" + normalizedPath;
 }
 
-export function renderPagesSection(state: PageTreeUiState, els: PageTreeElements, actions: PageTreeActions, openTreeContextMenu: (target: PageTreeMenuTarget, left: number, top: number) => void): void {
+export function pageTreeDisplayStateForScope(state: PageTreeUiState): PageTreeDisplayState {
   const scopePrefix = normalizeScopePrefix(state.scopePrefix || "");
-  const displaySelectedPage = toDisplayPath(state.selectedPage, scopePrefix);
-  const displayPages = state.pages.map(function (page) {
+  const selectedPage = toDisplayPath(state.selectedPage, scopePrefix);
+  const pages = state.pages.map(function (page) {
     return {
       ...page,
       path: toDisplayPath(page.path, scopePrefix),
@@ -88,26 +93,32 @@ export function renderPagesSection(state: PageTreeUiState, els: PageTreeElements
   }).filter(function (page) {
     return Boolean(page.path);
   });
-  const displayExpandedPageFolders: Record<string, boolean> = {};
+  const expandedPageFolders: Record<string, boolean> = {};
   Object.keys(state.expandedPageFolders).forEach(function (key) {
     if (!state.expandedPageFolders[key]) {
       return;
     }
     const displayKey = toDisplayPath(key, scopePrefix);
     if (displayKey) {
-      displayExpandedPageFolders[displayKey] = true;
+      expandedPageFolders[displayKey] = true;
     }
   });
+  return {
+    selectedPage: selectedPage,
+    pages: pages,
+    expandedPageFolders: expandedPageFolders,
+  };
+}
 
-  if (displaySelectedPage) {
-    ensureExpandedPageAncestors(displaySelectedPage, displayExpandedPageFolders);
-  }
+export function renderPagesSection(state: PageTreeUiState, els: PageTreeElements, actions: PageTreeActions, openTreeContextMenu: (target: PageTreeMenuTarget, left: number, top: number) => void): void {
+  const scopePrefix = normalizeScopePrefix(state.scopePrefix || "");
+  const displayState = pageTreeDisplayStateForScope(state);
 
   renderPagesTree(
     els.pageList,
-    displayPages,
-    displaySelectedPage,
-    displayExpandedPageFolders,
+    displayState.pages,
+    displayState.selectedPage,
+    displayState.expandedPageFolders,
     els.pageSearch.value.trim(),
     function (folderKey) {
       const scopedFolderKey = toScopedPath(folderKey, scopePrefix, true);

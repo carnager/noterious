@@ -16,6 +16,7 @@ RestartSec=2s
 # All environment variables currently supported by the server are listed here.
 # Leave the bootstrap variables empty for the normal first-run web setup flow.
 # Only set NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD for unattended/headless provisioning.
+# NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD_FILE can be used instead when a secret file is available.
 # NOTERIOUS_AUTH_BOOTSTRAP_USERNAME is only used when the bootstrap password is set.
 Environment="NOTERIOUS_LISTEN_ADDR=:3000"
 Environment="NOTERIOUS_VAULT_PATH=%h/Documents/noterious"
@@ -26,6 +27,7 @@ Environment="NOTERIOUS_AUTH_COOKIE_NAME=noterious_session"
 Environment="NOTERIOUS_AUTH_SESSION_TTL=720h"
 Environment="NOTERIOUS_AUTH_BOOTSTRAP_USERNAME="
 Environment="NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD="
+Environment="NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD_FILE="
 
 [Install]
 WantedBy=default.target

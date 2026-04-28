@@ -15,16 +15,19 @@ import type {
   FrontmatterValue,
   PropertyDraft,
 } from "./types";
+import { isTemplateMetadataKey } from "./noteTemplates";
 
 export interface PropertyRow {
   key: string;
   value: string;
   rawValue: FrontmatterValue;
+  kindHint?: FrontmatterKind;
 }
 
 export interface RenderPagePropertiesOptions {
   container: HTMLDivElement;
   pageFrontmatter: FrontmatterMap | null;
+  propertyKindHints: Record<string, FrontmatterKind>;
   editingPropertyKey: string;
   propertyTypeMenuKey: string;
   propertyDraft: PropertyDraft | null;
@@ -40,18 +43,47 @@ export interface RenderPagePropertiesOptions {
   onSetNoteStatus(message: string): void;
 }
 
-export function inferFrontmatterKind(value: FrontmatterValue): FrontmatterKind {
+function isTagPropertyKey(key: string | null | undefined): boolean {
+  return String(key || "").trim().toLowerCase() === "tags";
+}
+
+function isNotificationPropertyKey(key: string | null | undefined): boolean {
+  const normalized = String(key || "").trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return normalized === "notification" ||
+    normalized === "notify" ||
+    normalized === "remind" ||
+    normalized === "reminder" ||
+    /(^|[_-])(notify|notification|remind|reminder)([_-]|$)/i.test(normalized);
+}
+
+export function inferFrontmatterKind(
+  value: FrontmatterValue,
+  key?: string,
+  hintedKind?: FrontmatterKind
+): FrontmatterKind {
   if (Array.isArray(value)) {
-    return "list";
+    return hintedKind === "tags" || isTagPropertyKey(key) ? "tags" : "list";
   }
   if (typeof value === "boolean") {
     return "bool";
   }
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return "date";
+    return hintedKind === "notification" || isNotificationPropertyKey(key) ? "notification" : "date";
   }
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(value)) {
-    return "datetime";
+    return hintedKind === "notification" || isNotificationPropertyKey(key) ? "notification" : "datetime";
+  }
+  if ((value === null || typeof value === "undefined" || String(value).trim() === "") && hintedKind) {
+    return hintedKind;
+  }
+  if (isNotificationPropertyKey(key) && (value === null || typeof value === "undefined" || String(value).trim() === "")) {
+    return "notification";
+  }
+  if (isTagPropertyKey(key) && (value === null || typeof value === "undefined" || String(value).trim() === "")) {
+    return "tags";
   }
   return "text";
 }
@@ -74,24 +106,73 @@ export function displayFrontmatterValue(value: FrontmatterValue | null | undefin
   return value === null || typeof value === "undefined" ? "" : String(value);
 }
 
-export function makePropertyDraft(key: string, value: FrontmatterValue, originalKey: string): PropertyDraft {
-  const kind = inferFrontmatterKind(value);
+function listEntriesFromValue(value: FrontmatterValue | null | undefined): string[] {
+  if (Array.isArray(value)) {
+    return value.map(String);
+  }
+  const textValue = displayFrontmatterValue(value).trim();
+  return textValue ? [textValue] : [];
+}
+
+function normalizeTagEntry(value: string): string {
+  return String(value || "").trim().replace(/^#+/, "");
+}
+
+function tagEntriesFromValue(value: FrontmatterValue | null | undefined): string[] {
+  const values = Array.isArray(value)
+    ? value.map(String)
+    : [displayFrontmatterValue(value)];
+  return values
+    .map(function (entry) {
+      return normalizeTagEntry(entry);
+    })
+    .filter(Boolean);
+}
+
+function propertySequenceEntries(kind: FrontmatterKind, value: FrontmatterValue | null | undefined): string[] {
+  return kind === "tags" ? tagEntriesFromValue(value) : listEntriesFromValue(value);
+}
+
+export function makePropertyDraft(
+  key: string,
+  value: FrontmatterValue,
+  originalKey: string,
+  hintedKind?: FrontmatterKind
+): PropertyDraft {
+  const kind = inferFrontmatterKind(value, key, hintedKind);
   const text = kind === "date"
     ? formatEditableDateValue(String(value || ""))
-    : (kind === "datetime" ? formatEditableDateTimeValue(String(value || "")) : displayFrontmatterValue(value));
+    : ((kind === "datetime" || kind === "notification") ? formatEditableDateTimeValue(String(value || "")) : displayFrontmatterValue(value));
   return {
     originalKey: originalKey || key || "",
     key: key || "",
     kind,
-    text: kind === "list" ? "" : text,
-    list: Array.isArray(value) ? value.map(String) : [],
+    text: kind === "list" || kind === "tags" ? "" : text,
+    list: kind === "list" || kind === "tags" ? propertySequenceEntries(kind, value) : [],
   };
 }
 
-export function coercePropertyValue(kind: FrontmatterKind, value: FrontmatterValue): FrontmatterValue {
+export function applyPropertyDraftKind(draft: PropertyDraft, kind: FrontmatterKind): PropertyDraft {
+  const value = coercePropertyValue(kind, propertyDraftValue(draft), draft.key);
+  const text = kind === "date"
+    ? formatEditableDateValue(String(value || ""))
+    : ((kind === "datetime" || kind === "notification") ? formatEditableDateTimeValue(String(value || "")) : displayFrontmatterValue(value));
+  return {
+    originalKey: draft.originalKey || draft.key,
+    key: draft.key,
+    kind,
+    text: kind === "list" || kind === "tags" ? "" : text,
+    list: kind === "list" || kind === "tags" ? propertySequenceEntries(kind, value) : [],
+  };
+}
+
+export function coercePropertyValue(kind: FrontmatterKind, value: FrontmatterValue, key?: string): FrontmatterValue {
+  if (kind === "tags" || (kind === "list" && isTagPropertyKey(key))) {
+    return tagEntriesFromValue(value);
+  }
   if (kind === "list") {
     if (Array.isArray(value)) {
-      return value.slice();
+      return value.map(String);
     }
     const textValue = displayFrontmatterValue(value).trim();
     return textValue ? [textValue] : [];
@@ -105,8 +186,8 @@ export function coercePropertyValue(kind: FrontmatterKind, value: FrontmatterVal
   if (kind === "date") {
     return String(displayFrontmatterValue(value) || "").slice(0, 10);
   }
-  if (kind === "datetime") {
-    return normalizeDateTimeValue(value);
+  if (kind === "datetime" || kind === "notification") {
+    return serializeDateTimeValue(normalizeDateTimeValue(value));
   }
   return displayFrontmatterValue(value);
 }
@@ -115,8 +196,8 @@ export function propertyDraftValue(draft: PropertyDraft | null): FrontmatterValu
   if (!draft) {
     return "";
   }
-  if (draft.kind === "list") {
-    return draft.list.slice();
+  if (draft.kind === "list" || draft.kind === "tags") {
+    return coercePropertyValue(draft.kind, draft.list, draft.key);
   }
   if (draft.kind === "bool") {
     return draft.text === "true";
@@ -124,7 +205,7 @@ export function propertyDraftValue(draft: PropertyDraft | null): FrontmatterValu
   if (draft.kind === "date") {
     return parseEditableDateValue(String(draft.text || ""));
   }
-  if (draft.kind === "datetime") {
+  if (draft.kind === "datetime" || draft.kind === "notification") {
     return parseEditableDateTimeValue(String(draft.text || ""));
   }
   return String(draft.text || "").trim();
@@ -135,11 +216,17 @@ function propertyMenuKey(row: PropertyRow | null): string {
 }
 
 function propertyTypeIcon(kind: FrontmatterKind): string {
+  if (kind === "tags") {
+    return "#";
+  }
   if (kind === "list") {
     return "☰";
   }
   if (kind === "bool") {
     return "☑";
+  }
+  if (kind === "notification") {
+    return "⏰";
   }
   if (kind === "date" || kind === "datetime") {
     return "◫";
@@ -147,10 +234,40 @@ function propertyTypeIcon(kind: FrontmatterKind): string {
   return "≡";
 }
 
+function propertyKindLabel(kind: FrontmatterKind): string {
+  if (kind === "tags") {
+    return "Tags";
+  }
+  if (kind === "list") {
+    return "List";
+  }
+  if (kind === "bool") {
+    return "Checkbox";
+  }
+  if (kind === "date") {
+    return "Date";
+  }
+  if (kind === "datetime") {
+    return "Date & time";
+  }
+  if (kind === "notification") {
+    return "Notification";
+  }
+  return "Text";
+}
+
 function propertyKeyIcon(row: PropertyRow): string {
+  const kind = inferFrontmatterKind(row.rawValue, row.key, row.kindHint);
+  if (kind !== "text") {
+    return propertyTypeIcon(kind);
+  }
+
   const key = String(row.key || "").toLowerCase();
   if (key === "tags") {
     return "#";
+  }
+  if (isNotificationPropertyKey(key)) {
+    return "⏰";
   }
   if (key.indexOf("date") >= 0 || key.indexOf("birth") >= 0 || key.indexOf("remind") >= 0 || key === "datum") {
     return "◫";
@@ -158,7 +275,7 @@ function propertyKeyIcon(row: PropertyRow): string {
   if (key.indexOf("who") >= 0 || key.indexOf("person") >= 0 || key.indexOf("name") >= 0 || key === "anwesend" || key === "vorname" || key === "nachname") {
     return "◌";
   }
-  return propertyTypeIcon(inferFrontmatterKind(row.rawValue));
+  return propertyTypeIcon(kind);
 }
 
 function appendPropertyKeyContent(target: HTMLElement, row: PropertyRow, keyText: string): void {
@@ -173,15 +290,52 @@ function appendPropertyKeyContent(target: HTMLElement, row: PropertyRow, keyText
   target.appendChild(label);
 }
 
-function renderPropertyValueNode(value: FrontmatterValue): HTMLElement {
-  if (Array.isArray(value)) {
+function renderEmptyPropertyValueNode(): HTMLElement {
+  const empty = document.createElement("span");
+  empty.className = "property-empty-value";
+  empty.textContent = "Empty";
+  return empty;
+}
+
+function appendPropertyChip(
+  container: HTMLElement,
+  entry: string,
+  kind: FrontmatterKind,
+  onRemove?: () => void
+): void {
+  const chip = document.createElement("span");
+  chip.className = "property-chip";
+  if (kind === "tags") {
+    chip.classList.add("tag");
+  }
+
+  const label = document.createElement("span");
+  label.textContent = kind === "tags" ? "#" + entry : entry;
+  chip.appendChild(label);
+
+  if (onRemove) {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "property-chip-remove";
+    remove.textContent = "×";
+    remove.addEventListener("click", onRemove);
+    chip.appendChild(remove);
+  }
+
+  container.appendChild(chip);
+}
+
+function renderPropertyValueNode(value: FrontmatterValue, key?: string, kindHint?: FrontmatterKind): HTMLElement {
+  const kind = inferFrontmatterKind(value, key, kindHint);
+  if (Array.isArray(value) || kind === "tags") {
+    const entries = propertySequenceEntries(kind, value);
+    if (!entries.length) {
+      return renderEmptyPropertyValueNode();
+    }
     const list = document.createElement("div");
     list.className = "property-chip-list";
-    value.forEach(function (entry) {
-      const chip = document.createElement("span");
-      chip.className = "property-chip";
-      chip.textContent = String(entry);
-      list.appendChild(chip);
+    entries.forEach(function (entry) {
+      appendPropertyChip(list, entry, kind);
     });
     return list;
   }
@@ -193,11 +347,14 @@ function renderPropertyValueNode(value: FrontmatterValue): HTMLElement {
     return bool;
   }
 
+  if (value === null || typeof value === "undefined" || String(value) === "") {
+    return renderEmptyPropertyValueNode();
+  }
+
   const text = document.createElement("span");
-  const kind = inferFrontmatterKind(value);
   if (kind === "date") {
     text.textContent = formatDateValue(String(value || ""));
-  } else if (kind === "datetime") {
+  } else if (kind === "datetime" || kind === "notification") {
     text.textContent = formatDateTimeValue(String(value || ""));
   } else {
     text.textContent = displayFrontmatterValue(value);
@@ -208,17 +365,27 @@ function renderPropertyValueNode(value: FrontmatterValue): HTMLElement {
 function renderPropertyTypeMenu(shell: HTMLElement, row: PropertyRow | null, options: RenderPagePropertiesOptions): void {
   const menu = document.createElement("div");
   menu.className = "property-type-menu";
+  const activeKind = row
+    ? inferFrontmatterKind(row.rawValue, row.key, row.kindHint)
+    : (options.propertyDraft ? options.propertyDraft.kind : "text");
 
-  [
+  const typeOptions: Array<[FrontmatterKind, string]> = [
     ["text", "Text"],
+    ["tags", "Tags"],
     ["list", "List"],
     ["bool", "Checkbox"],
     ["date", "Date"],
     ["datetime", "Date & time"],
-  ].forEach(function (parts) {
+    ["notification", "Notification"],
+  ];
+
+  typeOptions.forEach(function (parts) {
     const option = document.createElement("button");
     option.type = "button";
     option.className = "property-type-option";
+    if ((parts[0] as FrontmatterKind) === activeKind) {
+      option.classList.add("active");
+    }
     const icon = document.createElement("span");
     icon.className = "property-menu-icon";
     icon.textContent = propertyTypeIcon(parts[0] as FrontmatterKind);
@@ -272,43 +439,114 @@ function renderPropertyTypeMenu(shell: HTMLElement, row: PropertyRow | null, opt
   shell.appendChild(menu);
 }
 
+function setPropertyKindButtonContent(button: HTMLButtonElement, kind: FrontmatterKind): void {
+  button.textContent = "";
+  button.setAttribute("aria-label", "Property type: " + propertyKindLabel(kind));
+
+  const icon = document.createElement("span");
+  icon.className = "property-kind-icon";
+  icon.textContent = propertyTypeIcon(kind);
+  button.appendChild(icon);
+
+  const label = document.createElement("span");
+  label.className = "property-kind-label";
+  label.textContent = propertyKindLabel(kind);
+  button.appendChild(label);
+}
+
+function focusPropertyDraftValue(container: HTMLElement): void {
+  const target = container.querySelector<HTMLElement>("[data-property-value-input='true']");
+  if (target && typeof target.focus === "function") {
+    target.focus();
+  }
+}
+
+export function propertyScalarInputType(kind: FrontmatterKind): string {
+  if (kind === "date") {
+    return "date";
+  }
+  if (kind === "datetime" || kind === "notification") {
+    return "datetime-local";
+  }
+  return "text";
+}
+
+export function propertyScalarInputValue(kind: FrontmatterKind, value: string): string {
+  const text = String(value || "");
+  if (!text) {
+    return "";
+  }
+
+  const inputType = propertyScalarInputType(kind);
+  if (inputType === "text") {
+    if (kind === "date") {
+      return formatEditableDateValue(text);
+    }
+    if (kind === "datetime" || kind === "notification") {
+      return formatEditableDateTimeValue(text);
+    }
+    return text;
+  }
+
+  try {
+    if (kind === "date") {
+      return parseEditableDateValue(text);
+    }
+    if (kind === "datetime" || kind === "notification") {
+      return normalizeDateTimeValue(parseEditableDateTimeValue(text));
+    }
+  } catch (_error) {
+    return text;
+  }
+
+  return text;
+}
+
+function propertyListInputPlaceholder(kind: FrontmatterKind): string {
+  return kind === "tags" ? "Add tag" : "Add item";
+}
+
+function propertyScalarInputPlaceholder(kind: FrontmatterKind, existing: boolean): string {
+  if (kind === "date") {
+    return editableDatePlaceholder();
+  }
+  if (kind === "datetime" || kind === "notification") {
+    return editableDateTimePlaceholder();
+  }
+  return existing ? "Empty" : "Value";
+}
+
+function propertyListHint(kind: FrontmatterKind): string {
+  return kind === "tags"
+    ? "Press Enter or comma to add each tag."
+    : "Press Enter or comma to add each item.";
+}
+
 function renderExistingPropertyValueEditor(row: PropertyRow, options: RenderPagePropertiesOptions): HTMLElement {
-  const kind = inferFrontmatterKind(row.rawValue);
+  const kind = inferFrontmatterKind(row.rawValue, row.key, row.kindHint);
   const value = document.createElement("div");
   value.className = "property-value property-inline-editor";
 
-  if (kind === "list") {
-    const listValue = Array.isArray(row.rawValue) ? row.rawValue : [];
+  if (kind === "list" || kind === "tags") {
+    const listValue = propertySequenceEntries(kind, row.rawValue);
     const chips = document.createElement("div");
     chips.className = "property-chip-list editable";
     listValue.forEach(function (entry, index) {
-      const chip = document.createElement("span");
-      chip.className = "property-chip";
-
-      const label = document.createElement("span");
-      label.textContent = String(entry);
-      chip.appendChild(label);
-
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "property-chip-remove";
-      remove.textContent = "×";
-      remove.addEventListener("click", function () {
+      appendPropertyChip(chips, String(entry), kind, function () {
         const next = listValue.slice();
         next.splice(index, 1);
-        options.onSaveExistingProperty(row.key, next).catch(function (error: Error) {
+        options.onSaveExistingProperty(row.key, coercePropertyValue(kind, next, row.key)).catch(function (error: Error) {
           options.onSetNoteStatus("Property save failed: " + error.message);
         });
       });
-      chip.appendChild(remove);
-      chips.appendChild(chip);
     });
     value.appendChild(chips);
 
     const addInput = document.createElement("input");
     addInput.type = "text";
     addInput.className = "property-inline-input";
-    addInput.placeholder = "Add list item";
+    addInput.placeholder = propertyListInputPlaceholder(kind);
+    addInput.setAttribute("data-property-list-adder", "true");
     addInput.addEventListener("keydown", function (event) {
       if (event.key === "Enter" || event.key === ",") {
         event.preventDefault();
@@ -316,7 +554,7 @@ function renderExistingPropertyValueEditor(row: PropertyRow, options: RenderPage
         if (!nextValue) {
           return;
         }
-        options.onSaveExistingProperty(row.key, listValue.concat([nextValue])).catch(function (error: Error) {
+        options.onSaveExistingProperty(row.key, coercePropertyValue(kind, listValue.concat([nextValue]), row.key)).catch(function (error: Error) {
           options.onSetNoteStatus("Property save failed: " + error.message);
         });
       }
@@ -343,20 +581,17 @@ function renderExistingPropertyValueEditor(row: PropertyRow, options: RenderPage
 
   const input = document.createElement("input");
   input.className = "property-inline-input";
-  input.type = "text";
-  input.value = kind === "date"
-    ? formatEditableDateValue(String(row.rawValue || ""))
-    : (kind === "datetime" ? formatEditableDateTimeValue(String(row.rawValue || "")) : String(row.rawValue || ""));
-  input.placeholder = kind === "date"
-    ? editableDatePlaceholder()
-    : (kind === "datetime" ? editableDateTimePlaceholder() : "");
+  input.type = propertyScalarInputType(kind);
+  input.value = propertyScalarInputValue(kind, String(row.rawValue || ""));
+  input.placeholder = propertyScalarInputPlaceholder(kind, true);
+  input.setAttribute("data-property-value-input", "true");
 
   const commit = function () {
     try {
       const rawValue = input.value;
       const nextValue = kind === "date"
         ? parseEditableDateValue(rawValue)
-        : (kind === "datetime" ? parseEditableDateTimeValue(rawValue) : rawValue);
+        : ((kind === "datetime" || kind === "notification") ? parseEditableDateTimeValue(rawValue) : rawValue);
       const normalizedCurrent = String(row.rawValue || "");
       if (nextValue === normalizedCurrent) {
         return;
@@ -382,9 +617,25 @@ function renderExistingPropertyValueEditor(row: PropertyRow, options: RenderPage
 }
 
 function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | null, options: RenderPagePropertiesOptions): void {
-  const draft = options.propertyDraft || makePropertyDraft(row ? row.key : "", row ? row.rawValue : "", row ? row.key : "__new__");
+  let draft = options.propertyDraft || makePropertyDraft(
+    row ? row.key : "",
+    row ? row.rawValue : "",
+    row ? row.key : "__new__",
+    row ? row.kindHint : undefined,
+  );
   const item = document.createElement("div");
   item.className = "property-row editing";
+  if (!row) {
+    item.classList.add("property-row-create");
+  }
+
+  const setDraft = function (nextDraft: PropertyDraft): void {
+    draft = {
+      ...nextDraft,
+      list: Array.isArray(nextDraft.list) ? nextDraft.list.slice() : [],
+    };
+    options.onSetDraft(draft);
+  };
   const commit = function () {
     options.onSaveDraft().catch(function (error: Error) {
       options.onSetNoteStatus("Property save failed: " + error.message);
@@ -400,17 +651,24 @@ function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | n
   const keyInput = document.createElement("input");
   keyInput.type = "text";
   keyInput.className = "property-inline-input property-inline-key";
-  keyInput.placeholder = "property";
+  if (!row) {
+    keyInput.classList.add("property-composer-input");
+  }
+  keyInput.placeholder = "Property name";
   keyInput.value = draft.key;
   keyInput.addEventListener("input", function () {
-    options.onSetDraft({ ...draft, key: keyInput.value });
+    setDraft({ ...draft, key: keyInput.value });
   });
   keyShell.appendChild(keyInput);
 
   const kindButton = document.createElement("button");
   kindButton.type = "button";
   kindButton.className = "property-kind-button";
-  kindButton.textContent = draft.kind;
+  if (!row) {
+    keyShell.classList.add("property-composer-shell");
+    kindButton.classList.add("property-composer-kind");
+  }
+  setPropertyKindButtonContent(kindButton, draft.kind);
   kindButton.addEventListener("click", function () {
     options.onToggleTypeMenu(propertyMenuKey(row));
   });
@@ -422,38 +680,33 @@ function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | n
 
   const value = document.createElement("div");
   value.className = "property-value property-inline-editor";
+  if (!row) {
+    value.classList.add("property-composer-value");
+  }
 
-  if (draft.kind === "list") {
+  if (draft.kind === "list" || draft.kind === "tags") {
+    const listValue = propertySequenceEntries(draft.kind, draft.list);
     const chips = document.createElement("div");
     chips.className = "property-chip-list editable";
-    draft.list.forEach(function (entry, index) {
-      const chip = document.createElement("span");
-      chip.className = "property-chip";
-
-      const label = document.createElement("span");
-      label.textContent = entry;
-      chip.appendChild(label);
-
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "property-chip-remove";
-      remove.textContent = "×";
-      remove.addEventListener("click", function () {
-        const nextList = draft.list.slice();
+    listValue.forEach(function (entry, index) {
+      appendPropertyChip(chips, entry, draft.kind, function () {
+        const nextList = listValue.slice();
         nextList.splice(index, 1);
-        options.onSetDraft({ ...draft, list: nextList });
+        setDraft({ ...draft, list: nextList });
         options.onRefresh();
       });
-      chip.appendChild(remove);
-
-      chips.appendChild(chip);
     });
     value.appendChild(chips);
 
     const addInput = document.createElement("input");
     addInput.type = "text";
     addInput.className = "property-inline-input";
-    addInput.placeholder = "Add list item";
+    if (!row) {
+      addInput.classList.add("property-composer-input");
+    }
+    addInput.placeholder = propertyListInputPlaceholder(draft.kind);
+    addInput.setAttribute("data-property-value-input", "true");
+    addInput.setAttribute("data-property-list-adder", "true");
     addInput.addEventListener("keydown", function (event) {
       if (event.key === "Enter" || event.key === ",") {
         event.preventDefault();
@@ -461,43 +714,68 @@ function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | n
         if (!next) {
           return;
         }
-        options.onSetDraft({ ...draft, list: draft.list.concat([next]) });
+        setDraft({ ...draft, list: propertySequenceEntries(draft.kind, listValue.concat([next])) });
         options.onRefresh();
       }
     });
     value.appendChild(addInput);
+
+    if (!row) {
+      const hint = document.createElement("div");
+      hint.className = "property-inline-hint";
+      hint.textContent = propertyListHint(draft.kind);
+      value.appendChild(hint);
+    }
   } else if (draft.kind === "bool") {
     const boolLabel = document.createElement("label");
     boolLabel.className = "property-inline-bool";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = draft.text === "true";
+    checkbox.setAttribute("data-property-value-input", "true");
     checkbox.addEventListener("change", function () {
-      options.onSetDraft({ ...draft, text: checkbox.checked ? "true" : "false" });
+      setDraft({ ...draft, text: checkbox.checked ? "true" : "false" });
     });
     boolLabel.appendChild(checkbox);
+    if (!row) {
+      const boolText = document.createElement("span");
+      boolText.className = "property-inline-hint";
+      boolText.textContent = checkbox.checked ? "Checked" : "Unchecked";
+      boolLabel.appendChild(boolText);
+      checkbox.addEventListener("change", function () {
+        boolText.textContent = checkbox.checked ? "Checked" : "Unchecked";
+      });
+    }
     value.appendChild(boolLabel);
   } else {
     const input = document.createElement("input");
     input.className = "property-inline-input";
-    input.type = "text";
-    input.value = String(draft.text || "");
-    input.placeholder = draft.kind === "date"
-      ? editableDatePlaceholder()
-      : (draft.kind === "datetime" ? editableDateTimePlaceholder() : "");
+    if (!row) {
+      input.classList.add("property-composer-input");
+    }
+    input.type = propertyScalarInputType(draft.kind);
+    input.value = propertyScalarInputValue(draft.kind, String(draft.text || ""));
+    input.placeholder = propertyScalarInputPlaceholder(draft.kind, Boolean(row));
+    input.setAttribute("data-property-value-input", "true");
     input.addEventListener("input", function () {
-      options.onSetDraft({ ...draft, text: input.value });
+      setDraft({ ...draft, text: input.value });
     });
     value.appendChild(input);
   }
 
   const actions = document.createElement("div");
   actions.className = "property-row-actions";
+  if (!row) {
+    actions.classList.add("property-composer-actions");
+  }
 
   const save = document.createElement("button");
   save.type = "button";
   save.className = "property-action";
-  save.textContent = "Save";
+  if (!row) {
+    save.classList.add("primary");
+  }
+  save.textContent = row ? "Save" : "Add";
   save.addEventListener("click", commit);
 
   const cancelButton = document.createElement("button");
@@ -523,11 +801,11 @@ function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | n
     }
     if (event.key === "Enter") {
       const target = event.target instanceof HTMLElement ? event.target : null;
-      const isListAdder = target instanceof HTMLInputElement && target.placeholder === "Add list item";
+      const isListAdder = target instanceof HTMLInputElement && target.getAttribute("data-property-list-adder") === "true";
       if (isListAdder) {
         return;
       }
-      if (target && target.classList.contains("property-kind-button")) {
+      if (target && target.closest("button")) {
         return;
       }
       event.preventDefault();
@@ -537,13 +815,20 @@ function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | n
   });
 
   window.setTimeout(function () {
-    const input = keyShell.querySelector<HTMLInputElement>(".property-inline-key");
-    if (input) {
-      input.focus();
-      if (row) {
-        input.setSelectionRange(0, input.value.length);
+    if (row) {
+      focusPropertyDraftValue(item);
+      const valueInput = item.querySelector<HTMLInputElement>("[data-property-value-input='true']");
+      if (valueInput && valueInput.type === "text") {
+        valueInput.setSelectionRange(0, valueInput.value.length);
       }
+      return;
     }
+
+    const input = keyShell.querySelector<HTMLInputElement>(".property-inline-key");
+    if (!input) {
+      return;
+    }
+    input.focus();
   }, 0);
 }
 
@@ -562,13 +847,14 @@ export function renderPageProperties(options: RenderPagePropertiesOptions): void
     .sort()
     .forEach(function (key) {
       const value = pageFrontmatter[key];
-      if (value === null || value === "" || typeof value === "undefined") {
+      if (typeof value === "undefined" || isTemplateMetadataKey(key)) {
         return;
       }
       rows.push({
         key,
         value: Array.isArray(value) ? value.join(", ") : String(value),
         rawValue: value,
+        kindHint: options.propertyKindHints[key],
       });
     });
 

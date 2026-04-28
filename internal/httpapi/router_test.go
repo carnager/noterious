@@ -2073,6 +2073,72 @@ func TestGetPagesReturnsIndexedSummaries(t *testing.T) {
 	}
 }
 
+func TestGetPagesIncludesFrontmatterInListResponse(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "_templates"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	templateMarkdown := strings.Join([]string{
+		"---",
+		"_template_label: Contact",
+		"_template_folder: contacts",
+		"_template_bool:",
+		"  - mav",
+		"email: \"\"",
+		"mav: false",
+		"---",
+		"## Notizen",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(vaultDir, "_templates", "contact.md"), []byte(templateMarkdown), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/pages", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var payload struct {
+		Pages []struct {
+			Path        string         `json:"path"`
+			Frontmatter map[string]any `json:"frontmatter"`
+		} `json:"pages"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(payload.Pages) != 1 {
+		t.Fatalf("pages = %#v", payload.Pages)
+	}
+	if payload.Pages[0].Path != "_templates/contact" {
+		t.Fatalf("path = %q, want %q", payload.Pages[0].Path, "_templates/contact")
+	}
+	if got := payload.Pages[0].Frontmatter["_template_folder"]; got != "contacts" {
+		t.Fatalf("frontmatter _template_folder = %#v, want %q", got, "contacts")
+	}
+	if got := payload.Pages[0].Frontmatter["email"]; got != "" {
+		t.Fatalf("frontmatter email = %#v, want empty string", got)
+	}
+	if got := payload.Pages[0].Frontmatter["mav"]; got != false {
+		t.Fatalf("frontmatter mav = %#v, want false", got)
+	}
+	kinds, ok := payload.Pages[0].Frontmatter["_template_bool"].([]any)
+	if !ok || len(kinds) != 1 || kinds[0] != "mav" {
+		t.Fatalf("frontmatter _template_bool = %#v, want [\"mav\"]", payload.Pages[0].Frontmatter["_template_bool"])
+	}
+}
+
 func TestGlobalSearchReturnsPagesTasksAndSavedQueries(t *testing.T) {
 	t.Parallel()
 

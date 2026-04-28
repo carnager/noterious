@@ -9,6 +9,7 @@ import {
 import {
   deleteTask as deleteTaskRequest,
   loadPageDetailData,
+  resolvePageTask,
   loadSavedQueryDetailData,
   savePageMarkdown,
   saveTask,
@@ -73,7 +74,7 @@ import {
   splitFrontmatter,
   wikiLinkAtCaret,
 } from "./markdown";
-import { hotkeyLabel, matchesHotkey } from "./hotkeys";
+import { canonicalizeHotkey, hotkeyDefinitions, hotkeyFromEvent, hotkeyLabel, matchesHotkey } from "./hotkeys";
 import {
   historyDiffContent,
   renderPageHistory as renderPageHistoryUI,
@@ -133,11 +134,27 @@ import {
 } from "./pageTreeUi";
 import { prepareSettingsSave } from "./settingsPersistence";
 import {
+  applyPropertyDraftKind,
   coercePropertyValue,
   makePropertyDraft,
   propertyDraftValue,
   renderPageProperties as renderPagePropertiesUI,
 } from "./properties";
+import {
+  allNoteTemplatesFromPages,
+  buildMarkdownFromTemplate,
+  buildPagePathFromTemplate,
+  cloneNoteTemplates,
+  coerceTemplateFieldDefaultValue,
+  createBlankNoteTemplate,
+  createBlankTemplateField,
+  isTemplateMetadataKey,
+  noteTemplatesFromPages,
+  remainingTemplateFields,
+  templateFieldKindHints,
+  templateFieldsNeedingInput,
+  templatePropertyKindHints,
+} from "./noteTemplates";
 import { renderSavedQueryTree as renderSavedQueryTreeUI } from "./queryTree";
 import { applyURLState as applyURLStateUI, buildSelectionURL, navigateToPageSelection } from "./routing";
 import {
@@ -151,6 +168,7 @@ import {
 import {
   defaultSettingsSection,
   renderSettingsForm as renderSettingsFormUI,
+  renderSettingsHotkeyHints as renderSettingsHotkeyHintsUI,
 } from "./settingsUi";
 import { closeSlashMenu, documentCommandsForText, maybeOpenSlashMenu, moveSlashSelection, openSlashMenuWithCommands, wikilinkCommandsForContext } from "./slashMenu";
 import {
@@ -178,6 +196,8 @@ import type {
   FocusRestoreSpec,
   MetaResponse,
   NoteriousEditorApi,
+  NoteTemplate,
+  NoteTemplateField,
   PageHistoryResponse,
   PageListResponse,
   PageRecord,
@@ -217,6 +237,7 @@ interface PageLinkDetail {
 
 interface TaskToggleDetail {
   lineNumber?: number | string;
+  ref?: string;
 }
 
 interface TaskDateEditDetail {
@@ -300,6 +321,7 @@ interface AppState {
   editingPropertyKey: string;
   propertyTypeMenuKey: string;
   propertyDraft: PropertyDraft | null;
+  templateFillSession: TemplateFillSession | null;
   editingBlockKey: string;
   pendingBlockFocusKey: string;
   pendingEditSeed: string;
@@ -319,6 +341,7 @@ interface AppState {
   savedThemeId: string;
   previewThemeId: string;
   themeCache: Record<string, ThemeRecord>;
+  settingsTemplateDrafts: NoteTemplate[];
   markdownEditorApi: NoteriousEditorApi | null;
   windowBlurred: boolean;
   restoreFocusSpec: FocusRestoreSpec | null;
@@ -352,6 +375,11 @@ interface AppState {
   expectedLocalChangePage: string;
   expectedLocalChangeCount: number;
   expectedLocalChangeUntil: number;
+}
+
+interface TemplateFillSession {
+  pagePath: string;
+  fields: NoteTemplateField[];
 }
 
 interface TreeContextMenuState {
@@ -409,6 +437,7 @@ interface TreeContextMenuState {
     editingPropertyKey: "",
     propertyTypeMenuKey: "",
     propertyDraft: null,
+    templateFillSession: null,
     editingBlockKey: "",
     pendingBlockFocusKey: "",
     pendingEditSeed: "",
@@ -442,6 +471,7 @@ interface TreeContextMenuState {
     savedThemeId: defaultThemeId,
     previewThemeId: defaultThemeId,
     themeCache: {},
+    settingsTemplateDrafts: cloneNoteTemplates(defaultClientPreferences().templates),
     markdownEditorApi: null,
     windowBlurred: false,
     restoreFocusSpec: null,
@@ -618,10 +648,12 @@ interface TreeContextMenuState {
     settingsEyebrow: requiredElement<HTMLElement>("settings-eyebrow"),
     settingsTitle: requiredElement<HTMLElement>("settings-title"),
     settingsNavAppearance: requiredElement<HTMLButtonElement>("settings-nav-appearance"),
+    settingsNavTemplates: requiredElement<HTMLButtonElement>("settings-nav-templates"),
     settingsNavNotifications: requiredElement<HTMLButtonElement>("settings-nav-notifications"),
     settingsNavVault: requiredElement<HTMLButtonElement>("settings-nav-vault"),
     settingsGroupServer: requiredElement<HTMLElement>("settings-group-server"),
     settingsGroupSession: requiredElement<HTMLElement>("settings-group-session"),
+    settingsGroupTemplates: requiredElement<HTMLElement>("settings-group-templates"),
     settingsGroupUserNotifications: requiredElement<HTMLElement>("settings-group-user-notifications"),
     cancelSettings: requiredElement<HTMLButtonElement>("cancel-settings"),
     saveSettings: requiredElement<HTMLButtonElement>("save-settings"),
@@ -646,6 +678,9 @@ interface TreeContextMenuState {
     settingsSaveCurrentPage: requiredElement<HTMLInputElement>("settings-hotkey-save-current-page"),
     settingsToggleRawMode: requiredElement<HTMLInputElement>("settings-hotkey-toggle-raw-mode"),
     settingsToggleTaskDone: requiredElement<HTMLInputElement>("settings-hotkey-toggle-task-done"),
+    settingsTemplateList: requiredElement<HTMLDivElement>("settings-template-list"),
+    settingsTemplateAdd: requiredElement<HTMLButtonElement>("settings-template-add"),
+    settingsTemplateHelp: requiredElement<HTMLElement>("settings-template-help"),
     settingsStatus: requiredElement<HTMLElement>("settings-status"),
     slashMenu: requiredElement<HTMLElement>("slash-menu"),
     slashMenuResults: requiredElement<HTMLDivElement>("slash-menu-results"),
@@ -1919,6 +1954,127 @@ interface TreeContextMenuState {
     renderPageTagsUI(els.pageTags, page ? page.frontmatter : null);
   }
 
+  function vaultTemplates(): NoteTemplate[] {
+    return allNoteTemplatesFromPages(state.pages);
+  }
+
+  function quickSwitcherTemplates(): NoteTemplate[] {
+    return noteTemplatesFromPages(state.pages, currentScopePrefix());
+  }
+
+  function currentPagePath(page: PageRecord | null): string {
+    return normalizePageDraftPath(page ? (page.page || page.path || "") : (state.selectedPage || ""));
+  }
+
+  function reconcileTemplateFillSession(page: PageRecord | null): TemplateFillSession | null {
+    const session = state.templateFillSession;
+    if (!session) {
+      return null;
+    }
+
+    const sessionPath = normalizePageDraftPath(session.pagePath);
+    if (!sessionPath) {
+      state.templateFillSession = null;
+      return null;
+    }
+
+    if (sessionPath !== currentPagePath(page)) {
+      return null;
+    }
+
+    const remaining = remainingTemplateFields(session.fields, page ? page.frontmatter : null);
+    state.templateFillSession = remaining.length ? {
+      pagePath: sessionPath,
+      fields: remaining,
+    } : null;
+    return state.templateFillSession;
+  }
+
+  function beginTemplateFillSession(pagePath: string, template: NoteTemplate): void {
+    const normalizedPath = normalizePageDraftPath(pagePath);
+    if (!normalizedPath) {
+      state.templateFillSession = null;
+      return;
+    }
+    const fields = templateFieldsNeedingInput(template, normalizedPath);
+    state.templateFillSession = fields.length ? {
+      pagePath: normalizedPath,
+      fields: fields,
+    } : null;
+  }
+
+  function openTemplateFillDraft(page: PageRecord | null): boolean {
+    const field = currentTemplateFillField(page);
+    if (!field) {
+      return false;
+    }
+    const key = String(field.key || "").trim();
+    if (!key) {
+      state.templateFillSession = null;
+      return false;
+    }
+
+    const frontmatter = page ? page.frontmatter : null;
+    if (frontmatter && Object.prototype.hasOwnProperty.call(frontmatter, key)) {
+      setPropertyDraft(key, frontmatter[key] as FrontmatterValue, key);
+    } else {
+      setPropertyDraft(key, "", "__new__");
+    }
+    state.propertyTypeMenuKey = "";
+    setNoteStatus("Fill in " + key + ".");
+    return true;
+  }
+
+  function currentTemplateFillField(page: PageRecord | null): NoteTemplateField | null {
+    const session = reconcileTemplateFillSession(page);
+    return session && session.fields.length ? session.fields[0] : null;
+  }
+
+  function skipCurrentTemplateFillField(): boolean {
+    const page = state.currentPage;
+    const session = reconcileTemplateFillSession(page);
+    if (!session || !session.fields.length) {
+      return false;
+    }
+
+    const skipped = session.fields[0];
+    const remaining = session.fields.slice(1);
+    state.templateFillSession = remaining.length ? {
+      pagePath: session.pagePath,
+      fields: remaining,
+    } : null;
+    clearPropertyDraft();
+    if (page && openTemplateFillDraft(page)) {
+      renderPageProperties();
+      return true;
+    }
+    renderPageProperties();
+    setNoteStatus("Template fields complete.");
+    return Boolean(skipped);
+  }
+
+  function currentTemplatePropertyKindHints(): Record<string, FrontmatterKind> {
+    const page = currentPageView();
+    const hints = templatePropertyKindHints(page ? page.frontmatter : null, vaultTemplates());
+    const session = reconcileTemplateFillSession(page);
+    if (!session) {
+      return hints;
+    }
+    return {
+      ...hints,
+      ...templateFieldKindHints(session.fields),
+    };
+  }
+
+  function currentPropertyKindHint(key: string): FrontmatterKind | undefined {
+    const normalizedKey = String(key || "").trim();
+    if (!normalizedKey) {
+      return undefined;
+    }
+    const hints = currentTemplatePropertyKindHints();
+    return hints[normalizedKey];
+  }
+
   function clearPropertyDraft() {
     state.editingPropertyKey = "";
     state.propertyTypeMenuKey = "";
@@ -1927,7 +2083,7 @@ interface TreeContextMenuState {
 
   function setPropertyDraft(key: string, value: FrontmatterValue, originalKey: string): void {
     state.editingPropertyKey = originalKey || key || "__new__";
-    state.propertyDraft = makePropertyDraft(key, value, originalKey);
+    state.propertyDraft = makePropertyDraft(key, value, originalKey, currentPropertyKindHint(key));
   }
 
   function propertyMenuKey(row: PropertyRow | null): string {
@@ -1950,13 +2106,12 @@ interface TreeContextMenuState {
       if (!draft) {
         return;
       }
-      draft.kind = kind;
-      if (kind === "list" && !Array.isArray(draft.list)) {
-        draft.list = [];
-      }
-      if (kind === "bool") {
-        draft.text = draft.text === "true" ? "true" : "false";
-      }
+      const nextDraft = applyPropertyDraftKind(draft, kind);
+      state.propertyDraft = !String(nextDraft.key || "").trim()
+        ? (kind === "tags"
+          ? { ...nextDraft, key: "tags" }
+          : (kind === "notification" ? { ...nextDraft, key: "notification" } : nextDraft))
+        : nextDraft;
       state.propertyTypeMenuKey = "";
       renderPageProperties();
       return;
@@ -1966,7 +2121,7 @@ interface TreeContextMenuState {
     patchCurrentPageFrontmatter({
       frontmatter: {
         set: {
-          [row.key]: coercePropertyValue(kind, row.rawValue),
+          [row.key]: coercePropertyValue(kind, row.rawValue, row.key),
         },
       },
     }).catch(function (error) {
@@ -1994,7 +2149,7 @@ interface TreeContextMenuState {
       body: JSON.stringify(payload),
     });
 
-    await Promise.all([loadPages(), loadTasks(), loadPageDetail(state.selectedPage, true)]);
+    await Promise.all([loadPages(), loadTasks(), loadPageDetail(state.selectedPage, true, false)]);
   }
 
   function startAddProperty() {
@@ -2011,7 +2166,6 @@ interface TreeContextMenuState {
         remove: [key],
       },
     });
-    clearPropertyDraft();
   }
 
   function startRenameProperty(row: PropertyRow | null): void {
@@ -2030,12 +2184,27 @@ interface TreeContextMenuState {
       setNoteStatus("Frontmatter key is required.");
       return;
     }
+    if (isTemplateMetadataKey(key)) {
+      setNoteStatus("Template metadata keys are reserved.");
+      return;
+    }
 
     const value = propertyDraftValue(state.propertyDraft);
+    const guidedField = currentTemplateFillField(state.currentPage);
+    if (
+      guidedField &&
+      String(guidedField.key || "").trim() === key &&
+      (value === "" || (Array.isArray(value) && value.length === 0))
+    ) {
+      skipCurrentTemplateFillField();
+      return;
+    }
     const setPayload: Record<string, FrontmatterValue> = {};
     setPayload[key] = value;
 
-    const remove = state.editingPropertyKey && state.editingPropertyKey !== key ? [state.editingPropertyKey] : [];
+    const remove = state.editingPropertyKey && state.editingPropertyKey !== key && state.editingPropertyKey !== "__new__"
+      ? [state.editingPropertyKey]
+      : [];
 
     await patchCurrentPageFrontmatter({
       frontmatter: {
@@ -2043,8 +2212,6 @@ interface TreeContextMenuState {
         remove: remove,
       },
     });
-
-    clearPropertyDraft();
   }
 
   function saveExistingPropertyValue(key: string, value: FrontmatterValue): Promise<void> {
@@ -2058,9 +2225,13 @@ interface TreeContextMenuState {
   }
   function renderPageProperties() {
     const page = currentPageView();
+    if (els.propertyActions) {
+      els.propertyActions.classList.toggle("hidden", state.sourceOpen || state.editingPropertyKey === "__new__");
+    }
     renderPagePropertiesUI({
       container: els.pageProperties,
       pageFrontmatter: page ? page.frontmatter : null,
+      propertyKindHints: currentTemplatePropertyKindHints(),
       editingPropertyKey: state.editingPropertyKey,
       propertyTypeMenuKey: state.propertyTypeMenuKey,
       propertyDraft: state.propertyDraft,
@@ -2119,9 +2290,95 @@ interface TreeContextMenuState {
     renderHelpShortcutsUI(els, state.settings.preferences);
   }
 
+  function currentHotkeyPreferencesFromInputs(): ClientPreferences["hotkeys"] {
+    return {
+      quickSwitcher: canonicalizeHotkey(String(els.settingsQuickSwitcher.value || "").trim()),
+      globalSearch: canonicalizeHotkey(String(els.settingsGlobalSearch.value || "").trim()),
+      commandPalette: canonicalizeHotkey(String(els.settingsCommandPalette.value || "").trim()),
+      quickNote: canonicalizeHotkey(String(els.settingsQuickNote.value || "").trim()),
+      help: canonicalizeHotkey(String(els.settingsHelp.value || "").trim()),
+      saveCurrentPage: canonicalizeHotkey(String(els.settingsSaveCurrentPage.value || "").trim()),
+      toggleRawMode: canonicalizeHotkey(String(els.settingsToggleRawMode.value || "").trim()),
+      toggleTaskDone: canonicalizeHotkey(String(els.settingsToggleTaskDone.value || "").trim()),
+    };
+  }
+
+  function renderSettingsHotkeyHints(): void {
+    renderSettingsHotkeyHintsUI(els, currentHotkeyPreferencesFromInputs());
+  }
+
   function renderSettingsForm() {
     renderSettingsFormUI(state, els);
+    renderSettingsHotkeyHints();
     els.settingsStatus.textContent = "";
+  }
+
+  function settingsHotkeyInput(hotkeyID: keyof ClientPreferences["hotkeys"]): HTMLInputElement {
+    switch (hotkeyID) {
+      case "quickSwitcher":
+        return els.settingsQuickSwitcher;
+      case "globalSearch":
+        return els.settingsGlobalSearch;
+      case "commandPalette":
+        return els.settingsCommandPalette;
+      case "quickNote":
+        return els.settingsQuickNote;
+      case "help":
+        return els.settingsHelp;
+      case "saveCurrentPage":
+        return els.settingsSaveCurrentPage;
+      case "toggleRawMode":
+        return els.settingsToggleRawMode;
+      case "toggleTaskDone":
+        return els.settingsToggleTaskDone;
+    }
+  }
+
+  function bindSettingsHotkeyInputs(): void {
+    hotkeyDefinitions().forEach(function (definition) {
+      const input = settingsHotkeyInput(definition.id);
+      input.setAttribute("aria-label", definition.label + " hotkey");
+      on(input, "focus", function () {
+        input.dataset.recording = "true";
+        renderSettingsHotkeyHints();
+      });
+      on(input, "blur", function () {
+        input.value = canonicalizeHotkey(input.value);
+        delete input.dataset.recording;
+        renderSettingsHotkeyHints();
+      });
+      on(input, "input", function () {
+        renderSettingsHotkeyHints();
+      });
+      on(input, "keydown", function (rawEvent) {
+        const event = rawEvent as KeyboardEvent;
+        if (event.key === "Tab") {
+          return;
+        }
+        const key = String(event.key || "");
+        const shouldCapture = Boolean(
+          event.ctrlKey ||
+          event.metaKey ||
+          event.altKey ||
+          key === "Enter" ||
+          key === "Escape" ||
+          (/^F\d+$/i).test(key) ||
+          (event.shiftKey && key.length === 1 && /[^a-z0-9]/i.test(key))
+        );
+        if (!shouldCapture) {
+          return;
+        }
+        event.stopPropagation();
+        const binding = hotkeyFromEvent(event);
+        if (!binding) {
+          event.preventDefault();
+          return;
+        }
+        event.preventDefault();
+        input.value = binding;
+        renderSettingsHotkeyHints();
+      });
+    });
   }
 
   function setSettingsSnapshot(snapshot: SettingsResponse): void {
@@ -2528,6 +2785,7 @@ interface TreeContextMenuState {
       }
       clearAutosaveTimer();
       clearPropertyDraft();
+      const templateFillActive = openTemplateFillDraft(page);
       state.selectedSavedQueryPayload = null;
       els.detailPath.textContent = page.page || page.path || pagePath;
       setNoteHeadingValue(page.title || page.page || pagePath, true);
@@ -2552,7 +2810,7 @@ interface TreeContextMenuState {
         page.rawMarkdown || ""
       );
       renderNoteStudio();
-      if (shouldFocusEditor && state.markdownEditorApi && !blockingOverlayOpen(els) && !inlineTableEditorOpen()) {
+      if (shouldFocusEditor && !templateFillActive && state.markdownEditorApi && !blockingOverlayOpen(els) && !inlineTableEditorOpen()) {
         state.markdownEditorApi.setHighlightedLine(
           typeof pendingLineFocus === "number" && pendingLineFocus > 0 ? pendingLineFocus : null
         );
@@ -2571,7 +2829,7 @@ interface TreeContextMenuState {
           state.markdownEditorApi.setHighlightedLine(null);
           focusEditorAtBodyPosition(firstEditableLineIndex(state.currentMarkdown), 0);
         }
-      } else if (shouldFocusEditor && state.sourceOpen && !blockingOverlayOpen(els) && !inlineTableEditorOpen()) {
+      } else if (shouldFocusEditor && !templateFillActive && state.sourceOpen && !blockingOverlayOpen(els) && !inlineTableEditorOpen()) {
         window.setTimeout(function () {
           if (els.markdownEditor) {
             focusMarkdownEditor(state, els, {preventScroll: true});
@@ -2997,10 +3255,57 @@ interface TreeContextMenuState {
     setHelpOpen(false);
   }
 
+  function resetSettingsTemplateDrafts(): void {
+    state.settingsTemplateDrafts = cloneNoteTemplates(state.settings.preferences.templates);
+  }
+
+  function updateSettingsTemplateDrafts(updater: (templates: NoteTemplate[]) => NoteTemplate[]): void {
+    state.settingsTemplateDrafts = cloneNoteTemplates(updater(cloneNoteTemplates(state.settingsTemplateDrafts)));
+  }
+
+  function templateDraftIndex(templateID: string): number {
+    return state.settingsTemplateDrafts.findIndex(function (template) {
+      return template.id === templateID;
+    });
+  }
+
+  function updateTemplateDraft(templateID: string, updater: (template: NoteTemplate) => NoteTemplate): void {
+    updateSettingsTemplateDrafts(function (templates) {
+      const index = templates.findIndex(function (template) {
+        return template.id === templateID;
+      });
+      if (index < 0) {
+        return templates;
+      }
+      const next = templates.slice();
+      next[index] = updater(next[index]);
+      return next;
+    });
+  }
+
+  function updateTemplateFieldDraft(
+    templateID: string,
+    fieldIndex: number,
+    updater: (field: NoteTemplate["fields"][number]) => NoteTemplate["fields"][number]
+  ): void {
+    updateTemplateDraft(templateID, function (template) {
+      if (fieldIndex < 0 || fieldIndex >= template.fields.length) {
+        return template;
+      }
+      const fields = template.fields.slice();
+      fields[fieldIndex] = updater(fields[fieldIndex]);
+      return {
+        ...template,
+        fields,
+      };
+    });
+  }
+
   function setSettingsOpen(open: boolean): void {
     if (open) {
       state.savedThemeId = currentThemeID();
       state.previewThemeId = currentThemeID();
+      resetSettingsTemplateDrafts();
       rememberNoteFocus();
       els.searchModalShell.classList.add("hidden");
       els.commandModalShell.classList.add("hidden");
@@ -3023,6 +3328,10 @@ interface TreeContextMenuState {
           focusWithoutScroll(els.settingsUserNtfyTopicUrl);
           return;
         }
+        if (state.settingsSection === "templates") {
+          focusWithoutScroll(els.settingsTemplateAdd);
+          return;
+        }
         if (state.settingsSection === "appearance") {
           focusWithoutScroll(els.settingsTheme);
           return;
@@ -3031,6 +3340,7 @@ interface TreeContextMenuState {
       });
       return;
     }
+    resetSettingsTemplateDrafts();
     els.settingsModalShell.classList.add("hidden");
   }
 
@@ -3097,11 +3407,13 @@ interface TreeContextMenuState {
         toggleRawMode: String(els.settingsToggleRawMode.value || "").trim(),
         toggleTaskDone: String(els.settingsToggleTaskDone.value || "").trim(),
       },
+      templates: cloneNoteTemplates(state.settingsTemplateDrafts),
     });
   }
 
   function applyClientPreferences(preferences: ClientPreferences): void {
     state.settings.preferences = cloneClientPreferences(preferences);
+    state.settingsTemplateDrafts = cloneNoteTemplates(state.settings.preferences.templates);
     state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
     syncHomePageForCurrentScope();
     state.savedThemeId = currentThemeID();
@@ -3213,6 +3525,7 @@ interface TreeContextMenuState {
       els: els,
       inputValue: els.quickSwitcherInput ? els.quickSwitcherInput.value : "",
       pages: state.pages,
+      templates: quickSwitcherTemplates(),
       selectedPage: state.selectedPage,
       onClose: closeQuickSwitcher,
       onOpenPage: function (pagePath) {
@@ -3221,6 +3534,11 @@ interface TreeContextMenuState {
       onCreatePage: function (pagePath) {
         createPage(pagePath).catch(function (error) {
           setNoteStatus("Create page failed: " + errorMessage(error));
+        });
+      },
+      onCreateTemplatePage: function (template, pagePath) {
+        createPageFromTemplate(pagePath, template).catch(function (error) {
+          setNoteStatus("Template create failed: " + errorMessage(error));
         });
       },
     });
@@ -3303,13 +3621,34 @@ interface TreeContextMenuState {
     state.searchTimer = window.setTimeout(runGlobalSearch, 120);
   }
 
-  async function createPage(pagePath: string): Promise<void> {
+  async function createPage(pagePath: string, initialMarkdown?: string): Promise<void> {
     return createPageRequest(applyCurrentScopePrefix(pagePath), {
       encodePath: encodePath,
       fetchJSON: fetchJSON,
       loadPages: loadPages,
       navigateToPage: navigateToPage,
-    });
+    }, initialMarkdown ? { rawMarkdown: initialMarkdown } : undefined);
+  }
+
+  async function createPageFromTemplate(pagePath: string, template: NoteTemplate): Promise<void> {
+    const targetPath = buildPagePathFromTemplate(template, pagePath);
+    if (!targetPath) {
+      return;
+    }
+    const scopedTargetPath = applyCurrentScopePrefix(targetPath);
+    if (hasPage(scopedTargetPath)) {
+      navigateToPage(scopedTargetPath, false);
+      return;
+    }
+    const templatePage = await fetchJSON<PageRecord>("/api/pages/" + encodePath(template.id));
+    const previousTemplateFillSession = state.templateFillSession;
+    beginTemplateFillSession(scopedTargetPath, template);
+    try {
+      await createPage(targetPath, buildMarkdownFromTemplate(scopedTargetPath, template, templatePage.rawMarkdown));
+    } catch (error) {
+      state.templateFillSession = previousTemplateFillSession;
+      throw error;
+    }
   }
 
   async function uploadDocument(file: File): Promise<DocumentRecord> {
@@ -3772,6 +4111,10 @@ interface TreeContextMenuState {
       state.settingsSection = "appearance";
       renderSettingsForm();
     });
+    on(els.settingsNavTemplates, "click", function () {
+      state.settingsSection = "templates";
+      renderSettingsForm();
+    });
     on(els.settingsNavNotifications, "click", function () {
       state.settingsSection = "notifications";
       renderSettingsForm();
@@ -3779,6 +4122,148 @@ interface TreeContextMenuState {
     on(els.settingsNavVault, "click", function () {
       state.settingsSection = "vault";
       renderSettingsForm();
+    });
+    on(els.settingsTemplateAdd, "click", function () {
+      const nextIndex = state.settingsTemplateDrafts.length + 1;
+      updateSettingsTemplateDrafts(function (templates) {
+        return templates.concat([createBlankNoteTemplate("New Template " + String(nextIndex))]);
+      });
+      renderSettingsForm();
+    });
+    on(els.settingsTemplateList, "click", function (event) {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const actionTarget = target ? target.closest<HTMLElement>("[data-template-action]") : null;
+      if (!actionTarget) {
+        return;
+      }
+      const templateID = String(actionTarget.getAttribute("data-template-id") || "").trim();
+      const fieldIndex = Number(actionTarget.getAttribute("data-template-field-index"));
+      const action = String(actionTarget.getAttribute("data-template-action") || "").trim();
+      if (!templateID) {
+        return;
+      }
+
+      if (action === "remove-template") {
+        updateSettingsTemplateDrafts(function (templates) {
+          return templates.filter(function (template) {
+            return template.id !== templateID;
+          });
+        });
+        renderSettingsForm();
+        return;
+      }
+
+      if (action === "add-field") {
+        updateTemplateDraft(templateID, function (template) {
+          return {
+            ...template,
+            fields: template.fields.concat([createBlankTemplateField()]),
+          };
+        });
+        renderSettingsForm();
+        return;
+      }
+
+      if (action === "remove-field" && Number.isFinite(fieldIndex)) {
+        updateTemplateDraft(templateID, function (template) {
+          return {
+            ...template,
+            fields: template.fields.filter(function (_field, index) {
+              return index !== fieldIndex;
+            }),
+          };
+        });
+        renderSettingsForm();
+      }
+    });
+    on(els.settingsTemplateList, "input", function (event) {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (!target) {
+        return;
+      }
+      const templateID = String(target.getAttribute("data-template-id") || "").trim();
+      if (!templateID) {
+        return;
+      }
+
+      const templateInput = String(target.getAttribute("data-template-input") || "").trim();
+      if (templateInput === "name" && target instanceof HTMLInputElement) {
+        updateTemplateDraft(templateID, function (template) {
+          return {
+            ...template,
+            name: target.value,
+          };
+        });
+        return;
+      }
+      if (templateInput === "folder" && target instanceof HTMLInputElement) {
+        updateTemplateDraft(templateID, function (template) {
+          return {
+            ...template,
+            folder: target.value,
+          };
+        });
+        return;
+      }
+
+      const fieldInput = String(target.getAttribute("data-template-field-input") || "").trim();
+      const fieldIndex = Number(target.getAttribute("data-template-field-index"));
+      if (!Number.isFinite(fieldIndex)) {
+        return;
+      }
+
+      if (fieldInput === "key" && target instanceof HTMLInputElement) {
+        updateTemplateFieldDraft(templateID, fieldIndex, function (field) {
+          return {
+            ...field,
+            key: target.value,
+          };
+        });
+        return;
+      }
+
+      if (fieldInput === "default" && target instanceof HTMLInputElement) {
+        updateTemplateFieldDraft(templateID, fieldIndex, function (field) {
+          return {
+            ...field,
+            defaultValue: coerceTemplateFieldDefaultValue(field.kind, target.value),
+          };
+        });
+      }
+    });
+    on(els.settingsTemplateList, "change", function (event) {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (!target) {
+        return;
+      }
+      const templateID = String(target.getAttribute("data-template-id") || "").trim();
+      const fieldIndex = Number(target.getAttribute("data-template-field-index"));
+      if (!templateID || !Number.isFinite(fieldIndex)) {
+        return;
+      }
+
+      const fieldInput = String(target.getAttribute("data-template-field-input") || "").trim();
+      if (fieldInput === "kind" && target instanceof HTMLSelectElement) {
+        updateTemplateFieldDraft(templateID, fieldIndex, function (field) {
+          const nextKind = target.value as FrontmatterKind;
+          return {
+            ...field,
+            kind: nextKind,
+            defaultValue: coerceTemplateFieldDefaultValue(nextKind, field.defaultValue),
+          };
+        });
+        renderSettingsForm();
+        return;
+      }
+
+      if (fieldInput === "default-bool" && target instanceof HTMLInputElement) {
+        updateTemplateFieldDraft(templateID, fieldIndex, function (field) {
+          return {
+            ...field,
+            defaultValue: target.checked,
+          };
+        });
+      }
     });
     on(els.openQuickSwitcher, "click", function () {
       setSessionMenuOpen(false);
@@ -4251,6 +4736,7 @@ interface TreeContextMenuState {
         els.settingsStatus.textContent = "Theme delete failed: " + errorMessage(error);
       });
     });
+    bindSettingsHotkeyInputs();
     on(els.saveSettings, "click", function () {
       persistSettings().catch(function (error) {
         els.settingsStatus.textContent = errorMessage(error);
@@ -4502,16 +4988,11 @@ interface TreeContextMenuState {
       });
       on(markdownEditorApi.host, "noterious:task-toggle", function (event) {
         const detail = (event as CustomEvent<TaskToggleDetail>).detail || {};
-        const bodyLineNumber = Number(detail.lineNumber) || 0;
-        if (!state.currentPage || !state.currentPage.tasks || !bodyLineNumber) {
-          return;
-        }
-        const split = splitFrontmatter(state.currentMarkdown);
-        const frontmatterLineCount = split.frontmatter ? split.frontmatter.split("\n").length - 1 : 0;
-        const rawLineNumber = frontmatterLineCount + bodyLineNumber;
-        const task = state.currentPage.tasks.find(function (item) {
-          return Number(item.line) === rawLineNumber;
-        });
+        const task = resolvePageTask(
+          state.currentPage,
+          detail.ref ? String(detail.ref) : "",
+          Number(detail.lineNumber) || 0
+        );
         if (task) {
           toggleTaskDone(task);
         }

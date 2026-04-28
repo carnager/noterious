@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   bodyPositionFromRawOffset,
+  frontmatterBodyStart,
   inferMarkdownTitle,
   markdownCodeFenceBlockAt,
   markdownTableBlockAt,
   parseFrontmatter,
   parseQueryFenceOptions,
   rawOffsetForBodyPosition,
+  renderedBodyBoundaryStart,
   renderInline,
   splitFrontmatter,
   wikiLinkAtCaret,
@@ -65,6 +67,25 @@ describe("markdown helpers", function () {
       lineIndex: 1,
       caret: 3,
     });
+  });
+
+  it("reports the body start offset after frontmatter", function () {
+    const markdown = "---\ntitle: Alpha\n---\n# Heading\nSecond line";
+    const offset = frontmatterBodyStart(markdown);
+
+    expect(offset).toBe(splitFrontmatter(markdown).frontmatter.length);
+    expect(markdown.slice(offset)).toBe("# Heading\nSecond line");
+    expect(frontmatterBodyStart("# Heading\nSecond line")).toBe(0);
+  });
+
+  it("treats blank lines after frontmatter as rendered safe space", function () {
+    const markdown = "---\ntitle: Alpha\n---\n\n## Heading\nSecond line";
+    const blankOnly = "---\ntitle: Alpha\n---\n\n";
+    const boundary = renderedBodyBoundaryStart(markdown);
+
+    expect(markdown.slice(boundary)).toBe("## Heading\nSecond line");
+    expect(renderedBodyBoundaryStart(blankOnly)).toBe(blankOnly.length);
+    expect(renderedBodyBoundaryStart("## Heading\nSecond line")).toBe(0);
   });
 
   it("parses fenced query options with quoted values", function () {

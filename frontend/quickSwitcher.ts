@@ -1,15 +1,18 @@
 import { pageLeafName, renderPaletteSections, type PaletteItem, type PaletteSection } from "./palette";
 import { normalizePageDraftPath } from "./commands";
-import type { PageSummary } from "./types";
+import { buildPagePathFromTemplate, templateFieldSummary } from "./noteTemplates";
+import type { NoteTemplate, PageSummary } from "./types";
 
 export interface RenderQuickSwitcherOptions {
   container: HTMLElement;
   inputValue: string;
   pages: PageSummary[];
+  templates: NoteTemplate[];
   selectedPage: string;
   onClose(): void;
   onOpenPage(pagePath: string): void;
   onCreatePage(pagePath: string): void;
+  onCreateTemplatePage(template: NoteTemplate, pagePath: string): void;
 }
 
 function scorePage(page: PageSummary, query: string, selectedPage: string): number {
@@ -39,6 +42,16 @@ function matchesPage(page: PageSummary, query: string): boolean {
   }
   const haystack = [page.path, page.title || ""].join(" ").toLowerCase();
   return haystack.indexOf(target) >= 0;
+}
+
+function hasPageAtPath(pages: PageSummary[], pagePath: string): boolean {
+  const normalizedPath = String(pagePath || "").trim().toLowerCase();
+  if (!normalizedPath) {
+    return false;
+  }
+  return pages.some(function (page) {
+    return String(page.path || "").trim().toLowerCase() === normalizedPath;
+  });
 }
 
 export function buildQuickSwitcherSections(
@@ -73,6 +86,25 @@ export function buildQuickSwitcherSections(
       }]
     : [];
 
+  const templateItems: PaletteItem[] = normalizedDraftPath
+    ? (Array.isArray(options.templates) ? options.templates : []).reduce(function (items, template) {
+      const targetPath = buildPagePathFromTemplate(template, normalizedDraftPath);
+      if (!targetPath || hasPageAtPath(options.pages, targetPath)) {
+        return items;
+      }
+      items.push({
+        title: "Create " + (template.name || "templated note"),
+        meta: targetPath,
+        snippet: templateFieldSummary(template, 4),
+        onSelect: function () {
+          options.onClose();
+          options.onCreateTemplatePage(template, targetPath);
+        },
+      });
+      return items;
+    }, [] as PaletteItem[])
+    : [];
+
   const recentTitle = query ? "Notes" : "Recent Notes";
   const noteItems = matchingPages.map(function (page): PaletteItem {
     const leaf = pageLeafName(page.path);
@@ -90,7 +122,7 @@ export function buildQuickSwitcherSections(
   return [
     {
       title: "Create",
-      items: createItems,
+      items: createItems.concat(templateItems),
     },
     {
       title: recentTitle,

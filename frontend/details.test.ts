@@ -11,6 +11,7 @@ import {
   deleteTask,
   loadPageDetailData,
   loadSavedQueryDetailData,
+  resolvePageTask,
   savePageMarkdown,
   saveTask,
   toggleTaskDone,
@@ -86,6 +87,39 @@ describe("detail helpers", function () {
     expect(loaded.page).toBe(page);
     expect(loaded.derived).toBe(derived);
     expect(loaded.focusOffset).toBe(rawOffsetForTaskLine(page.rawMarkdown, 3));
+  });
+
+  it("resolves page tasks by ref before falling back to raw line numbers", function () {
+    const page: PageRecord = {
+      page: "notes/alpha",
+      path: "notes/alpha",
+      title: "Alpha",
+      rawMarkdown: "---\ntitle: Alpha\n---\n\n- [ ] Follow up\n- [ ] Ship it\n",
+      frontmatter: { title: "Alpha" },
+      links: [],
+      tasks: [
+        {
+          ref: "task-1",
+          page: "notes/alpha",
+          line: 5,
+          text: "Follow up",
+          state: "todo",
+          done: false,
+        },
+        {
+          ref: "task-2",
+          page: "notes/alpha",
+          line: 6,
+          text: "Ship it",
+          state: "todo",
+          done: false,
+        },
+      ],
+    };
+
+    expect(resolvePageTask(page, "task-1", 6)?.ref).toBe("task-1");
+    expect(resolvePageTask(page, "", 5)?.ref).toBe("task-1");
+    expect(resolvePageTask(page, "missing", 6)?.ref).toBe("task-2");
   });
 
   it("loads saved query detail data including workbench payload", async function () {

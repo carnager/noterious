@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -88,6 +89,10 @@ func (s *Service) Poll(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list tasks: %w", err)
 	}
+	pages, err := s.index.ListPages(ctx)
+	if err != nil {
+		return fmt.Errorf("list pages: %w", err)
+	}
 	targets, err := s.auth.ListNotificationTargets(ctx)
 	if err != nil {
 		return fmt.Errorf("list notification targets: %w", err)
@@ -109,27 +114,31 @@ func (s *Service) Poll(ctx context.Context) error {
 		if task.Done {
 			continue
 		}
-		candidate, ok := notificationCandidate(task, now.Location())
+		candidate, ok := taskNotificationCandidate(task, now.Location())
 		if !ok {
 			continue
 		}
 		recipients := notificationTargetsForTask(task, targetsByUser, soleTarget, hasSoleTarget)
-		for _, target := range recipients {
-			activeKeys[notificationKey(candidate.Key, target.Username)] = struct{}{}
+		delivered, err := s.deliverCandidate(ctx, candidate, recipients, now, activeKeys)
+		if err != nil {
+			return err
 		}
-		if candidate.At.After(now) {
+		updated = updated || delivered
+	}
+	for _, page := range pages {
+		if isTemplatePage(page.Path) {
 			continue
 		}
-		for _, target := range recipients {
-			key := notificationKey(candidate.Key, target.Username)
-			if s.wasSent(key) {
-				continue
-			}
-			if err := s.send(ctx, target, candidate); err != nil {
+		recipients := notificationTargetsForPage(page, targetsByUser, soleTarget, hasSoleTarget)
+		if len(recipients) == 0 {
+			continue
+		}
+		for _, candidate := range noteNotificationCandidates(page, now.Location()) {
+			delivered, err := s.deliverCandidate(ctx, candidate, recipients, now, activeKeys)
+			if err != nil {
 				return err
 			}
-			s.markSent(key, now.UTC().Format(time.RFC3339Nano))
-			updated = true
+			updated = updated || delivered
 		}
 	}
 
@@ -163,16 +172,18 @@ type stateFile struct {
 type candidateNotification struct {
 	Key      string
 	Kind     string
-	Task     index.Task
 	At       time.Time
 	Raw      string
 	Title    string
 	Body     string
 	Tags     string
 	Priority string
+	Page     string
+	TaskRef  string
+	FieldKey string
 }
 
-func notificationCandidate(task index.Task, loc *time.Location) (candidateNotification, bool) {
+func taskNotificationCandidate(task index.Task, loc *time.Location) (candidateNotification, bool) {
 	if task.Remind == nil || strings.TrimSpace(*task.Remind) == "" {
 		return candidateNotification{}, false
 	}
@@ -180,10 +191,39 @@ func notificationCandidate(task index.Task, loc *time.Location) (candidateNotifi
 	if !ok {
 		return candidateNotification{}, false
 	}
-	return buildCandidate(task, "remind", raw, at), true
+	return buildTaskCandidate(task, "remind", raw, at), true
 }
 
-func buildCandidate(task index.Task, kind string, raw string, at time.Time) candidateNotification {
+func noteNotificationCandidates(page index.PageSummary, loc *time.Location) []candidateNotification {
+	frontmatter := page.Frontmatter
+	if len(frontmatter) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(frontmatter))
+	for key := range frontmatter {
+		if isNotificationFrontmatterKey(key) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+
+	candidates := make([]candidateNotification, 0, len(keys))
+	for _, key := range keys {
+		raw, ok := frontmatterStringValue(frontmatter[key])
+		if !ok {
+			continue
+		}
+		at, ok := parseNotificationTime(raw, 9, loc)
+		if !ok {
+			continue
+		}
+		candidates = append(candidates, buildPageCandidate(page, key, raw, at))
+	}
+	return candidates
+}
+
+func buildTaskCandidate(task index.Task, kind string, raw string, at time.Time) candidateNotification {
 	title := "Task due"
 	tags := "calendar"
 	priority := "default"
@@ -209,13 +249,48 @@ func buildCandidate(task index.Task, kind string, raw string, at time.Time) cand
 	return candidateNotification{
 		Key:      fmt.Sprintf("%s|%s|%s", task.Ref, kind, at.UTC().Format(time.RFC3339)),
 		Kind:     kind,
-		Task:     task,
 		At:       at,
 		Raw:      raw,
 		Title:    title,
 		Body:     strings.Join(parts, "\n"),
 		Tags:     tags,
 		Priority: priority,
+		Page:     task.Page,
+		TaskRef:  task.Ref,
+	}
+}
+
+func buildPageCandidate(page index.PageSummary, fieldKey string, raw string, at time.Time) candidateNotification {
+	titleText := strings.TrimSpace(page.Title)
+	if titleText == "" {
+		titleText = strings.TrimSpace(page.Path)
+	}
+
+	parts := make([]string, 0, 4)
+	if titleText != "" {
+		parts = append(parts, titleText)
+	}
+	if page.Path != "" && page.Path != titleText {
+		parts = append(parts, "Page: "+page.Path)
+	}
+	if fieldKey != "" && !isGenericNotificationField(fieldKey) {
+		parts = append(parts, "Field: "+fieldKey)
+	}
+	if strings.TrimSpace(raw) != "" {
+		parts = append(parts, "Reminder: "+strings.TrimSpace(raw))
+	}
+
+	return candidateNotification{
+		Key:      fmt.Sprintf("page:%s|%s|%s", page.Path, fieldKey, at.UTC().Format(time.RFC3339)),
+		Kind:     "notification",
+		At:       at,
+		Raw:      raw,
+		Title:    "Note reminder",
+		Body:     strings.Join(parts, "\n"),
+		Tags:     "alarm_clock",
+		Priority: "high",
+		Page:     page.Path,
+		FieldKey: fieldKey,
 	}
 }
 
@@ -228,6 +303,9 @@ func parseNotificationTime(raw string, dateOnlyHour int, loc *time.Location) (ti
 		return time.Date(parsed.Year(), parsed.Month(), parsed.Day(), dateOnlyHour, 0, 0, 0, loc), true
 	}
 	if parsed, err := time.ParseInLocation("2006-01-02 15:04", text, loc); err == nil {
+		return parsed, true
+	}
+	if parsed, err := time.ParseInLocation("2006-01-02T15:04", text, loc); err == nil {
 		return parsed, true
 	}
 	if parsed, err := time.Parse(time.RFC3339, text); err == nil {
@@ -309,11 +387,14 @@ func (s *Service) send(ctx context.Context, target auth.NotificationTarget, cand
 	request.Header.Set("Title", candidate.Title)
 	request.Header.Set("Tags", candidate.Tags)
 	request.Header.Set("Priority", candidate.Priority)
-	if candidate.Task.Page != "" {
-		request.Header.Set("X-Task-Page", candidate.Task.Page)
+	if candidate.Page != "" {
+		request.Header.Set("X-Note-Page", candidate.Page)
 	}
-	if candidate.Task.Ref != "" {
-		request.Header.Set("X-Task-Ref", candidate.Task.Ref)
+	if candidate.TaskRef != "" {
+		request.Header.Set("X-Task-Ref", candidate.TaskRef)
+	}
+	if candidate.FieldKey != "" {
+		request.Header.Set("X-Note-Field", candidate.FieldKey)
 	}
 	if target.Token != "" {
 		request.Header.Set("Authorization", "Bearer "+target.Token)
@@ -328,12 +409,42 @@ func (s *Service) send(ctx context.Context, target auth.NotificationTarget, cand
 	}
 	slog.Info("ntfy notification sent",
 		"username", target.Username,
-		"task_ref", candidate.Task.Ref,
-		"page", candidate.Task.Page,
+		"task_ref", candidate.TaskRef,
+		"page", candidate.Page,
+		"field", candidate.FieldKey,
 		"kind", candidate.Kind,
 		"at", candidate.At.Format(time.RFC3339),
 	)
 	return nil
+}
+
+func (s *Service) deliverCandidate(
+	ctx context.Context,
+	candidate candidateNotification,
+	recipients []auth.NotificationTarget,
+	now time.Time,
+	activeKeys map[string]struct{},
+) (bool, error) {
+	for _, target := range recipients {
+		activeKeys[notificationKey(candidate.Key, target.Username)] = struct{}{}
+	}
+	if candidate.At.After(now) {
+		return false, nil
+	}
+
+	updated := false
+	for _, target := range recipients {
+		key := notificationKey(candidate.Key, target.Username)
+		if s.wasSent(key) {
+			continue
+		}
+		if err := s.send(ctx, target, candidate); err != nil {
+			return false, err
+		}
+		s.markSent(key, now.UTC().Format(time.RFC3339Nano))
+		updated = true
+	}
+	return updated, nil
 }
 
 func notificationTargetsForTask(
@@ -349,9 +460,28 @@ func notificationTargetsForTask(
 		return nil
 	}
 
-	recipients := make([]auth.NotificationTarget, 0, len(task.Who))
-	seen := make(map[string]struct{}, len(task.Who))
-	for _, raw := range task.Who {
+	return notificationTargetsForNames(task.Who, targetsByUser)
+}
+
+func notificationTargetsForPage(
+	page index.PageSummary,
+	targetsByUser map[string]auth.NotificationTarget,
+	soleTarget auth.NotificationTarget,
+	hasSoleTarget bool,
+) []auth.NotificationTarget {
+	if recipients := notificationTargetsForNames(frontmatterStringValues(page.Frontmatter["who"]), targetsByUser); len(recipients) > 0 {
+		return recipients
+	}
+	if hasSoleTarget {
+		return []auth.NotificationTarget{soleTarget}
+	}
+	return nil
+}
+
+func notificationTargetsForNames(values []string, targetsByUser map[string]auth.NotificationTarget) []auth.NotificationTarget {
+	recipients := make([]auth.NotificationTarget, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
 		username := normalizeUsername(raw)
 		if username == "" {
 			continue
@@ -367,6 +497,86 @@ func notificationTargetsForTask(
 		recipients = append(recipients, target)
 	}
 	return recipients
+}
+
+func isNotificationFrontmatterKey(key string) bool {
+	normalized := strings.TrimSpace(strings.ToLower(key))
+	if normalized == "" {
+		return false
+	}
+	return normalized == "notification" ||
+		normalized == "notify" ||
+		normalized == "remind" ||
+		normalized == "reminder" ||
+		strings.Contains(normalized, "_notification") ||
+		strings.Contains(normalized, "_notify") ||
+		strings.Contains(normalized, "_remind") ||
+		strings.Contains(normalized, "_reminder") ||
+		strings.HasSuffix(normalized, "-notification") ||
+		strings.HasSuffix(normalized, "-notify") ||
+		strings.HasSuffix(normalized, "-remind") ||
+		strings.HasSuffix(normalized, "-reminder") ||
+		strings.HasPrefix(normalized, "notification_") ||
+		strings.HasPrefix(normalized, "notify_") ||
+		strings.HasPrefix(normalized, "remind_") ||
+		strings.HasPrefix(normalized, "reminder_")
+}
+
+func isGenericNotificationField(key string) bool {
+	switch strings.TrimSpace(strings.ToLower(key)) {
+	case "notification", "notify", "remind", "reminder":
+		return true
+	default:
+		return false
+	}
+}
+
+func frontmatterStringValue(value any) (string, bool) {
+	text, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", false
+	}
+	return text, true
+}
+
+func frontmatterStringValues(value any) []string {
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, entry := range typed {
+			text := strings.TrimSpace(fmt.Sprint(entry))
+			if text != "" {
+				values = append(values, text)
+			}
+		}
+		return values
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return nil
+		}
+		parts := strings.Split(typed, ",")
+		values := make([]string, 0, len(parts))
+		for _, part := range parts {
+			text := strings.TrimSpace(part)
+			if text != "" {
+				values = append(values, text)
+			}
+		}
+		return values
+	default:
+		return nil
+	}
+}
+
+func isTemplatePage(pagePath string) bool {
+	normalized := strings.TrimSpace(pagePath)
+	return strings.HasPrefix(normalized, "_templates/") || strings.Contains(normalized, "/_templates/")
 }
 
 func notificationKey(candidateKey string, username string) string {

@@ -2,7 +2,7 @@ export type FrontmatterScalar = string | boolean;
 export type FrontmatterValue = FrontmatterScalar | FrontmatterScalar[];
 export type FrontmatterMap = Record<string, FrontmatterValue>;
 export type QueryRow = Record<string, unknown>;
-export type FrontmatterKind = "text" | "list" | "bool" | "date" | "datetime";
+export type FrontmatterKind = "text" | "list" | "tags" | "bool" | "date" | "datetime" | "notification";
 
 export interface PageIdentity {
   page?: string;
@@ -193,10 +193,24 @@ export interface Hotkeys {
   toggleTaskDone: string;
 }
 
+export interface NoteTemplateField {
+  key: string;
+  kind: FrontmatterKind;
+  defaultValue: FrontmatterValue;
+}
+
+export interface NoteTemplate {
+  id: string;
+  name: string;
+  folder: string;
+  fields: NoteTemplateField[];
+}
+
 export interface Preferences {
   hotkeys: Hotkeys;
   ui: UISettings;
   vaults: VaultPreferences;
+  templates: NoteTemplate[];
 }
 
 export type ThemeSource = "builtin" | "custom";

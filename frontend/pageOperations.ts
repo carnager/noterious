@@ -20,6 +20,10 @@ export interface PageOperationsCallbacks {
   setNoteStatus: (message: string) => void;
 }
 
+export interface CreatePageOptions {
+  rawMarkdown?: string;
+}
+
 function remapPathPrefix(value: string, fromPrefix: string, toPrefix: string): string {
   const source = normalizePageDraftPath(value);
   if (!source) {
@@ -52,6 +56,7 @@ function remapExpandedFolderKeys(expandedPageFolders: Record<string, boolean>, f
 export async function createPage(
   pagePath: string,
   callbacks: Pick<PageOperationsCallbacks, "encodePath" | "fetchJSON" | "loadPages" | "navigateToPage">,
+  options?: CreatePageOptions,
 ): Promise<void> {
   const normalized = normalizePageDraftPath(pagePath);
   if (!normalized) {
@@ -59,7 +64,9 @@ export async function createPage(
   }
 
   const leaf = pageTitleFromPath(normalized);
-  const initialMarkdown = leaf ? "# " + leaf + "\n" : "";
+  const initialMarkdown = typeof options?.rawMarkdown === "string"
+    ? options.rawMarkdown
+    : (leaf ? "# " + leaf + "\n" : "");
 
   await callbacks.fetchJSON<unknown>("/api/pages/" + callbacks.encodePath(normalized), {
     method: "PUT",

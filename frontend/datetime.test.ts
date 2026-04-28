@@ -48,6 +48,7 @@ describe("datetime formatting", function () {
     setDateTimeDisplayFormat("iso");
     expect(formatMaybeDateValue("due", "2026-04-24")).toBe("2026-04-24");
     expect(formatMaybeDateValue("remind", "09:15")).toBe("09:15");
+    expect(formatMaybeDateValue("birthday_notification", "2026-04-24 09:15")).toBe("2026-04-24 09:15");
     expect(formatMaybeDateValue("title", "2026-04-24")).toBe("2026-04-24");
   });
 

@@ -38,6 +38,31 @@ export async function toggleTaskDone(task: TaskRecord): Promise<void> {
   });
 }
 
+export function resolvePageTask(page: PageRecord | null, ref: string, lineNumber: number): TaskRecord | null {
+  if (!page || !Array.isArray(page.tasks)) {
+    return null;
+  }
+
+  const normalizedRef = String(ref || "").trim();
+  if (normalizedRef) {
+    const matchedByRef = page.tasks.find(function (task) {
+      return String(task.ref || "") === normalizedRef;
+    });
+    if (matchedByRef) {
+      return matchedByRef;
+    }
+  }
+
+  const normalizedLineNumber = Number(lineNumber) || 0;
+  if (!normalizedLineNumber) {
+    return null;
+  }
+
+  return page.tasks.find(function (task) {
+    return Number(task.line) === normalizedLineNumber;
+  }) || null;
+}
+
 export async function loadPageDetailData(
   pagePath: string,
   encodePath: (pagePath: string) => string,
@@ -51,11 +76,7 @@ export async function loadPageDetailData(
 
   let targetLine = pendingPageLineFocus;
   if (pendingPageTaskRef) {
-    const matchedTask = Array.isArray(page.tasks)
-      ? page.tasks.find(function (task) {
-          return String(task.ref || "") === pendingPageTaskRef;
-        })
-      : null;
+    const matchedTask = resolvePageTask(page, pendingPageTaskRef, targetLine || 0);
     if (matchedTask && matchedTask.line) {
       targetLine = matchedTask.line;
     }

@@ -1,19 +1,30 @@
+import { cloneNoteTemplates, normalizeNoteTemplates } from "./noteTemplates";
+import { canonicalizeHotkey, defaultHotkeys } from "./hotkeys";
 import type { Preferences as ClientPreferences } from "./types";
 
 export const clientPreferencesStorageKey = "noterious.client-preferences";
 
+const legacyDefaultHotkeyValues = {
+  quickSwitcher: "Mod+K",
+  globalSearch: "Mod+Shift+K",
+  commandPalette: "Mod+Shift+P",
+  quickNote: "",
+  help: "?",
+  saveCurrentPage: "Mod+S",
+  toggleRawMode: "Mod+E",
+  toggleTaskDone: "Mod+Enter",
+};
+
+function usesLegacyDefaultHotkeys(hotkeys: ClientPreferences["hotkeys"]): boolean {
+  return Object.entries(legacyDefaultHotkeyValues).every(function ([key, value]) {
+    const hotkeyID = key as keyof ClientPreferences["hotkeys"];
+    return canonicalizeHotkey(hotkeys[hotkeyID]) === canonicalizeHotkey(value);
+  });
+}
+
 export function defaultClientPreferences(): ClientPreferences {
   return {
-    hotkeys: {
-      quickSwitcher: "Mod+K",
-      globalSearch: "Mod+Shift+K",
-      commandPalette: "Mod+Shift+P",
-      quickNote: "",
-      help: "?",
-      saveCurrentPage: "Mod+S",
-      toggleRawMode: "Mod+E",
-      toggleTaskDone: "Mod+Enter",
-    },
+    hotkeys: defaultHotkeys(),
     ui: {
       fontFamily: "mono",
       fontSize: "16",
@@ -25,6 +36,7 @@ export function defaultClientPreferences(): ClientPreferences {
       rootHomePage: "",
       scopeHomePages: {},
     },
+    templates: [],
   };
 }
 
@@ -57,6 +69,7 @@ export function cloneClientPreferences(input: ClientPreferences): ClientPreferen
         })
       ),
     },
+    templates: cloneNoteTemplates(input.templates),
   };
 }
 
@@ -72,6 +85,7 @@ export function normalizeClientPreferences(input: unknown): ClientPreferences {
   const vaultsSource = source.vaults && typeof source.vaults === "object"
     ? source.vaults as Record<string, unknown>
     : {};
+  const templatesSource = Array.isArray(source.templates) ? source.templates : [];
   const scopeHomePagesSource = vaultsSource.scopeHomePages && typeof vaultsSource.scopeHomePages === "object"
     ? vaultsSource.scopeHomePages as Record<string, unknown>
     : {};
@@ -80,18 +94,19 @@ export function normalizeClientPreferences(input: unknown): ClientPreferences {
   const fontSize = String(uiSource.fontSize ?? defaults.ui.fontSize).trim();
   const dateTimeFormat = String(uiSource.dateTimeFormat ?? defaults.ui.dateTimeFormat).trim();
   const themeId = String(uiSource.themeId ?? defaults.ui.themeId).trim();
+  const normalizedHotkeys = {
+    quickSwitcher: typeof hotkeysSource.quickSwitcher === "string" ? canonicalizeHotkey(hotkeysSource.quickSwitcher) : defaults.hotkeys.quickSwitcher,
+    globalSearch: typeof hotkeysSource.globalSearch === "string" ? canonicalizeHotkey(hotkeysSource.globalSearch) : defaults.hotkeys.globalSearch,
+    commandPalette: typeof hotkeysSource.commandPalette === "string" ? canonicalizeHotkey(hotkeysSource.commandPalette) : defaults.hotkeys.commandPalette,
+    quickNote: typeof hotkeysSource.quickNote === "string" ? canonicalizeHotkey(hotkeysSource.quickNote) : defaults.hotkeys.quickNote,
+    help: typeof hotkeysSource.help === "string" ? canonicalizeHotkey(hotkeysSource.help) : defaults.hotkeys.help,
+    saveCurrentPage: typeof hotkeysSource.saveCurrentPage === "string" ? canonicalizeHotkey(hotkeysSource.saveCurrentPage) : defaults.hotkeys.saveCurrentPage,
+    toggleRawMode: typeof hotkeysSource.toggleRawMode === "string" ? canonicalizeHotkey(hotkeysSource.toggleRawMode) : defaults.hotkeys.toggleRawMode,
+    toggleTaskDone: typeof hotkeysSource.toggleTaskDone === "string" ? canonicalizeHotkey(hotkeysSource.toggleTaskDone) : defaults.hotkeys.toggleTaskDone,
+  };
 
   return {
-    hotkeys: {
-      quickSwitcher: typeof hotkeysSource.quickSwitcher === "string" ? hotkeysSource.quickSwitcher.trim() : defaults.hotkeys.quickSwitcher,
-      globalSearch: typeof hotkeysSource.globalSearch === "string" ? hotkeysSource.globalSearch.trim() : defaults.hotkeys.globalSearch,
-      commandPalette: typeof hotkeysSource.commandPalette === "string" ? hotkeysSource.commandPalette.trim() : defaults.hotkeys.commandPalette,
-      quickNote: typeof hotkeysSource.quickNote === "string" ? hotkeysSource.quickNote.trim() : defaults.hotkeys.quickNote,
-      help: typeof hotkeysSource.help === "string" ? hotkeysSource.help.trim() : defaults.hotkeys.help,
-      saveCurrentPage: typeof hotkeysSource.saveCurrentPage === "string" ? hotkeysSource.saveCurrentPage.trim() : defaults.hotkeys.saveCurrentPage,
-      toggleRawMode: typeof hotkeysSource.toggleRawMode === "string" ? hotkeysSource.toggleRawMode.trim() : defaults.hotkeys.toggleRawMode,
-      toggleTaskDone: typeof hotkeysSource.toggleTaskDone === "string" ? hotkeysSource.toggleTaskDone.trim() : defaults.hotkeys.toggleTaskDone,
-    },
+    hotkeys: usesLegacyDefaultHotkeys(normalizedHotkeys) ? defaultHotkeys() : normalizedHotkeys,
     ui: {
       fontFamily: fontFamily === "sans" || fontFamily === "serif" ? fontFamily : "mono",
       fontSize: ["14", "15", "16", "17", "18", "19", "20"].includes(fontSize) ? fontSize : defaults.ui.fontSize,
@@ -109,6 +124,7 @@ export function normalizeClientPreferences(input: unknown): ClientPreferences {
         })
       ),
     },
+    templates: normalizeNoteTemplates(templatesSource),
   };
 }
 

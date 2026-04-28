@@ -512,6 +512,7 @@
         <div class="settings-layout">
           <aside class="settings-sidebar" aria-label="Settings sections">
             <button type="button" class="settings-nav-button active" id="settings-nav-appearance">Appearance &amp; Hotkeys</button>
+            <button type="button" class="settings-nav-button" id="settings-nav-templates">Templates</button>
             <button type="button" class="settings-nav-button" id="settings-nav-notifications">Notifications</button>
             <button type="button" class="settings-nav-button hidden" id="settings-nav-vault">Vault Root &amp; Polling</button>
           </aside>
@@ -597,37 +598,46 @@
               </label>
               <label class="search">
                 <span>Quick Switcher</span>
-                <input id="settings-hotkey-quick-switcher" type="text" placeholder="Mod+K" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                <input id="settings-hotkey-quick-switcher" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
               <label class="search">
                 <span>Full Search</span>
-                <input id="settings-hotkey-global-search" type="text" placeholder="Mod+Shift+K" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                <input id="settings-hotkey-global-search" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
               <label class="search">
                 <span>Command Palette</span>
-                <input id="settings-hotkey-command-palette" type="text" placeholder="Mod+Shift+P" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                <input id="settings-hotkey-command-palette" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
               <label class="search">
                 <span>Open Daily Note</span>
-                <input id="settings-hotkey-quick-note" type="text" placeholder="Optional" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                <input id="settings-hotkey-quick-note" type="text" placeholder="Not set" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
               <label class="search">
                 <span>Open Help</span>
-                <input id="settings-hotkey-help" type="text" placeholder="?" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                <input id="settings-hotkey-help" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
               <label class="search">
                 <span>Save Current Note</span>
-                <input id="settings-hotkey-save-current-page" type="text" placeholder="Mod+S" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                <input id="settings-hotkey-save-current-page" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
               <label class="search">
                 <span>Toggle Raw Mode</span>
-                <input id="settings-hotkey-toggle-raw-mode" type="text" placeholder="Mod+E" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                <input id="settings-hotkey-toggle-raw-mode" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
               <label class="search">
                 <span>Toggle Task Done</span>
-                <input id="settings-hotkey-toggle-task-done" type="text" placeholder="Mod+Enter" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                <input id="settings-hotkey-toggle-task-done" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
             </div>
+          </section>
+
+          <section class="settings-group-card hidden" id="settings-group-templates">
+            <div class="settings-group-head">
+              <h3>Templates</h3>
+            </div>
+            <p id="settings-template-help" class="settings-template-help"></p>
+            <div id="settings-template-list" class="settings-template-list"></div>
+            <button type="button" id="settings-template-add" class="settings-template-add">Add Template</button>
           </section>
           </div>
         </div>

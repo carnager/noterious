@@ -350,6 +350,9 @@ export function isDateLikeColumn(column: string): boolean {
   const normalized = String(column || "").trim().toLowerCase();
   return normalized === "due" ||
     normalized === "remind" ||
+    normalized === "notify" ||
+    normalized === "notification" ||
+    normalized === "reminder" ||
     normalized === "createdat" ||
     normalized === "updatedat" ||
     normalized === "birthday" ||
@@ -357,7 +360,7 @@ export function isDateLikeColumn(column: string): boolean {
     normalized === "date" ||
     normalized === "datetime" ||
     normalized === "datum" ||
-    /(^|_)(date|datum|due|remind|created|updated|birthday|time|timestamp)(_|$)/i.test(normalized);
+    /(^|_)(date|datum|due|remind|reminder|notify|notification|created|updated|birthday|time|timestamp)(_|$)/i.test(normalized);
 }
 
 export function formatMaybeDateValue(column: string, value: string): string {

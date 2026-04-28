@@ -1,11 +1,34 @@
 import { describe, expect, it } from "vitest";
 
-import { hotkeyLabel, matchesHotkey } from "./hotkeys";
+import {
+  analyzeHotkeys,
+  canonicalizeHotkey,
+  defaultHotkeys,
+  hotkeyFromEvent,
+  hotkeyLabel,
+  matchesHotkey,
+} from "./hotkeys";
+
+const macPlatform = {
+  os: "mac",
+  isMac: true,
+} as const;
+
+const windowsPlatform = {
+  os: "windows",
+  isMac: false,
+} as const;
 
 describe("hotkeys", function () {
-  it("formats labels for display", function () {
-    expect(hotkeyLabel("Mod+Shift+K")).toBe("Ctrl+Shift+K");
+  it("formats labels for display per platform", function () {
+    expect(hotkeyLabel("Mod+Shift+K", windowsPlatform)).toBe("Ctrl+Shift+K");
+    expect(hotkeyLabel("Mod+Shift+K", macPlatform)).toBe("Cmd+Shift+K");
     expect(hotkeyLabel("?")).toBe("?");
+  });
+
+  it("canonicalizes free-form bindings", function () {
+    expect(canonicalizeHotkey(" shift + mod + k ")).toBe("Mod+Shift+K");
+    expect(canonicalizeHotkey("comma")).toBe(",");
   });
 
   it("matches modifier hotkeys", function () {
@@ -33,5 +56,49 @@ describe("hotkeys", function () {
       altKey: false,
       shiftKey: true,
     })).toBe(true);
+  });
+
+  it("captures bindings from keyboard events", function () {
+    expect(hotkeyFromEvent({
+      key: "L",
+      metaKey: false,
+      ctrlKey: true,
+      altKey: false,
+      shiftKey: true,
+    }, windowsPlatform)).toBe("Mod+Shift+L");
+
+    expect(hotkeyFromEvent({
+      key: "k",
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+    }, macPlatform)).toBe("Mod+K");
+  });
+
+  it("chooses safer defaults than the old browser-colliding set", function () {
+    const defaults = defaultHotkeys(windowsPlatform);
+    expect(defaults.quickSwitcher).toBe("Mod+Shift+L");
+    expect(defaults.globalSearch).toBe("Mod+Shift+F");
+    expect(defaults.commandPalette).toBe("Mod+Shift+Y");
+    expect(defaults.toggleRawMode).toBe("Mod+Shift+E");
+  });
+
+  it("reports duplicate bindings and likely browser collisions", function () {
+    const analysis = analyzeHotkeys({
+      quickSwitcher: "Mod+K",
+      globalSearch: "Mod+K",
+      commandPalette: "Mod+Shift+Y",
+      quickNote: "",
+      help: "?",
+      saveCurrentPage: "Mod+S",
+      toggleRawMode: "Mod+Shift+E",
+      toggleTaskDone: "Mod+Enter",
+    }, windowsPlatform);
+
+    expect(analysis.quickSwitcher.duplicateIDs).toEqual(["globalSearch"]);
+    expect(analysis.globalSearch.duplicateIDs).toEqual(["quickSwitcher"]);
+    expect(analysis.quickSwitcher.browserWarning).toContain("address bar");
+    expect(analysis.commandPalette.browserWarning).toBe("");
   });
 });

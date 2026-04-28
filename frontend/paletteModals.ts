@@ -10,7 +10,7 @@ import {
 } from "./palette";
 import { renderQuickSwitcherResults as renderQuickSwitcherResultsUI } from "./quickSwitcher";
 import { renderGlobalSearchResults as renderGlobalSearchResultsUI } from "./search";
-import type { DocumentRecord, PageSummary, SearchPayload } from "./types";
+import type { DocumentRecord, NoteTemplate, PageSummary, SearchPayload } from "./types";
 
 export interface PaletteModalElements {
   searchModalShell: HTMLElement;
@@ -200,19 +200,23 @@ export function renderQuickSwitcherResults(options: {
   els: PaletteModalElements;
   inputValue: string;
   pages: PageSummary[];
+  templates: NoteTemplate[];
   selectedPage: string;
   onClose: () => void;
   onOpenPage: (pagePath: string) => void;
   onCreatePage: (pagePath: string) => void;
+  onCreateTemplatePage: (template: NoteTemplate, pagePath: string) => void;
 }): number {
   const selectionIndex = renderQuickSwitcherResultsUI({
     container: options.els.quickSwitcherResults,
     inputValue: options.inputValue,
     pages: options.pages,
+    templates: options.templates,
     selectedPage: options.selectedPage,
     onClose: options.onClose,
     onOpenPage: options.onOpenPage,
     onCreatePage: options.onCreatePage,
+    onCreateTemplatePage: options.onCreateTemplatePage,
   });
   if (selectionIndex >= 0) {
     updatePaletteSelection(options.els.quickSwitcherResults, selectionIndex);

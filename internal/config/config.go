@@ -32,6 +32,10 @@ func LoadFromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	bootstrapPassword, err := envOrFile("NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD", "NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD_FILE", "")
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		ListenAddr:            envOrDefault("NOTERIOUS_LISTEN_ADDR", ":3000"),
@@ -42,7 +46,7 @@ func LoadFromEnv() (Config, error) {
 		AuthCookieName:        envOrDefault("NOTERIOUS_AUTH_COOKIE_NAME", "noterious_session"),
 		AuthSessionTTL:        authSessionTTL,
 		AuthBootstrapUsername: envOrDefault("NOTERIOUS_AUTH_BOOTSTRAP_USERNAME", ""),
-		AuthBootstrapPassword: envOrDefault("NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD", ""),
+		AuthBootstrapPassword: bootstrapPassword,
 	}
 
 	if cfg.VaultPath == "" {
@@ -82,6 +86,21 @@ func envOrDefault(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envOrFile(name, fileName, fallback string) (string, error) {
+	if value := os.Getenv(name); value != "" {
+		return value, nil
+	}
+	path := strings.TrimSpace(os.Getenv(fileName))
+	if path == "" {
+		return fallback, nil
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", fileName, err)
+	}
+	return strings.TrimSpace(string(content)), nil
 }
 
 func parseDurationEnv(name, fallback string) (time.Duration, error) {

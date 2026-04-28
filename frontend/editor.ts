@@ -1,4 +1,4 @@
-import {EditorState, StateEffect, StateField, RangeSetBuilder} from "@codemirror/state";
+import {EditorSelection, EditorState, StateEffect, StateField, RangeSetBuilder, Transaction} from "@codemirror/state";
 import {EditorView, keymap, drawSelection, highlightActiveLine, Decoration, type DecorationSet, WidgetType} from "@codemirror/view";
 import {defaultKeymap, indentWithTab, history, historyKeymap} from "@codemirror/commands";
 import {markdown} from "@codemirror/lang-markdown";
@@ -14,7 +14,7 @@ import {sql} from "@codemirror/lang-sql";
 import {tags} from "@lezer/highlight";
 import { formatDateTimeValue, formatDateValue, normalizeDateTimeDisplayFormat, setDateTimeDisplayFormat } from "./datetime";
 import { pageTitleFromPath } from "./commands";
-import { markdownCodeFenceBlockAt, markdownTableBlockAt } from "./markdown";
+import { markdownCodeFenceBlockAt, markdownTableBlockAt, renderedBodyBoundaryStart, splitFrontmatter } from "./markdown";
 import type { NoteriousEditorApi, QueryBlockRender, TaskRender } from "./types";
 
 interface EditorTaskState {
@@ -286,18 +286,29 @@ class TaskCheckboxWidget extends WidgetType {
     return other.done === this.done && other.ref === this.ref && other.indent === this.indent;
   }
 
-  toDOM(): HTMLButtonElement {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "cm-md-task-toggle";
-    button.setAttribute("data-task-toggle", "true");
-    button.setAttribute("data-done", this.done ? "true" : "false");
-    button.style.marginLeft = String(this.indent * 0.62) + "rem";
+  toDOM(): HTMLSpanElement {
+    const toggle = document.createElement("span");
+    toggle.className = "cm-md-task-toggle";
+    toggle.setAttribute("data-task-toggle", "true");
+    toggle.setAttribute("data-done", this.done ? "true" : "false");
+    toggle.style.setProperty("--task-indent", String(this.indent * 0.62) + "rem");
     if (this.ref) {
-      button.setAttribute("data-task-ref", this.ref);
+      toggle.setAttribute("data-task-ref", this.ref);
     }
-    button.setAttribute("aria-label", this.done ? "Mark task incomplete" : "Mark task complete");
-    return button;
+    toggle.setAttribute("role", "checkbox");
+    toggle.setAttribute("tabindex", "0");
+    toggle.setAttribute("aria-checked", this.done ? "true" : "false");
+    toggle.setAttribute("aria-label", this.done ? "Mark task incomplete" : "Mark task complete");
+
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.className = "cm-md-task-toggle-box";
+    box.checked = this.done;
+    box.tabIndex = -1;
+    box.setAttribute("aria-hidden", "true");
+    toggle.appendChild(box);
+
+    return toggle;
   }
 
   ignoreEvent() {
@@ -531,6 +542,52 @@ function tableBlockEndingAtLine(lines: string[], endLineIndex: number) {
   return null;
 }
 
+function renderedBodyStartOffset(state: EditorState): number {
+  if (!state.field(renderModeField, false)) {
+    return 0;
+  }
+  return renderedBodyBoundaryStart(state.doc.toString());
+}
+
+function clampSelectionToOffset(selection: EditorSelection, minOffset: number): EditorSelection {
+  if (minOffset <= 0) {
+    return selection;
+  }
+  const ranges = selection.ranges.map(function (range) {
+    const anchor = Math.max(minOffset, range.anchor);
+    const head = Math.max(minOffset, range.head);
+    if (anchor === head) {
+      return EditorSelection.cursor(
+        anchor,
+        anchor === minOffset ? 1 : range.assoc,
+        range.bidiLevel === null ? undefined : range.bidiLevel,
+        range.goalColumn
+      );
+    }
+    return EditorSelection.range(
+      anchor,
+      head,
+      range.goalColumn,
+      range.bidiLevel === null ? undefined : range.bidiLevel,
+      head === minOffset ? 1 : range.assoc
+    );
+  });
+  return EditorSelection.create(ranges, selection.mainIndex);
+}
+
+function changesTouchProtectedRange(transaction: Transaction, protectedUntil: number): boolean {
+  if (!transaction.docChanged || protectedUntil <= 0) {
+    return false;
+  }
+  let touched = false;
+  transaction.changes.iterChangedRanges(function (fromA, toA) {
+    if (fromA < protectedUntil || toA < protectedUntil) {
+      touched = true;
+    }
+  });
+  return touched;
+}
+
 function revealRenderedCodeBlockByArrow(view: EditorView, key: string): boolean {
   if (!view.state.field(renderModeField, false)) {
     return false;
@@ -731,25 +788,20 @@ function buildRenderedDecorations(state: EditorState): DecorationSet {
   const tasks = state.field(tasksField);
   const selection = state.selection.main;
   const currentPagePath = state.field(pagePathField);
-  const lines = state.doc.toString().split("\n");
+  const markdown = state.doc.toString();
+  const lines = markdown.split("\n");
   let hiddenFrontmatterUntil = 0;
 
-  if (state.doc.lines >= 1 && state.doc.line(1).text.trim() === "---") {
-    for (let lineNumber = 2; lineNumber <= state.doc.lines; lineNumber += 1) {
-      if (state.doc.line(lineNumber).text.trim() === "---") {
-        const startLine = state.doc.line(1);
-        const endLine = state.doc.line(lineNumber);
-        builder.add(
-          startLine.from,
-          endLine.to,
-          Decoration.replace({
-            block: true,
-          })
-        );
-        hiddenFrontmatterUntil = lineNumber;
-        break;
-      }
-    }
+  const frontmatter = splitFrontmatter(markdown).frontmatter;
+  if (frontmatter) {
+    builder.add(
+      0,
+      frontmatter.length,
+      Decoration.replace({
+        block: true,
+      })
+    );
+    hiddenFrontmatterUntil = frontmatter.split("\n").length - 1;
   }
 
   for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
@@ -960,6 +1012,50 @@ const renderedDecorationsField = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field),
 });
 
+const renderedFrontmatterBoundaryFilter = EditorState.transactionFilter.of((transaction) => {
+  if (!transaction.startState.field(renderModeField, false)) {
+    return transaction;
+  }
+  if (
+    !transaction.isUserEvent("select")
+    && !transaction.isUserEvent("move")
+    && !transaction.isUserEvent("input")
+    && !transaction.isUserEvent("delete")
+    && !transaction.isUserEvent("undo")
+    && !transaction.isUserEvent("redo")
+  ) {
+    return transaction;
+  }
+
+  const protectedUntil = renderedBodyBoundaryStart(transaction.startState.doc.toString());
+  if (protectedUntil <= 0) {
+    return transaction;
+  }
+
+  const clampedSelection = clampSelectionToOffset(transaction.newSelection, protectedUntil);
+  if (changesTouchProtectedRange(transaction, protectedUntil)) {
+    const userEvent = transaction.annotation(Transaction.userEvent);
+    return [{
+      selection: clampedSelection,
+      scrollIntoView: transaction.scrollIntoView,
+      userEvent: userEvent,
+    }];
+  }
+
+  if (!clampedSelection.eq(transaction.newSelection, true)) {
+    return [
+      transaction,
+      {
+        selection: clampedSelection,
+        sequential: true,
+        scrollIntoView: transaction.scrollIntoView,
+      },
+    ];
+  }
+
+  return transaction;
+});
+
 window.NoteriousCodeEditor = {
   create(textarea: HTMLTextAreaElement): NoteriousEditorApi | null {
     if (!textarea || textarea.__noteriousEditor) {
@@ -1100,6 +1196,22 @@ window.NoteriousCodeEditor = {
         return false;
       },
       keydown(event, view) {
+        const target = event.target instanceof Element ? event.target : null;
+        const taskToggle = target ? target.closest("[data-task-toggle]") : null;
+        if (taskToggle && (event.key === " " || event.key === "Enter")) {
+          event.preventDefault();
+          const taskRef = taskToggle.getAttribute("data-task-ref") || "";
+          const position = view.posAtDOM(taskToggle);
+          const lineNumber = view.state.doc.lineAt(position).number;
+          host.dispatchEvent(new CustomEvent("noterious:task-toggle", {
+            detail: {
+              lineNumber: lineNumber,
+              ref: taskRef,
+            },
+            bubbles: true,
+          }));
+          return true;
+        }
         if (!event.altKey && !event.ctrlKey && !event.metaKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
           if (revealRenderedCodeBlockByArrow(view, event.key)) {
             event.preventDefault();
@@ -1164,6 +1276,7 @@ window.NoteriousCodeEditor = {
           tasksField,
           highlightedLineDecorationsField,
           renderedDecorationsField,
+          renderedFrontmatterBoundaryFilter,
           eventHandlers,
           EditorView.updateListener.of((update) => {
             const value = update.state.doc.toString();
@@ -1241,10 +1354,12 @@ window.NoteriousCodeEditor = {
       },
       setSelectionRange(anchor, head, reveal) {
         const max = view.state.doc.length;
-        const nextAnchor = Math.max(0, Math.min(Number(anchor) || 0, max));
-        const nextHead = Math.max(0, Math.min(typeof head === "number" ? head : nextAnchor, max));
+        const protectedUntil = renderedBodyStartOffset(view.state);
+        const nextAnchor = Math.max(protectedUntil, Math.min(Number(anchor) || 0, max));
+        const nextHead = Math.max(protectedUntil, Math.min(typeof head === "number" ? head : nextAnchor, max));
+        const clampedSelection = clampSelectionToOffset(EditorSelection.single(nextAnchor, nextHead), protectedUntil);
         view.dispatch({
-          selection: {anchor: nextAnchor, head: nextHead},
+          selection: clampedSelection,
           scrollIntoView: Boolean(reveal),
         });
       },
@@ -1283,6 +1398,16 @@ window.NoteriousCodeEditor = {
         view.dispatch({
           effects: setRenderModeEffect.of(Boolean(enabled)),
         });
+        if (enabled) {
+          const protectedUntil = renderedBodyStartOffset(view.state);
+          const clampedSelection = clampSelectionToOffset(view.state.selection, protectedUntil);
+          if (!clampedSelection.eq(view.state.selection, true)) {
+            view.dispatch({
+              selection: clampedSelection,
+              scrollIntoView: true,
+            });
+          }
+        }
       },
       setPagePath(path: string) {
         view.dispatch({

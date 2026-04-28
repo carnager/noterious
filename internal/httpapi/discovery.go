@@ -20,12 +20,13 @@ type pageCountsResponse struct {
 }
 
 type pageListItemResponse struct {
-	Path      string             `json:"path"`
-	Title     string             `json:"title"`
-	CreatedAt string             `json:"createdAt"`
-	UpdatedAt string             `json:"updatedAt"`
-	Tags      []string           `json:"tags"`
-	Counts    pageCountsResponse `json:"counts"`
+	Path        string             `json:"path"`
+	Title       string             `json:"title"`
+	CreatedAt   string             `json:"createdAt"`
+	UpdatedAt   string             `json:"updatedAt"`
+	Tags        []string           `json:"tags"`
+	Frontmatter map[string]any     `json:"frontmatter,omitempty"`
+	Counts      pageCountsResponse `json:"counts"`
 }
 
 type pageListResponse struct {
@@ -288,11 +289,12 @@ func buildPageListSummaries(pages []index.PageSummary) ([]pageListItemResponse, 
 	summaries := make([]pageListItemResponse, 0, len(pages))
 	for _, page := range pages {
 		summaries = append(summaries, pageListItemResponse{
-			Path:      page.Path,
-			Title:     page.Title,
-			CreatedAt: page.CreatedAt,
-			UpdatedAt: page.UpdatedAt,
-			Tags:      append([]string(nil), page.Tags...),
+			Path:        page.Path,
+			Title:       page.Title,
+			CreatedAt:   page.CreatedAt,
+			UpdatedAt:   page.UpdatedAt,
+			Tags:        append([]string(nil), page.Tags...),
+			Frontmatter: page.Frontmatter,
 			Counts: pageCountsResponse{
 				OutgoingLinks: page.OutgoingLinkCount,
 				Backlinks:     page.BacklinkCount,

@@ -138,6 +138,33 @@ export function editableBody(markdown: string): string {
   return splitFrontmatter(markdown).body;
 }
 
+export function frontmatterBodyStart(markdown: string): number {
+  return splitFrontmatter(markdown).frontmatter.length;
+}
+
+export function renderedBodyBoundaryStart(markdown: string): number {
+  const split = splitFrontmatter(markdown);
+  if (!split.frontmatter) {
+    return 0;
+  }
+
+  const lines = split.body.split("\n");
+  let offset = split.frontmatter.length;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = String(lines[index] || "");
+    if (line.trim() !== "") {
+      return offset;
+    }
+    offset += line.length;
+    if (index < lines.length - 1) {
+      offset += 1;
+    }
+  }
+
+  return String(markdown || "").length;
+}
+
 export function inferMarkdownTitle(markdown: string, fallbackPage: PageIdentity | null): string {
   const frontmatter = parseFrontmatter(markdown);
   if (frontmatter.title && String(frontmatter.title).trim()) {
@@ -162,7 +189,7 @@ export function rawOffsetForBodyPosition(markdown: string, lineIndex: number, ca
   const body = split.body;
   const lines = body.split("\n");
   const clampedLine = Math.max(0, Math.min(Number(lineIndex) || 0, Math.max(0, lines.length - 1)));
-  let offset = split.frontmatter.length;
+  let offset = frontmatterBodyStart(markdown);
   for (let index = 0; index < clampedLine; index += 1) {
     offset += lines[index].length + 1;
   }
@@ -199,7 +226,7 @@ export function bodyPositionFromRawOffset(markdown: string, offset: number): Bod
   const split = splitFrontmatter(markdown);
   const body = split.body;
   const lines = body.split("\n");
-  const bodyStart = split.frontmatter.length;
+  const bodyStart = frontmatterBodyStart(markdown);
   const absoluteOffset = Math.max(bodyStart, Math.min(Number(offset) || 0, String(markdown || "").length));
   let remaining = absoluteOffset - bodyStart;
 

@@ -34,6 +34,14 @@ func TestParseNotificationTime(t *testing.T) {
 	if dateTime.Hour() != 13 || dateTime.Minute() != 45 {
 		t.Fatalf("dateTime = %v", dateTime)
 	}
+
+	dateTimeWithT, ok := parseNotificationTime("2026-04-24T13:45", 9, loc)
+	if !ok {
+		t.Fatal("parseNotificationTime(datetime with T) = false")
+	}
+	if dateTimeWithT.Hour() != 13 || dateTimeWithT.Minute() != 45 {
+		t.Fatalf("dateTimeWithT = %v", dateTimeWithT)
+	}
 }
 
 func TestParseReminderNotificationTimeCombinesDueDateAndReminderClock(t *testing.T) {
@@ -148,6 +156,98 @@ func TestPollSendsAndDeduplicatesReminderNotifications(t *testing.T) {
 	}
 	if requests != 1 {
 		t.Fatalf("requests after second poll = %d, want 1", requests)
+	}
+}
+
+func TestPollSendsFrontmatterNotificationForNotes(t *testing.T) {
+	tempDir := t.TempDir()
+	vaultDir := filepath.Join(tempDir, "vault")
+	indexDataDir := filepath.Join(tempDir, "index-data")
+	authDataDir := filepath.Join(tempDir, "auth-data")
+	notifyDataDir := filepath.Join(tempDir, "notify-data")
+	if err := os.MkdirAll(filepath.Join(vaultDir, "contacts"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	raw := strings.Join([]string{
+		"---",
+		"birthday_notification: 2026-04-24 09:30",
+		"---",
+		"# Ralf",
+		"",
+		"Birthday note",
+		"",
+	}, "\n")
+	pageFile := filepath.Join(vaultDir, "contacts", "ralf.md")
+	if err := os.WriteFile(pageFile, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	indexService := index.NewService(indexDataDir)
+	if err := indexService.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer func() {
+		_ = indexService.Close()
+	}()
+	vaultService := vault.NewService(vaultDir)
+	if err := indexService.RebuildFromVault(context.Background(), vaultService); err != nil {
+		t.Fatalf("RebuildFromVault() error = %v", err)
+	}
+	authService, err := auth.NewService(context.Background(), authDataDir, "test_session", time.Hour)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	defer func() {
+		_ = authService.Close()
+	}()
+	user, err := authService.CreateInitialAccount(context.Background(), "ralf", "secret-pass")
+	if err != nil {
+		t.Fatalf("CreateInitialAccount() error = %v", err)
+	}
+
+	requests := 0
+	var lastBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		body, _ := io.ReadAll(r.Body)
+		lastBody = string(body)
+		if got := r.Header.Get("Title"); got != "Note reminder" {
+			t.Fatalf("Title header = %q", got)
+		}
+		if got := r.Header.Get("X-Note-Page"); got != "contacts/ralf" {
+			t.Fatalf("X-Note-Page header = %q", got)
+		}
+		if got := r.Header.Get("X-Note-Field"); got != "birthday_notification" {
+			t.Fatalf("X-Note-Field header = %q", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	if _, err := authService.UpdateUserSettings(context.Background(), user.ID, auth.UserSettings{
+		Notifications: auth.NotificationSettings{
+			NtfyTopicURL: server.URL,
+		},
+	}); err != nil {
+		t.Fatalf("UpdateUserSettings() error = %v", err)
+	}
+
+	service, err := NewService(notifyDataDir, indexService, authService)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	service.now = func() time.Time {
+		return time.Date(2026, time.April, 24, 10, 0, 0, 0, time.Local)
+	}
+
+	if err := service.Poll(context.Background()); err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
+	}
+	if !strings.Contains(lastBody, "Page: contacts/ralf") || !strings.Contains(lastBody, "Reminder: 2026-04-24 09:30") {
+		t.Fatalf("lastBody = %q", lastBody)
 	}
 }
 

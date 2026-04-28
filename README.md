@@ -101,6 +101,7 @@ Useful environment variables:
 - `NOTERIOUS_AUTH_SESSION_TTL`
 - `NOTERIOUS_AUTH_BOOTSTRAP_USERNAME`
 - `NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD`
+- `NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD_FILE`
 
 CLI flags currently support:
 
@@ -151,6 +152,46 @@ For source installs, copy it to `~/.config/systemd/user/noterious.service`, adju
 systemctl --user daemon-reload
 systemctl --user enable --now noterious
 ```
+
+## Nix / NixOS
+
+The repository now includes:
+
+- a `flake.nix`
+- a build package at [nix/package.nix](/home/carnager/Code/noterious/nix/package.nix:1)
+- a NixOS module at [nix/module.nix](/home/carnager/Code/noterious/nix/module.nix:1)
+
+Build the package directly with:
+
+```bash
+nix build .#noterious
+```
+
+To use the NixOS module, import `inputs.noterious.nixosModules.default` and configure one or more instances:
+
+```nix
+{
+  imports = [ inputs.noterious.nixosModules.default ];
+
+  services.noterious.instances = {
+    main = {
+      enable = true;
+      port = 3000;
+      vaultDir = "/srv/noterious/main/vault";
+    };
+
+    work = {
+      enable = true;
+      port = 3001;
+      vaultDir = "/srv/noterious/work/vault";
+      openFirewall = true;
+    };
+  };
+}
+```
+
+Each enabled instance creates a systemd service named `noterious@<instance>.service`.
+Bootstrap secrets can be provided through `services.noterious.instances.<name>.bootstrapPasswordFile`.
 
 ## Arch Linux
 

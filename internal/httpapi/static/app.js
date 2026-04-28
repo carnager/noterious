@@ -342,202 +342,6 @@
     }
   });
 
-  // frontend/clientPreferences.ts
-  function defaultClientPreferences() {
-    return {
-      hotkeys: {
-        quickSwitcher: "Mod+K",
-        globalSearch: "Mod+Shift+K",
-        commandPalette: "Mod+Shift+P",
-        quickNote: "",
-        help: "?",
-        saveCurrentPage: "Mod+S",
-        toggleRawMode: "Mod+E",
-        toggleTaskDone: "Mod+Enter"
-      },
-      ui: {
-        fontFamily: "mono",
-        fontSize: "16",
-        dateTimeFormat: "browser",
-        themeId: "noterious-night"
-      },
-      vaults: {
-        topLevelFoldersAsVaults: false,
-        rootHomePage: "",
-        scopeHomePages: {}
-      }
-    };
-  }
-  function cloneClientPreferences(input) {
-    return {
-      hotkeys: {
-        quickSwitcher: input.hotkeys.quickSwitcher,
-        globalSearch: input.hotkeys.globalSearch,
-        commandPalette: input.hotkeys.commandPalette,
-        quickNote: input.hotkeys.quickNote,
-        help: input.hotkeys.help,
-        saveCurrentPage: input.hotkeys.saveCurrentPage,
-        toggleRawMode: input.hotkeys.toggleRawMode,
-        toggleTaskDone: input.hotkeys.toggleTaskDone
-      },
-      ui: {
-        fontFamily: input.ui.fontFamily,
-        fontSize: input.ui.fontSize,
-        dateTimeFormat: input.ui.dateTimeFormat,
-        themeId: input.ui.themeId
-      },
-      vaults: {
-        topLevelFoldersAsVaults: Boolean(input.vaults.topLevelFoldersAsVaults),
-        rootHomePage: String(input.vaults.rootHomePage || "").trim(),
-        scopeHomePages: Object.fromEntries(
-          Object.entries(input.vaults.scopeHomePages || {}).map(function([key, value]) {
-            return [String(key || "").trim(), String(value || "").trim()];
-          }).filter(function([key, value]) {
-            return Boolean(key || value);
-          })
-        )
-      }
-    };
-  }
-  function normalizeClientPreferences(input) {
-    const defaults = defaultClientPreferences();
-    const source = input && typeof input === "object" ? input : {};
-    const hotkeysSource = source.hotkeys && typeof source.hotkeys === "object" ? source.hotkeys : {};
-    const uiSource = source.ui && typeof source.ui === "object" ? source.ui : {};
-    const vaultsSource = source.vaults && typeof source.vaults === "object" ? source.vaults : {};
-    const scopeHomePagesSource = vaultsSource.scopeHomePages && typeof vaultsSource.scopeHomePages === "object" ? vaultsSource.scopeHomePages : {};
-    const fontFamily = String(uiSource.fontFamily ?? defaults.ui.fontFamily).trim();
-    const fontSize = String(uiSource.fontSize ?? defaults.ui.fontSize).trim();
-    const dateTimeFormat = String(uiSource.dateTimeFormat ?? defaults.ui.dateTimeFormat).trim();
-    const themeId = String(uiSource.themeId ?? defaults.ui.themeId).trim();
-    return {
-      hotkeys: {
-        quickSwitcher: typeof hotkeysSource.quickSwitcher === "string" ? hotkeysSource.quickSwitcher.trim() : defaults.hotkeys.quickSwitcher,
-        globalSearch: typeof hotkeysSource.globalSearch === "string" ? hotkeysSource.globalSearch.trim() : defaults.hotkeys.globalSearch,
-        commandPalette: typeof hotkeysSource.commandPalette === "string" ? hotkeysSource.commandPalette.trim() : defaults.hotkeys.commandPalette,
-        quickNote: typeof hotkeysSource.quickNote === "string" ? hotkeysSource.quickNote.trim() : defaults.hotkeys.quickNote,
-        help: typeof hotkeysSource.help === "string" ? hotkeysSource.help.trim() : defaults.hotkeys.help,
-        saveCurrentPage: typeof hotkeysSource.saveCurrentPage === "string" ? hotkeysSource.saveCurrentPage.trim() : defaults.hotkeys.saveCurrentPage,
-        toggleRawMode: typeof hotkeysSource.toggleRawMode === "string" ? hotkeysSource.toggleRawMode.trim() : defaults.hotkeys.toggleRawMode,
-        toggleTaskDone: typeof hotkeysSource.toggleTaskDone === "string" ? hotkeysSource.toggleTaskDone.trim() : defaults.hotkeys.toggleTaskDone
-      },
-      ui: {
-        fontFamily: fontFamily === "sans" || fontFamily === "serif" ? fontFamily : "mono",
-        fontSize: ["14", "15", "16", "17", "18", "19", "20"].includes(fontSize) ? fontSize : defaults.ui.fontSize,
-        dateTimeFormat: dateTimeFormat === "iso" || dateTimeFormat === "de" ? dateTimeFormat : "browser",
-        themeId: themeId || defaults.ui.themeId
-      },
-      vaults: {
-        topLevelFoldersAsVaults: Boolean(vaultsSource.topLevelFoldersAsVaults),
-        rootHomePage: typeof vaultsSource.rootHomePage === "string" ? vaultsSource.rootHomePage.trim() : "",
-        scopeHomePages: Object.fromEntries(
-          Object.entries(scopeHomePagesSource).map(function([key, value]) {
-            return [String(key || "").trim(), String(value || "").trim()];
-          }).filter(function([key, value]) {
-            return Boolean(key || value);
-          })
-        )
-      }
-    };
-  }
-  function loadStoredClientPreferences() {
-    try {
-      const raw = window.localStorage.getItem(clientPreferencesStorageKey);
-      if (!raw) {
-        return defaultClientPreferences();
-      }
-      return normalizeClientPreferences(JSON.parse(raw));
-    } catch (_error) {
-      return defaultClientPreferences();
-    }
-  }
-  function saveStoredClientPreferences(preferences) {
-    try {
-      window.localStorage.setItem(clientPreferencesStorageKey, JSON.stringify(preferences));
-    } catch (_error) {
-    }
-  }
-  var clientPreferencesStorageKey;
-  var init_clientPreferences = __esm({
-    "frontend/clientPreferences.ts"() {
-      "use strict";
-      clientPreferencesStorageKey = "noterious.client-preferences";
-    }
-  });
-
-  // frontend/http.ts
-  function normalizeScopePrefix(value) {
-    const trimmed = String(value || "").trim().replace(/^\/+|\/+$/g, "");
-    if (!trimmed) {
-      return "";
-    }
-    const segments = trimmed.split("/").filter(Boolean);
-    if (segments.some(function(segment) {
-      return segment === "." || segment === "..";
-    })) {
-      return "";
-    }
-    return segments.join("/");
-  }
-  function mergeScopeHeaders(headers) {
-    const merged = new Headers(headers);
-    if (activeScopePrefix) {
-      merged.set(scopeHeaderName, activeScopePrefix);
-    } else {
-      merged.delete(scopeHeaderName);
-    }
-    return merged;
-  }
-  function setActiveScopePrefix(prefix) {
-    activeScopePrefix = normalizeScopePrefix(prefix);
-  }
-  function scopedRequestInit(options) {
-    return {
-      ...options,
-      headers: mergeScopeHeaders(options && options.headers ? options.headers : void 0)
-    };
-  }
-  function scopedEventSourceURL(url) {
-    if (!activeScopePrefix) {
-      return url;
-    }
-    const separator = url.indexOf("?") >= 0 ? "&" : "?";
-    return url + separator + "scope=" + encodeURIComponent(activeScopePrefix);
-  }
-  function dispatchAuthRequired() {
-    window.dispatchEvent(new CustomEvent("noterious:auth-required"));
-  }
-  async function requireOK(response, suppressAuthEvent = false) {
-    if (!response.ok) {
-      const text = await response.text();
-      if (response.status === 401 && !suppressAuthEvent) {
-        dispatchAuthRequired();
-      }
-      throw new HTTPError(response.status, text || "Request failed: " + response.status);
-    }
-    return response;
-  }
-  async function fetchJSON(url, options, suppressAuthEvent = false) {
-    const response = await fetch(url, scopedRequestInit(options));
-    await requireOK(response, suppressAuthEvent);
-    return response.json();
-  }
-  var HTTPError, scopeHeaderName, activeScopePrefix;
-  var init_http = __esm({
-    "frontend/http.ts"() {
-      "use strict";
-      HTTPError = class extends Error {
-        constructor(status, message) {
-          super(message);
-          this.name = "HTTPError";
-          this.status = status;
-        }
-      };
-      scopeHeaderName = "X-Noterious-Scope";
-      activeScopePrefix = "";
-    }
-  });
-
   // frontend/markdown.ts
   function splitFrontmatter(markdown) {
     const source = String(markdown || "").replace(/\r\n/g, "\n");
@@ -610,12 +414,15 @@
   function editableBody(markdown) {
     return splitFrontmatter(markdown).body;
   }
+  function frontmatterBodyStart(markdown) {
+    return splitFrontmatter(markdown).frontmatter.length;
+  }
   function rawOffsetForBodyPosition(markdown, lineIndex, caret) {
     const split = splitFrontmatter(markdown);
     const body = split.body;
     const lines = body.split("\n");
     const clampedLine = Math.max(0, Math.min(Number(lineIndex) || 0, Math.max(0, lines.length - 1)));
-    let offset = split.frontmatter.length;
+    let offset = frontmatterBodyStart(markdown);
     for (let index = 0; index < clampedLine; index += 1) {
       offset += lines[index].length + 1;
     }
@@ -824,6 +631,1191 @@
     }
   });
 
+  // frontend/noteTemplates.ts
+  function isNotificationTemplateFieldKey(key) {
+    const normalized = String(key || "").trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    return normalized === "notification" || normalized === "notify" || normalized === "remind" || normalized === "reminder" || /(^|[_-])(notify|notification|remind|reminder)([_-]|$)/i.test(normalized);
+  }
+  function templateSlug(value) {
+    return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  }
+  function normalizeTemplateFolder(value) {
+    return normalizePageDraftPath(value).replace(/\/+$/g, "");
+  }
+  function isTemplateMetadataKey(key) {
+    return templateMetadataKeys.has(String(key || "").trim());
+  }
+  function uniqueTemplateID(seed, used, fallbackIndex) {
+    const base = templateSlug(seed) || "template-" + String(fallbackIndex + 1);
+    let candidate = base;
+    let suffix = 2;
+    while (used.has(candidate)) {
+      candidate = base + "-" + String(suffix);
+      suffix += 1;
+    }
+    used.add(candidate);
+    return candidate;
+  }
+  function normalizeTemplateFieldDefault(kind, value) {
+    if (kind === "bool") {
+      if (typeof value === "string") {
+        return value.trim().toLowerCase() === "true";
+      }
+      return Boolean(value);
+    }
+    if (kind === "list" || kind === "tags") {
+      const items = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+      return items.map(function(entry) {
+        return String(entry || "").trim();
+      }).filter(Boolean);
+    }
+    return value === null || typeof value === "undefined" ? "" : String(value);
+  }
+  function coerceTemplateFieldDefaultValue(kind, value) {
+    return normalizeTemplateFieldDefault(kind, value);
+  }
+  function emptyTemplateFieldValue(kind) {
+    return kind === "list" || kind === "tags" ? [] : kind === "bool" ? false : "";
+  }
+  function normalizeTemplateFieldKind(value) {
+    switch (String(value || "").trim()) {
+      case "list":
+      case "tags":
+      case "bool":
+      case "date":
+      case "datetime":
+      case "notification":
+        return String(value || "").trim();
+      default:
+        return "text";
+    }
+  }
+  function normalizeTemplateField(input) {
+    const source = input && typeof input === "object" ? input : {};
+    const key = String(source.key || "").trim();
+    const kind = normalizeTemplateFieldKind(source.kind);
+    const defaultValue = normalizeTemplateFieldDefault(
+      kind,
+      Object.prototype.hasOwnProperty.call(source, "defaultValue") ? source.defaultValue : emptyTemplateFieldValue(kind)
+    );
+    if (!key || isTemplateMetadataKey(key)) {
+      return null;
+    }
+    return {
+      key,
+      kind,
+      defaultValue
+    };
+  }
+  function cloneNoteTemplates(input) {
+    return (Array.isArray(input) ? input : []).map(function(template) {
+      return {
+        id: String(template.id || "").trim(),
+        name: String(template.name || "").trim(),
+        folder: normalizeTemplateFolder(template.folder || ""),
+        fields: (Array.isArray(template.fields) ? template.fields : []).map(function(field) {
+          const normalized = normalizeTemplateField(field);
+          return normalized || {
+            key: "",
+            kind: "text",
+            defaultValue: ""
+          };
+        }).filter(function(field) {
+          return Boolean(field.key);
+        })
+      };
+    });
+  }
+  function normalizeNoteTemplates(input) {
+    const source = Array.isArray(input) ? input : [];
+    const usedIDs = /* @__PURE__ */ new Set();
+    return source.map(function(entry, index) {
+      const record = entry && typeof entry === "object" ? entry : {};
+      const name = String(record.name || "").trim();
+      const folder = normalizeTemplateFolder(String(record.folder || "").trim());
+      const fields = (Array.isArray(record.fields) ? record.fields : []).map(normalizeTemplateField).filter(function(field) {
+        return Boolean(field);
+      });
+      if (!name && !folder && !fields.length) {
+        return null;
+      }
+      const normalizedName = name || "Template " + String(index + 1);
+      const idSeed = String(record.id || "").trim() || normalizedName;
+      return {
+        id: uniqueTemplateID(idSeed, usedIDs, index),
+        name: normalizedName,
+        folder,
+        fields
+      };
+    }).filter(function(template) {
+      return Boolean(template);
+    });
+  }
+  function createBlankTemplateField() {
+    return {
+      key: "",
+      kind: "text",
+      defaultValue: ""
+    };
+  }
+  function createBlankNoteTemplate(seed) {
+    const base = templateSlug(seed || "template") || "template";
+    const suffix = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const usedIDs = /* @__PURE__ */ new Set();
+    return {
+      id: uniqueTemplateID(base + "-" + suffix, usedIDs, 0),
+      name: seed || "New Template",
+      folder: "",
+      fields: [createBlankTemplateField()]
+    };
+  }
+  function replaceTemplatePlaceholders(value, pagePath) {
+    const title = pageTitleFromPath(pagePath);
+    return String(value || "").replace(/\{\{\s*title\s*\}\}/gi, title).replace(/\{\{\s*path\s*\}\}/gi, pagePath);
+  }
+  function templatePathInfo(pagePath) {
+    const normalizedPath = normalizePageDraftPath(pagePath);
+    if (!normalizedPath) {
+      return null;
+    }
+    if (normalizedPath.startsWith(templateFolderName + "/")) {
+      return {
+        scopePrefix: "",
+        relativePath: normalizedPath.slice(templateFolderName.length + 1)
+      };
+    }
+    const parts = normalizedPath.split("/");
+    if (parts.length >= 3 && parts[1] === templateFolderName) {
+      return {
+        scopePrefix: parts[0],
+        relativePath: parts.slice(2).join("/")
+      };
+    }
+    return null;
+  }
+  function defaultTemplateFolderFromPath(pagePath) {
+    const info = templatePathInfo(pagePath);
+    if (!info) {
+      return "";
+    }
+    const parts = info.relativePath.split("/").filter(Boolean);
+    if (parts.length <= 1) {
+      return "";
+    }
+    return normalizeTemplateFolder(parts.slice(0, -1).join("/"));
+  }
+  function templateScopeMatches(pagePath, scopePrefix) {
+    const info = templatePathInfo(pagePath);
+    if (!info) {
+      return false;
+    }
+    const normalizedScope = normalizePageDraftPath(scopePrefix || "");
+    if (!normalizedScope) {
+      return info.scopePrefix === "";
+    }
+    return info.scopePrefix === "" || info.scopePrefix === normalizedScope;
+  }
+  function stringEntriesFromFrontmatterValue(value) {
+    if (Array.isArray(value)) {
+      return value.map(function(entry) {
+        return String(entry || "").trim();
+      }).filter(Boolean);
+    }
+    const text = String(value || "").trim();
+    if (!text) {
+      return [];
+    }
+    return text.split(",").map(function(entry) {
+      return entry.trim();
+    }).filter(Boolean);
+  }
+  function templateKindHintsFromFrontmatter(frontmatter) {
+    const source = frontmatter || {};
+    const result = {};
+    [
+      [templateTagsKey, "tags"],
+      [templateListKey, "list"],
+      [templateBoolKey, "bool"],
+      [templateDateKey, "date"],
+      [templateDateTimeKey, "datetime"],
+      [templateNotificationKey, "notification"]
+    ].forEach(function([key, kind]) {
+      stringEntriesFromFrontmatterValue(source[key]).forEach(function(fieldKey) {
+        result[fieldKey] = kind;
+      });
+    });
+    return result;
+  }
+  function inferTemplateFieldKind(value, key, hintedKind) {
+    if (Array.isArray(value)) {
+      return hintedKind === "tags" || String(key || "").trim().toLowerCase() === "tags" ? "tags" : "list";
+    }
+    if (typeof value === "boolean") {
+      return "bool";
+    }
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return hintedKind === "notification" || isNotificationTemplateFieldKey(key) ? "notification" : "date";
+    }
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(value)) {
+      return hintedKind === "notification" || isNotificationTemplateFieldKey(key) ? "notification" : "datetime";
+    }
+    if ((value === null || typeof value === "undefined" || String(value).trim() === "") && hintedKind) {
+      return hintedKind;
+    }
+    if (isNotificationTemplateFieldKey(key) && (value === null || typeof value === "undefined" || String(value).trim() === "")) {
+      return "notification";
+    }
+    if (String(key || "").trim().toLowerCase() === "tags") {
+      return "tags";
+    }
+    return "text";
+  }
+  function templateFieldsFromFrontmatter(frontmatter) {
+    const source = frontmatter || {};
+    const kindHints = templateKindHintsFromFrontmatter(source);
+    return Object.keys(source).filter(function(key) {
+      return !isTemplateMetadataKey(key);
+    }).map(function(key) {
+      const kind = inferTemplateFieldKind(source[key], key, kindHints[key]);
+      return {
+        key: String(key || "").trim(),
+        kind,
+        defaultValue: normalizeTemplateFieldDefault(kind, source[key])
+      };
+    }).filter(function(field) {
+      return Boolean(field.key);
+    });
+  }
+  function renderFrontmatterEntry(lines, key, value) {
+    if (Array.isArray(value)) {
+      if (!value.length) {
+        lines.push(key + ": []");
+        return;
+      }
+      lines.push(key + ":");
+      value.forEach(function(entry) {
+        lines.push("  - " + renderFrontmatterScalar(String(entry)));
+      });
+      return;
+    }
+    lines.push(key + ": " + renderFrontmatterScalar(value));
+  }
+  function renderTemplateFrontmatterLines(pagePath, template) {
+    const lines = [];
+    template.fields.forEach(function(field) {
+      const key = String(field.key || "").trim();
+      if (!key || isTemplateMetadataKey(key)) {
+        return;
+      }
+      renderFrontmatterEntry(lines, key, templateFieldDefaultValue(field, pagePath));
+    });
+    return lines;
+  }
+  function frontmatterValueHasContent(kind, value) {
+    if (kind === "list" || kind === "tags") {
+      return stringEntriesFromFrontmatterValue(value).length > 0;
+    }
+    if (kind === "bool") {
+      return typeof value === "boolean";
+    }
+    return String(value || "").trim() !== "";
+  }
+  function templateFieldShouldGuideInput(field) {
+    const kind = field.kind;
+    if (kind === "date" || kind === "datetime" || kind === "notification") {
+      return true;
+    }
+    const key = String(field.key || "").trim().toLowerCase();
+    if (!key) {
+      return false;
+    }
+    if (key === "vorname" || key === "nachname" || key === "firstname" || key === "lastname" || key === "first_name" || key === "last_name") {
+      return true;
+    }
+    return /(^|[_-])(phone|telefon|tel|mobile|mobil|handy)([_-]|$)/.test(key);
+  }
+  function templateFieldNeedsGuidedInput(field, pagePath) {
+    const key = String(field.key || "").trim();
+    if (!key || isTemplateMetadataKey(key) || field.kind === "bool" || !templateFieldShouldGuideInput(field)) {
+      return false;
+    }
+    return !frontmatterValueHasContent(field.kind, templateFieldDefaultValue(field, pagePath));
+  }
+  function templateFieldsNeedingInput(template, pagePath) {
+    return (Array.isArray(template.fields) ? template.fields : []).filter(function(field) {
+      return templateFieldNeedsGuidedInput(field, pagePath);
+    });
+  }
+  function templateFieldHasValue(field, frontmatter) {
+    const key = String(field.key || "").trim();
+    if (!key || isTemplateMetadataKey(key)) {
+      return true;
+    }
+    return frontmatterValueHasContent(field.kind, frontmatter ? frontmatter[key] : void 0);
+  }
+  function remainingTemplateFields(fields, frontmatter) {
+    return (Array.isArray(fields) ? fields : []).filter(function(field) {
+      return !templateFieldHasValue(field, frontmatter);
+    });
+  }
+  function templateFieldKindHints(fields) {
+    return Object.fromEntries(
+      (Array.isArray(fields) ? fields : []).map(function(field) {
+        return [String(field.key || "").trim(), field.kind];
+      }).filter(function([key]) {
+        return Boolean(key);
+      })
+    );
+  }
+  function noteTemplateFromPage(page) {
+    const info = templatePathInfo(page.path);
+    if (!info || !info.relativePath) {
+      return null;
+    }
+    const frontmatter = page.frontmatter || {};
+    const label = String(frontmatter[templateLabelKey] || page.title || pageTitleFromPath(info.relativePath)).trim();
+    const folder = normalizeTemplateFolder(String(frontmatter[templateFolderKey] || defaultTemplateFolderFromPath(page.path) || "").trim());
+    return {
+      id: normalizePageDraftPath(page.path),
+      name: label || pageTitleFromPath(info.relativePath),
+      folder,
+      fields: templateFieldsFromFrontmatter(frontmatter)
+    };
+  }
+  function allNoteTemplatesFromPages(pages) {
+    return (Array.isArray(pages) ? pages : []).map(noteTemplateFromPage).filter(function(template) {
+      return Boolean(template);
+    }).sort(function(left, right) {
+      return [left.name, left.id].join("\n").localeCompare([right.name, right.id].join("\n"));
+    });
+  }
+  function noteTemplatesFromPages(pages, scopePrefix) {
+    return allNoteTemplatesFromPages(pages).filter(function(template) {
+      return templateScopeMatches(template.id, scopePrefix);
+    });
+  }
+  function templateFieldDefaultValue(field, pagePath) {
+    if (field.kind === "bool") {
+      return Boolean(field.defaultValue);
+    }
+    if (field.kind === "list" || field.kind === "tags") {
+      return (Array.isArray(field.defaultValue) ? field.defaultValue : []).map(function(entry) {
+        return replaceTemplatePlaceholders(String(entry), pagePath).trim();
+      }).filter(Boolean);
+    }
+    const textValue = replaceTemplatePlaceholders(String(field.defaultValue || ""), pagePath);
+    if (!textValue && String(field.key || "").trim().toLowerCase() === "title") {
+      return pageTitleFromPath(pagePath);
+    }
+    return textValue;
+  }
+  function renderFrontmatterScalar(value) {
+    if (typeof value === "boolean") {
+      return value ? "true" : "false";
+    }
+    return JSON.stringify(String(value || ""));
+  }
+  function buildPagePathFromTemplate(template, draftPath) {
+    const normalizedDraft = normalizePageDraftPath(draftPath);
+    if (!normalizedDraft) {
+      return "";
+    }
+    const normalizedFolder = normalizeTemplateFolder(template.folder || "");
+    if (!normalizedFolder) {
+      return normalizedDraft;
+    }
+    if (normalizedDraft === normalizedFolder || normalizedDraft.startsWith(normalizedFolder + "/")) {
+      return normalizedDraft;
+    }
+    return normalizedFolder + "/" + normalizedDraft;
+  }
+  function buildMarkdownFromTemplate(pagePath, template, templateMarkdown) {
+    const frontmatterLines = renderTemplateFrontmatterLines(pagePath, template);
+    const split = typeof templateMarkdown === "string" ? splitFrontmatter(templateMarkdown) : { frontmatter: "", body: "" };
+    const bodySource = typeof templateMarkdown === "string" ? split.frontmatter ? split.body : String(templateMarkdown || "").replace(/\r\n/g, "\n") : "";
+    const body = replaceTemplatePlaceholders(bodySource, pagePath);
+    const fallbackTitle = pageTitleFromPath(pagePath);
+    const fallbackBody = fallbackTitle ? "# " + fallbackTitle + "\n" : "";
+    const content = body || fallbackBody;
+    return ["---"].concat(frontmatterLines, ["---"]).join("\n") + "\n" + content;
+  }
+  function resolveNoteTemplate(templates, marker) {
+    const templateID = String(marker || "").trim();
+    if (!templateID) {
+      return null;
+    }
+    return (Array.isArray(templates) ? templates : []).find(function(template) {
+      return String(template.id || "").trim() === templateID;
+    }) || null;
+  }
+  function templatePropertyKindHints(frontmatter, templates) {
+    const directHints = templateKindHintsFromFrontmatter(frontmatter);
+    if (Object.keys(directHints).length) {
+      return directHints;
+    }
+    const template = resolveNoteTemplate(templates, frontmatter ? frontmatter[templateMarkerKey] : "");
+    if (!template) {
+      return {};
+    }
+    return Object.fromEntries(
+      template.fields.map(function(field) {
+        return [String(field.key || "").trim(), field.kind];
+      }).filter(function([key]) {
+        return Boolean(key);
+      })
+    );
+  }
+  function templateFieldSummary(template, limit) {
+    const maxItems = Math.max(1, Number(limit) || 4);
+    const keys = template.fields.map(function(field) {
+      return String(field.key || "").trim();
+    }).filter(Boolean);
+    if (!keys.length) {
+      return "No predefined properties.";
+    }
+    if (keys.length <= maxItems) {
+      return keys.join(" \xB7 ");
+    }
+    return keys.slice(0, maxItems).join(" \xB7 ") + " +" + String(keys.length - maxItems);
+  }
+  var templateFolderName, templateMarkerKey, templateLabelKey, templateFolderKey, templateListKey, templateTagsKey, templateBoolKey, templateDateKey, templateDateTimeKey, templateNotificationKey, templateMetadataKeys;
+  var init_noteTemplates = __esm({
+    "frontend/noteTemplates.ts"() {
+      "use strict";
+      init_commands();
+      init_markdown();
+      templateFolderName = "_templates";
+      templateMarkerKey = "_template";
+      templateLabelKey = "_template_label";
+      templateFolderKey = "_template_folder";
+      templateListKey = "_template_list";
+      templateTagsKey = "_template_tags";
+      templateBoolKey = "_template_bool";
+      templateDateKey = "_template_date";
+      templateDateTimeKey = "_template_datetime";
+      templateNotificationKey = "_template_notification";
+      templateMetadataKeys = /* @__PURE__ */ new Set([
+        templateMarkerKey,
+        templateLabelKey,
+        templateFolderKey,
+        templateListKey,
+        templateTagsKey,
+        templateBoolKey,
+        templateDateKey,
+        templateDateTimeKey,
+        templateNotificationKey
+      ]);
+    }
+  });
+
+  // frontend/hotkeys.ts
+  function normalizeToken(token) {
+    return String(token || "").trim().toLowerCase();
+  }
+  function normalizeKeyName(value) {
+    const token = normalizeToken(value);
+    switch (token) {
+      case "mod":
+        return "mod";
+      case "cmd":
+      case "command":
+      case "meta":
+        return "meta";
+      case "ctrl":
+      case "control":
+        return "ctrl";
+      case "alt":
+      case "option":
+        return "alt";
+      case "shift":
+        return "shift";
+      case "esc":
+        return "escape";
+      case "return":
+        return "enter";
+      case "spacebar":
+      case "space":
+        return "space";
+      case "left":
+        return "arrowleft";
+      case "right":
+        return "arrowright";
+      case "up":
+        return "arrowup";
+      case "down":
+        return "arrowdown";
+      case "slash":
+        return "/";
+      case "question":
+        return "?";
+      case "period":
+        return ".";
+      case "comma":
+        return ",";
+      case "semicolon":
+        return ";";
+      case "colon":
+        return ":";
+      case "apostrophe":
+      case "quote":
+        return "'";
+      case "doublequote":
+        return '"';
+      case "backquote":
+        return "`";
+      default:
+        return token;
+    }
+  }
+  function formatKeyToken(value) {
+    const token = normalizeKeyName(value);
+    switch (token) {
+      case "mod":
+        return "Mod";
+      case "meta":
+        return "Meta";
+      case "ctrl":
+        return "Ctrl";
+      case "alt":
+        return "Alt";
+      case "shift":
+        return "Shift";
+      case "escape":
+        return "Escape";
+      case "enter":
+        return "Enter";
+      case "space":
+        return "Space";
+      case "tab":
+        return "Tab";
+      case "backspace":
+        return "Backspace";
+      case "delete":
+        return "Delete";
+      case "arrowleft":
+        return "ArrowLeft";
+      case "arrowright":
+        return "ArrowRight";
+      case "arrowup":
+        return "ArrowUp";
+      case "arrowdown":
+        return "ArrowDown";
+      default:
+        if (!token) {
+          return "";
+        }
+        return token.length === 1 ? token.toUpperCase() : token.charAt(0).toUpperCase() + token.slice(1);
+    }
+  }
+  function displayTokenLabel(value, platform) {
+    const token = normalizeKeyName(value);
+    switch (token) {
+      case "mod":
+        return platform.isMac ? "Cmd" : "Ctrl";
+      case "meta":
+        return "Cmd";
+      case "ctrl":
+        return "Ctrl";
+      case "alt":
+        return platform.isMac ? "Option" : "Alt";
+      case "shift":
+        return "Shift";
+      case "escape":
+        return "Esc";
+      case "arrowleft":
+        return "Left";
+      case "arrowright":
+        return "Right";
+      case "arrowup":
+        return "Up";
+      case "arrowdown":
+        return "Down";
+      default:
+        return formatKeyToken(token);
+    }
+  }
+  function detectHotkeyPlatform() {
+    const nav = typeof navigator !== "undefined" ? navigator : null;
+    const platformSource = String(
+      nav?.userAgentData?.platform || nav?.platform || nav?.userAgent || ""
+    );
+    const token = platformSource.toLowerCase();
+    if (token.includes("mac") || token.includes("iphone") || token.includes("ipad")) {
+      return { os: "mac", isMac: true };
+    }
+    if (token.includes("win")) {
+      return { os: "windows", isMac: false };
+    }
+    if (token.includes("linux") || token.includes("x11")) {
+      return { os: "linux", isMac: false };
+    }
+    return { os: "other", isMac: false };
+  }
+  function hotkeyDefinitions() {
+    return hotkeyOrder.map(function(id) {
+      return hotkeyDefinitionsByID[id];
+    });
+  }
+  function canonicalizeHotkey(value) {
+    const binding = String(value || "").trim();
+    if (!binding) {
+      return "";
+    }
+    const modifiers = {
+      mod: false,
+      meta: false,
+      ctrl: false,
+      alt: false,
+      shift: false
+    };
+    let key = "";
+    binding.split("+").map(normalizeKeyName).filter(Boolean).forEach(function(token) {
+      if (token === "mod" || token === "meta" || token === "ctrl" || token === "alt" || token === "shift") {
+        modifiers[token] = true;
+        return;
+      }
+      key = token;
+    });
+    const tokens = [];
+    if (modifiers.mod) {
+      tokens.push("Mod");
+    }
+    if (modifiers.meta) {
+      tokens.push("Meta");
+    }
+    if (modifiers.ctrl) {
+      tokens.push("Ctrl");
+    }
+    if (modifiers.alt) {
+      tokens.push("Alt");
+    }
+    if (modifiers.shift) {
+      tokens.push("Shift");
+    }
+    if (key) {
+      tokens.push(formatKeyToken(key));
+    }
+    return tokens.join("+");
+  }
+  function hotkeyLabel(value, platform = detectHotkeyPlatform()) {
+    return canonicalizeHotkey(value).split("+").filter(Boolean).map(function(part) {
+      return displayTokenLabel(part, platform);
+    }).join("+");
+  }
+  function hotkeyFromEvent(event, platform = detectHotkeyPlatform()) {
+    const key = normalizeKeyName(event.key);
+    if (!key || modifierKeys.has(key)) {
+      return "";
+    }
+    const tokens = [];
+    if (platform.isMac) {
+      if (event.metaKey) {
+        tokens.push("Mod");
+      }
+      if (event.ctrlKey) {
+        tokens.push("Ctrl");
+      }
+    } else {
+      if (event.ctrlKey) {
+        tokens.push("Mod");
+      }
+      if (event.metaKey) {
+        tokens.push("Meta");
+      }
+    }
+    if (event.altKey) {
+      tokens.push("Alt");
+    }
+    if (event.shiftKey && !shiftedSymbolKeys.has(key)) {
+      tokens.push("Shift");
+    }
+    tokens.push(formatKeyToken(key));
+    return canonicalizeHotkey(tokens.join("+"));
+  }
+  function likelyBrowserReservedMessage(binding, platform = detectHotkeyPlatform()) {
+    const normalized = canonicalizeHotkey(binding);
+    if (!normalized) {
+      return "";
+    }
+    const match = reservedHotkeys.find(function(entry) {
+      if (entry.os && entry.os.indexOf(platform.os) < 0) {
+        return false;
+      }
+      return entry.bindings.some(function(candidate) {
+        return canonicalizeHotkey(candidate) === normalized;
+      });
+    });
+    return match ? match.message : "";
+  }
+  function chooseDefaultBinding(definition, platform) {
+    const candidates = definition.defaultCandidates.map(canonicalizeHotkey);
+    const safeCandidate = candidates.find(function(binding) {
+      if (!binding) {
+        return true;
+      }
+      return !likelyBrowserReservedMessage(binding, platform);
+    });
+    return safeCandidate || candidates[0] || "";
+  }
+  function defaultHotkeys(platform = detectHotkeyPlatform()) {
+    return {
+      quickSwitcher: chooseDefaultBinding(hotkeyDefinitionsByID.quickSwitcher, platform),
+      globalSearch: chooseDefaultBinding(hotkeyDefinitionsByID.globalSearch, platform),
+      commandPalette: chooseDefaultBinding(hotkeyDefinitionsByID.commandPalette, platform),
+      quickNote: chooseDefaultBinding(hotkeyDefinitionsByID.quickNote, platform),
+      help: chooseDefaultBinding(hotkeyDefinitionsByID.help, platform),
+      saveCurrentPage: chooseDefaultBinding(hotkeyDefinitionsByID.saveCurrentPage, platform),
+      toggleRawMode: chooseDefaultBinding(hotkeyDefinitionsByID.toggleRawMode, platform),
+      toggleTaskDone: chooseDefaultBinding(hotkeyDefinitionsByID.toggleTaskDone, platform)
+    };
+  }
+  function analyzeHotkeys(hotkeys, platform = detectHotkeyPlatform()) {
+    const bindings = {
+      quickSwitcher: canonicalizeHotkey(hotkeys.quickSwitcher),
+      globalSearch: canonicalizeHotkey(hotkeys.globalSearch),
+      commandPalette: canonicalizeHotkey(hotkeys.commandPalette),
+      quickNote: canonicalizeHotkey(hotkeys.quickNote),
+      help: canonicalizeHotkey(hotkeys.help),
+      saveCurrentPage: canonicalizeHotkey(hotkeys.saveCurrentPage),
+      toggleRawMode: canonicalizeHotkey(hotkeys.toggleRawMode),
+      toggleTaskDone: canonicalizeHotkey(hotkeys.toggleTaskDone)
+    };
+    const bindingIndex = {};
+    hotkeyOrder.forEach(function(id) {
+      const binding = bindings[id];
+      if (!binding) {
+        return;
+      }
+      if (!bindingIndex[binding]) {
+        bindingIndex[binding] = [];
+      }
+      bindingIndex[binding].push(id);
+    });
+    return hotkeyOrder.reduce(function(acc, id) {
+      const definition = hotkeyDefinitionsByID[id];
+      const binding = bindings[id];
+      const duplicateIDs = binding ? (bindingIndex[binding] || []).filter(function(otherID) {
+        return otherID !== id;
+      }) : [];
+      const browserWarning = likelyBrowserReservedMessage(binding, platform);
+      const blockedReason = duplicateIDs.length ? "Conflicts with " + duplicateIDs.map(function(otherID) {
+        return hotkeyDefinitionsByID[otherID].label;
+      }).join(", ") + "." : browserWarning ? "Likely intercepted by the browser or OS before Noterious can see it." : "";
+      acc[id] = {
+        definition,
+        binding,
+        duplicateIDs,
+        browserWarning,
+        defaultBinding: chooseDefaultBinding(definition, platform),
+        blockedReason
+      };
+      return acc;
+    }, {});
+  }
+  function matchesHotkey(hotkey, event) {
+    const binding = canonicalizeHotkey(hotkey);
+    if (!binding) {
+      return false;
+    }
+    const tokens = binding.split("+").map(normalizeKeyName).filter(Boolean);
+    const modifiers = {
+      meta: false,
+      ctrl: false,
+      alt: false,
+      shift: false
+    };
+    let explicitShift = false;
+    let key = "";
+    tokens.forEach(function(token) {
+      if (token === "mod") {
+        modifiers.meta = true;
+        modifiers.ctrl = true;
+        return;
+      }
+      if (token === "meta" || token === "ctrl" || token === "alt" || token === "shift") {
+        modifiers[token] = true;
+        if (token === "shift") {
+          explicitShift = true;
+        }
+        return;
+      }
+      key = token;
+    });
+    if (tokens.indexOf("mod") >= 0) {
+      if (!(event.metaKey || event.ctrlKey)) {
+        return false;
+      }
+    } else {
+      if (event.metaKey !== modifiers.meta) {
+        return false;
+      }
+      if (event.ctrlKey !== modifiers.ctrl) {
+        return false;
+      }
+    }
+    if (event.altKey !== modifiers.alt) {
+      return false;
+    }
+    if (explicitShift && event.shiftKey !== modifiers.shift) {
+      return false;
+    }
+    const eventKey = normalizeKeyName(event.key);
+    if (!key) {
+      return true;
+    }
+    if (!explicitShift && event.shiftKey && /^[a-z0-9]$/i.test(key)) {
+      return false;
+    }
+    return eventKey === key;
+  }
+  var hotkeyDefinitionsByID, hotkeyOrder, modifierKeys, shiftedSymbolKeys, reservedHotkeys;
+  var init_hotkeys = __esm({
+    "frontend/hotkeys.ts"() {
+      "use strict";
+      hotkeyDefinitionsByID = {
+        quickSwitcher: {
+          id: "quickSwitcher",
+          label: "Quick Switcher",
+          scope: "global",
+          optional: false,
+          defaultCandidates: ["Mod+Shift+L", "Mod+.", "Mod+K"]
+        },
+        globalSearch: {
+          id: "globalSearch",
+          label: "Full Search",
+          scope: "global",
+          optional: false,
+          defaultCandidates: ["Mod+Shift+F", "Mod+Shift+K"]
+        },
+        commandPalette: {
+          id: "commandPalette",
+          label: "Command Palette",
+          scope: "global",
+          optional: false,
+          defaultCandidates: ["Mod+Shift+Y", "Mod+Shift+P"]
+        },
+        quickNote: {
+          id: "quickNote",
+          label: "Open Daily Note",
+          scope: "global",
+          optional: true,
+          defaultCandidates: [""]
+        },
+        help: {
+          id: "help",
+          label: "Open Help",
+          scope: "global",
+          optional: false,
+          defaultCandidates: ["?"]
+        },
+        saveCurrentPage: {
+          id: "saveCurrentPage",
+          label: "Save Current Note",
+          scope: "global",
+          optional: false,
+          defaultCandidates: ["Mod+S"]
+        },
+        toggleRawMode: {
+          id: "toggleRawMode",
+          label: "Toggle Raw Mode",
+          scope: "global",
+          optional: false,
+          defaultCandidates: ["Mod+Shift+E", "Mod+E"]
+        },
+        toggleTaskDone: {
+          id: "toggleTaskDone",
+          label: "Toggle Task Done",
+          scope: "editor",
+          optional: false,
+          defaultCandidates: ["Mod+Enter"]
+        }
+      };
+      hotkeyOrder = [
+        "quickSwitcher",
+        "globalSearch",
+        "commandPalette",
+        "quickNote",
+        "help",
+        "saveCurrentPage",
+        "toggleRawMode",
+        "toggleTaskDone"
+      ];
+      modifierKeys = /* @__PURE__ */ new Set(["mod", "meta", "ctrl", "alt", "shift"]);
+      shiftedSymbolKeys = /* @__PURE__ */ new Set([
+        "?",
+        "!",
+        "@",
+        "#",
+        "$",
+        "%",
+        "^",
+        "&",
+        "*",
+        "(",
+        ")",
+        "_",
+        "+",
+        "{",
+        "}",
+        "|",
+        ":",
+        '"',
+        "<",
+        ">",
+        "~"
+      ]);
+      reservedHotkeys = [
+        {
+          bindings: ["Mod+K", "Mod+L"],
+          message: "Common browser shortcut for focusing the address bar or search field."
+        },
+        {
+          bindings: ["Mod+T", "Mod+W", "Mod+N", "Mod+Shift+N", "Mod+Shift+T"],
+          message: "Common browser shortcut for opening, closing, or restoring tabs and windows."
+        },
+        {
+          bindings: ["Mod+F", "Mod+G", "Mod+Shift+G", "Mod+H", "Mod+J", "Mod+Y"],
+          message: "Common browser shortcut for find, history, or downloads."
+        },
+        {
+          bindings: ["Mod+R", "Mod+Shift+R", "F5"],
+          message: "Common browser shortcut for reload or hard refresh."
+        },
+        {
+          bindings: ["Mod+O", "Mod+P"],
+          message: "Common browser shortcut for open file or print."
+        },
+        {
+          bindings: ["Mod+Shift+P", "Mod+Shift+A", "Mod+Shift+C", "Mod+Shift+I", "Mod+Shift+J", "Mod+Shift+K"],
+          message: "Common browser shortcut for private windows, extensions, or developer tools."
+        },
+        {
+          bindings: ["Mod+Comma", "Mod+,"],
+          message: "Common macOS/browser shortcut for preferences.",
+          os: ["mac"]
+        },
+        {
+          bindings: ["Mod+Q"],
+          message: "Common macOS shortcut for quitting the browser.",
+          os: ["mac"]
+        }
+      ];
+    }
+  });
+
+  // frontend/clientPreferences.ts
+  function usesLegacyDefaultHotkeys(hotkeys) {
+    return Object.entries(legacyDefaultHotkeyValues).every(function([key, value]) {
+      const hotkeyID = key;
+      return canonicalizeHotkey(hotkeys[hotkeyID]) === canonicalizeHotkey(value);
+    });
+  }
+  function defaultClientPreferences() {
+    return {
+      hotkeys: defaultHotkeys(),
+      ui: {
+        fontFamily: "mono",
+        fontSize: "16",
+        dateTimeFormat: "browser",
+        themeId: "noterious-night"
+      },
+      vaults: {
+        topLevelFoldersAsVaults: false,
+        rootHomePage: "",
+        scopeHomePages: {}
+      },
+      templates: []
+    };
+  }
+  function cloneClientPreferences(input) {
+    return {
+      hotkeys: {
+        quickSwitcher: input.hotkeys.quickSwitcher,
+        globalSearch: input.hotkeys.globalSearch,
+        commandPalette: input.hotkeys.commandPalette,
+        quickNote: input.hotkeys.quickNote,
+        help: input.hotkeys.help,
+        saveCurrentPage: input.hotkeys.saveCurrentPage,
+        toggleRawMode: input.hotkeys.toggleRawMode,
+        toggleTaskDone: input.hotkeys.toggleTaskDone
+      },
+      ui: {
+        fontFamily: input.ui.fontFamily,
+        fontSize: input.ui.fontSize,
+        dateTimeFormat: input.ui.dateTimeFormat,
+        themeId: input.ui.themeId
+      },
+      vaults: {
+        topLevelFoldersAsVaults: Boolean(input.vaults.topLevelFoldersAsVaults),
+        rootHomePage: String(input.vaults.rootHomePage || "").trim(),
+        scopeHomePages: Object.fromEntries(
+          Object.entries(input.vaults.scopeHomePages || {}).map(function([key, value]) {
+            return [String(key || "").trim(), String(value || "").trim()];
+          }).filter(function([key, value]) {
+            return Boolean(key || value);
+          })
+        )
+      },
+      templates: cloneNoteTemplates(input.templates)
+    };
+  }
+  function normalizeClientPreferences(input) {
+    const defaults = defaultClientPreferences();
+    const source = input && typeof input === "object" ? input : {};
+    const hotkeysSource = source.hotkeys && typeof source.hotkeys === "object" ? source.hotkeys : {};
+    const uiSource = source.ui && typeof source.ui === "object" ? source.ui : {};
+    const vaultsSource = source.vaults && typeof source.vaults === "object" ? source.vaults : {};
+    const templatesSource = Array.isArray(source.templates) ? source.templates : [];
+    const scopeHomePagesSource = vaultsSource.scopeHomePages && typeof vaultsSource.scopeHomePages === "object" ? vaultsSource.scopeHomePages : {};
+    const fontFamily = String(uiSource.fontFamily ?? defaults.ui.fontFamily).trim();
+    const fontSize = String(uiSource.fontSize ?? defaults.ui.fontSize).trim();
+    const dateTimeFormat = String(uiSource.dateTimeFormat ?? defaults.ui.dateTimeFormat).trim();
+    const themeId = String(uiSource.themeId ?? defaults.ui.themeId).trim();
+    const normalizedHotkeys = {
+      quickSwitcher: typeof hotkeysSource.quickSwitcher === "string" ? canonicalizeHotkey(hotkeysSource.quickSwitcher) : defaults.hotkeys.quickSwitcher,
+      globalSearch: typeof hotkeysSource.globalSearch === "string" ? canonicalizeHotkey(hotkeysSource.globalSearch) : defaults.hotkeys.globalSearch,
+      commandPalette: typeof hotkeysSource.commandPalette === "string" ? canonicalizeHotkey(hotkeysSource.commandPalette) : defaults.hotkeys.commandPalette,
+      quickNote: typeof hotkeysSource.quickNote === "string" ? canonicalizeHotkey(hotkeysSource.quickNote) : defaults.hotkeys.quickNote,
+      help: typeof hotkeysSource.help === "string" ? canonicalizeHotkey(hotkeysSource.help) : defaults.hotkeys.help,
+      saveCurrentPage: typeof hotkeysSource.saveCurrentPage === "string" ? canonicalizeHotkey(hotkeysSource.saveCurrentPage) : defaults.hotkeys.saveCurrentPage,
+      toggleRawMode: typeof hotkeysSource.toggleRawMode === "string" ? canonicalizeHotkey(hotkeysSource.toggleRawMode) : defaults.hotkeys.toggleRawMode,
+      toggleTaskDone: typeof hotkeysSource.toggleTaskDone === "string" ? canonicalizeHotkey(hotkeysSource.toggleTaskDone) : defaults.hotkeys.toggleTaskDone
+    };
+    return {
+      hotkeys: usesLegacyDefaultHotkeys(normalizedHotkeys) ? defaultHotkeys() : normalizedHotkeys,
+      ui: {
+        fontFamily: fontFamily === "sans" || fontFamily === "serif" ? fontFamily : "mono",
+        fontSize: ["14", "15", "16", "17", "18", "19", "20"].includes(fontSize) ? fontSize : defaults.ui.fontSize,
+        dateTimeFormat: dateTimeFormat === "iso" || dateTimeFormat === "de" ? dateTimeFormat : "browser",
+        themeId: themeId || defaults.ui.themeId
+      },
+      vaults: {
+        topLevelFoldersAsVaults: Boolean(vaultsSource.topLevelFoldersAsVaults),
+        rootHomePage: typeof vaultsSource.rootHomePage === "string" ? vaultsSource.rootHomePage.trim() : "",
+        scopeHomePages: Object.fromEntries(
+          Object.entries(scopeHomePagesSource).map(function([key, value]) {
+            return [String(key || "").trim(), String(value || "").trim()];
+          }).filter(function([key, value]) {
+            return Boolean(key || value);
+          })
+        )
+      },
+      templates: normalizeNoteTemplates(templatesSource)
+    };
+  }
+  function loadStoredClientPreferences() {
+    try {
+      const raw = window.localStorage.getItem(clientPreferencesStorageKey);
+      if (!raw) {
+        return defaultClientPreferences();
+      }
+      return normalizeClientPreferences(JSON.parse(raw));
+    } catch (_error) {
+      return defaultClientPreferences();
+    }
+  }
+  function saveStoredClientPreferences(preferences) {
+    try {
+      window.localStorage.setItem(clientPreferencesStorageKey, JSON.stringify(preferences));
+    } catch (_error) {
+    }
+  }
+  var clientPreferencesStorageKey, legacyDefaultHotkeyValues;
+  var init_clientPreferences = __esm({
+    "frontend/clientPreferences.ts"() {
+      "use strict";
+      init_noteTemplates();
+      init_hotkeys();
+      clientPreferencesStorageKey = "noterious.client-preferences";
+      legacyDefaultHotkeyValues = {
+        quickSwitcher: "Mod+K",
+        globalSearch: "Mod+Shift+K",
+        commandPalette: "Mod+Shift+P",
+        quickNote: "",
+        help: "?",
+        saveCurrentPage: "Mod+S",
+        toggleRawMode: "Mod+E",
+        toggleTaskDone: "Mod+Enter"
+      };
+    }
+  });
+
+  // frontend/http.ts
+  function normalizeScopePrefix(value) {
+    const trimmed = String(value || "").trim().replace(/^\/+|\/+$/g, "");
+    if (!trimmed) {
+      return "";
+    }
+    const segments = trimmed.split("/").filter(Boolean);
+    if (segments.some(function(segment) {
+      return segment === "." || segment === "..";
+    })) {
+      return "";
+    }
+    return segments.join("/");
+  }
+  function mergeScopeHeaders(headers) {
+    const merged = new Headers(headers);
+    if (activeScopePrefix) {
+      merged.set(scopeHeaderName, activeScopePrefix);
+    } else {
+      merged.delete(scopeHeaderName);
+    }
+    return merged;
+  }
+  function setActiveScopePrefix(prefix) {
+    activeScopePrefix = normalizeScopePrefix(prefix);
+  }
+  function scopedRequestInit(options) {
+    return {
+      ...options,
+      headers: mergeScopeHeaders(options && options.headers ? options.headers : void 0)
+    };
+  }
+  function scopedEventSourceURL(url) {
+    if (!activeScopePrefix) {
+      return url;
+    }
+    const separator = url.indexOf("?") >= 0 ? "&" : "?";
+    return url + separator + "scope=" + encodeURIComponent(activeScopePrefix);
+  }
+  function dispatchAuthRequired() {
+    window.dispatchEvent(new CustomEvent("noterious:auth-required"));
+  }
+  async function requireOK(response, suppressAuthEvent = false) {
+    if (!response.ok) {
+      const text = await response.text();
+      if (response.status === 401 && !suppressAuthEvent) {
+        dispatchAuthRequired();
+      }
+      throw new HTTPError(response.status, text || "Request failed: " + response.status);
+    }
+    return response;
+  }
+  async function fetchJSON(url, options, suppressAuthEvent = false) {
+    const response = await fetch(url, scopedRequestInit(options));
+    await requireOK(response, suppressAuthEvent);
+    return response.json();
+  }
+  var HTTPError, scopeHeaderName, activeScopePrefix;
+  var init_http = __esm({
+    "frontend/http.ts"() {
+      "use strict";
+      HTTPError = class extends Error {
+        constructor(status, message) {
+          super(message);
+          this.name = "HTTPError";
+          this.status = status;
+        }
+      };
+      scopeHeaderName = "X-Noterious-Scope";
+      activeScopePrefix = "";
+    }
+  });
+
   // frontend/details.ts
   async function toggleTaskDone(task) {
     await fetchJSON("/api/tasks/" + encodeURIComponent(task.ref), {
@@ -837,6 +1829,27 @@
       })
     });
   }
+  function resolvePageTask(page, ref, lineNumber) {
+    if (!page || !Array.isArray(page.tasks)) {
+      return null;
+    }
+    const normalizedRef = String(ref || "").trim();
+    if (normalizedRef) {
+      const matchedByRef = page.tasks.find(function(task) {
+        return String(task.ref || "") === normalizedRef;
+      });
+      if (matchedByRef) {
+        return matchedByRef;
+      }
+    }
+    const normalizedLineNumber = Number(lineNumber) || 0;
+    if (!normalizedLineNumber) {
+      return null;
+    }
+    return page.tasks.find(function(task) {
+      return Number(task.line) === normalizedLineNumber;
+    }) || null;
+  }
   async function loadPageDetailData(pagePath, encodePath, pendingPageTaskRef, pendingPageLineFocus) {
     const [page, derived] = await Promise.all([
       fetchJSON("/api/pages/" + encodePath(pagePath)),
@@ -844,9 +1857,7 @@
     ]);
     let targetLine = pendingPageLineFocus;
     if (pendingPageTaskRef) {
-      const matchedTask = Array.isArray(page.tasks) ? page.tasks.find(function(task) {
-        return String(task.ref || "") === pendingPageTaskRef;
-      }) : null;
+      const matchedTask = resolvePageTask(page, pendingPageTaskRef, targetLine || 0);
       if (matchedTask && matchedTask.line) {
         targetLine = matchedTask.line;
       }
@@ -1194,7 +2205,7 @@
   }
   function isDateLikeColumn(column) {
     const normalized = String(column || "").trim().toLowerCase();
-    return normalized === "due" || normalized === "remind" || normalized === "createdat" || normalized === "updatedat" || normalized === "birthday" || normalized === "birthday_reminder" || normalized === "date" || normalized === "datetime" || normalized === "datum" || /(^|_)(date|datum|due|remind|created|updated|birthday|time|timestamp)(_|$)/i.test(normalized);
+    return normalized === "due" || normalized === "remind" || normalized === "notify" || normalized === "notification" || normalized === "reminder" || normalized === "createdat" || normalized === "updatedat" || normalized === "birthday" || normalized === "birthday_reminder" || normalized === "date" || normalized === "datetime" || normalized === "datum" || /(^|_)(date|datum|due|remind|reminder|notify|notification|created|updated|birthday|time|timestamp)(_|$)/i.test(normalized);
   }
   function formatMaybeDateValue(column, value) {
     const text = String(value || "");
@@ -2139,120 +3150,6 @@
     }
   });
 
-  // frontend/hotkeys.ts
-  function normalizeToken(token) {
-    return String(token || "").trim().toLowerCase();
-  }
-  function normalizeKeyName(value) {
-    const token = normalizeToken(value);
-    switch (token) {
-      case "mod":
-        return "mod";
-      case "cmd":
-      case "command":
-      case "meta":
-        return "meta";
-      case "ctrl":
-      case "control":
-        return "ctrl";
-      case "alt":
-      case "option":
-        return "alt";
-      case "shift":
-        return "shift";
-      case "esc":
-        return "escape";
-      case "slash":
-        return "/";
-      case "question":
-        return "?";
-      default:
-        return token;
-    }
-  }
-  function hotkeyLabel(value) {
-    return String(value || "").split("+").map(function(part) {
-      const token = normalizeKeyName(part);
-      switch (token) {
-        case "mod":
-          return "Ctrl";
-        case "meta":
-          return "Cmd";
-        case "ctrl":
-          return "Ctrl";
-        case "alt":
-          return "Alt";
-        case "shift":
-          return "Shift";
-        case "escape":
-          return "Esc";
-        default:
-          return token.length === 1 ? token.toUpperCase() : token.charAt(0).toUpperCase() + token.slice(1);
-      }
-    }).join("+");
-  }
-  function matchesHotkey(hotkey, event) {
-    const binding = String(hotkey || "").trim();
-    if (!binding) {
-      return false;
-    }
-    const tokens = binding.split("+").map(normalizeKeyName).filter(Boolean);
-    const modifiers = {
-      meta: false,
-      ctrl: false,
-      alt: false,
-      shift: false
-    };
-    let explicitShift = false;
-    let key = "";
-    tokens.forEach(function(token) {
-      if (token === "mod") {
-        modifiers.meta = true;
-        modifiers.ctrl = true;
-        return;
-      }
-      if (token === "meta" || token === "ctrl" || token === "alt" || token === "shift") {
-        modifiers[token] = true;
-        if (token === "shift") {
-          explicitShift = true;
-        }
-        return;
-      }
-      key = token;
-    });
-    if (tokens.indexOf("mod") >= 0) {
-      if (!(event.metaKey || event.ctrlKey)) {
-        return false;
-      }
-    } else {
-      if (event.metaKey !== modifiers.meta) {
-        return false;
-      }
-      if (event.ctrlKey !== modifiers.ctrl) {
-        return false;
-      }
-    }
-    if (event.altKey !== modifiers.alt) {
-      return false;
-    }
-    if (explicitShift && event.shiftKey !== modifiers.shift) {
-      return false;
-    }
-    const eventKey = normalizeKeyName(event.key);
-    if (!key) {
-      return true;
-    }
-    if (!explicitShift && event.shiftKey && /^[a-z0-9]$/i.test(key)) {
-      return false;
-    }
-    return eventKey === key;
-  }
-  var init_hotkeys = __esm({
-    "frontend/hotkeys.ts"() {
-      "use strict";
-    }
-  });
-
   // frontend/historyTrashUi.ts
   function firstContentLine(rawMarkdown) {
     const line = String(rawMarkdown || "").split(/\r?\n/).map(function(part) {
@@ -2729,13 +3626,13 @@
     });
     Object.assign(expandedPageFolders, next);
   }
-  async function createPage(pagePath, callbacks) {
+  async function createPage(pagePath, callbacks, options) {
     const normalized = normalizePageDraftPath(pagePath);
     if (!normalized) {
       return;
     }
     const leaf = pageTitleFromPath(normalized);
-    const initialMarkdown = leaf ? "# " + leaf + "\n" : "";
+    const initialMarkdown = typeof options?.rawMarkdown === "string" ? options.rawMarkdown : leaf ? "# " + leaf + "\n" : "";
     await callbacks.fetchJSON("/api/pages/" + callbacks.encodePath(normalized), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -3028,6 +3925,15 @@
     const haystack = [page.path, page.title || ""].join(" ").toLowerCase();
     return haystack.indexOf(target) >= 0;
   }
+  function hasPageAtPath(pages, pagePath) {
+    const normalizedPath = String(pagePath || "").trim().toLowerCase();
+    if (!normalizedPath) {
+      return false;
+    }
+    return pages.some(function(page) {
+      return String(page.path || "").trim().toLowerCase() === normalizedPath;
+    });
+  }
   function buildQuickSwitcherSections(options) {
     const query = String(options.inputValue || "").trim();
     const normalizedDraftPath = normalizePageDraftPath(query);
@@ -3048,6 +3954,22 @@
         options.onCreatePage(normalizedDraftPath);
       }
     }] : [];
+    const templateItems = normalizedDraftPath ? (Array.isArray(options.templates) ? options.templates : []).reduce(function(items, template) {
+      const targetPath = buildPagePathFromTemplate(template, normalizedDraftPath);
+      if (!targetPath || hasPageAtPath(options.pages, targetPath)) {
+        return items;
+      }
+      items.push({
+        title: "Create " + (template.name || "templated note"),
+        meta: targetPath,
+        snippet: templateFieldSummary(template, 4),
+        onSelect: function() {
+          options.onClose();
+          options.onCreateTemplatePage(template, targetPath);
+        }
+      });
+      return items;
+    }, []) : [];
     const recentTitle = query ? "Notes" : "Recent Notes";
     const noteItems = matchingPages.map(function(page) {
       const leaf = pageLeafName(page.path);
@@ -3064,7 +3986,7 @@
     return [
       {
         title: "Create",
-        items: createItems
+        items: createItems.concat(templateItems)
       },
       {
         title: recentTitle,
@@ -3080,6 +4002,7 @@
       "use strict";
       init_palette();
       init_commands();
+      init_noteTemplates();
     }
   });
 
@@ -3274,10 +4197,12 @@
       container: options.els.quickSwitcherResults,
       inputValue: options.inputValue,
       pages: options.pages,
+      templates: options.templates,
       selectedPage: options.selectedPage,
       onClose: options.onClose,
       onOpenPage: options.onOpenPage,
-      onCreatePage: options.onCreatePage
+      onCreatePage: options.onCreatePage,
+      onCreateTemplatePage: options.onCreateTemplatePage
     });
     if (selectionIndex >= 0) {
       updateSelection(options.els.quickSwitcherResults, selectionIndex);
@@ -3862,10 +4787,10 @@
     }
     return normalizedScopePrefix + "/" + normalizedPath;
   }
-  function renderPagesSection(state, els, actions, openTreeContextMenu2) {
+  function pageTreeDisplayStateForScope(state) {
     const scopePrefix = normalizeScopePrefix2(state.scopePrefix || "");
-    const displaySelectedPage = toDisplayPath(state.selectedPage, scopePrefix);
-    const displayPages = state.pages.map(function(page) {
+    const selectedPage = toDisplayPath(state.selectedPage, scopePrefix);
+    const pages = state.pages.map(function(page) {
       return {
         ...page,
         path: toDisplayPath(page.path, scopePrefix)
@@ -3873,24 +4798,30 @@
     }).filter(function(page) {
       return Boolean(page.path);
     });
-    const displayExpandedPageFolders = {};
+    const expandedPageFolders = {};
     Object.keys(state.expandedPageFolders).forEach(function(key) {
       if (!state.expandedPageFolders[key]) {
         return;
       }
       const displayKey = toDisplayPath(key, scopePrefix);
       if (displayKey) {
-        displayExpandedPageFolders[displayKey] = true;
+        expandedPageFolders[displayKey] = true;
       }
     });
-    if (displaySelectedPage) {
-      ensureExpandedPageAncestors(displaySelectedPage, displayExpandedPageFolders);
-    }
+    return {
+      selectedPage,
+      pages,
+      expandedPageFolders
+    };
+  }
+  function renderPagesSection(state, els, actions, openTreeContextMenu2) {
+    const scopePrefix = normalizeScopePrefix2(state.scopePrefix || "");
+    const displayState = pageTreeDisplayStateForScope(state);
     renderPagesTree(
       els.pageList,
-      displayPages,
-      displaySelectedPage,
-      displayExpandedPageFolders,
+      displayState.pages,
+      displayState.selectedPage,
+      displayState.expandedPageFolders,
       els.pageSearch.value.trim(),
       function(folderKey) {
         const scopedFolderKey = toScopedPath(folderKey, scopePrefix, true);
@@ -4131,23 +5062,45 @@
   });
 
   // frontend/properties.ts
-  function inferFrontmatterKind(value) {
+  function isTagPropertyKey(key) {
+    return String(key || "").trim().toLowerCase() === "tags";
+  }
+  function isNotificationPropertyKey(key) {
+    const normalized = String(key || "").trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    return normalized === "notification" || normalized === "notify" || normalized === "remind" || normalized === "reminder" || /(^|[_-])(notify|notification|remind|reminder)([_-]|$)/i.test(normalized);
+  }
+  function inferFrontmatterKind(value, key, hintedKind) {
     if (Array.isArray(value)) {
-      return "list";
+      return hintedKind === "tags" || isTagPropertyKey(key) ? "tags" : "list";
     }
     if (typeof value === "boolean") {
       return "bool";
     }
     if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-      return "date";
+      return hintedKind === "notification" || isNotificationPropertyKey(key) ? "notification" : "date";
     }
     if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(value)) {
-      return "datetime";
+      return hintedKind === "notification" || isNotificationPropertyKey(key) ? "notification" : "datetime";
+    }
+    if ((value === null || typeof value === "undefined" || String(value).trim() === "") && hintedKind) {
+      return hintedKind;
+    }
+    if (isNotificationPropertyKey(key) && (value === null || typeof value === "undefined" || String(value).trim() === "")) {
+      return "notification";
+    }
+    if (isTagPropertyKey(key) && (value === null || typeof value === "undefined" || String(value).trim() === "")) {
+      return "tags";
     }
     return "text";
   }
   function normalizeDateTimeValue(value) {
     return String(value || "").replace(" ", "T").slice(0, 16);
+  }
+  function serializeDateTimeValue(value) {
+    return String(value || "").replace("T", " ").trim();
   }
   function displayFrontmatterValue(value) {
     if (Array.isArray(value)) {
@@ -4158,21 +5111,54 @@
     }
     return value === null || typeof value === "undefined" ? "" : String(value);
   }
-  function makePropertyDraft(key, value, originalKey) {
-    const kind = inferFrontmatterKind(value);
-    const text = kind === "date" ? formatEditableDateValue(String(value || "")) : kind === "datetime" ? formatEditableDateTimeValue(String(value || "")) : displayFrontmatterValue(value);
+  function listEntriesFromValue(value) {
+    if (Array.isArray(value)) {
+      return value.map(String);
+    }
+    const textValue = displayFrontmatterValue(value).trim();
+    return textValue ? [textValue] : [];
+  }
+  function normalizeTagEntry(value) {
+    return String(value || "").trim().replace(/^#+/, "");
+  }
+  function tagEntriesFromValue(value) {
+    const values = Array.isArray(value) ? value.map(String) : [displayFrontmatterValue(value)];
+    return values.map(function(entry) {
+      return normalizeTagEntry(entry);
+    }).filter(Boolean);
+  }
+  function propertySequenceEntries(kind, value) {
+    return kind === "tags" ? tagEntriesFromValue(value) : listEntriesFromValue(value);
+  }
+  function makePropertyDraft(key, value, originalKey, hintedKind) {
+    const kind = inferFrontmatterKind(value, key, hintedKind);
+    const text = kind === "date" ? formatEditableDateValue(String(value || "")) : kind === "datetime" || kind === "notification" ? formatEditableDateTimeValue(String(value || "")) : displayFrontmatterValue(value);
     return {
       originalKey: originalKey || key || "",
       key: key || "",
       kind,
-      text: kind === "list" ? "" : text,
-      list: Array.isArray(value) ? value.map(String) : []
+      text: kind === "list" || kind === "tags" ? "" : text,
+      list: kind === "list" || kind === "tags" ? propertySequenceEntries(kind, value) : []
     };
   }
-  function coercePropertyValue(kind, value) {
+  function applyPropertyDraftKind(draft, kind) {
+    const value = coercePropertyValue(kind, propertyDraftValue(draft), draft.key);
+    const text = kind === "date" ? formatEditableDateValue(String(value || "")) : kind === "datetime" || kind === "notification" ? formatEditableDateTimeValue(String(value || "")) : displayFrontmatterValue(value);
+    return {
+      originalKey: draft.originalKey || draft.key,
+      key: draft.key,
+      kind,
+      text: kind === "list" || kind === "tags" ? "" : text,
+      list: kind === "list" || kind === "tags" ? propertySequenceEntries(kind, value) : []
+    };
+  }
+  function coercePropertyValue(kind, value, key) {
+    if (kind === "tags" || kind === "list" && isTagPropertyKey(key)) {
+      return tagEntriesFromValue(value);
+    }
     if (kind === "list") {
       if (Array.isArray(value)) {
-        return value.slice();
+        return value.map(String);
       }
       const textValue = displayFrontmatterValue(value).trim();
       return textValue ? [textValue] : [];
@@ -4186,8 +5172,8 @@
     if (kind === "date") {
       return String(displayFrontmatterValue(value) || "").slice(0, 10);
     }
-    if (kind === "datetime") {
-      return normalizeDateTimeValue(value);
+    if (kind === "datetime" || kind === "notification") {
+      return serializeDateTimeValue(normalizeDateTimeValue(value));
     }
     return displayFrontmatterValue(value);
   }
@@ -4195,8 +5181,8 @@
     if (!draft) {
       return "";
     }
-    if (draft.kind === "list") {
-      return draft.list.slice();
+    if (draft.kind === "list" || draft.kind === "tags") {
+      return coercePropertyValue(draft.kind, draft.list, draft.key);
     }
     if (draft.kind === "bool") {
       return draft.text === "true";
@@ -4204,7 +5190,7 @@
     if (draft.kind === "date") {
       return parseEditableDateValue(String(draft.text || ""));
     }
-    if (draft.kind === "datetime") {
+    if (draft.kind === "datetime" || draft.kind === "notification") {
       return parseEditableDateTimeValue(String(draft.text || ""));
     }
     return String(draft.text || "").trim();
@@ -4213,21 +5199,55 @@
     return row ? row.key : "__new__";
   }
   function propertyTypeIcon(kind) {
+    if (kind === "tags") {
+      return "#";
+    }
     if (kind === "list") {
       return "\u2630";
     }
     if (kind === "bool") {
       return "\u2611";
     }
+    if (kind === "notification") {
+      return "\u23F0";
+    }
     if (kind === "date" || kind === "datetime") {
       return "\u25EB";
     }
     return "\u2261";
   }
+  function propertyKindLabel(kind) {
+    if (kind === "tags") {
+      return "Tags";
+    }
+    if (kind === "list") {
+      return "List";
+    }
+    if (kind === "bool") {
+      return "Checkbox";
+    }
+    if (kind === "date") {
+      return "Date";
+    }
+    if (kind === "datetime") {
+      return "Date & time";
+    }
+    if (kind === "notification") {
+      return "Notification";
+    }
+    return "Text";
+  }
   function propertyKeyIcon(row) {
+    const kind = inferFrontmatterKind(row.rawValue, row.key, row.kindHint);
+    if (kind !== "text") {
+      return propertyTypeIcon(kind);
+    }
     const key = String(row.key || "").toLowerCase();
     if (key === "tags") {
       return "#";
+    }
+    if (isNotificationPropertyKey(key)) {
+      return "\u23F0";
     }
     if (key.indexOf("date") >= 0 || key.indexOf("birth") >= 0 || key.indexOf("remind") >= 0 || key === "datum") {
       return "\u25EB";
@@ -4235,7 +5255,7 @@
     if (key.indexOf("who") >= 0 || key.indexOf("person") >= 0 || key.indexOf("name") >= 0 || key === "anwesend" || key === "vorname" || key === "nachname") {
       return "\u25CC";
     }
-    return propertyTypeIcon(inferFrontmatterKind(row.rawValue));
+    return propertyTypeIcon(kind);
   }
   function appendPropertyKeyContent(target, row, keyText) {
     const icon = document.createElement("span");
@@ -4247,19 +5267,45 @@
     label.textContent = keyText;
     target.appendChild(label);
   }
+  function appendPropertyChip(container, entry, kind, onRemove) {
+    const chip = document.createElement("span");
+    chip.className = "property-chip";
+    if (kind === "tags") {
+      chip.classList.add("tag");
+    }
+    const label = document.createElement("span");
+    label.textContent = kind === "tags" ? "#" + entry : entry;
+    chip.appendChild(label);
+    if (onRemove) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "property-chip-remove";
+      remove.textContent = "\xD7";
+      remove.addEventListener("click", onRemove);
+      chip.appendChild(remove);
+    }
+    container.appendChild(chip);
+  }
   function renderPropertyTypeMenu(shell, row, options) {
     const menu = document.createElement("div");
     menu.className = "property-type-menu";
-    [
+    const activeKind = row ? inferFrontmatterKind(row.rawValue, row.key, row.kindHint) : options.propertyDraft ? options.propertyDraft.kind : "text";
+    const typeOptions = [
       ["text", "Text"],
+      ["tags", "Tags"],
       ["list", "List"],
       ["bool", "Checkbox"],
       ["date", "Date"],
-      ["datetime", "Date & time"]
-    ].forEach(function(parts) {
+      ["datetime", "Date & time"],
+      ["notification", "Notification"]
+    ];
+    typeOptions.forEach(function(parts) {
       const option = document.createElement("button");
       option.type = "button";
       option.className = "property-type-option";
+      if (parts[0] === activeKind) {
+        option.classList.add("active");
+      }
       const icon = document.createElement("span");
       icon.className = "property-menu-icon";
       icon.textContent = propertyTypeIcon(parts[0]);
@@ -4307,39 +5353,98 @@
     }
     shell.appendChild(menu);
   }
+  function setPropertyKindButtonContent(button, kind) {
+    button.textContent = "";
+    button.setAttribute("aria-label", "Property type: " + propertyKindLabel(kind));
+    const icon = document.createElement("span");
+    icon.className = "property-kind-icon";
+    icon.textContent = propertyTypeIcon(kind);
+    button.appendChild(icon);
+    const label = document.createElement("span");
+    label.className = "property-kind-label";
+    label.textContent = propertyKindLabel(kind);
+    button.appendChild(label);
+  }
+  function focusPropertyDraftValue(container) {
+    const target = container.querySelector("[data-property-value-input='true']");
+    if (target && typeof target.focus === "function") {
+      target.focus();
+    }
+  }
+  function propertyScalarInputType(kind) {
+    if (kind === "date") {
+      return "date";
+    }
+    if (kind === "datetime" || kind === "notification") {
+      return "datetime-local";
+    }
+    return "text";
+  }
+  function propertyScalarInputValue(kind, value) {
+    const text = String(value || "");
+    if (!text) {
+      return "";
+    }
+    const inputType = propertyScalarInputType(kind);
+    if (inputType === "text") {
+      if (kind === "date") {
+        return formatEditableDateValue(text);
+      }
+      if (kind === "datetime" || kind === "notification") {
+        return formatEditableDateTimeValue(text);
+      }
+      return text;
+    }
+    try {
+      if (kind === "date") {
+        return parseEditableDateValue(text);
+      }
+      if (kind === "datetime" || kind === "notification") {
+        return normalizeDateTimeValue(parseEditableDateTimeValue(text));
+      }
+    } catch (_error) {
+      return text;
+    }
+    return text;
+  }
+  function propertyListInputPlaceholder(kind) {
+    return kind === "tags" ? "Add tag" : "Add item";
+  }
+  function propertyScalarInputPlaceholder(kind, existing) {
+    if (kind === "date") {
+      return editableDatePlaceholder();
+    }
+    if (kind === "datetime" || kind === "notification") {
+      return editableDateTimePlaceholder();
+    }
+    return existing ? "Empty" : "Value";
+  }
+  function propertyListHint(kind) {
+    return kind === "tags" ? "Press Enter or comma to add each tag." : "Press Enter or comma to add each item.";
+  }
   function renderExistingPropertyValueEditor(row, options) {
-    const kind = inferFrontmatterKind(row.rawValue);
+    const kind = inferFrontmatterKind(row.rawValue, row.key, row.kindHint);
     const value = document.createElement("div");
     value.className = "property-value property-inline-editor";
-    if (kind === "list") {
-      const listValue = Array.isArray(row.rawValue) ? row.rawValue : [];
+    if (kind === "list" || kind === "tags") {
+      const listValue = propertySequenceEntries(kind, row.rawValue);
       const chips = document.createElement("div");
       chips.className = "property-chip-list editable";
       listValue.forEach(function(entry, index) {
-        const chip = document.createElement("span");
-        chip.className = "property-chip";
-        const label = document.createElement("span");
-        label.textContent = String(entry);
-        chip.appendChild(label);
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.className = "property-chip-remove";
-        remove.textContent = "\xD7";
-        remove.addEventListener("click", function() {
+        appendPropertyChip(chips, String(entry), kind, function() {
           const next = listValue.slice();
           next.splice(index, 1);
-          options.onSaveExistingProperty(row.key, next).catch(function(error) {
+          options.onSaveExistingProperty(row.key, coercePropertyValue(kind, next, row.key)).catch(function(error) {
             options.onSetNoteStatus("Property save failed: " + error.message);
           });
         });
-        chip.appendChild(remove);
-        chips.appendChild(chip);
       });
       value.appendChild(chips);
       const addInput = document.createElement("input");
       addInput.type = "text";
       addInput.className = "property-inline-input";
-      addInput.placeholder = "Add list item";
+      addInput.placeholder = propertyListInputPlaceholder(kind);
+      addInput.setAttribute("data-property-list-adder", "true");
       addInput.addEventListener("keydown", function(event) {
         if (event.key === "Enter" || event.key === ",") {
           event.preventDefault();
@@ -4347,7 +5452,7 @@
           if (!nextValue) {
             return;
           }
-          options.onSaveExistingProperty(row.key, listValue.concat([nextValue])).catch(function(error) {
+          options.onSaveExistingProperty(row.key, coercePropertyValue(kind, listValue.concat([nextValue]), row.key)).catch(function(error) {
             options.onSetNoteStatus("Property save failed: " + error.message);
           });
         }
@@ -4372,13 +5477,14 @@
     }
     const input = document.createElement("input");
     input.className = "property-inline-input";
-    input.type = "text";
-    input.value = kind === "date" ? formatEditableDateValue(String(row.rawValue || "")) : kind === "datetime" ? formatEditableDateTimeValue(String(row.rawValue || "")) : String(row.rawValue || "");
-    input.placeholder = kind === "date" ? editableDatePlaceholder() : kind === "datetime" ? editableDateTimePlaceholder() : "";
+    input.type = propertyScalarInputType(kind);
+    input.value = propertyScalarInputValue(kind, String(row.rawValue || ""));
+    input.placeholder = propertyScalarInputPlaceholder(kind, true);
+    input.setAttribute("data-property-value-input", "true");
     const commit = function() {
       try {
         const rawValue = input.value;
-        const nextValue = kind === "date" ? parseEditableDateValue(rawValue) : kind === "datetime" ? parseEditableDateTimeValue(rawValue) : rawValue;
+        const nextValue = kind === "date" ? parseEditableDateValue(rawValue) : kind === "datetime" || kind === "notification" ? parseEditableDateTimeValue(rawValue) : rawValue;
         const normalizedCurrent = String(row.rawValue || "");
         if (nextValue === normalizedCurrent) {
           return;
@@ -4401,9 +5507,24 @@
     return value;
   }
   function renderPropertyEditorRow(container, row, options) {
-    const draft = options.propertyDraft || makePropertyDraft(row ? row.key : "", row ? row.rawValue : "", row ? row.key : "__new__");
+    let draft = options.propertyDraft || makePropertyDraft(
+      row ? row.key : "",
+      row ? row.rawValue : "",
+      row ? row.key : "__new__",
+      row ? row.kindHint : void 0
+    );
     const item = document.createElement("div");
     item.className = "property-row editing";
+    if (!row) {
+      item.classList.add("property-row-create");
+    }
+    const setDraft = function(nextDraft) {
+      draft = {
+        ...nextDraft,
+        list: Array.isArray(nextDraft.list) ? nextDraft.list.slice() : []
+      };
+      options.onSetDraft(draft);
+    };
     const commit = function() {
       options.onSaveDraft().catch(function(error) {
         options.onSetNoteStatus("Property save failed: " + error.message);
@@ -4417,16 +5538,23 @@
     const keyInput = document.createElement("input");
     keyInput.type = "text";
     keyInput.className = "property-inline-input property-inline-key";
-    keyInput.placeholder = "property";
+    if (!row) {
+      keyInput.classList.add("property-composer-input");
+    }
+    keyInput.placeholder = "Property name";
     keyInput.value = draft.key;
     keyInput.addEventListener("input", function() {
-      options.onSetDraft({ ...draft, key: keyInput.value });
+      setDraft({ ...draft, key: keyInput.value });
     });
     keyShell.appendChild(keyInput);
     const kindButton = document.createElement("button");
     kindButton.type = "button";
     kindButton.className = "property-kind-button";
-    kindButton.textContent = draft.kind;
+    if (!row) {
+      keyShell.classList.add("property-composer-shell");
+      kindButton.classList.add("property-composer-kind");
+    }
+    setPropertyKindButtonContent(kindButton, draft.kind);
     kindButton.addEventListener("click", function() {
       options.onToggleTypeMenu(propertyMenuKey(row));
     });
@@ -4436,33 +5564,31 @@
     }
     const value = document.createElement("div");
     value.className = "property-value property-inline-editor";
-    if (draft.kind === "list") {
+    if (!row) {
+      value.classList.add("property-composer-value");
+    }
+    if (draft.kind === "list" || draft.kind === "tags") {
+      const listValue = propertySequenceEntries(draft.kind, draft.list);
       const chips = document.createElement("div");
       chips.className = "property-chip-list editable";
-      draft.list.forEach(function(entry, index) {
-        const chip = document.createElement("span");
-        chip.className = "property-chip";
-        const label = document.createElement("span");
-        label.textContent = entry;
-        chip.appendChild(label);
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.className = "property-chip-remove";
-        remove.textContent = "\xD7";
-        remove.addEventListener("click", function() {
-          const nextList = draft.list.slice();
+      listValue.forEach(function(entry, index) {
+        appendPropertyChip(chips, entry, draft.kind, function() {
+          const nextList = listValue.slice();
           nextList.splice(index, 1);
-          options.onSetDraft({ ...draft, list: nextList });
+          setDraft({ ...draft, list: nextList });
           options.onRefresh();
         });
-        chip.appendChild(remove);
-        chips.appendChild(chip);
       });
       value.appendChild(chips);
       const addInput = document.createElement("input");
       addInput.type = "text";
       addInput.className = "property-inline-input";
-      addInput.placeholder = "Add list item";
+      if (!row) {
+        addInput.classList.add("property-composer-input");
+      }
+      addInput.placeholder = propertyListInputPlaceholder(draft.kind);
+      addInput.setAttribute("data-property-value-input", "true");
+      addInput.setAttribute("data-property-list-adder", "true");
       addInput.addEventListener("keydown", function(event) {
         if (event.key === "Enter" || event.key === ",") {
           event.preventDefault();
@@ -4470,39 +5596,65 @@
           if (!next) {
             return;
           }
-          options.onSetDraft({ ...draft, list: draft.list.concat([next]) });
+          setDraft({ ...draft, list: propertySequenceEntries(draft.kind, listValue.concat([next])) });
           options.onRefresh();
         }
       });
       value.appendChild(addInput);
+      if (!row) {
+        const hint = document.createElement("div");
+        hint.className = "property-inline-hint";
+        hint.textContent = propertyListHint(draft.kind);
+        value.appendChild(hint);
+      }
     } else if (draft.kind === "bool") {
       const boolLabel = document.createElement("label");
       boolLabel.className = "property-inline-bool";
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.checked = draft.text === "true";
+      checkbox.setAttribute("data-property-value-input", "true");
       checkbox.addEventListener("change", function() {
-        options.onSetDraft({ ...draft, text: checkbox.checked ? "true" : "false" });
+        setDraft({ ...draft, text: checkbox.checked ? "true" : "false" });
       });
       boolLabel.appendChild(checkbox);
+      if (!row) {
+        const boolText = document.createElement("span");
+        boolText.className = "property-inline-hint";
+        boolText.textContent = checkbox.checked ? "Checked" : "Unchecked";
+        boolLabel.appendChild(boolText);
+        checkbox.addEventListener("change", function() {
+          boolText.textContent = checkbox.checked ? "Checked" : "Unchecked";
+        });
+      }
       value.appendChild(boolLabel);
     } else {
       const input = document.createElement("input");
       input.className = "property-inline-input";
-      input.type = "text";
-      input.value = String(draft.text || "");
-      input.placeholder = draft.kind === "date" ? editableDatePlaceholder() : draft.kind === "datetime" ? editableDateTimePlaceholder() : "";
+      if (!row) {
+        input.classList.add("property-composer-input");
+      }
+      input.type = propertyScalarInputType(draft.kind);
+      input.value = propertyScalarInputValue(draft.kind, String(draft.text || ""));
+      input.placeholder = propertyScalarInputPlaceholder(draft.kind, Boolean(row));
+      input.setAttribute("data-property-value-input", "true");
       input.addEventListener("input", function() {
-        options.onSetDraft({ ...draft, text: input.value });
+        setDraft({ ...draft, text: input.value });
       });
       value.appendChild(input);
     }
     const actions = document.createElement("div");
     actions.className = "property-row-actions";
+    if (!row) {
+      actions.classList.add("property-composer-actions");
+    }
     const save = document.createElement("button");
     save.type = "button";
     save.className = "property-action";
-    save.textContent = "Save";
+    if (!row) {
+      save.classList.add("primary");
+    }
+    save.textContent = row ? "Save" : "Add";
     save.addEventListener("click", commit);
     const cancelButton = document.createElement("button");
     cancelButton.type = "button";
@@ -4524,11 +5676,11 @@
       }
       if (event.key === "Enter") {
         const target = event.target instanceof HTMLElement ? event.target : null;
-        const isListAdder = target instanceof HTMLInputElement && target.placeholder === "Add list item";
+        const isListAdder = target instanceof HTMLInputElement && target.getAttribute("data-property-list-adder") === "true";
         if (isListAdder) {
           return;
         }
-        if (target && target.classList.contains("property-kind-button")) {
+        if (target && target.closest("button")) {
           return;
         }
         event.preventDefault();
@@ -4537,13 +5689,19 @@
       }
     });
     window.setTimeout(function() {
-      const input = keyShell.querySelector(".property-inline-key");
-      if (input) {
-        input.focus();
-        if (row) {
-          input.setSelectionRange(0, input.value.length);
+      if (row) {
+        focusPropertyDraftValue(item);
+        const valueInput = item.querySelector("[data-property-value-input='true']");
+        if (valueInput && valueInput.type === "text") {
+          valueInput.setSelectionRange(0, valueInput.value.length);
         }
+        return;
       }
+      const input = keyShell.querySelector(".property-inline-key");
+      if (!input) {
+        return;
+      }
+      input.focus();
     }, 0);
   }
   function renderPageProperties(options) {
@@ -4557,13 +5715,14 @@
     const rows = [];
     Object.keys(pageFrontmatter).sort().forEach(function(key) {
       const value = pageFrontmatter[key];
-      if (value === null || value === "" || typeof value === "undefined") {
+      if (typeof value === "undefined" || isTemplateMetadataKey(key)) {
         return;
       }
       rows.push({
         key,
         value: Array.isArray(value) ? value.join(", ") : String(value),
-        rawValue: value
+        rawValue: value,
+        kindHint: options.propertyKindHints[key]
       });
     });
     if (!rows.length && options.editingPropertyKey !== "__new__") {
@@ -4618,6 +5777,7 @@
       "use strict";
       init_dom();
       init_datetime();
+      init_noteTemplates();
     }
   });
 
@@ -4908,6 +6068,7 @@
     const activeSection = state.settingsSection;
     const navButtons = [
       { button: els.settingsNavAppearance, section: "appearance" },
+      { button: els.settingsNavTemplates, section: "templates" },
       { button: els.settingsNavNotifications, section: "notifications" },
       { button: els.settingsNavVault, section: "vault" }
     ];
@@ -4918,10 +6079,228 @@
       entry.button.setAttribute("aria-current", visible && activeSection === entry.section ? "page" : "false");
     });
     els.settingsGroupSession.classList.toggle("hidden", activeSection !== "appearance");
+    els.settingsGroupTemplates.classList.toggle("hidden", activeSection !== "templates");
     els.settingsGroupUserNotifications.classList.toggle("hidden", activeSection !== "notifications");
     els.settingsGroupServer.classList.toggle("hidden", activeSection !== "vault");
     els.saveSettings.classList.remove("hidden");
     els.saveSettings.textContent = "Save Settings";
+  }
+  function templateFieldDefaultValue2(field) {
+    if (field.kind === "bool") {
+      return Boolean(field.defaultValue) ? "true" : "false";
+    }
+    if (field.kind === "list" || field.kind === "tags") {
+      return Array.isArray(field.defaultValue) ? field.defaultValue.join(", ") : "";
+    }
+    return String(field.defaultValue || "");
+  }
+  function templateDefaultPlaceholder(kind) {
+    if (kind === "tags") {
+      return "client, berlin";
+    }
+    if (kind === "list") {
+      return "work, private";
+    }
+    if (kind === "bool") {
+      return "Unchecked by default";
+    }
+    if (kind === "date") {
+      return "{{title}} or 2026-04-27";
+    }
+    if (kind === "datetime") {
+      return "2026-04-27 09:00";
+    }
+    if (kind === "notification") {
+      return "2026-04-27 09:00";
+    }
+    return "{{title}}";
+  }
+  function renderTemplateDefaultInput(field, templateID, fieldIndex) {
+    if (field.kind === "bool") {
+      const row = document.createElement("label");
+      row.className = "settings-template-checkbox";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = Boolean(field.defaultValue);
+      checkbox.setAttribute("data-template-id", templateID);
+      checkbox.setAttribute("data-template-field-index", String(fieldIndex));
+      checkbox.setAttribute("data-template-field-input", "default-bool");
+      row.appendChild(checkbox);
+      const label = document.createElement("span");
+      label.textContent = "Checked by default";
+      row.appendChild(label);
+      return row;
+    }
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "settings-template-default-input";
+    input.value = templateFieldDefaultValue2(field);
+    input.placeholder = templateDefaultPlaceholder(field.kind);
+    input.autocomplete = "off";
+    input.setAttribute("autocorrect", "off");
+    input.setAttribute("autocapitalize", "none");
+    input.spellcheck = false;
+    input.setAttribute("data-template-id", templateID);
+    input.setAttribute("data-template-field-index", String(fieldIndex));
+    input.setAttribute("data-template-field-input", "default");
+    return input;
+  }
+  function renderTemplateDrafts(state, els) {
+    clearNode(els.settingsTemplateList);
+    const templates = Array.isArray(state.settingsTemplateDrafts) ? state.settingsTemplateDrafts : [];
+    els.settingsTemplateHelp.textContent = "Templates appear in the quick switcher when you type a new note name. Use {{title}} inside defaults to reuse the page title.";
+    if (!templates.length) {
+      const empty = document.createElement("div");
+      empty.className = "settings-template-empty";
+      empty.textContent = "No templates yet. Add one for contacts, meeting notes, or any recurring note shape.";
+      els.settingsTemplateList.appendChild(empty);
+      return;
+    }
+    templates.forEach(function(template) {
+      const card = document.createElement("section");
+      card.className = "settings-template-card";
+      card.setAttribute("data-template-id", template.id);
+      const head = document.createElement("div");
+      head.className = "settings-template-head";
+      const title = document.createElement("div");
+      title.className = "settings-template-title";
+      const strong = document.createElement("strong");
+      strong.textContent = template.name || "Untitled template";
+      title.appendChild(strong);
+      const meta = document.createElement("span");
+      meta.textContent = template.folder ? "Creates notes under " + template.folder + "/" : "Creates notes wherever you type them.";
+      title.appendChild(meta);
+      head.appendChild(title);
+      const removeTemplate = document.createElement("button");
+      removeTemplate.type = "button";
+      removeTemplate.className = "settings-template-remove";
+      removeTemplate.textContent = "Remove";
+      removeTemplate.setAttribute("data-template-action", "remove-template");
+      removeTemplate.setAttribute("data-template-id", template.id);
+      head.appendChild(removeTemplate);
+      card.appendChild(head);
+      const shell = document.createElement("div");
+      shell.className = "modal-fields settings-template-shell";
+      const nameField = document.createElement("label");
+      nameField.className = "search";
+      const nameLabel = document.createElement("span");
+      nameLabel.textContent = "Template Name";
+      nameField.appendChild(nameLabel);
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.value = template.name || "";
+      nameInput.placeholder = "Contact";
+      nameInput.autocomplete = "off";
+      nameInput.setAttribute("autocorrect", "off");
+      nameInput.setAttribute("autocapitalize", "words");
+      nameInput.spellcheck = false;
+      nameInput.setAttribute("data-template-id", template.id);
+      nameInput.setAttribute("data-template-input", "name");
+      nameField.appendChild(nameInput);
+      shell.appendChild(nameField);
+      const folderField = document.createElement("label");
+      folderField.className = "search";
+      const folderLabel = document.createElement("span");
+      folderLabel.textContent = "Folder";
+      folderField.appendChild(folderLabel);
+      const folderInput = document.createElement("input");
+      folderInput.type = "text";
+      folderInput.value = template.folder || "";
+      folderInput.placeholder = "contacts";
+      folderInput.autocomplete = "off";
+      folderInput.setAttribute("autocorrect", "off");
+      folderInput.setAttribute("autocapitalize", "none");
+      folderInput.spellcheck = false;
+      folderInput.setAttribute("data-template-id", template.id);
+      folderInput.setAttribute("data-template-input", "folder");
+      folderField.appendChild(folderInput);
+      shell.appendChild(folderField);
+      const fieldsBlock = document.createElement("div");
+      fieldsBlock.className = "modal-field-wide settings-template-fields";
+      const fieldsTitle = document.createElement("div");
+      fieldsTitle.className = "settings-template-fields-head";
+      const fieldsStrong = document.createElement("strong");
+      fieldsStrong.textContent = "Properties";
+      fieldsTitle.appendChild(fieldsStrong);
+      const fieldsCopy = document.createElement("span");
+      fieldsCopy.textContent = "Choose the frontmatter keys and types this template should create.";
+      fieldsTitle.appendChild(fieldsCopy);
+      fieldsBlock.appendChild(fieldsTitle);
+      const fieldList = document.createElement("div");
+      fieldList.className = "settings-template-field-list";
+      if (!template.fields.length) {
+        const empty = document.createElement("div");
+        empty.className = "settings-template-field-empty";
+        empty.textContent = "No properties yet.";
+        fieldList.appendChild(empty);
+      } else {
+        template.fields.forEach(function(field, fieldIndex) {
+          const row = document.createElement("div");
+          row.className = "settings-template-field-row";
+          row.setAttribute("data-template-id", template.id);
+          row.setAttribute("data-template-field-index", String(fieldIndex));
+          const keyInput = document.createElement("input");
+          keyInput.type = "text";
+          keyInput.className = "settings-template-field-key";
+          keyInput.value = field.key || "";
+          keyInput.placeholder = "vorname";
+          keyInput.autocomplete = "off";
+          keyInput.setAttribute("autocorrect", "off");
+          keyInput.setAttribute("autocapitalize", "none");
+          keyInput.spellcheck = false;
+          keyInput.setAttribute("data-template-id", template.id);
+          keyInput.setAttribute("data-template-field-index", String(fieldIndex));
+          keyInput.setAttribute("data-template-field-input", "key");
+          row.appendChild(keyInput);
+          const kindSelect = document.createElement("select");
+          kindSelect.className = "settings-template-field-kind";
+          kindSelect.setAttribute("data-template-id", template.id);
+          kindSelect.setAttribute("data-template-field-index", String(fieldIndex));
+          kindSelect.setAttribute("data-template-field-input", "kind");
+          [
+            ["text", "Text"],
+            ["tags", "Tags"],
+            ["list", "List"],
+            ["bool", "Checkbox"],
+            ["date", "Date"],
+            ["datetime", "Date & time"],
+            ["notification", "Notification"]
+          ].forEach(function([value, label]) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = label;
+            if (field.kind === value) {
+              option.selected = true;
+            }
+            kindSelect.appendChild(option);
+          });
+          row.appendChild(kindSelect);
+          row.appendChild(renderTemplateDefaultInput(field, template.id, fieldIndex));
+          const removeField = document.createElement("button");
+          removeField.type = "button";
+          removeField.className = "settings-template-field-remove";
+          removeField.textContent = "\xD7";
+          removeField.title = "Remove property";
+          removeField.setAttribute("aria-label", "Remove property");
+          removeField.setAttribute("data-template-action", "remove-field");
+          removeField.setAttribute("data-template-id", template.id);
+          removeField.setAttribute("data-template-field-index", String(fieldIndex));
+          row.appendChild(removeField);
+          fieldList.appendChild(row);
+        });
+      }
+      fieldsBlock.appendChild(fieldList);
+      const addField = document.createElement("button");
+      addField.type = "button";
+      addField.className = "settings-template-add-field";
+      addField.textContent = "Add Property";
+      addField.setAttribute("data-template-action", "add-field");
+      addField.setAttribute("data-template-id", template.id);
+      fieldsBlock.appendChild(addField);
+      shell.appendChild(fieldsBlock);
+      card.appendChild(shell);
+      els.settingsTemplateList.appendChild(card);
+    });
   }
   function renderSettingsForm(state, els) {
     renderSettingsModal(state, els);
@@ -4954,6 +6333,8 @@
     });
     els.settingsThemeUpload.disabled = false;
     els.settingsThemeDelete.disabled = false;
+    els.settingsTemplateAdd.disabled = !state.settingsLoaded;
+    renderTemplateDrafts(state, els);
     if (!state.settingsLoaded) {
       els.saveSettings.disabled = true;
       els.settingsStatus.textContent = "";
@@ -4986,6 +6367,74 @@
     els.settingsSaveCurrentPage.value = state.settings.preferences.hotkeys.saveCurrentPage || "";
     els.settingsToggleRawMode.value = state.settings.preferences.hotkeys.toggleRawMode || "";
     els.settingsToggleTaskDone.value = state.settings.preferences.hotkeys.toggleTaskDone || "";
+    renderSettingsHotkeyHints(els, state.settings.preferences.hotkeys);
+  }
+  function hotkeyInputByID(els, hotkeyID) {
+    switch (hotkeyID) {
+      case "quickSwitcher":
+        return els.settingsQuickSwitcher;
+      case "globalSearch":
+        return els.settingsGlobalSearch;
+      case "commandPalette":
+        return els.settingsCommandPalette;
+      case "quickNote":
+        return els.settingsQuickNote;
+      case "help":
+        return els.settingsHelp;
+      case "saveCurrentPage":
+        return els.settingsSaveCurrentPage;
+      case "toggleRawMode":
+        return els.settingsToggleRawMode;
+      case "toggleTaskDone":
+        return els.settingsToggleTaskDone;
+    }
+  }
+  function ensureHotkeyHintNode(input) {
+    const container = input.closest("label");
+    if (!container) {
+      return null;
+    }
+    let hint = container.querySelector(".settings-hotkey-meta");
+    if (!hint) {
+      hint = document.createElement("p");
+      hint.className = "settings-hotkey-meta";
+      container.appendChild(hint);
+    }
+    return hint;
+  }
+  function renderSettingsHotkeyHints(els, hotkeys) {
+    const platform = detectHotkeyPlatform();
+    const analysis = analyzeHotkeys(hotkeys, platform);
+    hotkeyDefinitions().forEach(function(definition) {
+      const input = hotkeyInputByID(els, definition.id);
+      const hint = ensureHotkeyHintNode(input);
+      const entry = analysis[definition.id];
+      const lines = [
+        definition.optional ? "Optional. Press a shortcut to record it, or type it manually if the browser steals the combo." : "Press a shortcut to record it, or type it manually if the browser steals the combo.",
+        entry.defaultBinding ? "Safer default: " + hotkeyLabel(entry.defaultBinding, platform) + "." : "No default shortcut."
+      ];
+      let severity = "";
+      if (entry.blockedReason) {
+        lines.push(entry.blockedReason);
+        severity = "danger";
+      } else if (entry.browserWarning) {
+        lines.push(entry.browserWarning);
+        severity = "warn";
+      }
+      input.placeholder = definition.optional ? "Not set" : "Press shortcut";
+      input.classList.add("settings-hotkey-input");
+      input.title = lines.join(" ");
+      if (severity) {
+        input.dataset.severity = severity;
+      } else {
+        delete input.dataset.severity;
+      }
+      if (!hint) {
+        return;
+      }
+      hint.textContent = lines.join(" ");
+      hint.dataset.severity = severity;
+    });
   }
   function renderThemeOptions(state, els) {
     const selectedValue = els.settingsTheme.value || state.settings.preferences.ui.themeId || "noterious-night";
@@ -5016,6 +6465,8 @@
   var init_settingsUi = __esm({
     "frontend/settingsUi.ts"() {
       "use strict";
+      init_dom();
+      init_hotkeys();
     }
   });
 
@@ -7108,6 +8559,7 @@
       init_pageTreeUi();
       init_settingsPersistence();
       init_properties();
+      init_noteTemplates();
       init_queryTree();
       init_routing();
       init_sessionUi();
@@ -7158,6 +8610,7 @@
           editingPropertyKey: "",
           propertyTypeMenuKey: "",
           propertyDraft: null,
+          templateFillSession: null,
           editingBlockKey: "",
           pendingBlockFocusKey: "",
           pendingEditSeed: "",
@@ -7191,6 +8644,7 @@
           savedThemeId: defaultThemeId,
           previewThemeId: defaultThemeId,
           themeCache: {},
+          settingsTemplateDrafts: cloneNoteTemplates(defaultClientPreferences().templates),
           markdownEditorApi: null,
           windowBlurred: false,
           restoreFocusSpec: null,
@@ -7366,10 +8820,12 @@
           settingsEyebrow: requiredElement("settings-eyebrow"),
           settingsTitle: requiredElement("settings-title"),
           settingsNavAppearance: requiredElement("settings-nav-appearance"),
+          settingsNavTemplates: requiredElement("settings-nav-templates"),
           settingsNavNotifications: requiredElement("settings-nav-notifications"),
           settingsNavVault: requiredElement("settings-nav-vault"),
           settingsGroupServer: requiredElement("settings-group-server"),
           settingsGroupSession: requiredElement("settings-group-session"),
+          settingsGroupTemplates: requiredElement("settings-group-templates"),
           settingsGroupUserNotifications: requiredElement("settings-group-user-notifications"),
           cancelSettings: requiredElement("cancel-settings"),
           saveSettings: requiredElement("save-settings"),
@@ -7394,6 +8850,9 @@
           settingsSaveCurrentPage: requiredElement("settings-hotkey-save-current-page"),
           settingsToggleRawMode: requiredElement("settings-hotkey-toggle-raw-mode"),
           settingsToggleTaskDone: requiredElement("settings-hotkey-toggle-task-done"),
+          settingsTemplateList: requiredElement("settings-template-list"),
+          settingsTemplateAdd: requiredElement("settings-template-add"),
+          settingsTemplateHelp: requiredElement("settings-template-help"),
           settingsStatus: requiredElement("settings-status"),
           slashMenu: requiredElement("slash-menu"),
           slashMenuResults: requiredElement("slash-menu-results")
@@ -8530,6 +9989,112 @@
           const page = currentPageView2();
           renderPageTags(els.pageTags, page ? page.frontmatter : null);
         }
+        function vaultTemplates() {
+          return allNoteTemplatesFromPages(state.pages);
+        }
+        function quickSwitcherTemplates() {
+          return noteTemplatesFromPages(state.pages, currentScopePrefix());
+        }
+        function currentPagePath(page) {
+          return normalizePageDraftPath(page ? page.page || page.path || "" : state.selectedPage || "");
+        }
+        function reconcileTemplateFillSession(page) {
+          const session = state.templateFillSession;
+          if (!session) {
+            return null;
+          }
+          const sessionPath = normalizePageDraftPath(session.pagePath);
+          if (!sessionPath) {
+            state.templateFillSession = null;
+            return null;
+          }
+          if (sessionPath !== currentPagePath(page)) {
+            return null;
+          }
+          const remaining = remainingTemplateFields(session.fields, page ? page.frontmatter : null);
+          state.templateFillSession = remaining.length ? {
+            pagePath: sessionPath,
+            fields: remaining
+          } : null;
+          return state.templateFillSession;
+        }
+        function beginTemplateFillSession(pagePath, template) {
+          const normalizedPath = normalizePageDraftPath(pagePath);
+          if (!normalizedPath) {
+            state.templateFillSession = null;
+            return;
+          }
+          const fields = templateFieldsNeedingInput(template, normalizedPath);
+          state.templateFillSession = fields.length ? {
+            pagePath: normalizedPath,
+            fields
+          } : null;
+        }
+        function openTemplateFillDraft(page) {
+          const field = currentTemplateFillField(page);
+          if (!field) {
+            return false;
+          }
+          const key = String(field.key || "").trim();
+          if (!key) {
+            state.templateFillSession = null;
+            return false;
+          }
+          const frontmatter = page ? page.frontmatter : null;
+          if (frontmatter && Object.prototype.hasOwnProperty.call(frontmatter, key)) {
+            setPropertyDraft(key, frontmatter[key], key);
+          } else {
+            setPropertyDraft(key, "", "__new__");
+          }
+          state.propertyTypeMenuKey = "";
+          setNoteStatus("Fill in " + key + ".");
+          return true;
+        }
+        function currentTemplateFillField(page) {
+          const session = reconcileTemplateFillSession(page);
+          return session && session.fields.length ? session.fields[0] : null;
+        }
+        function skipCurrentTemplateFillField() {
+          const page = state.currentPage;
+          const session = reconcileTemplateFillSession(page);
+          if (!session || !session.fields.length) {
+            return false;
+          }
+          const skipped = session.fields[0];
+          const remaining = session.fields.slice(1);
+          state.templateFillSession = remaining.length ? {
+            pagePath: session.pagePath,
+            fields: remaining
+          } : null;
+          clearPropertyDraft();
+          if (page && openTemplateFillDraft(page)) {
+            renderPageProperties2();
+            return true;
+          }
+          renderPageProperties2();
+          setNoteStatus("Template fields complete.");
+          return Boolean(skipped);
+        }
+        function currentTemplatePropertyKindHints() {
+          const page = currentPageView2();
+          const hints = templatePropertyKindHints(page ? page.frontmatter : null, vaultTemplates());
+          const session = reconcileTemplateFillSession(page);
+          if (!session) {
+            return hints;
+          }
+          return {
+            ...hints,
+            ...templateFieldKindHints(session.fields)
+          };
+        }
+        function currentPropertyKindHint(key) {
+          const normalizedKey = String(key || "").trim();
+          if (!normalizedKey) {
+            return void 0;
+          }
+          const hints = currentTemplatePropertyKindHints();
+          return hints[normalizedKey];
+        }
         function clearPropertyDraft() {
           state.editingPropertyKey = "";
           state.propertyTypeMenuKey = "";
@@ -8537,7 +10102,7 @@
         }
         function setPropertyDraft(key, value, originalKey) {
           state.editingPropertyKey = originalKey || key || "__new__";
-          state.propertyDraft = makePropertyDraft(key, value, originalKey);
+          state.propertyDraft = makePropertyDraft(key, value, originalKey, currentPropertyKindHint(key));
         }
         function propertyMenuKey2(row) {
           return row ? row.key : "__new__";
@@ -8556,13 +10121,8 @@
             if (!draft) {
               return;
             }
-            draft.kind = kind;
-            if (kind === "list" && !Array.isArray(draft.list)) {
-              draft.list = [];
-            }
-            if (kind === "bool") {
-              draft.text = draft.text === "true" ? "true" : "false";
-            }
+            const nextDraft = applyPropertyDraftKind(draft, kind);
+            state.propertyDraft = !String(nextDraft.key || "").trim() ? kind === "tags" ? { ...nextDraft, key: "tags" } : kind === "notification" ? { ...nextDraft, key: "notification" } : nextDraft : nextDraft;
             state.propertyTypeMenuKey = "";
             renderPageProperties2();
             return;
@@ -8571,7 +10131,7 @@
           patchCurrentPageFrontmatter({
             frontmatter: {
               set: {
-                [row.key]: coercePropertyValue(kind, row.rawValue)
+                [row.key]: coercePropertyValue(kind, row.rawValue, row.key)
               }
             }
           }).catch(function(error) {
@@ -8595,7 +10155,7 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
           });
-          await Promise.all([loadPages(), loadTasks(), loadPageDetail(state.selectedPage, true)]);
+          await Promise.all([loadPages(), loadTasks(), loadPageDetail(state.selectedPage, true, false)]);
         }
         function startAddProperty() {
           setPropertyDraft("", "", "__new__");
@@ -8610,7 +10170,6 @@
               remove: [key]
             }
           });
-          clearPropertyDraft();
         }
         function startRenameProperty(row) {
           if (!row) {
@@ -8626,17 +10185,25 @@
             setNoteStatus("Frontmatter key is required.");
             return;
           }
+          if (isTemplateMetadataKey(key)) {
+            setNoteStatus("Template metadata keys are reserved.");
+            return;
+          }
           const value = propertyDraftValue(state.propertyDraft);
+          const guidedField = currentTemplateFillField(state.currentPage);
+          if (guidedField && String(guidedField.key || "").trim() === key && (value === "" || Array.isArray(value) && value.length === 0)) {
+            skipCurrentTemplateFillField();
+            return;
+          }
           const setPayload = {};
           setPayload[key] = value;
-          const remove = state.editingPropertyKey && state.editingPropertyKey !== key ? [state.editingPropertyKey] : [];
+          const remove = state.editingPropertyKey && state.editingPropertyKey !== key && state.editingPropertyKey !== "__new__" ? [state.editingPropertyKey] : [];
           await patchCurrentPageFrontmatter({
             frontmatter: {
               set: setPayload,
               remove
             }
           });
-          clearPropertyDraft();
         }
         function saveExistingPropertyValue(key, value) {
           return patchCurrentPageFrontmatter({
@@ -8649,9 +10216,13 @@
         }
         function renderPageProperties2() {
           const page = currentPageView2();
+          if (els.propertyActions) {
+            els.propertyActions.classList.toggle("hidden", state.sourceOpen || state.editingPropertyKey === "__new__");
+          }
           renderPageProperties({
             container: els.pageProperties,
             pageFrontmatter: page ? page.frontmatter : null,
+            propertyKindHints: currentTemplatePropertyKindHints(),
             editingPropertyKey: state.editingPropertyKey,
             propertyTypeMenuKey: state.propertyTypeMenuKey,
             propertyDraft: state.propertyDraft,
@@ -8706,9 +10277,85 @@
         function renderHelpShortcuts2() {
           renderHelpShortcuts(els, state.settings.preferences);
         }
+        function currentHotkeyPreferencesFromInputs() {
+          return {
+            quickSwitcher: canonicalizeHotkey(String(els.settingsQuickSwitcher.value || "").trim()),
+            globalSearch: canonicalizeHotkey(String(els.settingsGlobalSearch.value || "").trim()),
+            commandPalette: canonicalizeHotkey(String(els.settingsCommandPalette.value || "").trim()),
+            quickNote: canonicalizeHotkey(String(els.settingsQuickNote.value || "").trim()),
+            help: canonicalizeHotkey(String(els.settingsHelp.value || "").trim()),
+            saveCurrentPage: canonicalizeHotkey(String(els.settingsSaveCurrentPage.value || "").trim()),
+            toggleRawMode: canonicalizeHotkey(String(els.settingsToggleRawMode.value || "").trim()),
+            toggleTaskDone: canonicalizeHotkey(String(els.settingsToggleTaskDone.value || "").trim())
+          };
+        }
+        function renderSettingsHotkeyHints2() {
+          renderSettingsHotkeyHints(els, currentHotkeyPreferencesFromInputs());
+        }
         function renderSettingsForm2() {
           renderSettingsForm(state, els);
+          renderSettingsHotkeyHints2();
           els.settingsStatus.textContent = "";
+        }
+        function settingsHotkeyInput(hotkeyID) {
+          switch (hotkeyID) {
+            case "quickSwitcher":
+              return els.settingsQuickSwitcher;
+            case "globalSearch":
+              return els.settingsGlobalSearch;
+            case "commandPalette":
+              return els.settingsCommandPalette;
+            case "quickNote":
+              return els.settingsQuickNote;
+            case "help":
+              return els.settingsHelp;
+            case "saveCurrentPage":
+              return els.settingsSaveCurrentPage;
+            case "toggleRawMode":
+              return els.settingsToggleRawMode;
+            case "toggleTaskDone":
+              return els.settingsToggleTaskDone;
+          }
+        }
+        function bindSettingsHotkeyInputs() {
+          hotkeyDefinitions().forEach(function(definition) {
+            const input = settingsHotkeyInput(definition.id);
+            input.setAttribute("aria-label", definition.label + " hotkey");
+            on(input, "focus", function() {
+              input.dataset.recording = "true";
+              renderSettingsHotkeyHints2();
+            });
+            on(input, "blur", function() {
+              input.value = canonicalizeHotkey(input.value);
+              delete input.dataset.recording;
+              renderSettingsHotkeyHints2();
+            });
+            on(input, "input", function() {
+              renderSettingsHotkeyHints2();
+            });
+            on(input, "keydown", function(rawEvent) {
+              const event = rawEvent;
+              if (event.key === "Tab") {
+                return;
+              }
+              const key = String(event.key || "");
+              const shouldCapture = Boolean(
+                event.ctrlKey || event.metaKey || event.altKey || key === "Enter" || key === "Escape" || /^F\d+$/i.test(key) || event.shiftKey && key.length === 1 && /[^a-z0-9]/i.test(key)
+              );
+              if (!shouldCapture) {
+                return;
+              }
+              event.stopPropagation();
+              const binding = hotkeyFromEvent(event);
+              if (!binding) {
+                event.preventDefault();
+                return;
+              }
+              event.preventDefault();
+              input.value = binding;
+              renderSettingsHotkeyHints2();
+            });
+          });
         }
         function setSettingsSnapshot(snapshot) {
           state.settings.vault = snapshot.settings.vault;
@@ -9079,6 +10726,7 @@
             }
             clearAutosaveTimer();
             clearPropertyDraft();
+            const templateFillActive = openTemplateFillDraft(page);
             state.selectedSavedQueryPayload = null;
             els.detailPath.textContent = page.page || page.path || pagePath;
             setNoteHeadingValue(page.title || page.page || pagePath, true);
@@ -9102,7 +10750,7 @@
               page.rawMarkdown || ""
             );
             renderNoteStudio();
-            if (shouldFocusEditor && state.markdownEditorApi && !blockingOverlayOpen(els) && !inlineTableEditorOpen2()) {
+            if (shouldFocusEditor && !templateFillActive && state.markdownEditorApi && !blockingOverlayOpen(els) && !inlineTableEditorOpen2()) {
               state.markdownEditorApi.setHighlightedLine(
                 typeof pendingLineFocus === "number" && pendingLineFocus > 0 ? pendingLineFocus : null
               );
@@ -9121,7 +10769,7 @@
                 state.markdownEditorApi.setHighlightedLine(null);
                 focusEditorAtBodyPosition(firstEditableLineIndex(state.currentMarkdown), 0);
               }
-            } else if (shouldFocusEditor && state.sourceOpen && !blockingOverlayOpen(els) && !inlineTableEditorOpen2()) {
+            } else if (shouldFocusEditor && !templateFillActive && state.sourceOpen && !blockingOverlayOpen(els) && !inlineTableEditorOpen2()) {
               window.setTimeout(function() {
                 if (els.markdownEditor) {
                   focusMarkdownEditor(state, els, { preventScroll: true });
@@ -9494,10 +11142,48 @@
         function closeHelpModal() {
           setHelpOpen(false);
         }
+        function resetSettingsTemplateDrafts() {
+          state.settingsTemplateDrafts = cloneNoteTemplates(state.settings.preferences.templates);
+        }
+        function updateSettingsTemplateDrafts(updater) {
+          state.settingsTemplateDrafts = cloneNoteTemplates(updater(cloneNoteTemplates(state.settingsTemplateDrafts)));
+        }
+        function templateDraftIndex(templateID) {
+          return state.settingsTemplateDrafts.findIndex(function(template) {
+            return template.id === templateID;
+          });
+        }
+        function updateTemplateDraft(templateID, updater) {
+          updateSettingsTemplateDrafts(function(templates) {
+            const index = templates.findIndex(function(template) {
+              return template.id === templateID;
+            });
+            if (index < 0) {
+              return templates;
+            }
+            const next = templates.slice();
+            next[index] = updater(next[index]);
+            return next;
+          });
+        }
+        function updateTemplateFieldDraft(templateID, fieldIndex, updater) {
+          updateTemplateDraft(templateID, function(template) {
+            if (fieldIndex < 0 || fieldIndex >= template.fields.length) {
+              return template;
+            }
+            const fields = template.fields.slice();
+            fields[fieldIndex] = updater(fields[fieldIndex]);
+            return {
+              ...template,
+              fields
+            };
+          });
+        }
         function setSettingsOpen(open) {
           if (open) {
             state.savedThemeId = currentThemeID();
             state.previewThemeId = currentThemeID();
+            resetSettingsTemplateDrafts();
             rememberNoteFocus();
             els.searchModalShell.classList.add("hidden");
             els.commandModalShell.classList.add("hidden");
@@ -9520,6 +11206,10 @@
                 focusWithoutScroll(els.settingsUserNtfyTopicUrl);
                 return;
               }
+              if (state.settingsSection === "templates") {
+                focusWithoutScroll(els.settingsTemplateAdd);
+                return;
+              }
               if (state.settingsSection === "appearance") {
                 focusWithoutScroll(els.settingsTheme);
                 return;
@@ -9528,6 +11218,7 @@
             });
             return;
           }
+          resetSettingsTemplateDrafts();
           els.settingsModalShell.classList.add("hidden");
         }
         function closeSettingsModal() {
@@ -9588,11 +11279,13 @@
               saveCurrentPage: String(els.settingsSaveCurrentPage.value || "").trim(),
               toggleRawMode: String(els.settingsToggleRawMode.value || "").trim(),
               toggleTaskDone: String(els.settingsToggleTaskDone.value || "").trim()
-            }
+            },
+            templates: cloneNoteTemplates(state.settingsTemplateDrafts)
           });
         }
         function applyClientPreferences(preferences) {
           state.settings.preferences = cloneClientPreferences(preferences);
+          state.settingsTemplateDrafts = cloneNoteTemplates(state.settings.preferences.templates);
           state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
           syncHomePageForCurrentScope();
           state.savedThemeId = currentThemeID();
@@ -9698,6 +11391,7 @@
             els,
             inputValue: els.quickSwitcherInput ? els.quickSwitcherInput.value : "",
             pages: state.pages,
+            templates: quickSwitcherTemplates(),
             selectedPage: state.selectedPage,
             onClose: closeQuickSwitcher,
             onOpenPage: function(pagePath) {
@@ -9706,6 +11400,11 @@
             onCreatePage: function(pagePath) {
               createPage2(pagePath).catch(function(error) {
                 setNoteStatus("Create page failed: " + errorMessage(error));
+              });
+            },
+            onCreateTemplatePage: function(template, pagePath) {
+              createPageFromTemplate(pagePath, template).catch(function(error) {
+                setNoteStatus("Template create failed: " + errorMessage(error));
               });
             }
           });
@@ -9780,13 +11479,33 @@
           window.clearTimeout(state.searchTimer ?? void 0);
           state.searchTimer = window.setTimeout(runGlobalSearch, 120);
         }
-        async function createPage2(pagePath) {
+        async function createPage2(pagePath, initialMarkdown) {
           return createPage(applyCurrentScopePrefix(pagePath), {
             encodePath,
             fetchJSON,
             loadPages,
             navigateToPage
-          });
+          }, initialMarkdown ? { rawMarkdown: initialMarkdown } : void 0);
+        }
+        async function createPageFromTemplate(pagePath, template) {
+          const targetPath = buildPagePathFromTemplate(template, pagePath);
+          if (!targetPath) {
+            return;
+          }
+          const scopedTargetPath = applyCurrentScopePrefix(targetPath);
+          if (hasPage(scopedTargetPath)) {
+            navigateToPage(scopedTargetPath, false);
+            return;
+          }
+          const templatePage = await fetchJSON("/api/pages/" + encodePath(template.id));
+          const previousTemplateFillSession = state.templateFillSession;
+          beginTemplateFillSession(scopedTargetPath, template);
+          try {
+            await createPage2(targetPath, buildMarkdownFromTemplate(scopedTargetPath, template, templatePage.rawMarkdown));
+          } catch (error) {
+            state.templateFillSession = previousTemplateFillSession;
+            throw error;
+          }
         }
         async function uploadDocument(file) {
           const formData = new FormData();
@@ -10221,6 +11940,10 @@
             state.settingsSection = "appearance";
             renderSettingsForm2();
           });
+          on(els.settingsNavTemplates, "click", function() {
+            state.settingsSection = "templates";
+            renderSettingsForm2();
+          });
           on(els.settingsNavNotifications, "click", function() {
             state.settingsSection = "notifications";
             renderSettingsForm2();
@@ -10228,6 +11951,139 @@
           on(els.settingsNavVault, "click", function() {
             state.settingsSection = "vault";
             renderSettingsForm2();
+          });
+          on(els.settingsTemplateAdd, "click", function() {
+            const nextIndex = state.settingsTemplateDrafts.length + 1;
+            updateSettingsTemplateDrafts(function(templates) {
+              return templates.concat([createBlankNoteTemplate("New Template " + String(nextIndex))]);
+            });
+            renderSettingsForm2();
+          });
+          on(els.settingsTemplateList, "click", function(event) {
+            const target = event.target instanceof HTMLElement ? event.target : null;
+            const actionTarget = target ? target.closest("[data-template-action]") : null;
+            if (!actionTarget) {
+              return;
+            }
+            const templateID = String(actionTarget.getAttribute("data-template-id") || "").trim();
+            const fieldIndex = Number(actionTarget.getAttribute("data-template-field-index"));
+            const action = String(actionTarget.getAttribute("data-template-action") || "").trim();
+            if (!templateID) {
+              return;
+            }
+            if (action === "remove-template") {
+              updateSettingsTemplateDrafts(function(templates) {
+                return templates.filter(function(template) {
+                  return template.id !== templateID;
+                });
+              });
+              renderSettingsForm2();
+              return;
+            }
+            if (action === "add-field") {
+              updateTemplateDraft(templateID, function(template) {
+                return {
+                  ...template,
+                  fields: template.fields.concat([createBlankTemplateField()])
+                };
+              });
+              renderSettingsForm2();
+              return;
+            }
+            if (action === "remove-field" && Number.isFinite(fieldIndex)) {
+              updateTemplateDraft(templateID, function(template) {
+                return {
+                  ...template,
+                  fields: template.fields.filter(function(_field, index) {
+                    return index !== fieldIndex;
+                  })
+                };
+              });
+              renderSettingsForm2();
+            }
+          });
+          on(els.settingsTemplateList, "input", function(event) {
+            const target = event.target instanceof HTMLElement ? event.target : null;
+            if (!target) {
+              return;
+            }
+            const templateID = String(target.getAttribute("data-template-id") || "").trim();
+            if (!templateID) {
+              return;
+            }
+            const templateInput = String(target.getAttribute("data-template-input") || "").trim();
+            if (templateInput === "name" && target instanceof HTMLInputElement) {
+              updateTemplateDraft(templateID, function(template) {
+                return {
+                  ...template,
+                  name: target.value
+                };
+              });
+              return;
+            }
+            if (templateInput === "folder" && target instanceof HTMLInputElement) {
+              updateTemplateDraft(templateID, function(template) {
+                return {
+                  ...template,
+                  folder: target.value
+                };
+              });
+              return;
+            }
+            const fieldInput = String(target.getAttribute("data-template-field-input") || "").trim();
+            const fieldIndex = Number(target.getAttribute("data-template-field-index"));
+            if (!Number.isFinite(fieldIndex)) {
+              return;
+            }
+            if (fieldInput === "key" && target instanceof HTMLInputElement) {
+              updateTemplateFieldDraft(templateID, fieldIndex, function(field) {
+                return {
+                  ...field,
+                  key: target.value
+                };
+              });
+              return;
+            }
+            if (fieldInput === "default" && target instanceof HTMLInputElement) {
+              updateTemplateFieldDraft(templateID, fieldIndex, function(field) {
+                return {
+                  ...field,
+                  defaultValue: coerceTemplateFieldDefaultValue(field.kind, target.value)
+                };
+              });
+            }
+          });
+          on(els.settingsTemplateList, "change", function(event) {
+            const target = event.target instanceof HTMLElement ? event.target : null;
+            if (!target) {
+              return;
+            }
+            const templateID = String(target.getAttribute("data-template-id") || "").trim();
+            const fieldIndex = Number(target.getAttribute("data-template-field-index"));
+            if (!templateID || !Number.isFinite(fieldIndex)) {
+              return;
+            }
+            const fieldInput = String(target.getAttribute("data-template-field-input") || "").trim();
+            if (fieldInput === "kind" && target instanceof HTMLSelectElement) {
+              updateTemplateFieldDraft(templateID, fieldIndex, function(field) {
+                const nextKind = target.value;
+                return {
+                  ...field,
+                  kind: nextKind,
+                  defaultValue: coerceTemplateFieldDefaultValue(nextKind, field.defaultValue)
+                };
+              });
+              renderSettingsForm2();
+              return;
+            }
+            if (fieldInput === "default-bool" && target instanceof HTMLInputElement) {
+              updateTemplateFieldDraft(templateID, fieldIndex, function(field) {
+                return {
+                  ...field,
+                  defaultValue: target.checked
+                };
+              });
+            }
           });
           on(els.openQuickSwitcher, "click", function() {
             setSessionMenuOpen2(false);
@@ -10692,6 +12548,7 @@
               els.settingsStatus.textContent = "Theme delete failed: " + errorMessage(error);
             });
           });
+          bindSettingsHotkeyInputs();
           on(els.saveSettings, "click", function() {
             persistSettings().catch(function(error) {
               els.settingsStatus.textContent = errorMessage(error);
@@ -10942,16 +12799,11 @@
             });
             on(markdownEditorApi.host, "noterious:task-toggle", function(event) {
               const detail = event.detail || {};
-              const bodyLineNumber = Number(detail.lineNumber) || 0;
-              if (!state.currentPage || !state.currentPage.tasks || !bodyLineNumber) {
-                return;
-              }
-              const split = splitFrontmatter(state.currentMarkdown);
-              const frontmatterLineCount = split.frontmatter ? split.frontmatter.split("\n").length - 1 : 0;
-              const rawLineNumber = frontmatterLineCount + bodyLineNumber;
-              const task = state.currentPage.tasks.find(function(item) {
-                return Number(item.line) === rawLineNumber;
-              });
+              const task = resolvePageTask(
+                state.currentPage,
+                detail.ref ? String(detail.ref) : "",
+                Number(detail.lineNumber) || 0
+              );
               if (task) {
                 toggleTaskDone2(task);
               }
