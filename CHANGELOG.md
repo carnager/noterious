@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.15] - 2026-04-28
+
+### Fixed
+- Rendered-mode task lines now treat hidden markdown prefixes as atomic cursor ranges, so moving right from the start of a task jumps straight to the first visible task character instead of stepping through invisible checkbox syntax.
+
 ## [v0.1.14] - 2026-04-28
 
 ### Added

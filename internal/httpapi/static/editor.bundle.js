@@ -28125,7 +28125,13 @@
         }
         return false;
       }
-      function addInlineDecorations(builder, lineFrom, text, startOffset, editingLine, selection, currentPagePath, extraDecos) {
+      var atomicRangeDecoration = Decoration.mark({});
+      function addAtomicRange(builder, from, to) {
+        if (to > from) {
+          builder.add(from, to, atomicRangeDecoration);
+        }
+      }
+      function addInlineDecorations(builder, atomicBuilder, lineFrom, text, startOffset, editingLine, selection, currentPagePath, extraDecos) {
         const decos = extraDecos.slice();
         const body = text.slice(startOffset);
         const bodyFrom = lineFrom + startOffset;
@@ -28141,7 +28147,7 @@
             if (editing) {
               decos.push({ from: mFrom, to: mEnd, deco: Decoration.mark({ class: "cm-md-link-raw" }) });
             } else {
-              decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new WikiLinkWidget(target, label) }) });
+              decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new WikiLinkWidget(target, label) }), atomic: true });
             }
           } else if (m[3] !== void 0) {
             const label = String(m[3]).trim();
@@ -28151,7 +28157,7 @@
               if (editing) {
                 decos.push({ from: mFrom, to: mEnd, deco: Decoration.mark({ class: "cm-md-link-raw" }) });
               } else {
-                decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new ExternalLinkWidget(target, label || target) }) });
+                decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new ExternalLinkWidget(target, label || target) }), atomic: true });
               }
             } else {
               const resolvedPath = resolveRelativeTarget(currentPagePath, target);
@@ -28162,7 +28168,7 @@
               if (editing) {
                 decos.push({ from: mFrom, to: mEnd, deco: Decoration.mark({ class: "cm-md-link-raw" }) });
               } else {
-                decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new MarkdownLinkWidget(href, label || href) }) });
+                decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new MarkdownLinkWidget(href, label || href) }), atomic: true });
               }
             }
           } else if (m[0][0] === "h" && /^https?:\/\//.test(m[0])) {
@@ -28170,25 +28176,25 @@
             if (editing) {
               decos.push({ from: mFrom, to: mEnd, deco: Decoration.mark({ class: "cm-md-link-raw" }) });
             } else if (!editingLine) {
-              decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new ExternalLinkWidget(m[0], m[0]) }) });
+              decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new ExternalLinkWidget(m[0], m[0]) }), atomic: true });
             }
           } else if (!editingLine) {
             if (m[5] !== void 0) {
-              decos.push({ from: mFrom, to: mFrom + 1, deco: Decoration.replace({}) });
+              decos.push({ from: mFrom, to: mFrom + 1, deco: Decoration.replace({}), atomic: true });
               decos.push({ from: mFrom + 1, to: mEnd - 1, deco: Decoration.mark({ class: "cm-md-inline-code" }) });
-              decos.push({ from: mEnd - 1, to: mEnd, deco: Decoration.replace({}) });
+              decos.push({ from: mEnd - 1, to: mEnd, deco: Decoration.replace({}), atomic: true });
             } else if (m[6] !== void 0 || m[7] !== void 0) {
-              decos.push({ from: mFrom, to: mFrom + 2, deco: Decoration.replace({}) });
+              decos.push({ from: mFrom, to: mFrom + 2, deco: Decoration.replace({}), atomic: true });
               decos.push({ from: mFrom + 2, to: mEnd - 2, deco: Decoration.mark({ class: "cm-md-bold" }) });
-              decos.push({ from: mEnd - 2, to: mEnd, deco: Decoration.replace({}) });
+              decos.push({ from: mEnd - 2, to: mEnd, deco: Decoration.replace({}), atomic: true });
             } else if (m[8] !== void 0 || m[9] !== void 0) {
-              decos.push({ from: mFrom, to: mFrom + 1, deco: Decoration.replace({}) });
+              decos.push({ from: mFrom, to: mFrom + 1, deco: Decoration.replace({}), atomic: true });
               decos.push({ from: mFrom + 1, to: mEnd - 1, deco: Decoration.mark({ class: "cm-md-italic" }) });
-              decos.push({ from: mEnd - 1, to: mEnd, deco: Decoration.replace({}) });
+              decos.push({ from: mEnd - 1, to: mEnd, deco: Decoration.replace({}), atomic: true });
             } else if (m[10] !== void 0) {
-              decos.push({ from: mFrom, to: mFrom + 2, deco: Decoration.replace({}) });
+              decos.push({ from: mFrom, to: mFrom + 2, deco: Decoration.replace({}), atomic: true });
               decos.push({ from: mFrom + 2, to: mEnd - 2, deco: Decoration.mark({ class: "cm-md-strikethrough" }) });
-              decos.push({ from: mEnd - 2, to: mEnd, deco: Decoration.replace({}) });
+              decos.push({ from: mEnd - 2, to: mEnd, deco: Decoration.replace({}), atomic: true });
             }
           }
         }
@@ -28197,13 +28203,20 @@
         });
         for (let i = 0; i < decos.length; i += 1) {
           builder.add(decos[i].from, decos[i].to, decos[i].deco);
+          if (decos[i].atomic) {
+            addAtomicRange(atomicBuilder, decos[i].from, decos[i].to);
+          }
         }
       }
       function buildRenderedDecorations(state) {
         if (!state.field(renderModeField, false)) {
-          return Decoration.none;
+          return {
+            decorations: Decoration.none,
+            atomicRanges: Decoration.none
+          };
         }
         const builder = new RangeSetBuilder();
+        const atomicBuilder = new RangeSetBuilder();
         const queryBlocks = state.field(queryBlocksField);
         const tasks = state.field(tasksField);
         const selection = state.selection.main;
@@ -28220,6 +28233,7 @@
               block: true
             })
           );
+          addAtomicRange(atomicBuilder, 0, frontmatter.length);
           hiddenFrontmatterUntil = frontmatter.split("\n").length - 1;
         }
         for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
@@ -28246,6 +28260,7 @@
                 widget: new MarkdownTableWidget(tableBlock.html)
               })
             );
+            addAtomicRange(atomicBuilder, line.from, tableEndLine.to);
             lineNumber = tableBlock.endLineIndex + 1;
             continue;
           }
@@ -28275,6 +28290,7 @@
                 widget: new QueryBlockWidget(html2, editLineNumber)
               })
             );
+            addAtomicRange(atomicBuilder, line.from, endLine.to);
             lineNumber = endLineNumber;
             continue;
           }
@@ -28304,6 +28320,7 @@
               builder.add(codeLine.from, codeLine.from, Decoration.line({ class: classNames.join(" ") }));
               if (replaceDecoration) {
                 builder.add(codeLine.from, codeLine.to, replaceDecoration);
+                addAtomicRange(atomicBuilder, codeLine.from, codeLine.to);
               }
             }
             lineNumber = codeBlock.endLineIndex + 1;
@@ -28319,6 +28336,7 @@
               builder.add(from, from + match[0].length, Decoration.mark({ class: "cm-md-heading-raw" }));
             } else {
               builder.add(from, from + match[0].length, Decoration.replace({}));
+              addAtomicRange(atomicBuilder, from, from + match[0].length);
               inlineStart = match[0].length;
             }
           }
@@ -28326,6 +28344,7 @@
           if (match) {
             builder.add(from, from, Decoration.line({ class: "cm-md-quote" }));
             builder.add(from, from + match[1].length, Decoration.replace({}));
+            addAtomicRange(atomicBuilder, from, from + match[1].length);
             if (match[1].length > inlineStart) {
               inlineStart = match[1].length;
             }
@@ -28345,6 +28364,7 @@
             const bodyText = text.slice(prefixLength);
             builder.add(from, from, Decoration.line({ class: "cm-md-task-line" + (task.done ? " cm-md-task-done" : "") }));
             builder.add(from, from + prefixLength, Decoration.replace({ widget: new TaskCheckboxWidget(task.done, task.ref, indentLength) }));
+            addAtomicRange(atomicBuilder, from, from + prefixLength);
             inlineStart = prefixLength;
             let dateMatch = null;
             while ((dateMatch = taskInlineDatePattern.exec(bodyText)) !== null) {
@@ -28368,12 +28388,15 @@
               taskMetaWidget = new TaskMetaWidget(task);
             }
           }
-          addInlineDecorations(builder, from, text, inlineStart, editingLine, selection, currentPagePath, inlineExtraDecos);
+          addInlineDecorations(builder, atomicBuilder, from, text, inlineStart, editingLine, selection, currentPagePath, inlineExtraDecos);
           if (taskMetaWidget) {
             builder.add(line.to, line.to, Decoration.widget({ widget: taskMetaWidget, side: 1 }));
           }
         }
-        return builder.finish();
+        return {
+          decorations: builder.finish(),
+          atomicRanges: atomicBuilder.finish()
+        };
       }
       var renderModeField = StateField.define({
         create() {
@@ -28413,7 +28436,15 @@
           }
           return buildRenderedDecorations(transaction.state);
         },
-        provide: (field) => EditorView.decorations.from(field)
+        provide: (field) => [
+          EditorView.decorations.from(field, function(value) {
+            return value.decorations;
+          }),
+          EditorView.atomicRanges.of(function(view) {
+            const value = view.state.field(field, false);
+            return value ? value.atomicRanges : Decoration.none;
+          })
+        ]
       });
       var renderedFrontmatterBoundaryFilter = EditorState.transactionFilter.of((transaction) => {
         if (!transaction.startState.field(renderModeField, false)) {
