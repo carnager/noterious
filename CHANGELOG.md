@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Rendered task checkboxes now use native checkbox visuals inside the editor widget while keeping the existing CodeMirror event model.
 - Hotkey settings now use browser-aware defaults, duplicate/conflict analysis, and inline warnings for likely browser-reserved shortcuts.
 - Property creation and template flows now better match the current frontmatter model, including dedicated support for tags and notification/datetime-like fields.
+- The documented Nix flake flow now uses the moving `latest` tag for tracking the newest release, while still supporting explicit version tags for pinned installs.
 
 ### Fixed
 - Task toggling in rendered mode now resolves tasks correctly even when frontmatter is present above the note body.

@@ -223,7 +223,23 @@ The repository now includes:
 - a build package at [nix/package.nix](/home/carnager/Code/noterious/nix/package.nix:1)
 - a NixOS module at [nix/module.nix](/home/carnager/Code/noterious/nix/module.nix:1)
 
-Build the package directly with:
+When consuming Noterious as a flake input, the intended moving-release flow is the `latest` tag:
+
+```nix
+{
+  inputs.noterious.url = "github:carnager/noterious/latest";
+}
+```
+
+That tag is moved to the newest release tag. If you want a fixed release instead, pin the explicit version tag:
+
+```nix
+{
+  inputs.noterious.url = "github:carnager/noterious/v0.1.13";
+}
+```
+
+Inside the repository checkout itself, build the package directly with:
 
 ```bash
 nix build .#noterious
