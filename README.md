@@ -7,9 +7,12 @@ Noterious is a server-first markdown notebook. Your notes stay as markdown files
 - keeps markdown files as the source of truth
 - serves a web UI for browsing, editing, tasks, backlinks, and embedded queries
 - builds a disposable SQLite index for fast search and query execution
+- supports vault-native note templates under `_templates/`
+- sends notifications from both task reminders and note frontmatter notification fields
 - supports one account per deployment
 - can treat top-level folders under the vault root as switchable vault scopes
 - supports built-in and custom UI themes
+- ships Nix packaging plus a multi-instance NixOS module
 
 ## Quick Start
 
@@ -76,6 +79,65 @@ Background services stay rooted at the configured vault root:
 - the ntfy notifier polls the configured root index when it exists
 
 Request-time page/task/query routes run against the currently selected vault scope for that session.
+
+## Templates
+
+Templates are regular markdown notes stored in `_templates/`.
+
+- global templates live under `<vault-root>/_templates`
+- scoped templates can also live under `<vault-root>/<top-level-folder>/_templates`
+- creating a note from a template copies the template body and frontmatter scaffold
+- the created note stays clean markdown; template metadata is not kept in the resulting note
+
+Supported template metadata keys:
+
+- `_template_label`
+- `_template_folder`
+- `_template_bool`
+- `_template_date`
+- `_template_datetime`
+- `_template_notification`
+- `_template_tags`
+- `_template_list`
+
+Example:
+
+```md
+---
+_template_label: Contact
+_template_folder: contacts
+_template_date:
+  - birthday
+_template_bool:
+  - birthday_reminder
+_template_tags:
+  - tags
+vorname: ""
+nachname: ""
+birthday: ""
+birthday_reminder: false
+tags:
+  - contact
+---
+
+## Notizen
+```
+
+## Notifications
+
+Noterious supports reminders in two places:
+
+- task reminders via `[remind: YYYY-MM-DD HH:MM]`
+- note frontmatter fields such as `notification`, `notify`, `remind`, `reminder`, or `*_notification`
+
+For note frontmatter, `notification` is the dedicated datetime-like field kind in the UI.
+Example:
+
+```md
+---
+notification: 2026-05-01 09:00
+---
+```
 
 ## Themes
 

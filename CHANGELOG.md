@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.13] - 2026-04-28
+
+### Added
+- Vault-native note templates under `_templates/`, including template-scoped target folders, typed frontmatter field hints, and quick-switcher create actions.
+- Guided template filling for essential fields so templated notes can step through important contact/date fields without keeping template markers in the final note.
+- Frontmatter `notification` as a first-class property kind, with note-level reminder delivery in addition to task reminders.
+- A `flake.nix`, Nix package, and multi-instance NixOS module with `services.noterious.instances.<name>`.
+- `NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD_FILE` support for secret-file based unattended provisioning.
+- Focused frontend regression coverage for templates and tree rendering behavior.
+
+### Changed
+- Rendered task checkboxes now use native checkbox visuals inside the editor widget while keeping the existing CodeMirror event model.
+- Hotkey settings now use browser-aware defaults, duplicate/conflict analysis, and inline warnings for likely browser-reserved shortcuts.
+- Property creation and template flows now better match the current frontmatter model, including dedicated support for tags and notification/datetime-like fields.
+
+### Fixed
+- Task toggling in rendered mode now resolves tasks correctly even when frontmatter is present above the note body.
+- Caret placement after pressing `Enter` at the end of a task line is aligned correctly in rendered mode.
+- Rendered-mode frontmatter is now treated as a hard boundary, including the blank separator space below it, so cursor movement and backspace do not cross into hidden frontmatter.
+- Tree folders can now be collapsed even when the currently selected note lives inside that folder.
+- The settings modal now keeps the page fixed and makes the active section scroll internally instead of overflowing the viewport.
+- Frontmatter add/edit flows now better preserve typed fields such as dates, notifications, tags, and booleans.
+
 ## [v0.1.12] - 2026-04-27
 
 ### Fixed
