@@ -88,6 +88,7 @@ Templates are regular markdown notes stored in `_templates/`.
 - scoped templates can also live under `<vault-root>/<top-level-folder>/_templates`
 - creating a note from a template copies the template body and frontmatter scaffold
 - the created note stays clean markdown; template metadata is not kept in the resulting note
+- templates are created from the quick switcher via `Create <Template Name>`
 
 Supported template metadata keys:
 
@@ -122,6 +123,8 @@ tags:
 
 ## Notizen
 ```
+
+For the full flow, including quick-switcher creation, placeholders, guided fill, and a complete contact example, see [docs/templates.md](/home/carnager/Code/noterious/docs/templates.md:1).
 
 ## Notifications
 
@@ -195,6 +198,7 @@ The UI is served through Go `embed`, so after rebuilding the frontend you must r
 - [docs/api.md](/home/carnager/Code/noterious/docs/api.md:1) for HTTP endpoints
 - [docs/query-language.md](/home/carnager/Code/noterious/docs/query-language.md:1) for embedded query syntax
 - [docs/architecture.md](/home/carnager/Code/noterious/docs/architecture.md:1) for runtime/storage structure
+- [docs/templates.md](/home/carnager/Code/noterious/docs/templates.md:1) for vault-native note templates
 - [docs/themes.md](/home/carnager/Code/noterious/docs/themes.md:1) for custom theme authoring
 
 ## Service Setup
@@ -235,7 +239,7 @@ That tag is moved to the newest release tag. If you want a fixed release instead
 
 ```nix
 {
-  inputs.noterious.url = "github:carnager/noterious/v0.1.13";
+  inputs.noterious.url = "github:carnager/noterious/v0.1.14";
 }
 ```
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { filterTasks, type TaskPanelFilters } from "./pageViews";
-import type { TaskRecord } from "./types";
+import { filterPagesByTag, filterTasks, summarizeTagsForPages, type TaskPanelFilters } from "./pageViews";
+import type { PageSummary, TaskRecord } from "./types";
 
 function makeFilters(overrides?: Partial<TaskPanelFilters>): TaskPanelFilters {
   return {
@@ -10,6 +10,23 @@ function makeFilters(overrides?: Partial<TaskPanelFilters>): TaskPanelFilters {
     hasDue: false,
     hasReminder: false,
     ...overrides,
+  };
+}
+
+function page(path: string, tags: string[]): PageSummary {
+  return {
+    path,
+    title: path.split("/").slice(-1)[0] || path,
+    tags,
+    frontmatter: {},
+    outgoingLinkCount: 0,
+    backlinkCount: 0,
+    taskCount: 0,
+    openTaskCount: 0,
+    doneTaskCount: 0,
+    queryBlockCount: 0,
+    createdAt: "",
+    updatedAt: "",
   };
 }
 
@@ -32,5 +49,27 @@ describe("task panel filters", function () {
     }), "work/alpha").map(function (task) {
       return task.ref;
     })).toEqual(["2"]);
+  });
+});
+
+describe("tag panel helpers", function () {
+  const pages = [
+    page("work/alpha", ["ops", "Work"]),
+    page("work/beta", ["ops", "ship"]),
+    page("work/gamma", ["Ship", "ops", "ship"]),
+  ];
+
+  it("aggregates tags case-insensitively and sorts by frequency", function () {
+    expect(summarizeTagsForPages(pages)).toEqual([
+      { tag: "ops", count: 3 },
+      { tag: "ship", count: 2 },
+      { tag: "Work", count: 1 },
+    ]);
+  });
+
+  it("filters pages by exact tag match ignoring case", function () {
+    expect(filterPagesByTag(pages, "SHIP").map(function (entry) {
+      return entry.path;
+    })).toEqual(["work/beta", "work/gamma"]);
   });
 });

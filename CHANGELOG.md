@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.14] - 2026-04-28
+
+### Added
+- Dedicated template documentation in `docs/templates.md`, covering vault-native template discovery, placeholders, guided fill, and a full contact-note example.
+
+### Changed
+- Scope-wide tags now live inside the Files rail as a live tree filter instead of a separate rail tab, and they are rendered as hashtag-style filters with counts.
+- Frontmatter property editing now keeps key/value focus aligned with the action, including key-first rename flows and better list/tag entry handling during property creation.
+
+### Fixed
+- Pending typed tag/list values are now preserved when adding frontmatter properties instead of being dropped unless a separator was pressed first.
+- The frontmatter notification property control now matches the rest of the UI better and keeps its type label readable.
+- The Files rail tag section now stays anchored to the bottom while the page tree above it owns the scrolling area.
+
 ## [v0.1.13] - 2026-04-28
 
 ### Added

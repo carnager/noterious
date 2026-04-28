@@ -4720,21 +4720,83 @@
       container.appendChild(item);
     });
   }
-  function renderPageTags(container, frontmatter) {
+  function pageTagStrings(page) {
+    const seen = /* @__PURE__ */ new Set();
+    return (Array.isArray(page.tags) ? page.tags : []).map(function(tag) {
+      return String(tag || "").trim();
+    }).filter(function(tag) {
+      const key = tag.toLowerCase();
+      if (!key || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }
+  function filterPagesByTag(pages, activeTag) {
+    const normalizedTag = String(activeTag || "").trim().toLowerCase();
+    if (!normalizedTag) {
+      return Array.isArray(pages) ? pages.slice() : [];
+    }
+    return (Array.isArray(pages) ? pages : []).filter(function(page) {
+      return pageTagStrings(page).some(function(tag) {
+        return tag.toLowerCase() === normalizedTag;
+      });
+    });
+  }
+  function summarizeTagsForPages(pages) {
+    const counts = /* @__PURE__ */ new Map();
+    (Array.isArray(pages) ? pages : []).forEach(function(page) {
+      pageTagStrings(page).forEach(function(tag) {
+        const key = tag.toLowerCase();
+        const existing = counts.get(key);
+        if (existing) {
+          existing.count += 1;
+          return;
+        }
+        counts.set(key, {
+          tag,
+          count: 1
+        });
+      });
+    });
+    return Array.from(counts.values()).sort(function(left, right) {
+      if (right.count !== left.count) {
+        return right.count - left.count;
+      }
+      return left.tag.localeCompare(right.tag);
+    });
+  }
+  function renderPageTags(container, pages, activeTag, onToggleTag) {
     clearNode(container);
-    if (!frontmatter) {
-      renderEmpty(container, "Select a page to see tags.");
+    const entries = summarizeTagsForPages(pages);
+    if (!entries.length) {
+      renderEmpty(container, "No indexed tags in this scope.");
       return;
     }
-    const tags = Array.isArray(frontmatter.tags) ? frontmatter.tags.map(String) : frontmatter.tags ? [String(frontmatter.tags)] : [];
-    if (!tags.length) {
-      renderEmpty(container, "No tags on this page.");
-      return;
-    }
-    tags.forEach(function(tag) {
-      const chip = document.createElement("span");
+    const normalizedActiveTag = String(activeTag || "").trim().toLowerCase();
+    entries.forEach(function(entry) {
+      const chip = document.createElement("button");
+      chip.type = "button";
       chip.className = "tag-chip";
-      chip.textContent = tag;
+      if (normalizedActiveTag && entry.tag.toLowerCase() === normalizedActiveTag) {
+        chip.classList.add("active");
+        chip.setAttribute("aria-pressed", "true");
+        chip.title = 'Clear tag filter "' + entry.tag + '"';
+      } else {
+        chip.setAttribute("aria-pressed", "false");
+        chip.title = 'Filter pages by tag "' + entry.tag + '"';
+      }
+      chip.addEventListener("click", function() {
+        onToggleTag(entry.tag);
+      });
+      const label = document.createElement("span");
+      label.textContent = "#" + entry.tag;
+      chip.appendChild(label);
+      const count = document.createElement("span");
+      count.className = "tag-chip-count";
+      count.textContent = String(entry.count);
+      chip.appendChild(count);
       container.appendChild(chip);
     });
   }
@@ -5130,6 +5192,15 @@
   function propertySequenceEntries(kind, value) {
     return kind === "tags" ? tagEntriesFromValue(value) : listEntriesFromValue(value);
   }
+  function sequenceInputEntries(kind, value) {
+    return String(value || "").split(/[,\n]/).map(function(entry) {
+      return kind === "tags" ? normalizeTagEntry(entry) : String(entry || "").trim();
+    }).filter(Boolean);
+  }
+  function draftSequenceEntries(draft) {
+    const base = propertySequenceEntries(draft.kind, draft.list);
+    return base.concat(sequenceInputEntries(draft.kind, draft.text));
+  }
   function makePropertyDraft(key, value, originalKey, hintedKind) {
     const kind = inferFrontmatterKind(value, key, hintedKind);
     const text = kind === "date" ? formatEditableDateValue(String(value || "")) : kind === "datetime" || kind === "notification" ? formatEditableDateTimeValue(String(value || "")) : displayFrontmatterValue(value);
@@ -5182,7 +5253,7 @@
       return "";
     }
     if (draft.kind === "list" || draft.kind === "tags") {
-      return coercePropertyValue(draft.kind, draft.list, draft.key);
+      return coercePropertyValue(draft.kind, draftSequenceEntries(draft), draft.key);
     }
     if (draft.kind === "bool") {
       return draft.text === "true";
@@ -5209,7 +5280,7 @@
       return "\u2611";
     }
     if (kind === "notification") {
-      return "\u23F0";
+      return "\u25F7";
     }
     if (kind === "date" || kind === "datetime") {
       return "\u25EB";
@@ -5233,7 +5304,7 @@
       return "Date & time";
     }
     if (kind === "notification") {
-      return "Notification";
+      return "Notify";
     }
     return "Text";
   }
@@ -5247,7 +5318,7 @@
       return "#";
     }
     if (isNotificationPropertyKey(key)) {
-      return "\u23F0";
+      return propertyTypeIcon("notification");
     }
     if (key.indexOf("date") >= 0 || key.indexOf("birth") >= 0 || key.indexOf("remind") >= 0 || key === "datum") {
       return "\u25EB";
@@ -5369,7 +5440,17 @@
     const target = container.querySelector("[data-property-value-input='true']");
     if (target && typeof target.focus === "function") {
       target.focus();
+      return target;
     }
+    return null;
+  }
+  function focusPropertyDraftKey(container) {
+    const input = container.querySelector(".property-inline-key");
+    if (input) {
+      input.focus();
+      return input;
+    }
+    return null;
   }
   function propertyScalarInputType(kind) {
     if (kind === "date") {
@@ -5586,17 +5667,25 @@
       if (!row) {
         addInput.classList.add("property-composer-input");
       }
+      addInput.value = String(draft.text || "");
       addInput.placeholder = propertyListInputPlaceholder(draft.kind);
       addInput.setAttribute("data-property-value-input", "true");
       addInput.setAttribute("data-property-list-adder", "true");
+      addInput.addEventListener("input", function() {
+        setDraft({ ...draft, text: addInput.value });
+      });
       addInput.addEventListener("keydown", function(event) {
         if (event.key === "Enter" || event.key === ",") {
           event.preventDefault();
-          const next = addInput.value.trim();
-          if (!next) {
+          const nextEntries = sequenceInputEntries(draft.kind, addInput.value);
+          if (!nextEntries.length) {
             return;
           }
-          setDraft({ ...draft, list: propertySequenceEntries(draft.kind, listValue.concat([next])) });
+          setDraft({
+            ...draft,
+            text: "",
+            list: listValue.concat(nextEntries)
+          });
           options.onRefresh();
         }
       });
@@ -5690,12 +5779,29 @@
     });
     window.setTimeout(function() {
       if (row) {
-        focusPropertyDraftValue(item);
+        if (options.propertyDraftFocusTarget === "key") {
+          const keyInput2 = focusPropertyDraftKey(item);
+          if (keyInput2) {
+            keyInput2.setSelectionRange(0, keyInput2.value.length);
+            return;
+          }
+        }
+        const target = focusPropertyDraftValue(item);
         const valueInput = item.querySelector("[data-property-value-input='true']");
-        if (valueInput && valueInput.type === "text") {
+        if ((!target || target === valueInput) && valueInput && valueInput.type === "text") {
           valueInput.setSelectionRange(0, valueInput.value.length);
         }
         return;
+      }
+      if (String(draft.key || "").trim()) {
+        const target = focusPropertyDraftValue(item);
+        if (target instanceof HTMLInputElement && target.type === "text") {
+          const position = target.value.length;
+          target.setSelectionRange(position, position);
+        }
+        if (target) {
+          return;
+        }
       }
       const input = keyShell.querySelector(".property-inline-key");
       if (!input) {
@@ -8607,9 +8713,11 @@
           currentDerived: null,
           currentMarkdown: "",
           originalMarkdown: "",
+          pageTagFilter: "",
           editingPropertyKey: "",
           propertyTypeMenuKey: "",
           propertyDraft: null,
+          propertyDraftFocusTarget: "value",
           templateFillSession: null,
           editingBlockKey: "",
           pendingBlockFocusKey: "",
@@ -8745,11 +8853,9 @@
           railTabFiles: requiredElement("rail-tab-files"),
           railTabContext: requiredElement("rail-tab-context"),
           railTabTasks: requiredElement("rail-tab-tasks"),
-          railTabTags: requiredElement("rail-tab-tags"),
           railPanelFiles: requiredElement("rail-panel-files"),
           railPanelContext: requiredElement("rail-panel-context"),
           railPanelTasks: requiredElement("rail-panel-tasks"),
-          railPanelTags: requiredElement("rail-panel-tags"),
           noteLayout: requiredElement("note-layout"),
           noteSurface: requiredElement("note-surface"),
           inlineTablePanel: requiredElement("inline-table-panel"),
@@ -9985,9 +10091,19 @@
         function renderPageContext2() {
           renderPageContext(els.pageContext, state.currentPage, state.currentDerived);
         }
+        function visiblePagesForRail() {
+          return filterPagesByTag(state.pages, state.pageTagFilter);
+        }
         function renderPageTags2() {
-          const page = currentPageView2();
-          renderPageTags(els.pageTags, page ? page.frontmatter : null);
+          renderPageTags(els.pageTags, state.pages, state.pageTagFilter, function(tag) {
+            const nextTag = String(tag || "").trim();
+            state.pageTagFilter = state.pageTagFilter.toLowerCase() === nextTag.toLowerCase() ? "" : nextTag;
+            renderPages();
+            renderPageTags2();
+            setNoteStatus(
+              state.pageTagFilter ? 'Filtering pages by tag "' + state.pageTagFilter + '".' : "Tag filter cleared."
+            );
+          });
         }
         function vaultTemplates() {
           return allNoteTemplatesFromPages(state.pages);
@@ -10042,9 +10158,9 @@
           }
           const frontmatter = page ? page.frontmatter : null;
           if (frontmatter && Object.prototype.hasOwnProperty.call(frontmatter, key)) {
-            setPropertyDraft(key, frontmatter[key], key);
+            setPropertyDraft(key, frontmatter[key], key, "value");
           } else {
-            setPropertyDraft(key, "", "__new__");
+            setPropertyDraft(key, "", "__new__", "value");
           }
           state.propertyTypeMenuKey = "";
           setNoteStatus("Fill in " + key + ".");
@@ -10099,10 +10215,12 @@
           state.editingPropertyKey = "";
           state.propertyTypeMenuKey = "";
           state.propertyDraft = null;
+          state.propertyDraftFocusTarget = "value";
         }
-        function setPropertyDraft(key, value, originalKey) {
+        function setPropertyDraft(key, value, originalKey, focusTarget = "value") {
           state.editingPropertyKey = originalKey || key || "__new__";
           state.propertyDraft = makePropertyDraft(key, value, originalKey, currentPropertyKindHint(key));
+          state.propertyDraftFocusTarget = focusTarget;
         }
         function propertyMenuKey2(row) {
           return row ? row.key : "__new__";
@@ -10115,7 +10233,7 @@
           const menuKey = propertyMenuKey2(row);
           if (!row) {
             if (!state.propertyDraft || state.editingPropertyKey !== menuKey) {
-              setPropertyDraft("", "", "__new__");
+              setPropertyDraft("", "", "__new__", "key");
             }
             const draft = state.propertyDraft;
             if (!draft) {
@@ -10158,7 +10276,8 @@
           await Promise.all([loadPages(), loadTasks(), loadPageDetail(state.selectedPage, true, false)]);
         }
         function startAddProperty() {
-          setPropertyDraft("", "", "__new__");
+          state.propertyTypeMenuKey = "";
+          setPropertyDraft("", "", "__new__", "key");
           renderPageProperties2();
         }
         async function removeProperty(key) {
@@ -10175,7 +10294,7 @@
           if (!row) {
             return;
           }
-          setPropertyDraft(row.key, row.rawValue, row.key);
+          setPropertyDraft(row.key, row.rawValue, row.key, "key");
           state.propertyTypeMenuKey = "";
           renderPageProperties2();
         }
@@ -10226,6 +10345,7 @@
             editingPropertyKey: state.editingPropertyKey,
             propertyTypeMenuKey: state.propertyTypeMenuKey,
             propertyDraft: state.propertyDraft,
+            propertyDraftFocusTarget: state.propertyDraftFocusTarget,
             onToggleTypeMenu: togglePropertyTypeMenu,
             onApplyKind: applyPropertyKind,
             onRemoveProperty: function(key) {
@@ -10553,7 +10673,11 @@
           try {
             const payload = await fetchJSON("/api/pages" + (params.toString() ? "?" + params.toString() : ""));
             state.pages = payload.pages || [];
+            if (state.pageTagFilter && !visiblePagesForRail().length) {
+              state.pageTagFilter = "";
+            }
             renderPages();
+            renderPageTags2();
           } catch (error) {
             renderEmpty(els.pageList, errorMessage(error));
             els.pageList.classList.add("no-scroll");
@@ -10572,7 +10696,7 @@
         function renderPages() {
           renderPagesSection({
             selectedPage: state.selectedPage,
-            pages: state.pages,
+            pages: visiblePagesForRail(),
             expandedPageFolders: state.expandedPageFolders,
             scopePrefix: currentScopePrefix()
           }, els, {
@@ -11753,7 +11877,7 @@
           }
         }
         function setRailTab(tab) {
-          state.railTab = ["files", "context", "tasks", "tags"].indexOf(tab) >= 0 ? tab : "files";
+          state.railTab = ["files", "context", "tasks"].indexOf(tab) >= 0 ? tab : "files";
           if (els.railTabFiles) {
             els.railTabFiles.classList.toggle("active", state.railTab === "files");
           }
@@ -11763,9 +11887,6 @@
           if (els.railTabTasks) {
             els.railTabTasks.classList.toggle("active", state.railTab === "tasks");
           }
-          if (els.railTabTags) {
-            els.railTabTags.classList.toggle("active", state.railTab === "tags");
-          }
           if (els.railPanelFiles) {
             els.railPanelFiles.classList.toggle("hidden", state.railTab !== "files");
           }
@@ -11774,9 +11895,6 @@
           }
           if (els.railPanelTasks) {
             els.railPanelTasks.classList.toggle("hidden", state.railTab !== "tasks");
-          }
-          if (els.railPanelTags) {
-            els.railPanelTags.classList.toggle("hidden", state.railTab !== "tags");
           }
         }
         async function saveCurrentPage() {
@@ -12197,9 +12315,6 @@
           });
           on(els.railTabTasks, "click", function() {
             setRailTab("tasks");
-          });
-          on(els.railTabTags, "click", function() {
-            setRailTab("tags");
           });
           on(els.taskFilters, "click", function(rawEvent) {
             const target = rawEvent.target instanceof HTMLElement ? rawEvent.target : null;

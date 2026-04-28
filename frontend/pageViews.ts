@@ -1,7 +1,7 @@
 import { clearNode, renderEmpty } from "./dom";
 import { formatDateTimeValue, formatDateValue, formatTimeValue } from "./datetime";
 import { renderInline } from "./markdown";
-import type { BacklinkRecord, DerivedPage, FrontmatterMap, PageRecord, PageSummary, TaskRecord } from "./types";
+import type { BacklinkRecord, DerivedPage, PageRecord, PageSummary, TaskRecord } from "./types";
 
 interface PageTreeFolder {
   key: string;
@@ -478,6 +478,11 @@ export interface TaskPanelFilters {
   hasReminder: boolean;
 }
 
+export interface TagPanelEntry {
+  tag: string;
+  count: number;
+}
+
 export function filterTasks(tasks: TaskRecord[], filters: TaskPanelFilters, currentPagePath?: string | null): TaskRecord[] {
   if (!tasks || !tasks.length) {
     return [];
@@ -631,27 +636,100 @@ export function renderPageContext(container: HTMLDivElement, currentPage: PageRe
   });
 }
 
-export function renderPageTags(container: HTMLDivElement, frontmatter: FrontmatterMap | null): void {
+function pageTagStrings(page: PageSummary): string[] {
+  const seen = new Set<string>();
+  return (Array.isArray(page.tags) ? page.tags : [])
+    .map(function (tag) {
+      return String(tag || "").trim();
+    })
+    .filter(function (tag) {
+      const key = tag.toLowerCase();
+      if (!key || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
+export function filterPagesByTag(pages: PageSummary[], activeTag: string): PageSummary[] {
+  const normalizedTag = String(activeTag || "").trim().toLowerCase();
+  if (!normalizedTag) {
+    return Array.isArray(pages) ? pages.slice() : [];
+  }
+  return (Array.isArray(pages) ? pages : []).filter(function (page) {
+    return pageTagStrings(page).some(function (tag) {
+      return tag.toLowerCase() === normalizedTag;
+    });
+  });
+}
+
+export function summarizeTagsForPages(pages: PageSummary[]): TagPanelEntry[] {
+  const counts = new Map<string, TagPanelEntry>();
+
+  (Array.isArray(pages) ? pages : []).forEach(function (page) {
+    pageTagStrings(page).forEach(function (tag) {
+      const key = tag.toLowerCase();
+      const existing = counts.get(key);
+      if (existing) {
+        existing.count += 1;
+        return;
+      }
+      counts.set(key, {
+        tag,
+        count: 1,
+      });
+    });
+  });
+
+  return Array.from(counts.values()).sort(function (left, right) {
+    if (right.count !== left.count) {
+      return right.count - left.count;
+    }
+    return left.tag.localeCompare(right.tag);
+  });
+}
+
+export function renderPageTags(
+  container: HTMLDivElement,
+  pages: PageSummary[],
+  activeTag: string,
+  onToggleTag: (tag: string) => void
+): void {
   clearNode(container);
 
-  if (!frontmatter) {
-    renderEmpty(container, "Select a page to see tags.");
+  const entries = summarizeTagsForPages(pages);
+  if (!entries.length) {
+    renderEmpty(container, "No indexed tags in this scope.");
     return;
   }
 
-  const tags = Array.isArray(frontmatter.tags)
-    ? frontmatter.tags.map(String)
-    : (frontmatter.tags ? [String(frontmatter.tags)] : []);
-
-  if (!tags.length) {
-    renderEmpty(container, "No tags on this page.");
-    return;
-  }
-
-  tags.forEach(function (tag) {
-    const chip = document.createElement("span");
+  const normalizedActiveTag = String(activeTag || "").trim().toLowerCase();
+  entries.forEach(function (entry) {
+    const chip = document.createElement("button");
+    chip.type = "button";
     chip.className = "tag-chip";
-    chip.textContent = tag;
+    if (normalizedActiveTag && entry.tag.toLowerCase() === normalizedActiveTag) {
+      chip.classList.add("active");
+      chip.setAttribute("aria-pressed", "true");
+      chip.title = 'Clear tag filter "' + entry.tag + '"';
+    } else {
+      chip.setAttribute("aria-pressed", "false");
+      chip.title = 'Filter pages by tag "' + entry.tag + '"';
+    }
+    chip.addEventListener("click", function () {
+      onToggleTag(entry.tag);
+    });
+
+    const label = document.createElement("span");
+    label.textContent = "#" + entry.tag;
+    chip.appendChild(label);
+
+    const count = document.createElement("span");
+    count.className = "tag-chip-count";
+    count.textContent = String(entry.count);
+    chip.appendChild(count);
+
     container.appendChild(chip);
   });
 }

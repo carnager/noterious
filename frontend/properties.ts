@@ -31,6 +31,7 @@ export interface RenderPagePropertiesOptions {
   editingPropertyKey: string;
   propertyTypeMenuKey: string;
   propertyDraft: PropertyDraft | null;
+  propertyDraftFocusTarget: "key" | "value";
   onToggleTypeMenu(menuKey: string): void;
   onApplyKind(kind: FrontmatterKind, row: PropertyRow | null): void;
   onRemoveProperty(key: string): void;
@@ -133,6 +134,20 @@ function propertySequenceEntries(kind: FrontmatterKind, value: FrontmatterValue 
   return kind === "tags" ? tagEntriesFromValue(value) : listEntriesFromValue(value);
 }
 
+function sequenceInputEntries(kind: FrontmatterKind, value: string): string[] {
+  return String(value || "")
+    .split(/[,\n]/)
+    .map(function (entry) {
+      return kind === "tags" ? normalizeTagEntry(entry) : String(entry || "").trim();
+    })
+    .filter(Boolean);
+}
+
+function draftSequenceEntries(draft: PropertyDraft): string[] {
+  const base = propertySequenceEntries(draft.kind, draft.list);
+  return base.concat(sequenceInputEntries(draft.kind, draft.text));
+}
+
 export function makePropertyDraft(
   key: string,
   value: FrontmatterValue,
@@ -197,7 +212,7 @@ export function propertyDraftValue(draft: PropertyDraft | null): FrontmatterValu
     return "";
   }
   if (draft.kind === "list" || draft.kind === "tags") {
-    return coercePropertyValue(draft.kind, draft.list, draft.key);
+    return coercePropertyValue(draft.kind, draftSequenceEntries(draft), draft.key);
   }
   if (draft.kind === "bool") {
     return draft.text === "true";
@@ -226,7 +241,7 @@ function propertyTypeIcon(kind: FrontmatterKind): string {
     return "☑";
   }
   if (kind === "notification") {
-    return "⏰";
+    return "◷";
   }
   if (kind === "date" || kind === "datetime") {
     return "◫";
@@ -251,7 +266,7 @@ function propertyKindLabel(kind: FrontmatterKind): string {
     return "Date & time";
   }
   if (kind === "notification") {
-    return "Notification";
+    return "Notify";
   }
   return "Text";
 }
@@ -267,7 +282,7 @@ function propertyKeyIcon(row: PropertyRow): string {
     return "#";
   }
   if (isNotificationPropertyKey(key)) {
-    return "⏰";
+    return propertyTypeIcon("notification");
   }
   if (key.indexOf("date") >= 0 || key.indexOf("birth") >= 0 || key.indexOf("remind") >= 0 || key === "datum") {
     return "◫";
@@ -454,11 +469,22 @@ function setPropertyKindButtonContent(button: HTMLButtonElement, kind: Frontmatt
   button.appendChild(label);
 }
 
-function focusPropertyDraftValue(container: HTMLElement): void {
+function focusPropertyDraftValue(container: HTMLElement): HTMLElement | null {
   const target = container.querySelector<HTMLElement>("[data-property-value-input='true']");
   if (target && typeof target.focus === "function") {
     target.focus();
+    return target;
   }
+  return null;
+}
+
+function focusPropertyDraftKey(container: HTMLElement): HTMLInputElement | null {
+  const input = container.querySelector<HTMLInputElement>(".property-inline-key");
+  if (input) {
+    input.focus();
+    return input;
+  }
+  return null;
 }
 
 export function propertyScalarInputType(kind: FrontmatterKind): string {
@@ -704,17 +730,25 @@ function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | n
     if (!row) {
       addInput.classList.add("property-composer-input");
     }
+    addInput.value = String(draft.text || "");
     addInput.placeholder = propertyListInputPlaceholder(draft.kind);
     addInput.setAttribute("data-property-value-input", "true");
     addInput.setAttribute("data-property-list-adder", "true");
+    addInput.addEventListener("input", function () {
+      setDraft({ ...draft, text: addInput.value });
+    });
     addInput.addEventListener("keydown", function (event) {
       if (event.key === "Enter" || event.key === ",") {
         event.preventDefault();
-        const next = addInput.value.trim();
-        if (!next) {
+        const nextEntries = sequenceInputEntries(draft.kind, addInput.value);
+        if (!nextEntries.length) {
           return;
         }
-        setDraft({ ...draft, list: propertySequenceEntries(draft.kind, listValue.concat([next])) });
+        setDraft({
+          ...draft,
+          text: "",
+          list: listValue.concat(nextEntries),
+        });
         options.onRefresh();
       }
     });
@@ -816,12 +850,30 @@ function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | n
 
   window.setTimeout(function () {
     if (row) {
-      focusPropertyDraftValue(item);
+      if (options.propertyDraftFocusTarget === "key") {
+        const keyInput = focusPropertyDraftKey(item);
+        if (keyInput) {
+          keyInput.setSelectionRange(0, keyInput.value.length);
+          return;
+        }
+      }
+      const target = focusPropertyDraftValue(item);
       const valueInput = item.querySelector<HTMLInputElement>("[data-property-value-input='true']");
-      if (valueInput && valueInput.type === "text") {
+      if ((!target || target === valueInput) && valueInput && valueInput.type === "text") {
         valueInput.setSelectionRange(0, valueInput.value.length);
       }
       return;
+    }
+
+    if (String(draft.key || "").trim()) {
+      const target = focusPropertyDraftValue(item);
+      if (target instanceof HTMLInputElement && target.type === "text") {
+        const position = target.value.length;
+        target.setSelectionRange(position, position);
+      }
+      if (target) {
+        return;
+      }
     }
 
     const input = keyShell.querySelector<HTMLInputElement>(".property-inline-key");

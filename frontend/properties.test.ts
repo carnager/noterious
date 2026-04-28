@@ -6,6 +6,7 @@ import {
   coercePropertyValue,
   inferFrontmatterKind,
   makePropertyDraft,
+  propertyDraftValue,
   propertyScalarInputType,
   propertyScalarInputValue,
 } from "./properties";
@@ -49,6 +50,24 @@ describe("property helpers", function () {
 
   it("normalizes tags when saving tag values", function () {
     expect(coercePropertyValue("tags", ["#work", " ops ", "", "#ship"], "tags")).toEqual(["work", "ops", "ship"]);
+  });
+
+  it("keeps pending list and tag adder text when saving a draft", function () {
+    expect(propertyDraftValue({
+      originalKey: "__new__",
+      key: "tags",
+      kind: "tags",
+      text: "#work, ops",
+      list: ["contact"],
+    })).toEqual(["contact", "work", "ops"]);
+
+    expect(propertyDraftValue({
+      originalKey: "__new__",
+      key: "aliases",
+      kind: "list",
+      text: "Alpha, Beta",
+      list: ["Gamma"],
+    })).toEqual(["Gamma", "Alpha", "Beta"]);
   });
 
   it("honors the configured date display format for frontmatter date inputs", function () {

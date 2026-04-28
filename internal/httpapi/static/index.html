@@ -135,7 +135,6 @@
             <button type="button" id="rail-tab-files" class="rail-tab active">Files</button>
             <button type="button" id="rail-tab-context" class="rail-tab">Context</button>
             <button type="button" id="rail-tab-tasks" class="rail-tab">Tasks</button>
-            <button type="button" id="rail-tab-tags" class="rail-tab">Tags</button>
           </div>
 
           <section class="section rail-panel rail-panel-files" id="rail-panel-files">
@@ -160,6 +159,15 @@
               <input id="page-search" type="text" placeholder="daily, project, alpha" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
             </label>
             <div class="list" id="page-list"></div>
+            <section class="rail-tags-panel">
+              <div class="rail-tags-head">
+                <strong>Tags</strong>
+                <span>Filter the tree</span>
+              </div>
+              <div class="tag-list tag-filter-list" id="page-tags">
+                <div class="empty">No indexed tags in this scope.</div>
+              </div>
+            </section>
           </section>
 
           <section class="section rail-panel rail-panel-context hidden" id="rail-panel-context">
@@ -186,17 +194,6 @@
               </div>
               <div class="page-task-list" id="page-task-list">
                 <div class="empty">Tasks across the current scope will show up here.</div>
-              </div>
-            </section>
-          </section>
-
-          <section class="section rail-panel rail-panel-tags hidden" id="rail-panel-tags">
-            <section class="card compact-card">
-              <div class="section-head rail-section-head">
-                <h2>Tags</h2>
-              </div>
-              <div class="tag-list" id="page-tags">
-                <div class="empty">No tags on this page.</div>
               </div>
             </section>
           </section>

@@ -121,6 +121,7 @@ import {
 } from "./palette";
 import {
   ensureExpandedPageAncestors,
+  filterPagesByTag,
   type PageTreeMenuTarget,
   renderPageContext as renderPageContextUI,
   renderPageTags as renderPageTagsUI,
@@ -318,9 +319,11 @@ interface AppState {
   currentDerived: DerivedPage | null;
   currentMarkdown: string;
   originalMarkdown: string;
+  pageTagFilter: string;
   editingPropertyKey: string;
   propertyTypeMenuKey: string;
   propertyDraft: PropertyDraft | null;
+  propertyDraftFocusTarget: "key" | "value";
   templateFillSession: TemplateFillSession | null;
   editingBlockKey: string;
   pendingBlockFocusKey: string;
@@ -434,9 +437,11 @@ interface TreeContextMenuState {
     currentDerived: null,
     currentMarkdown: "",
     originalMarkdown: "",
+    pageTagFilter: "",
     editingPropertyKey: "",
     propertyTypeMenuKey: "",
     propertyDraft: null,
+    propertyDraftFocusTarget: "value",
     templateFillSession: null,
     editingBlockKey: "",
     pendingBlockFocusKey: "",
@@ -573,11 +578,9 @@ interface TreeContextMenuState {
     railTabFiles: requiredElement<HTMLButtonElement>("rail-tab-files"),
     railTabContext: requiredElement<HTMLButtonElement>("rail-tab-context"),
     railTabTasks: requiredElement<HTMLButtonElement>("rail-tab-tasks"),
-    railTabTags: requiredElement<HTMLButtonElement>("rail-tab-tags"),
     railPanelFiles: requiredElement<HTMLElement>("rail-panel-files"),
     railPanelContext: requiredElement<HTMLElement>("rail-panel-context"),
     railPanelTasks: requiredElement<HTMLElement>("rail-panel-tasks"),
-    railPanelTags: requiredElement<HTMLElement>("rail-panel-tags"),
     noteLayout: requiredElement<HTMLElement>("note-layout"),
     noteSurface: requiredElement<HTMLElement>("note-surface"),
     inlineTablePanel: requiredElement<HTMLDivElement>("inline-table-panel"),
@@ -1949,9 +1952,22 @@ interface TreeContextMenuState {
     renderPageContextUI(els.pageContext, state.currentPage, state.currentDerived);
   }
 
+  function visiblePagesForRail(): PageSummary[] {
+    return filterPagesByTag(state.pages, state.pageTagFilter);
+  }
+
   function renderPageTags() {
-    const page = currentPageView();
-    renderPageTagsUI(els.pageTags, page ? page.frontmatter : null);
+    renderPageTagsUI(els.pageTags, state.pages, state.pageTagFilter, function (tag) {
+      const nextTag = String(tag || "").trim();
+      state.pageTagFilter = state.pageTagFilter.toLowerCase() === nextTag.toLowerCase() ? "" : nextTag;
+      renderPages();
+      renderPageTags();
+      setNoteStatus(
+        state.pageTagFilter
+          ? ('Filtering pages by tag "' + state.pageTagFilter + '".')
+          : "Tag filter cleared."
+      );
+    });
   }
 
   function vaultTemplates(): NoteTemplate[] {
@@ -2016,9 +2032,9 @@ interface TreeContextMenuState {
 
     const frontmatter = page ? page.frontmatter : null;
     if (frontmatter && Object.prototype.hasOwnProperty.call(frontmatter, key)) {
-      setPropertyDraft(key, frontmatter[key] as FrontmatterValue, key);
+      setPropertyDraft(key, frontmatter[key] as FrontmatterValue, key, "value");
     } else {
-      setPropertyDraft(key, "", "__new__");
+      setPropertyDraft(key, "", "__new__", "value");
     }
     state.propertyTypeMenuKey = "";
     setNoteStatus("Fill in " + key + ".");
@@ -2079,11 +2095,18 @@ interface TreeContextMenuState {
     state.editingPropertyKey = "";
     state.propertyTypeMenuKey = "";
     state.propertyDraft = null;
+    state.propertyDraftFocusTarget = "value";
   }
 
-  function setPropertyDraft(key: string, value: FrontmatterValue, originalKey: string): void {
+  function setPropertyDraft(
+    key: string,
+    value: FrontmatterValue,
+    originalKey: string,
+    focusTarget: "key" | "value" = "value"
+  ): void {
     state.editingPropertyKey = originalKey || key || "__new__";
     state.propertyDraft = makePropertyDraft(key, value, originalKey, currentPropertyKindHint(key));
+    state.propertyDraftFocusTarget = focusTarget;
   }
 
   function propertyMenuKey(row: PropertyRow | null): string {
@@ -2099,7 +2122,7 @@ interface TreeContextMenuState {
     const menuKey = propertyMenuKey(row);
     if (!row) {
       if (!state.propertyDraft || state.editingPropertyKey !== menuKey) {
-        setPropertyDraft("", "", "__new__");
+        setPropertyDraft("", "", "__new__", "key");
       }
 
       const draft = state.propertyDraft;
@@ -2153,7 +2176,8 @@ interface TreeContextMenuState {
   }
 
   function startAddProperty() {
-    setPropertyDraft("", "", "__new__");
+    state.propertyTypeMenuKey = "";
+    setPropertyDraft("", "", "__new__", "key");
     renderPageProperties();
   }
 
@@ -2172,7 +2196,7 @@ interface TreeContextMenuState {
     if (!row) {
       return;
     }
-    setPropertyDraft(row.key, row.rawValue, row.key);
+    setPropertyDraft(row.key, row.rawValue, row.key, "key");
     state.propertyTypeMenuKey = "";
     renderPageProperties();
   }
@@ -2235,6 +2259,7 @@ interface TreeContextMenuState {
       editingPropertyKey: state.editingPropertyKey,
       propertyTypeMenuKey: state.propertyTypeMenuKey,
       propertyDraft: state.propertyDraft,
+      propertyDraftFocusTarget: state.propertyDraftFocusTarget,
       onToggleTypeMenu: togglePropertyTypeMenu,
       onApplyKind: applyPropertyKind,
       onRemoveProperty: function (key) {
@@ -2596,7 +2621,11 @@ interface TreeContextMenuState {
     try {
       const payload = await fetchJSON<PageListResponse>("/api/pages" + (params.toString() ? "?" + params.toString() : ""));
       state.pages = payload.pages || [];
+      if (state.pageTagFilter && !visiblePagesForRail().length) {
+        state.pageTagFilter = "";
+      }
       renderPages();
+      renderPageTags();
     } catch (error) {
       renderEmpty(els.pageList, errorMessage(error));
       els.pageList.classList.add("no-scroll");
@@ -2617,7 +2646,7 @@ interface TreeContextMenuState {
   function renderPages() {
     renderPagesSection({
       selectedPage: state.selectedPage,
-      pages: state.pages,
+      pages: visiblePagesForRail(),
       expandedPageFolders: state.expandedPageFolders,
       scopePrefix: currentScopePrefix(),
     }, els, {
@@ -3913,7 +3942,7 @@ interface TreeContextMenuState {
   }
 
   function setRailTab(tab: string): void {
-    state.railTab = ["files", "context", "tasks", "tags"].indexOf(tab) >= 0 ? tab : "files";
+    state.railTab = ["files", "context", "tasks"].indexOf(tab) >= 0 ? tab : "files";
     if (els.railTabFiles) {
       els.railTabFiles.classList.toggle("active", state.railTab === "files");
     }
@@ -3923,9 +3952,6 @@ interface TreeContextMenuState {
     if (els.railTabTasks) {
       els.railTabTasks.classList.toggle("active", state.railTab === "tasks");
     }
-    if (els.railTabTags) {
-      els.railTabTags.classList.toggle("active", state.railTab === "tags");
-    }
     if (els.railPanelFiles) {
       els.railPanelFiles.classList.toggle("hidden", state.railTab !== "files");
     }
@@ -3934,9 +3960,6 @@ interface TreeContextMenuState {
     }
     if (els.railPanelTasks) {
       els.railPanelTasks.classList.toggle("hidden", state.railTab !== "tasks");
-    }
-    if (els.railPanelTags) {
-      els.railPanelTags.classList.toggle("hidden", state.railTab !== "tags");
     }
   }
 
@@ -4381,9 +4404,6 @@ interface TreeContextMenuState {
     });
     on(els.railTabTasks, "click", function () {
       setRailTab("tasks");
-    });
-    on(els.railTabTags, "click", function () {
-      setRailTab("tags");
     });
     on(els.taskFilters, "click", function (rawEvent) {
       const target = (rawEvent as Event).target instanceof HTMLElement ? (rawEvent as Event).target as HTMLElement : null;
