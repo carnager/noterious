@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.18] - 2026-04-29
+
+### Added
+- The page save API now accepts `baseRawMarkdown` for automatic three-way merges, and the bundled web UI plus Android shopping companion send it on saves.
+- The slash menu `/table` command now accepts optional dimensions like `/table 3 4`, and the inline table editor can delete rows and columns in addition to adding them.
+
+### Changed
+- The bundled web UI now auto-merges non-overlapping external page edits into the open editor buffer and only falls back to the remote-change warning when edits overlap or transient non-markdown draft UI is active.
+
+### Fixed
+- Empty rendered table rows now keep the same visual height as filled rows instead of collapsing.
+
 ## [v0.1.17] - 2026-04-29
 
 ### Added

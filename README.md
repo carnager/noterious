@@ -9,6 +9,7 @@ Noterious is a server-first markdown notebook. Your notes stay as markdown files
 - supports drag-and-drop and `/file` uploads, including inline image embeds for uploaded image assets
 - builds a disposable SQLite index for fast search and query execution
 - supports vault-native note templates under `_templates/`
+- automatically merges non-overlapping concurrent page edits from multiple clients and falls back to explicit conflicts for overlapping changes
 - sends notifications from both task reminders and note frontmatter notification fields
 - supports one account per deployment
 - can treat top-level folders under the vault root as switchable vault scopes
@@ -248,7 +249,7 @@ That tag is moved to the newest release tag. If you want a fixed release instead
 
 ```nix
 {
-  inputs.noterious.url = "github:carnager/noterious/v0.1.17";
+  inputs.noterious.url = "github:carnager/noterious/v0.1.18";
 }
 ```
 
