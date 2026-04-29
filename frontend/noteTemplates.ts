@@ -32,9 +32,14 @@ const templateMetadataKeys = new Set<string>([
   templateNotificationKey,
 ]);
 
+function isNotificationClickKey(key: string | null | undefined): boolean {
+  const normalized = String(key || "").trim().toLowerCase();
+  return normalized === "click" || normalized.endsWith("_click") || normalized.endsWith("-click");
+}
+
 function isNotificationTemplateFieldKey(key: string | null | undefined): boolean {
   const normalized = String(key || "").trim().toLowerCase();
-  if (!normalized) {
+  if (!normalized || isNotificationClickKey(normalized)) {
     return false;
   }
   return normalized === "notification" ||

@@ -133,13 +133,21 @@ Noterious supports reminders in two places:
 - task reminders via `[remind: YYYY-MM-DD HH:MM]`
 - note frontmatter fields such as `notification`, `notify`, `remind`, `reminder`, or `*_notification`
 
-For note frontmatter, `notification` is the dedicated datetime-like field kind in the UI.
+For note frontmatter, `notification` is the dedicated datetime-like field kind in the UI. Optional sibling `*_click` fields are forwarded to ntfy as tap targets, so a notification can open a URL or app-specific URI when clicked. Task reminders can also carry an optional `click:: ...` target.
+
 Example:
 
 ```md
 ---
 notification: 2026-05-01 09:00
+notification_click: noteriousshopping://shopping
 ---
+```
+
+Task example:
+
+```md
+- [ ] Buy groceries [remind: 2026-05-01 17:30] click:: noteriousshopping://shopping
 ```
 
 ## Themes
@@ -239,7 +247,7 @@ That tag is moved to the newest release tag. If you want a fixed release instead
 
 ```nix
 {
-  inputs.noterious.url = "github:carnager/noterious/v0.1.15";
+  inputs.noterious.url = "github:carnager/noterious/v0.1.16";
 }
 ```
 

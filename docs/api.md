@@ -223,6 +223,7 @@ It supports:
 {
   "due": "2026-05-01",
   "remind": "2026-04-30",
+  "click": "myapp://item/123",
   "who": ["Ralf"],
   "state": "todo"
 }

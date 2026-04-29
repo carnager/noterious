@@ -632,9 +632,13 @@
   });
 
   // frontend/noteTemplates.ts
+  function isNotificationClickKey(key) {
+    const normalized = String(key || "").trim().toLowerCase();
+    return normalized === "click" || normalized.endsWith("_click") || normalized.endsWith("-click");
+  }
   function isNotificationTemplateFieldKey(key) {
     const normalized = String(key || "").trim().toLowerCase();
-    if (!normalized) {
+    if (!normalized || isNotificationClickKey(normalized)) {
       return false;
     }
     return normalized === "notification" || normalized === "notify" || normalized === "remind" || normalized === "reminder" || /(^|[_-])(notify|notification|remind|reminder)([_-]|$)/i.test(normalized);
@@ -1401,19 +1405,56 @@
         return otherID !== id;
       }) : [];
       const browserWarning = likelyBrowserReservedMessage(binding, platform);
+      const defaultBinding = chooseDefaultBinding(definition, platform);
       const blockedReason = duplicateIDs.length ? "Conflicts with " + duplicateIDs.map(function(otherID) {
         return hotkeyDefinitionsByID[otherID].label;
       }).join(", ") + "." : browserWarning ? "Likely intercepted by the browser or OS before Noterious can see it." : "";
+      const isSafeBinding = Boolean(binding) && !duplicateIDs.length && !browserWarning;
       acc[id] = {
         definition,
         binding,
         duplicateIDs,
         browserWarning,
-        defaultBinding: chooseDefaultBinding(definition, platform),
-        blockedReason
+        defaultBinding,
+        blockedReason,
+        isSafeBinding,
+        usesDefaultBinding: Boolean(binding) && binding === defaultBinding
       };
       return acc;
     }, {});
+  }
+  function hotkeyDefaultGuidance(entry, platform = detectHotkeyPlatform()) {
+    if (!entry.defaultBinding) {
+      return "No default shortcut.";
+    }
+    const label = hotkeyLabel(entry.defaultBinding, platform);
+    if (!entry.binding || entry.usesDefaultBinding) {
+      return "Default: " + label + ".";
+    }
+    if (entry.isSafeBinding) {
+      return "Built-in default: " + label + ".";
+    }
+    return "Safer default: " + label + ".";
+  }
+  function hotkeyProducesText(hotkey) {
+    const binding = canonicalizeHotkey(hotkey);
+    if (!binding) {
+      return false;
+    }
+    const tokens = binding.split("+").map(normalizeKeyName).filter(Boolean);
+    let modifierCount = 0;
+    let key = "";
+    tokens.forEach(function(token) {
+      if (token === "mod" || token === "meta" || token === "ctrl" || token === "alt" || token === "shift") {
+        modifierCount += 1;
+        return;
+      }
+      key = token;
+    });
+    if (!key || modifierCount > 0) {
+      return false;
+    }
+    return key.length === 1 || key === "space" || key === "enter" || key === "tab";
   }
   function matchesHotkey(hotkey, event) {
     const binding = canonicalizeHotkey(hotkey);
@@ -2203,8 +2244,15 @@
   function editableDateTimePlaceholder() {
     return currentDisplayFormat === "de" ? "30.04.2026 09:00" : "2026-04-30 09:00";
   }
+  function isNotificationClickKey2(column) {
+    const normalized = String(column || "").trim().toLowerCase();
+    return normalized === "click" || normalized.endsWith("_click") || normalized.endsWith("-click");
+  }
   function isDateLikeColumn(column) {
     const normalized = String(column || "").trim().toLowerCase();
+    if (isNotificationClickKey2(normalized)) {
+      return false;
+    }
     return normalized === "due" || normalized === "remind" || normalized === "notify" || normalized === "notification" || normalized === "reminder" || normalized === "createdat" || normalized === "updatedat" || normalized === "birthday" || normalized === "birthday_reminder" || normalized === "date" || normalized === "datetime" || normalized === "datum" || /(^|_)(date|datum|due|remind|reminder|notify|notification|created|updated|birthday|time|timestamp)(_|$)/i.test(normalized);
   }
   function formatMaybeDateValue(column, value) {
@@ -5127,9 +5175,13 @@
   function isTagPropertyKey(key) {
     return String(key || "").trim().toLowerCase() === "tags";
   }
+  function isNotificationClickKey3(key) {
+    const normalized = String(key || "").trim().toLowerCase();
+    return normalized === "click" || normalized.endsWith("_click") || normalized.endsWith("-click");
+  }
   function isNotificationPropertyKey(key) {
     const normalized = String(key || "").trim().toLowerCase();
-    if (!normalized) {
+    if (!normalized || isNotificationClickKey3(normalized)) {
       return false;
     }
     return normalized === "notification" || normalized === "notify" || normalized === "remind" || normalized === "reminder" || /(^|[_-])(notify|notification|remind|reminder)([_-]|$)/i.test(normalized);
@@ -5316,6 +5368,9 @@
     const key = String(row.key || "").toLowerCase();
     if (key === "tags") {
       return "#";
+    }
+    if (isNotificationClickKey3(key)) {
+      return propertyTypeIcon(kind);
     }
     if (isNotificationPropertyKey(key)) {
       return propertyTypeIcon("notification");
@@ -6517,7 +6572,7 @@
       const entry = analysis[definition.id];
       const lines = [
         definition.optional ? "Optional. Press a shortcut to record it, or type it manually if the browser steals the combo." : "Press a shortcut to record it, or type it manually if the browser steals the combo.",
-        entry.defaultBinding ? "Safer default: " + hotkeyLabel(entry.defaultBinding, platform) + "." : "No default shortcut."
+        hotkeyDefaultGuidance(entry, platform)
       ];
       let severity = "";
       if (entry.blockedReason) {
@@ -12824,7 +12879,8 @@
               createDailyNote();
               return;
             }
-            if (matchesHotkey(state.settings.preferences.hotkeys.help, event) && !isTypingTarget(event.target)) {
+            const helpHotkey = state.settings.preferences.hotkeys.help;
+            if (matchesHotkey(helpHotkey, event) && (!isTypingTarget(event.target) || !hotkeyProducesText(helpHotkey))) {
               event.preventDefault();
               setHelpOpen(true);
               return;

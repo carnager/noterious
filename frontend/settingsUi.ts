@@ -1,5 +1,5 @@
 import { clearNode } from "./dom";
-import { analyzeHotkeys, detectHotkeyPlatform, hotkeyDefinitions, hotkeyLabel } from "./hotkeys";
+import { analyzeHotkeys, detectHotkeyPlatform, hotkeyDefinitions, hotkeyDefaultGuidance } from "./hotkeys";
 import type { AppSettings as SettingsModel, FrontmatterKind, NoteTemplate, NoteTemplateField, ThemeRecord } from "./types";
 import type { Hotkeys } from "./types";
 
@@ -464,9 +464,7 @@ export function renderSettingsHotkeyHints(els: SettingsUiElements, hotkeys: Hotk
       definition.optional
         ? "Optional. Press a shortcut to record it, or type it manually if the browser steals the combo."
         : "Press a shortcut to record it, or type it manually if the browser steals the combo.",
-      entry.defaultBinding
-        ? "Safer default: " + hotkeyLabel(entry.defaultBinding, platform) + "."
-        : "No default shortcut.",
+      hotkeyDefaultGuidance(entry, platform),
     ];
 
     let severity = "";

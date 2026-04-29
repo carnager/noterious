@@ -85,6 +85,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 			done INTEGER NOT NULL DEFAULT 0,
 			due TEXT,
 			remind TEXT,
+			click TEXT,
 			who TEXT
 		);`,
 		`CREATE TABLE IF NOT EXISTS frontmatter_fields (
@@ -155,6 +156,9 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	if err := s.ensureSavedQueryColumns(ctx); err != nil {
 		return err
 	}
+	if err := s.ensureTaskColumns(ctx); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -196,7 +200,7 @@ func (s *SQLiteStore) ReplaceAll(ctx context.Context, documents []Document) erro
 	}
 	defer linkStmt.Close()
 
-	taskStmt, err := tx.PrepareContext(ctx, `INSERT INTO tasks(ref, page, line, text, state, done, due, remind, who) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);`)
+	taskStmt, err := tx.PrepareContext(ctx, `INSERT INTO tasks(ref, page, line, text, state, done, due, remind, click, who) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`)
 	if err != nil {
 		return fmt.Errorf("prepare task insert: %w", err)
 	}
@@ -308,7 +312,7 @@ func (s *SQLiteStore) listDocuments(ctx context.Context) ([]Document, error) {
 	}
 
 	tasks, err := s.loadTasks(ctx, `
-		SELECT ref, page, line, text, state, done, due, remind, who
+		SELECT ref, page, line, text, state, done, due, remind, click, who
 		FROM tasks
 		ORDER BY page, line, id;
 	`)
@@ -353,7 +357,7 @@ func (s *SQLiteStore) ReplacePage(ctx context.Context, document Document) error 
 	}
 	defer linkStmt.Close()
 
-	taskStmt, err := tx.PrepareContext(ctx, `INSERT INTO tasks(ref, page, line, text, state, done, due, remind, who) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);`)
+	taskStmt, err := tx.PrepareContext(ctx, `INSERT INTO tasks(ref, page, line, text, state, done, due, remind, click, who) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`)
 	if err != nil {
 		return fmt.Errorf("prepare task insert: %w", err)
 	}
@@ -513,7 +517,7 @@ func (s *SQLiteStore) GetPage(ctx context.Context, pagePath string) (PageRecord,
 		return PageRecord{}, fmt.Errorf("iterate links for %q: %w", pagePath, err)
 	}
 
-	tasks, err := s.loadTasks(ctx, `SELECT ref, page, line, text, state, done, due, remind, who FROM tasks WHERE page = ? ORDER BY line, id;`, pagePath)
+	tasks, err := s.loadTasks(ctx, `SELECT ref, page, line, text, state, done, due, remind, click, who FROM tasks WHERE page = ? ORDER BY line, id;`, pagePath)
 	if err != nil {
 		return PageRecord{}, fmt.Errorf("query tasks for %q: %w", pagePath, err)
 	}
@@ -556,7 +560,7 @@ func (s *SQLiteStore) GetBacklinks(ctx context.Context, pagePath string) ([]Back
 
 func (s *SQLiteStore) ListTasks(ctx context.Context) ([]Task, error) {
 	tasks, err := s.loadTasks(ctx, `
-		SELECT ref, page, line, text, state, done, due, remind, who
+		SELECT ref, page, line, text, state, done, due, remind, click, who
 		FROM tasks
 		ORDER BY done, CASE WHEN due IS NULL OR due = '' THEN 1 ELSE 0 END, due, page, line, id;
 	`)
@@ -568,7 +572,7 @@ func (s *SQLiteStore) ListTasks(ctx context.Context) ([]Task, error) {
 
 func (s *SQLiteStore) GetTask(ctx context.Context, ref string) (Task, error) {
 	tasks, err := s.loadTasks(ctx, `
-		SELECT ref, page, line, text, state, done, due, remind, who
+		SELECT ref, page, line, text, state, done, due, remind, click, who
 		FROM tasks
 		WHERE ref = ?
 		LIMIT 1;
@@ -1211,7 +1215,7 @@ func insertDocument(ctx context.Context, pageStmt, linkStmt, taskStmt, frontmatt
 		if marshalErr != nil {
 			return fmt.Errorf("encode task who for %q: %w", task.Ref, marshalErr)
 		}
-		if _, err := taskStmt.ExecContext(ctx, task.Ref, task.Page, task.Line, task.Text, task.State, boolToInt(task.Done), task.Due, task.Remind, string(whoJSON)); err != nil {
+		if _, err := taskStmt.ExecContext(ctx, task.Ref, task.Page, task.Line, task.Text, task.State, boolToInt(task.Done), task.Due, task.Remind, task.Click, string(whoJSON)); err != nil {
 			return fmt.Errorf("insert task %q: %w", task.Ref, err)
 		}
 	}
@@ -1254,7 +1258,7 @@ func (s *SQLiteStore) loadTasks(ctx context.Context, query string, args ...any) 
 		var task Task
 		var done int
 		var whoJSON string
-		if err := taskRows.Scan(&task.Ref, &task.Page, &task.Line, &task.Text, &task.State, &done, &task.Due, &task.Remind, &whoJSON); err != nil {
+		if err := taskRows.Scan(&task.Ref, &task.Page, &task.Line, &task.Text, &task.State, &done, &task.Due, &task.Remind, &task.Click, &whoJSON); err != nil {
 			return nil, err
 		}
 		task.Done = done != 0
@@ -1364,6 +1368,48 @@ func (s *SQLiteStore) ensureSavedQueryColumns(ctx context.Context) error {
 		}
 		if _, err := s.db.ExecContext(ctx, column.sql); err != nil {
 			return fmt.Errorf("add saved_queries.%s: %w", column.name, err)
+		}
+	}
+	return nil
+}
+
+func (s *SQLiteStore) ensureTaskColumns(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(tasks);`)
+	if err != nil {
+		return fmt.Errorf("inspect tasks columns: %w", err)
+	}
+	defer rows.Close()
+
+	var (
+		cid        int
+		name       string
+		columnType string
+		notNull    int
+		defaultVal sql.NullString
+		pk         int
+	)
+	seen := make(map[string]struct{}, 1)
+	for rows.Next() {
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &pk); err != nil {
+			return fmt.Errorf("scan tasks columns: %w", err)
+		}
+		seen[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate tasks columns: %w", err)
+	}
+
+	for _, column := range []struct {
+		name string
+		sql  string
+	}{
+		{name: "click", sql: `ALTER TABLE tasks ADD COLUMN click TEXT;`},
+	} {
+		if _, ok := seen[column.name]; ok {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, column.sql); err != nil {
+			return fmt.Errorf("add tasks.%s: %w", column.name, err)
 		}
 	}
 	return nil

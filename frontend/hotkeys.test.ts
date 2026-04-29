@@ -4,8 +4,10 @@ import {
   analyzeHotkeys,
   canonicalizeHotkey,
   defaultHotkeys,
+  hotkeyDefaultGuidance,
   hotkeyFromEvent,
   hotkeyLabel,
+  hotkeyProducesText,
   matchesHotkey,
 } from "./hotkeys";
 
@@ -100,5 +102,29 @@ describe("hotkeys", function () {
     expect(analysis.globalSearch.duplicateIDs).toEqual(["quickSwitcher"]);
     expect(analysis.quickSwitcher.browserWarning).toContain("address bar");
     expect(analysis.commandPalette.browserWarning).toBe("");
+  });
+
+  it("describes defaults based on whether the current binding is already safe", function () {
+    const defaults = analyzeHotkeys({
+      quickSwitcher: "Mod+Shift+L",
+      globalSearch: "Mod+Alt+F",
+      commandPalette: "Mod+Shift+P",
+      quickNote: "",
+      help: "?",
+      saveCurrentPage: "Mod+S",
+      toggleRawMode: "Mod+Shift+E",
+      toggleTaskDone: "Mod+Enter",
+    }, windowsPlatform);
+
+    expect(hotkeyDefaultGuidance(defaults.quickSwitcher, windowsPlatform)).toBe("Default: Ctrl+Shift+L.");
+    expect(hotkeyDefaultGuidance(defaults.globalSearch, windowsPlatform)).toBe("Built-in default: Ctrl+Shift+F.");
+    expect(hotkeyDefaultGuidance(defaults.commandPalette, windowsPlatform)).toBe("Safer default: Ctrl+Shift+Y.");
+  });
+
+  it("recognizes which hotkeys would type text in an editor", function () {
+    expect(hotkeyProducesText("?")).toBe(true);
+    expect(hotkeyProducesText("Enter")).toBe(true);
+    expect(hotkeyProducesText("Mod+Shift+?")).toBe(false);
+    expect(hotkeyProducesText("F1")).toBe(false);
   });
 });

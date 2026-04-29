@@ -346,8 +346,16 @@ export function editableTimePlaceholder(): string {
   return "09:00";
 }
 
+function isNotificationClickKey(column: string): boolean {
+  const normalized = String(column || "").trim().toLowerCase();
+  return normalized === "click" || normalized.endsWith("_click") || normalized.endsWith("-click");
+}
+
 export function isDateLikeColumn(column: string): boolean {
   const normalized = String(column || "").trim().toLowerCase();
+  if (isNotificationClickKey(normalized)) {
+    return false;
+  }
   return normalized === "due" ||
     normalized === "remind" ||
     normalized === "notify" ||

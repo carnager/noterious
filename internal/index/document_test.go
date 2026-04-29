@@ -28,7 +28,7 @@ count: 3
 
 See [[Project Alpha|Alpha]] and [Roadmap](plans/roadmap.md).
 
-- [ ] Follow up with team due:: 2026-05-01 remind:: 2026-04-30 who:: [Ralf, Mina]
+- [ ] Follow up with team due:: 2026-05-01 remind:: 2026-04-30 who:: [Ralf, Mina] click:: noteriousshopping://shopping?list=weekly
 - [x] Done already
 `)
 
@@ -71,6 +71,9 @@ See [[Project Alpha|Alpha]] and [Roadmap](plans/roadmap.md).
 	}
 	if firstTask.Remind == nil || *firstTask.Remind != "2026-04-30" {
 		t.Fatalf("first task remind = %v", firstTask.Remind)
+	}
+	if firstTask.Click == nil || *firstTask.Click != "noteriousshopping://shopping?list=weekly" {
+		t.Fatalf("first task click = %v", firstTask.Click)
 	}
 	if firstTask.Text != "Follow up with team" {
 		t.Fatalf("first task text = %q", firstTask.Text)

@@ -1279,6 +1279,7 @@ func taskChangedFields(before, after *index.Task, relevant map[string]struct{}) 
 	add("done", before.Done != after.Done)
 	add("due", derefString(before.Due) != derefString(after.Due))
 	add("remind", derefString(before.Remind) != derefString(after.Remind))
+	add("click", derefString(before.Click) != derefString(after.Click))
 	add("who", !stringSliceEqual(before.Who, after.Who))
 	sort.Strings(changed)
 	return changed
@@ -1340,6 +1341,7 @@ func taskRow(task *index.Task) map[string]any {
 		"done":   task.Done,
 		"due":    derefString(task.Due),
 		"remind": derefString(task.Remind),
+		"click":  derefString(task.Click),
 		"who":    append([]string(nil), task.Who...),
 	}
 }
@@ -1411,6 +1413,7 @@ func taskEqual(left, right index.Task) bool {
 		left.Done == right.Done &&
 		derefString(left.Due) == derefString(right.Due) &&
 		derefString(left.Remind) == derefString(right.Remind) &&
+		derefString(left.Click) == derefString(right.Click) &&
 		stringSliceEqual(left.Who, right.Who)
 }
 
@@ -3362,6 +3365,7 @@ func loadDataset(ctx context.Context, indexService *index.Service, dataset strin
 				"done":   task.Done,
 				"due":    derefString(task.Due),
 				"remind": derefString(task.Remind),
+				"click":  derefString(task.Click),
 				"who":    append([]string(nil), task.Who...),
 			})
 		}

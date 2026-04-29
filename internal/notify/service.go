@@ -174,6 +174,7 @@ type candidateNotification struct {
 	Kind     string
 	At       time.Time
 	Raw      string
+	Click    string
 	Title    string
 	Body     string
 	Tags     string
@@ -191,7 +192,7 @@ func taskNotificationCandidate(task index.Task, loc *time.Location) (candidateNo
 	if !ok {
 		return candidateNotification{}, false
 	}
-	return buildTaskCandidate(task, "remind", raw, at), true
+	return buildTaskCandidate(task, "remind", raw, at, strings.TrimSpace(derefTaskValue(task.Click))), true
 }
 
 func noteNotificationCandidates(page index.PageSummary, loc *time.Location) []candidateNotification {
@@ -218,12 +219,12 @@ func noteNotificationCandidates(page index.PageSummary, loc *time.Location) []ca
 		if !ok {
 			continue
 		}
-		candidates = append(candidates, buildPageCandidate(page, key, raw, at))
+		candidates = append(candidates, buildPageCandidate(page, key, raw, at, notificationClickTarget(page.Frontmatter, key)))
 	}
 	return candidates
 }
 
-func buildTaskCandidate(task index.Task, kind string, raw string, at time.Time) candidateNotification {
+func buildTaskCandidate(task index.Task, kind string, raw string, at time.Time, click string) candidateNotification {
 	title := "Task due"
 	tags := "calendar"
 	priority := "default"
@@ -251,6 +252,7 @@ func buildTaskCandidate(task index.Task, kind string, raw string, at time.Time) 
 		Kind:     kind,
 		At:       at,
 		Raw:      raw,
+		Click:    click,
 		Title:    title,
 		Body:     strings.Join(parts, "\n"),
 		Tags:     tags,
@@ -260,7 +262,7 @@ func buildTaskCandidate(task index.Task, kind string, raw string, at time.Time) 
 	}
 }
 
-func buildPageCandidate(page index.PageSummary, fieldKey string, raw string, at time.Time) candidateNotification {
+func buildPageCandidate(page index.PageSummary, fieldKey string, raw string, at time.Time, click string) candidateNotification {
 	titleText := strings.TrimSpace(page.Title)
 	if titleText == "" {
 		titleText = strings.TrimSpace(page.Path)
@@ -285,6 +287,7 @@ func buildPageCandidate(page index.PageSummary, fieldKey string, raw string, at 
 		Kind:     "notification",
 		At:       at,
 		Raw:      raw,
+		Click:    click,
 		Title:    "Note reminder",
 		Body:     strings.Join(parts, "\n"),
 		Tags:     "alarm_clock",
@@ -387,6 +390,9 @@ func (s *Service) send(ctx context.Context, target auth.NotificationTarget, cand
 	request.Header.Set("Title", candidate.Title)
 	request.Header.Set("Tags", candidate.Tags)
 	request.Header.Set("Priority", candidate.Priority)
+	if candidate.Click != "" {
+		request.Header.Set("Click", candidate.Click)
+	}
 	if candidate.Page != "" {
 		request.Header.Set("X-Note-Page", candidate.Page)
 	}
@@ -504,6 +510,9 @@ func isNotificationFrontmatterKey(key string) bool {
 	if normalized == "" {
 		return false
 	}
+	if isNotificationClickKey(normalized) {
+		return false
+	}
 	return normalized == "notification" ||
 		normalized == "notify" ||
 		normalized == "remind" ||
@@ -520,6 +529,22 @@ func isNotificationFrontmatterKey(key string) bool {
 		strings.HasPrefix(normalized, "notify_") ||
 		strings.HasPrefix(normalized, "remind_") ||
 		strings.HasPrefix(normalized, "reminder_")
+}
+
+func notificationClickTarget(frontmatter map[string]any, fieldKey string) string {
+	for _, candidate := range []string{fieldKey + "_click", fieldKey + "-click"} {
+		if value, ok := frontmatterStringValue(frontmatter[candidate]); ok {
+			return value
+		}
+	}
+	return ""
+}
+
+func isNotificationClickKey(key string) bool {
+	normalized := strings.TrimSpace(strings.ToLower(key))
+	return normalized == "click" ||
+		strings.HasSuffix(normalized, "_click") ||
+		strings.HasSuffix(normalized, "-click")
 }
 
 func isGenericNotificationField(key string) bool {

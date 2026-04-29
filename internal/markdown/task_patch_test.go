@@ -10,7 +10,7 @@ func TestApplyTaskPatchUpdatesKnownFields(t *testing.T) {
 	remind := ""
 	who := []string{"Ralf", "Mina"}
 
-	raw := "# Title\n\n- [ ] Follow up due:: 2026-05-01 remind:: 2026-04-30 who:: [\"Old\"]\n"
+	raw := "# Title\n\n- [ ] Follow up due:: 2026-05-01 remind:: 2026-04-30 who:: [\"Old\"] click:: myapp://follow-up\n"
 
 	updated, task, err := ApplyTaskPatch(raw, 3, TaskPatch{
 		State:  &state,
@@ -22,12 +22,44 @@ func TestApplyTaskPatchUpdatesKnownFields(t *testing.T) {
 		t.Fatalf("ApplyTaskPatch() error = %v", err)
 	}
 
-	expected := "# Title\n\n- [x] Follow up [due: 2026-05-02] who:: [\"Ralf\", \"Mina\"]\n"
+	expected := "# Title\n\n- [x] Follow up [due: 2026-05-02] who:: [\"Ralf\", \"Mina\"] click:: myapp://follow-up\n"
 	if updated != expected {
 		t.Fatalf("updated markdown = %q, want %q", updated, expected)
 	}
-	if !task.Done || task.Text != "Follow up [due: 2026-05-02] who:: [\"Ralf\", \"Mina\"]" {
+	if !task.Done || task.Text != "Follow up [due: 2026-05-02] who:: [\"Ralf\", \"Mina\"] click:: myapp://follow-up" {
 		t.Fatalf("updated task = %#v", task)
+	}
+}
+
+func TestApplyTaskPatchSetsAndClearsClickField(t *testing.T) {
+	t.Parallel()
+
+	click := "noteriousshopping://shopping?list=weekly"
+	raw := "# Title\n\n- [ ] Follow up\n"
+
+	updated, task, err := ApplyTaskPatch(raw, 3, TaskPatch{Click: &click})
+	if err != nil {
+		t.Fatalf("ApplyTaskPatch(set click) error = %v", err)
+	}
+
+	expected := "# Title\n\n- [ ] Follow up click:: noteriousshopping://shopping?list=weekly\n"
+	if updated != expected {
+		t.Fatalf("updated markdown = %q, want %q", updated, expected)
+	}
+	if task.Text != "Follow up click:: noteriousshopping://shopping?list=weekly" {
+		t.Fatalf("updated task = %#v", task)
+	}
+
+	clear := ""
+	cleared, clearedTask, err := ApplyTaskPatch(updated, 3, TaskPatch{Click: &clear})
+	if err != nil {
+		t.Fatalf("ApplyTaskPatch(clear click) error = %v", err)
+	}
+	if cleared != raw {
+		t.Fatalf("cleared markdown = %q, want %q", cleared, raw)
+	}
+	if clearedTask.Text != "Follow up" {
+		t.Fatalf("cleared task = %#v", clearedTask)
 	}
 }
 

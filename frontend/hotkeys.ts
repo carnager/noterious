@@ -32,6 +32,8 @@ export interface HotkeyAnalysisEntry {
   browserWarning: string;
   defaultBinding: string;
   blockedReason: string;
+  isSafeBinding: boolean;
+  usesDefaultBinding: boolean;
 }
 
 const hotkeyDefinitionsByID: Record<HotkeyID, HotkeyDefinition> = {
@@ -491,6 +493,7 @@ export function analyzeHotkeys(
       return otherID !== id;
     }) : [];
     const browserWarning = likelyBrowserReservedMessage(binding, platform);
+    const defaultBinding = chooseDefaultBinding(definition, platform);
     const blockedReason = duplicateIDs.length
       ? "Conflicts with " + duplicateIDs.map(function (otherID) {
         return hotkeyDefinitionsByID[otherID].label;
@@ -498,16 +501,36 @@ export function analyzeHotkeys(
       : browserWarning
         ? "Likely intercepted by the browser or OS before Noterious can see it."
         : "";
+    const isSafeBinding = Boolean(binding) && !duplicateIDs.length && !browserWarning;
     acc[id] = {
       definition: definition,
       binding: binding,
       duplicateIDs: duplicateIDs,
       browserWarning: browserWarning,
-      defaultBinding: chooseDefaultBinding(definition, platform),
+      defaultBinding: defaultBinding,
       blockedReason: blockedReason,
+      isSafeBinding: isSafeBinding,
+      usesDefaultBinding: Boolean(binding) && binding === defaultBinding,
     };
     return acc;
   }, {} as Record<HotkeyID, HotkeyAnalysisEntry>);
+}
+
+export function hotkeyDefaultGuidance(
+  entry: HotkeyAnalysisEntry,
+  platform: HotkeyPlatform = detectHotkeyPlatform(),
+): string {
+  if (!entry.defaultBinding) {
+    return "No default shortcut.";
+  }
+  const label = hotkeyLabel(entry.defaultBinding, platform);
+  if (!entry.binding || entry.usesDefaultBinding) {
+    return "Default: " + label + ".";
+  }
+  if (entry.isSafeBinding) {
+    return "Built-in default: " + label + ".";
+  }
+  return "Safer default: " + label + ".";
 }
 
 export function hotkeyValidationErrors(
@@ -523,6 +546,31 @@ export function hotkeyValidationErrors(
     errors.push(entry.definition.label + ": " + entry.blockedReason);
     return errors;
   }, [] as string[]);
+}
+
+export function hotkeyProducesText(hotkey: string): boolean {
+  const binding = canonicalizeHotkey(hotkey);
+  if (!binding) {
+    return false;
+  }
+
+  const tokens = binding.split("+").map(normalizeKeyName).filter(Boolean);
+  let modifierCount = 0;
+  let key = "";
+
+  tokens.forEach(function (token) {
+    if (token === "mod" || token === "meta" || token === "ctrl" || token === "alt" || token === "shift") {
+      modifierCount += 1;
+      return;
+    }
+    key = token;
+  });
+
+  if (!key || modifierCount > 0) {
+    return false;
+  }
+
+  return key.length === 1 || key === "space" || key === "enter" || key === "tab";
 }
 
 export function matchesHotkey(hotkey: string, event: HotkeyEvent): boolean {

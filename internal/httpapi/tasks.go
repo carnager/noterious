@@ -123,6 +123,7 @@ func handleTaskRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 			State  *string  `json:"state"`
 			Due    *string  `json:"due"`
 			Remind *string  `json:"remind"`
+			Click  *string  `json:"click"`
 			Who    []string `json:"who"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -141,6 +142,7 @@ func handleTaskRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 			State:  request.State,
 			Due:    request.Due,
 			Remind: request.Remind,
+			Click:  request.Click,
 			Who:    who,
 		})
 		if err != nil {

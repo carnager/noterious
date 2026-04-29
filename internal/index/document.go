@@ -17,8 +17,8 @@ var (
 	wikiLinkPattern        = regexp.MustCompile(`\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]`)
 	markdownLinkPattern    = regexp.MustCompile(`\[([^\]]+)\]\(([^)#]+?)(?:#[^)]+)?\)`)
 	inlineFieldKeyPattern  = regexp.MustCompile(`\b([A-Za-z][A-Za-z0-9_-]*)::`)
-	inlineTaskFieldPattern = regexp.MustCompile(`\b(due|remind|who|completed)::`)
-	bracketFieldPattern    = regexp.MustCompile(`\[(due|remind|who|completed):\s*([^\]]*?)\]`)
+	inlineTaskFieldPattern = regexp.MustCompile(`\b(due|remind|who|click|completed)::`)
+	bracketFieldPattern    = regexp.MustCompile(`\[(due|remind|who|click|completed):\s*([^\]]*?)\]`)
 	remindTagPattern       = regexp.MustCompile(`(^|\s)#remind\b`)
 	markdownHeadingPattern = regexp.MustCompile(`^\s{0,3}#{1,6}\s+(.+?)\s*$`)
 )
@@ -56,6 +56,7 @@ type Task struct {
 	Done   bool     `json:"done"`
 	Due    *string  `json:"due,omitempty"`
 	Remind *string  `json:"remind,omitempty"`
+	Click  *string  `json:"click,omitempty"`
 	Who    []string `json:"who,omitempty"`
 }
 
@@ -430,6 +431,9 @@ func extractTasks(pagePath string, bodyLines []string, bodyStartLine int) []Task
 		}
 		if remind, ok := fields["remind"]; ok && remind != "" {
 			task.Remind = &remind
+		}
+		if click, ok := fields["click"]; ok && click != "" {
+			task.Click = &click
 		}
 		if who, ok := fields["who"]; ok && who != "" {
 			task.Who = parseWhoValue(who)

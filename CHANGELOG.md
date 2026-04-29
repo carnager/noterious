@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.16] - 2026-04-29
+
+### Added
+- Reminder click targets can now be attached to both tasks and note frontmatter notifications, and are forwarded to ntfy so tapping a notification can open a URL or custom app URI.
+- SQLite task indexing now persists reminder click targets, with focused regression coverage for parsing, migrations, patching, and notification delivery.
+
+### Changed
+- Frontmatter `*_click` reminder companion fields now stay plain text in the UI and template/type heuristics instead of being mistaken for datetime-like properties.
+
+### Fixed
+- The Help hotkey now works from typing contexts when the configured binding is a real shortcut rather than text input.
+- Hotkey guidance in settings now distinguishes correctly between the current default, other safe custom bindings, and genuinely safer alternatives.
+
 ## [v0.1.15] - 2026-04-28
 
 ### Fixed

@@ -83,7 +83,7 @@ func TestPollSendsAndDeduplicatesReminderNotifications(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(vaultDir, "daily"), 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	raw := "# Today\n\n- [ ] Follow up with team due:: 2026-04-24 remind:: 09:30 who:: [Ralf]\n"
+	raw := "# Today\n\n- [ ] Follow up with team due:: 2026-04-24 remind:: 09:30 who:: [Ralf] click:: noteriousshopping://shopping?list=weekly\n"
 	pageFile := filepath.Join(vaultDir, "daily", "today.md")
 	if err := os.WriteFile(pageFile, []byte(raw), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -120,6 +120,9 @@ func TestPollSendsAndDeduplicatesReminderNotifications(t *testing.T) {
 		lastBody = string(body)
 		if got := r.Header.Get("Title"); got != "Task reminder" {
 			t.Fatalf("Title header = %q", got)
+		}
+		if got := r.Header.Get("Click"); got != "noteriousshopping://shopping?list=weekly" {
+			t.Fatalf("Click header = %q", got)
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -171,6 +174,7 @@ func TestPollSendsFrontmatterNotificationForNotes(t *testing.T) {
 	raw := strings.Join([]string{
 		"---",
 		"birthday_notification: 2026-04-24 09:30",
+		"birthday_notification_click: noteriousshopping://shopping?contact=ralf",
 		"---",
 		"# Ralf",
 		"",
@@ -220,6 +224,9 @@ func TestPollSendsFrontmatterNotificationForNotes(t *testing.T) {
 		if got := r.Header.Get("X-Note-Field"); got != "birthday_notification" {
 			t.Fatalf("X-Note-Field header = %q", got)
 		}
+		if got := r.Header.Get("Click"); got != "noteriousshopping://shopping?contact=ralf" {
+			t.Fatalf("Click header = %q", got)
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -248,6 +255,21 @@ func TestPollSendsFrontmatterNotificationForNotes(t *testing.T) {
 	}
 	if !strings.Contains(lastBody, "Page: contacts/ralf") || !strings.Contains(lastBody, "Reminder: 2026-04-24 09:30") {
 		t.Fatalf("lastBody = %q", lastBody)
+	}
+}
+
+func TestIsNotificationFrontmatterKeyExcludesClickTargets(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range []string{
+		"notification_click",
+		"birthday_notification_click",
+		"birthday-notification-click",
+		"click",
+	} {
+		if isNotificationFrontmatterKey(key) {
+			t.Fatalf("isNotificationFrontmatterKey(%q) = true, want false", key)
+		}
 	}
 }
 

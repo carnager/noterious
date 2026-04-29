@@ -74,7 +74,7 @@ import {
   splitFrontmatter,
   wikiLinkAtCaret,
 } from "./markdown";
-import { canonicalizeHotkey, hotkeyDefinitions, hotkeyFromEvent, hotkeyLabel, matchesHotkey } from "./hotkeys";
+import { canonicalizeHotkey, hotkeyDefinitions, hotkeyFromEvent, hotkeyLabel, hotkeyProducesText, matchesHotkey } from "./hotkeys";
 import {
   historyDiffContent,
   renderPageHistory as renderPageHistoryUI,
@@ -4917,7 +4917,11 @@ interface TreeContextMenuState {
         createDailyNote();
         return;
       }
-      if (matchesHotkey(state.settings.preferences.hotkeys.help, event) && !isTypingTarget(event.target)) {
+      const helpHotkey = state.settings.preferences.hotkeys.help;
+      if (
+        matchesHotkey(helpHotkey, event)
+        && (!isTypingTarget(event.target) || !hotkeyProducesText(helpHotkey))
+      ) {
         event.preventDefault();
         setHelpOpen(true);
         return;
