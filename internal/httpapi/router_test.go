@@ -350,7 +350,11 @@ func TestRootServesExploratoryUI(t *testing.T) {
 	if got := recorder.Header().Get("Cache-Control"); got != "no-store, max-age=0" {
 		t.Fatalf("Cache-Control = %q", got)
 	}
-	if !strings.Contains(recorder.Body.String(), "id=\"toggle-rail\"") || !strings.Contains(recorder.Body.String(), "id=\"rail-tab-tags\"") || !strings.Contains(recorder.Body.String(), "id=\"detail-path\"") {
+	body := recorder.Body.String()
+	if !strings.Contains(body, "id=\"toggle-rail\"") ||
+		!strings.Contains(body, "id=\"rail-tab-files\"") ||
+		!strings.Contains(body, "id=\"page-tags\"") ||
+		!strings.Contains(body, "id=\"detail-path\"") {
 		t.Fatalf("body = %s", recorder.Body.String())
 	}
 }
