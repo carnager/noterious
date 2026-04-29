@@ -1868,6 +1868,7 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   padding: 0.42rem 0.62rem;
   border-bottom: 1px solid var(--line);
   vertical-align: top;
+  line-height: inherit;
 }
 
 .markdown-table-block th {
@@ -3734,6 +3735,11 @@ kbd {
 .markdown-table-cell {
   cursor: pointer;
   min-width: 5rem;
+}
+
+.markdown-table-cell:empty::before {
+  content: "\00a0";
+  visibility: hidden;
 }
 
 .markdown-table-cell:hover,

@@ -84,6 +84,34 @@ describe("slash menu", function () {
     expect(table?.apply("/table")).toBe("| Column | Value |\n| --- | --- |\n|  |  |\n");
   });
 
+  it("keeps the table slash command open while typing numeric dimensions", function () {
+    const commands = slashCommandsForText("/table 3 4");
+
+    expect(commands.map(function (command) {
+      return command.id;
+    })).toEqual(["table"]);
+  });
+
+  it("builds tables from slash-command dimensions", function () {
+    const table = slashCommandsForText("/table 3 4").find(function (command) {
+      return command.id === "table";
+    });
+
+    expect(table).toBeTruthy();
+    expect(table?.apply("/table 3 4")).toBe(
+      "| Column 1 | Column 2 | Column 3 |\n" +
+      "| --- | --- | --- |\n" +
+      "|  |  |  |\n" +
+      "|  |  |  |\n" +
+      "|  |  |  |\n" +
+      "|  |  |  |\n"
+    );
+  });
+
+  it("closes the slash menu again for invalid table dimensions", function () {
+    expect(slashCommandsForText("/table 3 nope")).toEqual([]);
+  });
+
   it("offers a file upload command in the slash menu", function () {
     const file = slashCommandsForText("/file").find(function (command) {
       return command.id === "file";

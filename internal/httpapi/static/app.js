@@ -2821,6 +2821,9 @@
     editorState.rows.push(new Array(cols).fill(""));
     editorState.dirty = true;
   }
+  function canDeleteInlineTableEditorRow(editorState) {
+    return editorState.rows.length > 2 && editorState.row > 0;
+  }
   function insertInlineTableEditorRowAfter(editorState, rowIndex) {
     const cols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
     const nextRow = new Array(cols).fill("");
@@ -2829,6 +2832,18 @@
     editorState.dirty = true;
     editorState.row = insertAt;
     editorState.col = Math.max(0, Math.min(editorState.col, cols - 1));
+  }
+  function deleteInlineTableEditorRow(editorState) {
+    if (!canDeleteInlineTableEditorRow(editorState)) {
+      return false;
+    }
+    const deleteAt = Math.max(1, Math.min(editorState.row, editorState.rows.length - 1));
+    editorState.rows.splice(deleteAt, 1);
+    editorState.dirty = true;
+    editorState.row = Math.max(1, Math.min(deleteAt, editorState.rows.length - 1));
+    const cols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
+    editorState.col = Math.max(0, Math.min(editorState.col, cols - 1));
+    return true;
   }
   function insertInlineTableEditorColumnAfter(editorState, colIndex) {
     const insertAt = Math.max(0, colIndex + 1);
@@ -2839,6 +2854,26 @@
     });
     editorState.dirty = true;
     editorState.col = insertAt;
+  }
+  function canDeleteInlineTableEditorColumn(editorState) {
+    const cols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
+    return cols > 2;
+  }
+  function deleteInlineTableEditorColumn(editorState) {
+    if (!canDeleteInlineTableEditorColumn(editorState)) {
+      return false;
+    }
+    const cols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
+    const deleteAt = Math.max(0, Math.min(editorState.col, cols - 1));
+    editorState.rows = editorState.rows.map(function(row) {
+      const next = row.slice();
+      next.splice(deleteAt, 1);
+      return next;
+    });
+    editorState.dirty = true;
+    const nextCols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
+    editorState.col = Math.max(0, Math.min(deleteAt, nextCols - 1));
+    return true;
   }
   function moveInlineTableEditorFocus(els, editorState, rowIndex, colIndex, backward) {
     const rowCount = editorState.rows.length;
@@ -3079,6 +3114,18 @@
       focusInlineTableEditorCell(els, editorState.row, editorState.col);
     });
     actions.appendChild(addRow);
+    const removeRow = document.createElement("button");
+    removeRow.type = "button";
+    removeRow.textContent = "- Row";
+    removeRow.disabled = !canDeleteInlineTableEditorRow(editorState);
+    removeRow.addEventListener("click", function() {
+      if (!deleteInlineTableEditorRow(editorState)) {
+        return;
+      }
+      renderInlineTableEditor(appState, els, callbacks);
+      focusInlineTableEditorCell(els, editorState.row, editorState.col);
+    });
+    actions.appendChild(removeRow);
     const addCol = document.createElement("button");
     addCol.type = "button";
     addCol.textContent = "+ Col";
@@ -3088,6 +3135,18 @@
       focusInlineTableEditorCell(els, editorState.row, editorState.col);
     });
     actions.appendChild(addCol);
+    const removeCol = document.createElement("button");
+    removeCol.type = "button";
+    removeCol.textContent = "- Col";
+    removeCol.disabled = !canDeleteInlineTableEditorColumn(editorState);
+    removeCol.addEventListener("click", function() {
+      if (!deleteInlineTableEditorColumn(editorState)) {
+        return;
+      }
+      renderInlineTableEditor(appState, els, callbacks);
+      focusInlineTableEditorCell(els, editorState.row, editorState.col);
+    });
+    actions.appendChild(removeCol);
     const apply = document.createElement("button");
     apply.type = "button";
     apply.textContent = "Apply";
@@ -6847,6 +6906,64 @@
     const source = replaceSlashToken(lineText, commandName, "").trimEnd();
     return source ? source + " " + fieldText : fieldText;
   }
+  function clampTableDimension(value, fallback, max) {
+    if (!Number.isFinite(value)) {
+      return fallback;
+    }
+    return Math.max(1, Math.min(max, Math.floor(value)));
+  }
+  function parseTableDimensions(rawArgs) {
+    const args = String(rawArgs || "").trim();
+    if (!args) {
+      return { columns: 2, rows: 1 };
+    }
+    const parts = args.split(/\s+/).filter(Boolean);
+    if (!parts.length || parts.length > 2 || !parts.every(function(part) {
+      return /^\d+$/.test(part);
+    })) {
+      return null;
+    }
+    return {
+      columns: clampTableDimension(Number(parts[0]), 2, 20),
+      rows: clampTableDimension(parts[1] ? Number(parts[1]) : 1, 1, 50)
+    };
+  }
+  function defaultTableHeaders(columns) {
+    if (columns <= 1) {
+      return ["Column"];
+    }
+    if (columns === 2) {
+      return ["Column", "Value"];
+    }
+    return Array.from({ length: columns }, function(_value, index) {
+      return "Column " + String(index + 1);
+    });
+  }
+  function buildMarkdownTable(columns, rows) {
+    const safeColumns = clampTableDimension(columns, 2, 20);
+    const safeRows = clampTableDimension(rows, 1, 50);
+    const header = defaultTableHeaders(safeColumns);
+    const separator = header.map(function() {
+      return "---";
+    });
+    const blankRow = header.map(function() {
+      return "";
+    });
+    const lines = [
+      "| " + header.join(" | ") + " |",
+      "| " + separator.join(" | ") + " |"
+    ];
+    for (let row = 0; row < safeRows; row += 1) {
+      lines.push("| " + blankRow.join(" | ") + " |");
+    }
+    return lines.join("\n") + "\n";
+  }
+  function commandSupportsSlashArgs(command, args) {
+    if (command.id === "table") {
+      return parseTableDimensions(args) !== null;
+    }
+    return false;
+  }
   function slashCommandCatalog() {
     return [
       {
@@ -6942,11 +7059,13 @@
       {
         id: "table",
         title: "Insert table",
-        description: "Replace the current line with a simple markdown table.",
+        description: "Replace the current line with a markdown table. Use /table 3 4 for 3 columns and 4 rows.",
         keywords: "table grid columns rows",
-        hint: "/table",
-        apply: function() {
-          return "| Column | Value |\n| --- | --- |\n|  |  |\n";
+        hint: "/table [cols] [rows]",
+        apply: function(lineText) {
+          const trigger = parseSlashTrigger(lineText);
+          const dimensions = parseTableDimensions(trigger ? trigger.args : "");
+          return buildMarkdownTable(dimensions ? dimensions.columns : 2, dimensions ? dimensions.rows : 1);
         },
         caret: function(updatedLine) {
           return updatedLine.length;
@@ -6987,24 +7106,33 @@
       }
     ];
   }
-  function parseSlashQuery(text) {
+  function parseSlashTrigger(text) {
     const raw = String(text || "");
     const trimmed = raw.trimEnd();
-    const match = trimmed.match(/(?:^|\s)\/([a-z0-9-]*)$/i);
+    const match = trimmed.match(/(?:^|\s)\/([a-z0-9-]*)(?:\s+(.*))?$/i);
     if (!match) {
       return null;
     }
-    return String(match[1] || "").toLowerCase();
+    return {
+      query: String(match[1] || "").toLowerCase(),
+      args: String(match[2] || "")
+    };
   }
   function slashCommandsForText(text) {
-    const query = parseSlashQuery(text);
-    if (query === null) {
+    const trigger = parseSlashTrigger(text);
+    if (!trigger) {
       return [];
     }
-    return slashCommandCatalog().filter(function(command) {
+    const commands = slashCommandCatalog().filter(function(command) {
       return slashSearchTokens(command).some(function(token) {
-        return token.indexOf(query) === 0 || fuzzyMatch(token, query);
+        return token.indexOf(trigger.query) === 0 || fuzzyMatch(token, trigger.query);
       });
+    });
+    if (!trigger.args.trim()) {
+      return commands;
+    }
+    return commands.filter(function(command) {
+      return commandSupportsSlashArgs(command, trigger.args);
     });
   }
   function findWikilinkTrigger(lineText, caretInLine) {

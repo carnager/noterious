@@ -80,6 +80,74 @@ function appendField(lineText: string, commandName: string, fieldText: string): 
   return source ? (source + " " + fieldText) : fieldText;
 }
 
+interface SlashTrigger {
+  query: string;
+  args: string;
+}
+
+function clampTableDimension(value: number, fallback: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(1, Math.min(max, Math.floor(value)));
+}
+
+function parseTableDimensions(rawArgs: string): { columns: number; rows: number } | null {
+  const args = String(rawArgs || "").trim();
+  if (!args) {
+    return { columns: 2, rows: 1 };
+  }
+  const parts = args.split(/\s+/).filter(Boolean);
+  if (!parts.length || parts.length > 2 || !parts.every(function (part) {
+    return /^\d+$/.test(part);
+  })) {
+    return null;
+  }
+  return {
+    columns: clampTableDimension(Number(parts[0]), 2, 20),
+    rows: clampTableDimension(parts[1] ? Number(parts[1]) : 1, 1, 50),
+  };
+}
+
+function defaultTableHeaders(columns: number): string[] {
+  if (columns <= 1) {
+    return ["Column"];
+  }
+  if (columns === 2) {
+    return ["Column", "Value"];
+  }
+  return Array.from({ length: columns }, function (_value, index) {
+    return "Column " + String(index + 1);
+  });
+}
+
+function buildMarkdownTable(columns: number, rows: number): string {
+  const safeColumns = clampTableDimension(columns, 2, 20);
+  const safeRows = clampTableDimension(rows, 1, 50);
+  const header = defaultTableHeaders(safeColumns);
+  const separator = header.map(function () {
+    return "---";
+  });
+  const blankRow = header.map(function () {
+    return "";
+  });
+  const lines = [
+    "| " + header.join(" | ") + " |",
+    "| " + separator.join(" | ") + " |",
+  ];
+  for (let row = 0; row < safeRows; row += 1) {
+    lines.push("| " + blankRow.join(" | ") + " |");
+  }
+  return lines.join("\n") + "\n";
+}
+
+function commandSupportsSlashArgs(command: SlashCommand, args: string): boolean {
+  if (command.id === "table") {
+    return parseTableDimensions(args) !== null;
+  }
+  return false;
+}
+
 function slashCommandCatalog(): SlashCommand[] {
   return [
     {
@@ -175,11 +243,13 @@ function slashCommandCatalog(): SlashCommand[] {
     {
       id: "table",
       title: "Insert table",
-      description: "Replace the current line with a simple markdown table.",
+      description: "Replace the current line with a markdown table. Use /table 3 4 for 3 columns and 4 rows.",
       keywords: "table grid columns rows",
-      hint: "/table",
-      apply: function () {
-        return "| Column | Value |\n| --- | --- |\n|  |  |\n";
+      hint: "/table [cols] [rows]",
+      apply: function (lineText: string) {
+        const trigger = parseSlashTrigger(lineText);
+        const dimensions = parseTableDimensions(trigger ? trigger.args : "");
+        return buildMarkdownTable(dimensions ? dimensions.columns : 2, dimensions ? dimensions.rows : 1);
       },
       caret: function (updatedLine: string) {
         return updatedLine.length;
@@ -221,26 +291,36 @@ function slashCommandCatalog(): SlashCommand[] {
   ];
 }
 
-function parseSlashQuery(text: string): string | null {
+function parseSlashTrigger(text: string): SlashTrigger | null {
   const raw = String(text || "");
   const trimmed = raw.trimEnd();
-  const match = trimmed.match(/(?:^|\s)\/([a-z0-9-]*)$/i);
+  const match = trimmed.match(/(?:^|\s)\/([a-z0-9-]*)(?:\s+(.*))?$/i);
   if (!match) {
     return null;
   }
-  return String(match[1] || "").toLowerCase();
+  return {
+    query: String(match[1] || "").toLowerCase(),
+    args: String(match[2] || ""),
+  };
 }
 
 export function slashCommandsForText(text: string): SlashCommand[] {
-  const query = parseSlashQuery(text);
-  if (query === null) {
+  const trigger = parseSlashTrigger(text);
+  if (!trigger) {
     return [];
   }
 
-  return slashCommandCatalog().filter(function (command) {
+  const commands = slashCommandCatalog().filter(function (command) {
     return slashSearchTokens(command).some(function (token) {
-      return token.indexOf(query) === 0 || fuzzyMatch(token, query);
+      return token.indexOf(trigger.query) === 0 || fuzzyMatch(token, trigger.query);
     });
+  });
+
+  if (!trigger.args.trim()) {
+    return commands;
+  }
+  return commands.filter(function (command) {
+    return commandSupportsSlashArgs(command, trigger.args);
   });
 }
 

@@ -230,6 +230,10 @@ function appendInlineTableEditorRow(editorState: TableEditorState): void {
   editorState.dirty = true;
 }
 
+export function canDeleteInlineTableEditorRow(editorState: TableEditorState): boolean {
+  return editorState.rows.length > 2 && editorState.row > 0;
+}
+
 function insertInlineTableEditorRowAfter(editorState: TableEditorState, rowIndex: number): void {
   const cols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
   const nextRow = new Array(cols).fill("");
@@ -238,6 +242,19 @@ function insertInlineTableEditorRowAfter(editorState: TableEditorState, rowIndex
   editorState.dirty = true;
   editorState.row = insertAt;
   editorState.col = Math.max(0, Math.min(editorState.col, cols - 1));
+}
+
+export function deleteInlineTableEditorRow(editorState: TableEditorState): boolean {
+  if (!canDeleteInlineTableEditorRow(editorState)) {
+    return false;
+  }
+  const deleteAt = Math.max(1, Math.min(editorState.row, editorState.rows.length - 1));
+  editorState.rows.splice(deleteAt, 1);
+  editorState.dirty = true;
+  editorState.row = Math.max(1, Math.min(deleteAt, editorState.rows.length - 1));
+  const cols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
+  editorState.col = Math.max(0, Math.min(editorState.col, cols - 1));
+  return true;
 }
 
 function insertInlineTableEditorColumnAfter(editorState: TableEditorState, colIndex: number): void {
@@ -249,6 +266,28 @@ function insertInlineTableEditorColumnAfter(editorState: TableEditorState, colIn
   });
   editorState.dirty = true;
   editorState.col = insertAt;
+}
+
+export function canDeleteInlineTableEditorColumn(editorState: TableEditorState): boolean {
+  const cols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
+  return cols > 2;
+}
+
+export function deleteInlineTableEditorColumn(editorState: TableEditorState): boolean {
+  if (!canDeleteInlineTableEditorColumn(editorState)) {
+    return false;
+  }
+  const cols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
+  const deleteAt = Math.max(0, Math.min(editorState.col, cols - 1));
+  editorState.rows = editorState.rows.map(function (row) {
+    const next = row.slice();
+    next.splice(deleteAt, 1);
+    return next;
+  });
+  editorState.dirty = true;
+  const nextCols = Math.max(1, editorState.rows[0] ? editorState.rows[0].length : 0);
+  editorState.col = Math.max(0, Math.min(deleteAt, nextCols - 1));
+  return true;
 }
 
 function moveInlineTableEditorFocus(
@@ -525,6 +564,19 @@ export function renderInlineTableEditor(appState: InlineEditorAppState, els: Inl
   });
   actions.appendChild(addRow);
 
+  const removeRow = document.createElement("button");
+  removeRow.type = "button";
+  removeRow.textContent = "- Row";
+  removeRow.disabled = !canDeleteInlineTableEditorRow(editorState);
+  removeRow.addEventListener("click", function () {
+    if (!deleteInlineTableEditorRow(editorState)) {
+      return;
+    }
+    renderInlineTableEditor(appState, els, callbacks);
+    focusInlineTableEditorCell(els, editorState.row, editorState.col);
+  });
+  actions.appendChild(removeRow);
+
   const addCol = document.createElement("button");
   addCol.type = "button";
   addCol.textContent = "+ Col";
@@ -534,6 +586,19 @@ export function renderInlineTableEditor(appState: InlineEditorAppState, els: Inl
     focusInlineTableEditorCell(els, editorState.row, editorState.col);
   });
   actions.appendChild(addCol);
+
+  const removeCol = document.createElement("button");
+  removeCol.type = "button";
+  removeCol.textContent = "- Col";
+  removeCol.disabled = !canDeleteInlineTableEditorColumn(editorState);
+  removeCol.addEventListener("click", function () {
+    if (!deleteInlineTableEditorColumn(editorState)) {
+      return;
+    }
+    renderInlineTableEditor(appState, els, callbacks);
+    focusInlineTableEditorCell(els, editorState.row, editorState.col);
+  });
+  actions.appendChild(removeCol);
 
   const apply = document.createElement("button");
   apply.type = "button";
