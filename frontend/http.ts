@@ -9,8 +9,11 @@ export class HTTPError extends Error {
 }
 
 const scopeHeaderName = "X-Noterious-Scope";
+const clientIDHeaderName = "X-Noterious-Client-Id";
+const clientIDStorageKey = "noterious.client-tab-id";
 
 let activeScopePrefix = "";
+let activeClientID = "";
 
 function normalizeScopePrefix(value: string): string {
   const trimmed = String(value || "").trim().replace(/^\/+|\/+$/g, "");
@@ -28,6 +31,12 @@ function normalizeScopePrefix(value: string): string {
 
 function mergeScopeHeaders(headers?: HeadersInit): Headers {
   const merged = new Headers(headers);
+  const clientID = currentClientInstanceId();
+  if (clientID) {
+    merged.set(clientIDHeaderName, clientID);
+  } else {
+    merged.delete(clientIDHeaderName);
+  }
   if (activeScopePrefix) {
     merged.set(scopeHeaderName, activeScopePrefix);
   } else {
@@ -42,6 +51,45 @@ export function setActiveScopePrefix(prefix: string): void {
 
 export function currentActiveScopePrefix(): string {
   return activeScopePrefix;
+}
+
+function normalizeClientInstanceId(value: string): string {
+  const trimmed = String(value || "").trim();
+  if (!trimmed || trimmed.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(trimmed)) {
+    return "";
+  }
+  return trimmed;
+}
+
+function generateClientInstanceId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return "tab-" + crypto.randomUUID();
+  }
+  const randomPart = Math.random().toString(36).slice(2, 12);
+  return "tab-" + Date.now().toString(36) + "-" + randomPart;
+}
+
+export function currentClientInstanceId(): string {
+  if (activeClientID) {
+    return activeClientID;
+  }
+
+  let stored = "";
+  try {
+    stored = normalizeClientInstanceId(window.sessionStorage.getItem(clientIDStorageKey) || "");
+  } catch (_error) {
+    stored = "";
+  }
+  if (!stored) {
+    stored = normalizeClientInstanceId(generateClientInstanceId());
+    try {
+      window.sessionStorage.setItem(clientIDStorageKey, stored);
+    } catch (_error) {
+      // Keep the in-memory copy if session storage is unavailable.
+    }
+  }
+  activeClientID = stored;
+  return activeClientID;
 }
 
 export function scopedRequestInit(options?: RequestInit): RequestInit {

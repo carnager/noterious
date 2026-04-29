@@ -115,6 +115,7 @@ func handlePageHistoryRestore(w http.ResponseWriter, r *http.Request, deps Depen
 		http.Error(w, "failed to restore page", http.StatusInternalServerError)
 		return
 	}
+	acknowledgePageChanges(r.Context(), deps, pagePath)
 	if _, err := deps.History.SaveRevision(pagePath, []byte(revision.RawMarkdown)); err != nil {
 		http.Error(w, "failed to save restored revision", http.StatusInternalServerError)
 		return
@@ -123,10 +124,6 @@ func handlePageHistoryRestore(w http.ResponseWriter, r *http.Request, deps Depen
 		http.Error(w, "failed to update page state", http.StatusInternalServerError)
 		return
 	}
-	if deps.OnPageChanged != nil {
-		deps.OnPageChanged(pagePath)
-	}
-
 	pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
 	if err != nil {
 		writePageError(w, r, err, "failed to load restored page")
@@ -194,6 +191,7 @@ func handleTrashPageRequest(w http.ResponseWriter, r *http.Request, deps Depende
 			http.Error(w, "failed to restore page", http.StatusInternalServerError)
 			return
 		}
+		acknowledgePageChanges(r.Context(), deps, pagePath)
 		if _, err := deps.History.SaveRevision(pagePath, []byte(entry.RawMarkdown)); err != nil {
 			http.Error(w, "failed to save restored page history", http.StatusInternalServerError)
 			return
@@ -201,9 +199,6 @@ func handleTrashPageRequest(w http.ResponseWriter, r *http.Request, deps Depende
 		if err := refreshPageDerivedState(r.Context(), deps, vaultService, pagePath); err != nil {
 			http.Error(w, "failed to update restored page state", http.StatusInternalServerError)
 			return
-		}
-		if deps.OnPageChanged != nil {
-			deps.OnPageChanged(pagePath)
 		}
 		pageRecord, err := deps.Index.GetPage(r.Context(), pagePath)
 		if err != nil {

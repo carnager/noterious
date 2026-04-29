@@ -1896,6 +1896,45 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   white-space: nowrap;
 }
 
+.markdown-document-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.12em;
+}
+
+.markdown-document-link:hover,
+.markdown-document-link:focus-visible {
+  color: color-mix(in srgb, var(--accent) 82%, var(--ink));
+  outline: none;
+}
+
+.markdown-inline-image-link {
+  display: inline-flex;
+  align-items: flex-start;
+  max-width: min(100%, 32rem);
+  margin: 0.18rem 0;
+  line-height: 0;
+  text-decoration: none;
+}
+
+.markdown-inline-image-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 14px;
+}
+
+.markdown-inline-image {
+  display: block;
+  max-width: min(100%, 32rem);
+  max-height: 18rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-soft) 76%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--overlay) 94%, transparent);
+  object-fit: contain;
+}
+
 
 .context-list {
   display: flex;
@@ -2416,6 +2455,32 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.12em;
+}
+
+.markdown-editor-host.render-mode .cm-md-image-link {
+  display: inline-flex;
+  align-items: flex-start;
+  max-width: min(100%, 42rem);
+  margin: 0.24rem 0;
+  line-height: 0;
+  text-decoration: none;
+}
+
+.markdown-editor-host.render-mode .cm-md-image-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 14px;
+}
+
+.markdown-editor-host.render-mode .cm-md-image {
+  display: block;
+  max-width: min(100%, 42rem);
+  max-height: 22rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-soft) 82%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--overlay) 94%, transparent);
+  object-fit: contain;
 }
 
 .markdown-editor-host.render-mode .cm-md-task-toggle {

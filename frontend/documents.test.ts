@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { markdownLinkForDocument, relativeDocumentPath, resolveDocumentPath } from "./documents";
+import { inlineDocumentURL, markdownLinkForDocument, relativeDocumentPath, resolveDocumentPath } from "./documents";
 import type { DocumentRecord } from "./types";
 
-function document(path: string): DocumentRecord {
+function document(path: string, contentType = "application/pdf"): DocumentRecord {
   return {
     id: path,
     path,
     name: path.split("/").slice(-1)[0] || path,
-    contentType: "application/pdf",
+    contentType,
     size: 1024,
     createdAt: "2026-04-24T00:00:00Z",
     downloadURL: "/api/documents/download?path=" + encodeURIComponent(path),
@@ -22,6 +22,15 @@ describe("document helpers", function () {
     );
     expect(markdownLinkForDocument(document("Meetings/Adventscafe.pdf"), "Meetings/Teamsitzungen/index")).toBe(
       "[Adventscafe.pdf](../Adventscafe.pdf)"
+    );
+  });
+
+  it("builds image markdown for image documents", function () {
+    expect(markdownLinkForDocument(document("Assets/cat.png", "image/png"), "Notes/today")).toBe(
+      "![cat.png](../Assets/cat.png)"
+    );
+    expect(inlineDocumentURL("Assets/cat.png")).toBe(
+      "/api/documents/download?path=" + encodeURIComponent("Assets/cat.png") + "&inline=1"
     );
   });
 

@@ -295,3 +295,7 @@ func normalizePagePath(pagePath string) string {
 func ContentDisposition(name string) string {
 	return mime.FormatMediaType("attachment", map[string]string{"filename": sanitizeDocumentName(name)})
 }
+
+func InlineContentDisposition(name string) string {
+	return mime.FormatMediaType("inline", map[string]string{"filename": sanitizeDocumentName(name)})
+}

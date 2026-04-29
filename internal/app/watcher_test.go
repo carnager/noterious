@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"testing"
-
 	"os"
 	"path/filepath"
+	"testing"
+	"time"
 
 	"github.com/carnager/noterious/internal/httpapi"
 	"github.com/carnager/noterious/internal/index"
@@ -147,6 +147,91 @@ func TestVaultWatcherPollReindexesExternalEdit(t *testing.T) {
 	}
 	if len(queryPayload.Blocks) != 1 || queryPayload.Blocks[0].Page != "dashboards/tasks" || queryPayload.Blocks[0].RenderHint != "empty" {
 		t.Fatalf("query blocks = %#v", queryPayload.Blocks)
+	}
+}
+
+func TestVaultWatcherPollPropagatesAcknowledgedOrigin(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "daily"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	pagePath := filepath.Join(vaultDir, "daily", "today.md")
+	if err := os.WriteFile(pagePath, []byte("# Today\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	vaultService := vault.NewService(vaultDir)
+	indexService := index.NewService(dataDir)
+	if err := indexService.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer func() {
+		_ = indexService.Close()
+	}()
+	if err := indexService.RebuildFromVault(context.Background(), vaultService); err != nil {
+		t.Fatalf("RebuildFromVault() error = %v", err)
+	}
+	queryService := query.NewService()
+	if err := queryService.RefreshAll(context.Background(), indexService); err != nil {
+		t.Fatalf("RefreshAll() error = %v", err)
+	}
+
+	broker := httpapi.NewEventBroker()
+	watcher, err := NewVaultWatcher(context.Background(), vault.Vault{}, vaultService, indexService, queryService, broker)
+	if err != nil {
+		t.Fatalf("NewVaultWatcher() error = %v", err)
+	}
+	events, unsubscribe := broker.Subscribe()
+	defer unsubscribe()
+
+	watcher.mu.Lock()
+	knownModTime := watcher.known["daily/today"]
+	watcher.mu.Unlock()
+
+	future := time.Now().Add(2 * time.Second)
+	if err := os.WriteFile(pagePath, []byte("# Today\n\nBody.\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(updated) error = %v", err)
+	}
+	if err := os.Chtimes(pagePath, future, future); err != nil {
+		t.Fatalf("Chtimes() error = %v", err)
+	}
+
+	watcher.Acknowledge(httpapi.WithEventOrigin(context.Background(), "tab-watcher"), "daily/today")
+
+	watcher.mu.Lock()
+	watcher.known["daily/today"] = knownModTime
+	watcher.mu.Unlock()
+
+	if err := watcher.Poll(context.Background()); err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+
+	select {
+	case event := <-events:
+		if event.Type != "page.changed" {
+			t.Fatalf("first event = %#v", event)
+		}
+		encoded, err := json.Marshal(event.Data)
+		if err != nil {
+			t.Fatalf("Marshal(page payload) error = %v", err)
+		}
+		var pagePayloadDecoded struct {
+			Page           string `json:"page"`
+			OriginClientID string `json:"originClientId"`
+		}
+		if err := json.Unmarshal(encoded, &pagePayloadDecoded); err != nil {
+			t.Fatalf("Unmarshal(page payload) error = %v", err)
+		}
+		if pagePayloadDecoded.Page != "daily/today" || pagePayloadDecoded.OriginClientID != "tab-watcher" {
+			t.Fatalf("page payload = %#v", pagePayloadDecoded)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for watcher page.changed")
 	}
 }
 

@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.17] - 2026-04-29
+
+### Added
+- Uploaded images now render as inline embeds in markdown links and rendered-mode previews, and the slash menu now includes `/file` to open the native file picker for note attachments.
+- The HTTP API now accepts an optional `X-Noterious-Client-Id` header so browser tabs and companion clients can attribute their own writes explicitly.
+
+### Changed
+- The web UI now sends a per-tab client ID automatically, and watcher-driven invalidation echoes reuse recent origins when they match the same acknowledged file change.
+
+### Fixed
+- Same-session page saves, task edits, and frontmatter changes no longer spuriously show the “changed on another device” toast.
+
 ## [v0.1.16] - 2026-04-29
 
 ### Added

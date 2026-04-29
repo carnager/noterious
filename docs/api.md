@@ -51,6 +51,14 @@ scope as:
 
 If the scope is omitted or invalid, the server falls back to the configured root.
 
+Clients may also send an optional client instance header on mutating requests:
+
+- `X-Noterious-Client-Id: <session-or-tab-id>`
+
+When present, matching `page.changed` and `task.changed` events include
+`originClientId`, so clients can suppress their own invalidation echoes without
+also hiding real external changes.
+
 ## Settings
 
 - `GET /api/settings`

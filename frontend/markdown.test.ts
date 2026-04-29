@@ -52,6 +52,25 @@ describe("markdown helpers", function () {
     );
   });
 
+  it("renders explicit image markdown as an inline image", function () {
+    const html = renderInline("![cat.png](../Assets/cat.png)", {currentPagePath: "Notes/today"});
+    expect(html).toContain('class="markdown-inline-image-link"');
+    expect(html).toContain('class="markdown-inline-image"');
+    expect(html).toContain("/api/documents/download?path=Assets%2Fcat.png&amp;inline=1");
+  });
+
+  it("renders dropped image-style markdown links as inline images", function () {
+    const html = renderInline("[cat.png](../Assets/cat.png)", {currentPagePath: "Notes/today"});
+    expect(html).toContain('class="markdown-inline-image-link"');
+    expect(html).toContain('class="markdown-inline-image"');
+  });
+
+  it("renders relative document links as document anchors when page context is known", function () {
+    const html = renderInline("[spec.pdf](../Docs/spec.pdf)", {currentPagePath: "Notes/today"});
+    expect(html).toContain('class="markdown-document-link"');
+    expect(html).toContain("/api/documents/download?path=Docs%2Fspec.pdf");
+  });
+
   it("finds a wiki link at the caret position", function () {
     expect(wikiLinkAtCaret("before [[notes/alpha|Alpha]] after", 12)).toEqual({
       target: "notes/alpha",

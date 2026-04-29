@@ -27361,6 +27361,64 @@
     }
   });
 
+  // frontend/documents.ts
+  function normalizePath(value) {
+    return String(value || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/").trim();
+  }
+  function stripPathSuffixes(value) {
+    return normalizePath(value).replace(/[?#].*$/, "");
+  }
+  function pageDirectory(pagePath) {
+    const normalized = normalizePath(pagePath).replace(/\.md$/i, "");
+    const parts = normalized.split("/").filter(Boolean);
+    if (parts.length <= 1) {
+      return "";
+    }
+    return parts.slice(0, -1).join("/");
+  }
+  function resolveDocumentPath(currentPagePath, linkTarget) {
+    const target = normalizePath(linkTarget);
+    if (!target || /^[a-z]+:/i.test(target) || target.startsWith("#")) {
+      return target;
+    }
+    const baseDir = pageDirectory(currentPagePath);
+    const rawParts = (baseDir ? baseDir + "/" : "") + target;
+    const resolved = [];
+    rawParts.split("/").forEach(function(part) {
+      if (!part || part === ".") {
+        return;
+      }
+      if (part === "..") {
+        resolved.pop();
+        return;
+      }
+      resolved.push(part);
+    });
+    return resolved.join("/");
+  }
+  function pathLeaf(path) {
+    const parts = normalizePath(path).split("/");
+    return parts[parts.length - 1] || path;
+  }
+  function documentPathLeaf(path) {
+    return pathLeaf(path);
+  }
+  function documentDownloadURL(path) {
+    return "/api/documents/download?path=" + encodeURIComponent(normalizePath(path));
+  }
+  function inlineDocumentURL(path) {
+    return documentDownloadURL(path) + "&inline=1";
+  }
+  function isImagePath(path) {
+    return /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i.test(stripPathSuffixes(path));
+  }
+  var init_documents = __esm({
+    "frontend/documents.ts"() {
+      "use strict";
+      init_palette();
+    }
+  });
+
   // frontend/markdown.ts
   function escapePattern(value) {
     return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -27508,9 +27566,40 @@
       closed
     };
   }
-  function renderInline(value) {
+  function resolveInlineDocumentTarget(target, options) {
+    const text = String(target || "").trim();
+    if (!text || /^[a-z]+:/i.test(text) || text.startsWith("#")) {
+      return "";
+    }
+    return resolveDocumentPath(options && options.currentPagePath ? String(options.currentPagePath) : "", text);
+  }
+  function renderDocumentAnchor(href, label) {
+    return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+  }
+  function renderImageAnchor(href, src, alt) {
+    return '<a class="markdown-inline-image-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener"><img class="markdown-inline-image" src="' + escapeHTML(src) + '" alt="' + escapeHTML(alt) + '"></a>';
+  }
+  function embeddedWikiLabel(target, label) {
+    const explicit = String(label || "").trim();
+    if (explicit) {
+      return explicit;
+    }
+    const leaf = documentPathLeaf(target);
+    if (leaf && leaf.indexOf(".") >= 0) {
+      return leaf;
+    }
+    return pageTitleFromPath(target);
+  }
+  function shouldRenderMarkdownLinkAsImage(label, target) {
+    const trimmedLabel = String(label || "").trim();
+    if (!trimmedLabel) {
+      return true;
+    }
+    return trimmedLabel === documentPathLeaf(target);
+  }
+  function renderInline(value, options) {
     const source = String(value || "");
-    const inlinePattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
+    const inlinePattern = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|!\[([^\]]*)\]\(([^)\s]+)\)|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
     let result = "";
     let cursor = 0;
     let match = null;
@@ -27518,24 +27607,67 @@
       result += escapeHTML(source.slice(cursor, match.index));
       if (match[1] !== void 0) {
         const target = String(match[1] || "").trim();
-        const label = String(match[2] || match[1] || "").trim();
-        result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
-      } else if (match[3] !== void 0) {
-        const label = String(match[3] || "").trim();
-        const href = String(match[4] || "").trim();
-        if (/^[a-z]+:/i.test(href)) {
-          result += '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+        const label = embeddedWikiLabel(target, String(match[2] || ""));
+        const resolvedPath = resolveInlineDocumentTarget(target, options);
+        const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
+        if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath)) {
+          if (isImagePath(resolvedPath)) {
+            const href = inlineDocumentURL(resolvedPath);
+            result += renderImageAnchor(href, href, label || documentPathLeaf(resolvedPath) || "image");
+          } else {
+            result += renderDocumentAnchor(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath));
+          }
         } else {
-          result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(href) + '">' + escapeHTML(label) + "</button>";
+          result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
+        }
+      } else if (match[3] !== void 0) {
+        const alt = String(match[3] || "").trim();
+        const target = String(match[4] || "").trim();
+        if (/^[a-z]+:/i.test(target)) {
+          result += renderImageAnchor(target, target, alt || documentPathLeaf(target) || "image");
+        } else {
+          const resolvedPath = resolveInlineDocumentTarget(target, options);
+          if (resolvedPath && !/\.md$/i.test(resolvedPath)) {
+            const href = inlineDocumentURL(resolvedPath);
+            result += renderImageAnchor(href, href, alt || documentPathLeaf(resolvedPath) || "image");
+          } else {
+            result += escapeHTML(match[0]);
+          }
         }
       } else if (match[5] !== void 0) {
-        result += "<code>" + escapeHTML(match[5]) + "</code>";
-      } else if (match[6] !== void 0 || match[7] !== void 0) {
-        result += "<strong>" + escapeHTML(match[6] || match[7]) + "</strong>";
-      } else if (match[8] !== void 0 || match[9] !== void 0) {
-        result += "<em>" + escapeHTML(match[8] || match[9]) + "</em>";
-      } else if (match[10] !== void 0) {
-        result += "<del>" + escapeHTML(match[10]) + "</del>";
+        const target = String(match[5] || "").trim();
+        const label = String(match[6] || match[5] || "").trim();
+        result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
+      } else if (match[7] !== void 0) {
+        const label = String(match[7] || "").trim();
+        const href = String(match[8] || "").trim();
+        if (/^[a-z]+:/i.test(href)) {
+          if (isImagePath(href) && shouldRenderMarkdownLinkAsImage(label, href)) {
+            result += renderImageAnchor(href, href, label || documentPathLeaf(href) || "image");
+          } else {
+            result += '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+          }
+        } else {
+          const resolvedPath = resolveInlineDocumentTarget(href, options);
+          if (resolvedPath && !/\.md$/i.test(resolvedPath)) {
+            if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage(label, href)) {
+              const imageHref = inlineDocumentURL(resolvedPath);
+              result += renderImageAnchor(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image");
+            } else {
+              result += renderDocumentAnchor(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath));
+            }
+          } else {
+            result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(href) + '">' + escapeHTML(label) + "</button>";
+          }
+        }
+      } else if (match[9] !== void 0) {
+        result += "<code>" + escapeHTML(match[9]) + "</code>";
+      } else if (match[10] !== void 0 || match[11] !== void 0) {
+        result += "<strong>" + escapeHTML(match[10] || match[11]) + "</strong>";
+      } else if (match[12] !== void 0 || match[13] !== void 0) {
+        result += "<em>" + escapeHTML(match[12] || match[13]) + "</em>";
+      } else if (match[14] !== void 0) {
+        result += "<del>" + escapeHTML(match[14]) + "</del>";
       }
       cursor = match.index + match[0].length;
     }
@@ -27545,6 +27677,8 @@
   var init_markdown = __esm({
     "frontend/markdown.ts"() {
       "use strict";
+      init_documents();
+      init_commands();
     }
   });
 
@@ -27567,6 +27701,7 @@
       init_dist4();
       init_datetime();
       init_commands();
+      init_documents();
       init_markdown();
       var measureCanvas = document.createElement("canvas");
       var measureContext = measureCanvas.getContext("2d");
@@ -27643,36 +27778,6 @@
         { tag: [tags.processingInstruction, tags.string, tags.inserted], color: "color-mix(in srgb, var(--accent) 78%, var(--ink))" },
         { tag: [tags.invalid], color: "var(--warn)" }
       ]);
-      function normalizeRelativePath(value) {
-        return String(value || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/").trim();
-      }
-      function pageDirectory(pagePath) {
-        const normalized = normalizeRelativePath(pagePath).replace(/\.md$/i, "");
-        const parts = normalized.split("/").filter(Boolean);
-        if (parts.length <= 1) {
-          return "";
-        }
-        return parts.slice(0, -1).join("/");
-      }
-      function resolveRelativeTarget(pagePath, target) {
-        const rawTarget = String(target || "").trim();
-        if (!rawTarget || rawTarget.startsWith("/") || /^[a-z]+:/i.test(rawTarget) || rawTarget.startsWith("#")) {
-          return rawTarget;
-        }
-        const baseDir = pageDirectory(pagePath);
-        const resolved = [];
-        ((baseDir ? baseDir + "/" : "") + rawTarget).split("/").forEach(function(part) {
-          if (!part || part === ".") {
-            return;
-          }
-          if (part === "..") {
-            resolved.pop();
-            return;
-          }
-          resolved.push(part);
-        });
-        return resolved.join("/");
-      }
       var WikiLinkWidget = class extends WidgetType {
         constructor(target, label) {
           super();
@@ -27709,6 +27814,34 @@
           link.className = "cm-md-link";
           link.setAttribute("data-document-download", this.href);
           link.textContent = this.label;
+          return link;
+        }
+        ignoreEvent() {
+          return false;
+        }
+      };
+      var MarkdownImageWidget = class extends WidgetType {
+        constructor(href, src, alt) {
+          super();
+          this.href = href;
+          this.src = src;
+          this.alt = alt;
+        }
+        eq(other) {
+          return other.href === this.href && other.src === this.src && other.alt === this.alt;
+        }
+        toDOM() {
+          const link = document.createElement("a");
+          link.className = "cm-md-image-link";
+          link.href = this.href;
+          link.target = "_blank";
+          link.rel = "noopener";
+          const image = document.createElement("img");
+          image.className = "cm-md-image";
+          image.src = this.src;
+          image.alt = this.alt;
+          image.loading = "lazy";
+          link.appendChild(image);
           return link;
         }
         ignoreEvent() {
@@ -28131,15 +28264,105 @@
           builder.add(from, to, atomicRangeDecoration);
         }
       }
+      function inlineDecorationOverlaps(decos, from, to) {
+        return decos.some(function(deco) {
+          return from < deco.to && deco.from < to;
+        });
+      }
+      function embeddedLinkLabel(target, label) {
+        const explicit = String(label || "").trim();
+        if (explicit) {
+          return explicit;
+        }
+        const leaf = documentPathLeaf(target);
+        if (leaf && leaf.indexOf(".") >= 0) {
+          return leaf;
+        }
+        return pageTitleFromPath(target);
+      }
+      function shouldRenderMarkdownLinkAsImage2(label, target) {
+        const trimmedLabel = String(label || "").trim();
+        if (!trimmedLabel) {
+          return true;
+        }
+        return trimmedLabel === documentPathLeaf(target);
+      }
       function addInlineDecorations(builder, atomicBuilder, lineFrom, text, startOffset, editingLine, selection, currentPagePath, extraDecos) {
         const decos = extraDecos.slice();
         const body = text.slice(startOffset);
         const bodyFrom = lineFrom + startOffset;
+        const imagePattern = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|!\[([^\]]*)\]\(([^)\s]+)\)/g;
         const pattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|(?<![(\[])https?:\/\/[^\s)\]>]+|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
+        let imageMatch = null;
+        while ((imageMatch = imagePattern.exec(body)) !== null) {
+          const mFrom = bodyFrom + imageMatch.index;
+          const mEnd = mFrom + imageMatch[0].length;
+          const editing = selection.from <= mEnd && selection.to >= mFrom;
+          if (editing) {
+            decos.push({ from: mFrom, to: mEnd, deco: Decoration.mark({ class: "cm-md-link-raw" }) });
+            continue;
+          }
+          if (imageMatch[1] !== void 0) {
+            const target2 = String(imageMatch[1] || "").trim();
+            const label = embeddedLinkLabel(target2, String(imageMatch[2] || ""));
+            const resolvedPath2 = resolveDocumentPath(currentPagePath || "", target2);
+            const looksLikeDocument = resolvedPath2 ? documentPathLeaf(resolvedPath2).indexOf(".") >= 0 : false;
+            if (resolvedPath2 && looksLikeDocument && !/\.md$/i.test(resolvedPath2) && !target2.startsWith("#")) {
+              if (isImagePath(resolvedPath2)) {
+                const href = inlineDocumentURL(resolvedPath2);
+                decos.push({
+                  from: mFrom,
+                  to: mEnd,
+                  deco: Decoration.replace({ widget: new MarkdownImageWidget(href, href, label || documentPathLeaf(resolvedPath2) || "image") }),
+                  atomic: true
+                });
+              } else {
+                decos.push({
+                  from: mFrom,
+                  to: mEnd,
+                  deco: Decoration.replace({ widget: new MarkdownLinkWidget(documentDownloadURL(resolvedPath2), label || documentPathLeaf(resolvedPath2)) }),
+                  atomic: true
+                });
+              }
+              continue;
+            }
+            decos.push({
+              from: mFrom,
+              to: mEnd,
+              deco: Decoration.replace({ widget: new WikiLinkWidget(target2, label) }),
+              atomic: true
+            });
+            continue;
+          }
+          const alt = String(imageMatch[3] || "").trim();
+          const target = String(imageMatch[4] || "").trim();
+          if (/^[a-z]+:/i.test(target)) {
+            decos.push({
+              from: mFrom,
+              to: mEnd,
+              deco: Decoration.replace({ widget: new MarkdownImageWidget(target, target, alt || documentPathLeaf(target) || "image") }),
+              atomic: true
+            });
+            continue;
+          }
+          const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
+          if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+            const href = inlineDocumentURL(resolvedPath);
+            decos.push({
+              from: mFrom,
+              to: mEnd,
+              deco: Decoration.replace({ widget: new MarkdownImageWidget(href, href, alt || documentPathLeaf(resolvedPath) || "image") }),
+              atomic: true
+            });
+          }
+        }
         let m = null;
         while ((m = pattern.exec(body)) !== null) {
           const mFrom = bodyFrom + m.index;
           const mEnd = mFrom + m[0].length;
+          if (inlineDecorationOverlaps(decos, mFrom, mEnd)) {
+            continue;
+          }
           if (m[1] !== void 0) {
             const target = String(m[1]).trim();
             const label = String(m[2] || "").trim() || pageTitleFromPath(target);
@@ -28156,17 +28379,32 @@
             if (/^[a-z]+:/i.test(target)) {
               if (editing) {
                 decos.push({ from: mFrom, to: mEnd, deco: Decoration.mark({ class: "cm-md-link-raw" }) });
+              } else if (isImagePath(target) && shouldRenderMarkdownLinkAsImage2(label, target)) {
+                decos.push({
+                  from: mFrom,
+                  to: mEnd,
+                  deco: Decoration.replace({ widget: new MarkdownImageWidget(target, target, label || documentPathLeaf(target) || "image") }),
+                  atomic: true
+                });
               } else {
                 decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new ExternalLinkWidget(target, label || target) }), atomic: true });
               }
             } else {
-              const resolvedPath = resolveRelativeTarget(currentPagePath, target);
+              const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
               if (!resolvedPath || /\.md$/i.test(resolvedPath) || target.startsWith("#")) {
                 continue;
               }
-              const href = "/api/documents/download?path=" + encodeURIComponent(resolvedPath);
+              const href = documentDownloadURL(resolvedPath);
               if (editing) {
                 decos.push({ from: mFrom, to: mEnd, deco: Decoration.mark({ class: "cm-md-link-raw" }) });
+              } else if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage2(label, target)) {
+                const imageHref = inlineDocumentURL(resolvedPath);
+                decos.push({
+                  from: mFrom,
+                  to: mEnd,
+                  deco: Decoration.replace({ widget: new MarkdownImageWidget(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image") }),
+                  atomic: true
+                });
               } else {
                 decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new MarkdownLinkWidget(href, label || href) }), atomic: true });
               }

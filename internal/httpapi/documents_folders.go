@@ -163,10 +163,7 @@ func handleFolderActionRequest(w http.ResponseWriter, r *http.Request, deps Depe
 			http.Error(w, "failed to rebuild vault state", http.StatusInternalServerError)
 			return
 		}
-		if deps.OnPageChanged != nil {
-			deps.OnPageChanged(folderPath)
-			deps.OnPageChanged(movedFolderPath)
-		}
+		acknowledgePageChanges(r.Context(), deps, folderPath, movedFolderPath)
 		writeJSON(w, http.StatusOK, movedFolderResponse{
 			Folder:       movedFolderPath,
 			SourceFolder: folderPath,
@@ -208,9 +205,7 @@ func handleFolderActionRequest(w http.ResponseWriter, r *http.Request, deps Depe
 		http.Error(w, "failed to rebuild vault state", http.StatusInternalServerError)
 		return
 	}
-	if deps.OnPageChanged != nil {
-		deps.OnPageChanged(folderPath)
-	}
+	acknowledgePageChanges(r.Context(), deps, folderPath)
 	writeJSON(w, http.StatusOK, deletedFolderResponse{OK: true, Folder: folderPath})
 }
 
@@ -238,8 +233,17 @@ func handleDocumentDownloadRequest(w http.ResponseWriter, r *http.Request, deps 
 	if strings.TrimSpace(contentType) == "" {
 		contentType = "application/octet-stream"
 	}
+	inline := false
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("inline"))) {
+	case "1", "true", "yes", "on":
+		inline = true
+	}
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", documents.ContentDisposition(document.Name))
+	if inline {
+		w.Header().Set("Content-Disposition", documents.InlineContentDisposition(document.Name))
+	} else {
+		w.Header().Set("Content-Disposition", documents.ContentDisposition(document.Name))
+	}
 	http.ServeFile(w, r, filePath)
 }
 

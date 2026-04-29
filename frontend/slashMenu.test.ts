@@ -84,6 +84,15 @@ describe("slash menu", function () {
     expect(table?.apply("/table")).toBe("| Column | Value |\n| --- | --- |\n|  |  |\n");
   });
 
+  it("offers a file upload command in the slash menu", function () {
+    const file = slashCommandsForText("/file").find(function (command) {
+      return command.id === "file";
+    });
+
+    expect(file).toBeTruthy();
+    expect(file?.apply("See /file")).toBe("See");
+  });
+
   it("offers page links when typing a wikilink", function () {
     const commands = wikilinkCommandsForContext("See [[alp", 9, [
       page("notes/alpha", "Alpha"),
@@ -134,5 +143,13 @@ describe("slash menu", function () {
       return command.id;
     })).toEqual(["doc-1"]);
     expect(commands[0].apply("/document meeting")).toBe("[meeting-notes.pdf](meeting-notes.pdf)");
+  });
+
+  it("does not treat /file as an existing-document query trigger", function () {
+    const commands = documentCommandsForText("/file meeting", [
+      document("doc-1", "meeting-notes.pdf"),
+    ], "docs/current-note");
+
+    expect(commands).toEqual([]);
   });
 });

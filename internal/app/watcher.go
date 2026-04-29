@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +17,14 @@ import (
 	"github.com/carnager/noterious/internal/vault"
 )
 
+const watcherOriginTTL = 15 * time.Second
+
+type watcherOriginEntry struct {
+	clientID  string
+	modTime   time.Time
+	expiresAt time.Time
+}
+
 type VaultWatcher struct {
 	vaultRecord vault.Vault
 	vault       *vault.Service
@@ -23,8 +32,9 @@ type VaultWatcher struct {
 	query       *query.Service
 	events      *httpapi.EventBroker
 
-	mu    sync.Mutex
-	known map[string]time.Time
+	mu      sync.Mutex
+	known   map[string]time.Time
+	origins map[string]watcherOriginEntry
 }
 
 func NewVaultWatcher(ctx context.Context, currentVault vault.Vault, vaultService *vault.Service, indexService *index.Service, queryService *query.Service, eventBroker *httpapi.EventBroker) (*VaultWatcher, error) {
@@ -46,6 +56,7 @@ func NewVaultWatcher(ctx context.Context, currentVault vault.Vault, vaultService
 		query:       queryService,
 		events:      eventBroker,
 		known:       known,
+		origins:     make(map[string]watcherOriginEntry),
 	}, nil
 }
 
@@ -70,19 +81,56 @@ func (w *VaultWatcher) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
-func (w *VaultWatcher) Acknowledge(pagePath string) {
+func (w *VaultWatcher) Acknowledge(ctx context.Context, pagePath string) {
 	if w == nil {
 		return
 	}
 
+	originClientID := httpapi.EventOriginFromContext(ctx)
 	pageFile, err := w.vault.StatPage(pagePath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			w.mu.Lock()
+			delete(w.known, pagePath)
+			delete(w.origins, pagePath)
+			w.mu.Unlock()
+		}
 		return
 	}
 
 	w.mu.Lock()
 	w.known[pageFile.Path] = pageFile.ModTime
+	if originClientID != "" {
+		w.origins[pageFile.Path] = watcherOriginEntry{
+			clientID:  originClientID,
+			modTime:   pageFile.ModTime,
+			expiresAt: time.Now().UTC().Add(watcherOriginTTL),
+		}
+	} else {
+		delete(w.origins, pageFile.Path)
+	}
 	w.mu.Unlock()
+}
+
+func (w *VaultWatcher) claimEventOrigin(pagePath string, modTime time.Time) string {
+	if w == nil {
+		return ""
+	}
+
+	now := time.Now().UTC()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	entry, ok := w.origins[pagePath]
+	if !ok {
+		return ""
+	}
+	if now.After(entry.expiresAt) || !entry.modTime.Equal(modTime) {
+		delete(w.origins, pagePath)
+		return ""
+	}
+	delete(w.origins, pagePath)
+	return entry.clientID
 }
 
 func (w *VaultWatcher) Poll(ctx context.Context) error {
@@ -176,7 +224,8 @@ func (w *VaultWatcher) Poll(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("summarize reindexed page %q: %w", pagePath, err)
 		}
-		httpapi.PublishInvalidationEvents(ctx, w.events, w.index, w.query, pagePath, []query.PageChange{{
+		eventCtx := httpapi.WithEventOrigin(ctx, w.claimEventOrigin(pagePath, current[pagePath]))
+		httpapi.PublishInvalidationEvents(eventCtx, w.events, w.index, w.query, pagePath, []query.PageChange{{
 			Before: previousPageSummary,
 			After:  &updatedPageSummary,
 		}}, query.DiffTaskChanges(previousTasks, updatedPage.Tasks))

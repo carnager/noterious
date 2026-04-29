@@ -14,6 +14,7 @@ import {sql} from "@codemirror/lang-sql";
 import {tags} from "@lezer/highlight";
 import { formatDateTimeValue, formatDateValue, normalizeDateTimeDisplayFormat, setDateTimeDisplayFormat } from "./datetime";
 import { pageTitleFromPath } from "./commands";
+import { documentDownloadURL, documentPathLeaf, inlineDocumentURL, isImagePath, resolveDocumentPath } from "./documents";
 import { markdownCodeFenceBlockAt, markdownTableBlockAt, renderedBodyBoundaryStart, splitFrontmatter } from "./markdown";
 import type { NoteriousEditorApi, QueryBlockRender, TaskRender } from "./types";
 
@@ -110,43 +111,6 @@ const themedHighlight = HighlightStyle.define([
   {tag: [tags.invalid], color: "var(--warn)"},
 ]);
 
-function normalizeRelativePath(value: string): string {
-  return String(value || "")
-    .replace(/\\/g, "/")
-    .replace(/^\/+/, "")
-    .replace(/\/+/g, "/")
-    .trim();
-}
-
-function pageDirectory(pagePath: string): string {
-  const normalized = normalizeRelativePath(pagePath).replace(/\.md$/i, "");
-  const parts = normalized.split("/").filter(Boolean);
-  if (parts.length <= 1) {
-    return "";
-  }
-  return parts.slice(0, -1).join("/");
-}
-
-function resolveRelativeTarget(pagePath: string, target: string): string {
-  const rawTarget = String(target || "").trim();
-  if (!rawTarget || rawTarget.startsWith("/") || /^[a-z]+:/i.test(rawTarget) || rawTarget.startsWith("#")) {
-    return rawTarget;
-  }
-  const baseDir = pageDirectory(pagePath);
-  const resolved: string[] = [];
-  ((baseDir ? baseDir + "/" : "") + rawTarget).split("/").forEach(function (part) {
-    if (!part || part === ".") {
-      return;
-    }
-    if (part === "..") {
-      resolved.pop();
-      return;
-    }
-    resolved.push(part);
-  });
-  return resolved.join("/");
-}
-
 class WikiLinkWidget extends WidgetType {
   target: string;
   label: string;
@@ -195,6 +159,44 @@ class MarkdownLinkWidget extends WidgetType {
     link.className = "cm-md-link";
     link.setAttribute("data-document-download", this.href);
     link.textContent = this.label;
+    return link;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+class MarkdownImageWidget extends WidgetType {
+  href: string;
+  src: string;
+  alt: string;
+
+  constructor(href: string, src: string, alt: string) {
+    super();
+    this.href = href;
+    this.src = src;
+    this.alt = alt;
+  }
+
+  eq(other: MarkdownImageWidget): boolean {
+    return other.href === this.href && other.src === this.src && other.alt === this.alt;
+  }
+
+  toDOM(): HTMLAnchorElement {
+    const link = document.createElement("a");
+    link.className = "cm-md-image-link";
+    link.href = this.href;
+    link.target = "_blank";
+    link.rel = "noopener";
+
+    const image = document.createElement("img");
+    image.className = "cm-md-image";
+    image.src = this.src;
+    image.alt = this.alt;
+    image.loading = "lazy";
+
+    link.appendChild(image);
     return link;
   }
 
@@ -707,6 +709,32 @@ function addAtomicRange(builder: RangeSetBuilder<Decoration>, from: number, to: 
   }
 }
 
+function inlineDecorationOverlaps(decos: InlineDeco[], from: number, to: number): boolean {
+  return decos.some(function (deco) {
+    return from < deco.to && deco.from < to;
+  });
+}
+
+function embeddedLinkLabel(target: string, label: string): string {
+  const explicit = String(label || "").trim();
+  if (explicit) {
+    return explicit;
+  }
+  const leaf = documentPathLeaf(target);
+  if (leaf && leaf.indexOf(".") >= 0) {
+    return leaf;
+  }
+  return pageTitleFromPath(target);
+}
+
+function shouldRenderMarkdownLinkAsImage(label: string, target: string): boolean {
+  const trimmedLabel = String(label || "").trim();
+  if (!trimmedLabel) {
+    return true;
+  }
+  return trimmedLabel === documentPathLeaf(target);
+}
+
 function addInlineDecorations(
   builder: RangeSetBuilder<Decoration>,
   atomicBuilder: RangeSetBuilder<Decoration>,
@@ -721,12 +749,85 @@ function addInlineDecorations(
   const decos: InlineDeco[] = extraDecos.slice();
   const body = text.slice(startOffset);
   const bodyFrom = lineFrom + startOffset;
+  const imagePattern = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|!\[([^\]]*)\]\(([^)\s]+)\)/g;
   const pattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|(?<![(\[])https?:\/\/[^\s)\]>]+|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
+
+  let imageMatch: RegExpExecArray | null = null;
+  while ((imageMatch = imagePattern.exec(body)) !== null) {
+    const mFrom = bodyFrom + imageMatch.index;
+    const mEnd = mFrom + imageMatch[0].length;
+    const editing = selection.from <= mEnd && selection.to >= mFrom;
+
+    if (editing) {
+      decos.push({from: mFrom, to: mEnd, deco: Decoration.mark({class: "cm-md-link-raw"})});
+      continue;
+    }
+
+    if (imageMatch[1] !== undefined) {
+      const target = String(imageMatch[1] || "").trim();
+      const label = embeddedLinkLabel(target, String(imageMatch[2] || ""));
+      const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
+      const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
+      if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+        if (isImagePath(resolvedPath)) {
+          const href = inlineDocumentURL(resolvedPath);
+          decos.push({
+            from: mFrom,
+            to: mEnd,
+            deco: Decoration.replace({widget: new MarkdownImageWidget(href, href, label || documentPathLeaf(resolvedPath) || "image")}),
+            atomic: true,
+          });
+        } else {
+          decos.push({
+            from: mFrom,
+            to: mEnd,
+            deco: Decoration.replace({widget: new MarkdownLinkWidget(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath))}),
+            atomic: true,
+          });
+        }
+        continue;
+      }
+
+      decos.push({
+        from: mFrom,
+        to: mEnd,
+        deco: Decoration.replace({widget: new WikiLinkWidget(target, label)}),
+        atomic: true,
+      });
+      continue;
+    }
+
+    const alt = String(imageMatch[3] || "").trim();
+    const target = String(imageMatch[4] || "").trim();
+    if (/^[a-z]+:/i.test(target)) {
+      decos.push({
+        from: mFrom,
+        to: mEnd,
+        deco: Decoration.replace({widget: new MarkdownImageWidget(target, target, alt || documentPathLeaf(target) || "image")}),
+        atomic: true,
+      });
+      continue;
+    }
+
+    const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
+    if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+      const href = inlineDocumentURL(resolvedPath);
+      decos.push({
+        from: mFrom,
+        to: mEnd,
+        deco: Decoration.replace({widget: new MarkdownImageWidget(href, href, alt || documentPathLeaf(resolvedPath) || "image")}),
+        atomic: true,
+      });
+    }
+  }
 
   let m: RegExpExecArray | null = null;
   while ((m = pattern.exec(body)) !== null) {
     const mFrom = bodyFrom + m.index;
     const mEnd = mFrom + m[0].length;
+    if (inlineDecorationOverlaps(decos, mFrom, mEnd)) {
+      continue;
+    }
 
     if (m[1] !== undefined) {
       const target = String(m[1]).trim();
@@ -744,17 +845,32 @@ function addInlineDecorations(
       if (/^[a-z]+:/i.test(target)) {
         if (editing) {
           decos.push({from: mFrom, to: mEnd, deco: Decoration.mark({class: "cm-md-link-raw"})});
+        } else if (isImagePath(target) && shouldRenderMarkdownLinkAsImage(label, target)) {
+          decos.push({
+            from: mFrom,
+            to: mEnd,
+            deco: Decoration.replace({widget: new MarkdownImageWidget(target, target, label || documentPathLeaf(target) || "image")}),
+            atomic: true,
+          });
         } else {
           decos.push({from: mFrom, to: mEnd, deco: Decoration.replace({widget: new ExternalLinkWidget(target, label || target)}), atomic: true});
         }
       } else {
-        const resolvedPath = resolveRelativeTarget(currentPagePath, target);
+        const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
         if (!resolvedPath || /\.md$/i.test(resolvedPath) || target.startsWith("#")) {
           continue;
         }
-        const href = "/api/documents/download?path=" + encodeURIComponent(resolvedPath);
+        const href = documentDownloadURL(resolvedPath);
         if (editing) {
           decos.push({from: mFrom, to: mEnd, deco: Decoration.mark({class: "cm-md-link-raw"})});
+        } else if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage(label, target)) {
+          const imageHref = inlineDocumentURL(resolvedPath);
+          decos.push({
+            from: mFrom,
+            to: mEnd,
+            deco: Decoration.replace({widget: new MarkdownImageWidget(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image")}),
+            atomic: true,
+          });
         } else {
           decos.push({from: mFrom, to: mEnd, deco: Decoration.replace({widget: new MarkdownLinkWidget(href, label || href)}), atomic: true});
         }

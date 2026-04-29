@@ -1,3 +1,5 @@
+import { documentDownloadURL, documentPathLeaf, inlineDocumentURL, isImagePath, resolveDocumentPath } from "./documents";
+import { pageTitleFromPath } from "./commands";
 import type {
   FrontmatterMap,
   FrontmatterScalar,
@@ -41,6 +43,10 @@ export interface MarkdownCodeFenceBlock {
   language: string;
   content: string;
   closed: boolean;
+}
+
+export interface RenderInlineOptions {
+  currentPagePath?: string | null;
 }
 
 function escapePattern(value: string): string {
@@ -462,9 +468,47 @@ export function markdownCodeFenceBlockAt(lines: string[], startLineIndex: number
   };
 }
 
-export function renderInline(value: string): string {
+function resolveInlineDocumentTarget(target: string, options?: RenderInlineOptions): string {
+  const text = String(target || "").trim();
+  if (!text || /^[a-z]+:/i.test(text) || text.startsWith("#")) {
+    return "";
+  }
+  return resolveDocumentPath(options && options.currentPagePath ? String(options.currentPagePath) : "", text);
+}
+
+function renderDocumentAnchor(href: string, label: string): string {
+  return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+}
+
+function renderImageAnchor(href: string, src: string, alt: string): string {
+  return '<a class="markdown-inline-image-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' +
+    '<img class="markdown-inline-image" src="' + escapeHTML(src) + '" alt="' + escapeHTML(alt) + '">' +
+    "</a>";
+}
+
+function embeddedWikiLabel(target: string, label: string): string {
+  const explicit = String(label || "").trim();
+  if (explicit) {
+    return explicit;
+  }
+  const leaf = documentPathLeaf(target);
+  if (leaf && leaf.indexOf(".") >= 0) {
+    return leaf;
+  }
+  return pageTitleFromPath(target);
+}
+
+function shouldRenderMarkdownLinkAsImage(label: string, target: string): boolean {
+  const trimmedLabel = String(label || "").trim();
+  if (!trimmedLabel) {
+    return true;
+  }
+  return trimmedLabel === documentPathLeaf(target);
+}
+
+export function renderInline(value: string, options?: RenderInlineOptions): string {
   const source = String(value || "");
-  const inlinePattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
+  const inlinePattern = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|!\[([^\]]*)\]\(([^)\s]+)\)|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
   let result = "";
   let cursor = 0;
   let match: RegExpExecArray | null = null;
@@ -474,24 +518,67 @@ export function renderInline(value: string): string {
 
     if (match[1] !== undefined) {
       const target = String(match[1] || "").trim();
-      const label = String(match[2] || match[1] || "").trim();
-      result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
-    } else if (match[3] !== undefined) {
-      const label = String(match[3] || "").trim();
-      const href = String(match[4] || "").trim();
-      if (/^[a-z]+:/i.test(href)) {
-        result += '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+      const label = embeddedWikiLabel(target, String(match[2] || ""));
+      const resolvedPath = resolveInlineDocumentTarget(target, options);
+      const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
+      if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath)) {
+        if (isImagePath(resolvedPath)) {
+          const href = inlineDocumentURL(resolvedPath);
+          result += renderImageAnchor(href, href, label || documentPathLeaf(resolvedPath) || "image");
+        } else {
+          result += renderDocumentAnchor(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath));
+        }
       } else {
-        result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(href) + '">' + escapeHTML(label) + "</button>";
+        result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
+      }
+    } else if (match[3] !== undefined) {
+      const alt = String(match[3] || "").trim();
+      const target = String(match[4] || "").trim();
+      if (/^[a-z]+:/i.test(target)) {
+        result += renderImageAnchor(target, target, alt || documentPathLeaf(target) || "image");
+      } else {
+        const resolvedPath = resolveInlineDocumentTarget(target, options);
+        if (resolvedPath && !/\.md$/i.test(resolvedPath)) {
+          const href = inlineDocumentURL(resolvedPath);
+          result += renderImageAnchor(href, href, alt || documentPathLeaf(resolvedPath) || "image");
+        } else {
+          result += escapeHTML(match[0]);
+        }
       }
     } else if (match[5] !== undefined) {
-      result += "<code>" + escapeHTML(match[5]) + "</code>";
-    } else if (match[6] !== undefined || match[7] !== undefined) {
-      result += "<strong>" + escapeHTML(match[6] || match[7]) + "</strong>";
-    } else if (match[8] !== undefined || match[9] !== undefined) {
-      result += "<em>" + escapeHTML(match[8] || match[9]) + "</em>";
-    } else if (match[10] !== undefined) {
-      result += "<del>" + escapeHTML(match[10]) + "</del>";
+      const target = String(match[5] || "").trim();
+      const label = String(match[6] || match[5] || "").trim();
+      result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
+    } else if (match[7] !== undefined) {
+      const label = String(match[7] || "").trim();
+      const href = String(match[8] || "").trim();
+      if (/^[a-z]+:/i.test(href)) {
+        if (isImagePath(href) && shouldRenderMarkdownLinkAsImage(label, href)) {
+          result += renderImageAnchor(href, href, label || documentPathLeaf(href) || "image");
+        } else {
+          result += '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+        }
+      } else {
+        const resolvedPath = resolveInlineDocumentTarget(href, options);
+        if (resolvedPath && !/\.md$/i.test(resolvedPath)) {
+          if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage(label, href)) {
+            const imageHref = inlineDocumentURL(resolvedPath);
+            result += renderImageAnchor(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image");
+          } else {
+            result += renderDocumentAnchor(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath));
+          }
+        } else {
+          result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(href) + '">' + escapeHTML(label) + "</button>";
+        }
+      }
+    } else if (match[9] !== undefined) {
+      result += "<code>" + escapeHTML(match[9]) + "</code>";
+    } else if (match[10] !== undefined || match[11] !== undefined) {
+      result += "<strong>" + escapeHTML(match[10] || match[11]) + "</strong>";
+    } else if (match[12] !== undefined || match[13] !== undefined) {
+      result += "<em>" + escapeHTML(match[12] || match[13]) + "</em>";
+    } else if (match[14] !== undefined) {
+      result += "<del>" + escapeHTML(match[14]) + "</del>";
     }
 
     cursor = match.index + match[0].length;

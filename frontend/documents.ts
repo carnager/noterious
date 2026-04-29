@@ -16,6 +16,10 @@ function normalizePath(value: string): string {
     .trim();
 }
 
+function stripPathSuffixes(value: string): string {
+  return normalizePath(value).replace(/[?#].*$/, "");
+}
+
 function pageDirectory(pagePath: string): string {
   const normalized = normalizePath(pagePath).replace(/\.md$/i, "");
   const parts = normalized.split("/").filter(Boolean);
@@ -68,9 +72,37 @@ function pathLeaf(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+export function documentPathLeaf(path: string): string {
+  return pathLeaf(path);
+}
+
+export function documentDownloadURL(path: string): string {
+  return "/api/documents/download?path=" + encodeURIComponent(normalizePath(path));
+}
+
+export function inlineDocumentURL(path: string): string {
+  return documentDownloadURL(path) + "&inline=1";
+}
+
+export function isImagePath(path: string): boolean {
+  return /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i.test(stripPathSuffixes(path));
+}
+
+export function isImageContentType(contentType: string): boolean {
+  return /^image\//i.test(String(contentType || "").trim());
+}
+
+export function documentEmbedsInline(document: Pick<DocumentRecord, "contentType" | "name" | "path">): boolean {
+  return isImageContentType(document.contentType) || isImagePath(document.path || document.name);
+}
+
 export function markdownLinkForDocument(document: DocumentRecord, currentPagePath: string): string {
   const label = String(document.name || "").replace(/]/g, "\\]");
-  return "[" + label + "](" + relativeDocumentPath(currentPagePath, document.path) + ")";
+  const target = relativeDocumentPath(currentPagePath, document.path);
+  if (documentEmbedsInline(document)) {
+    return "![" + label + "](" + target + ")";
+  }
+  return "[" + label + "](" + target + ")";
 }
 
 function matchesDocument(document: DocumentRecord, query: string): boolean {

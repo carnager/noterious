@@ -235,6 +235,7 @@ func handlePagePutRequest(w http.ResponseWriter, r *http.Request, deps Dependenc
 		http.Error(w, "failed to write page", http.StatusInternalServerError)
 		return
 	}
+	acknowledgePageChanges(r.Context(), deps, pagePath)
 	if deps.History != nil {
 		if _, err := deps.History.SaveRevision(pagePath, []byte(request.RawMarkdown)); err != nil {
 			http.Error(w, "failed to save page history", http.StatusInternalServerError)
@@ -259,9 +260,6 @@ func handlePagePutRequest(w http.ResponseWriter, r *http.Request, deps Dependenc
 		Before: previousPageSummary,
 		After:  &currentPageSummary,
 	}}, query.DiffTaskChanges(previousTasks, pageRecord.Tasks))
-	if deps.OnPageChanged != nil {
-		deps.OnPageChanged(pagePath)
-	}
 	writeJSON(w, http.StatusOK, pageRecordPayload(pageRecord))
 }
 
@@ -297,6 +295,7 @@ func handlePageDeleteRequest(w http.ResponseWriter, r *http.Request, deps Depend
 		http.Error(w, "failed to delete page", http.StatusInternalServerError)
 		return
 	}
+	acknowledgePageChanges(r.Context(), deps, pagePath)
 	if err := deps.Index.RemovePage(r.Context(), pagePath); err != nil {
 		http.Error(w, "failed to remove page from index", http.StatusInternalServerError)
 		return
@@ -305,9 +304,6 @@ func handlePageDeleteRequest(w http.ResponseWriter, r *http.Request, deps Depend
 		Before: &previousPageSummaryValue,
 		After:  nil,
 	}}, query.DiffTaskChanges(previousTasks, nil))
-	if deps.OnPageChanged != nil {
-		deps.OnPageChanged(pagePath)
-	}
 	writeJSON(w, http.StatusOK, pageDeletedResponse{
 		OK:   true,
 		Page: pagePath,
@@ -436,6 +432,7 @@ func handlePageMoveRequest(w http.ResponseWriter, r *http.Request, deps Dependen
 		http.Error(w, "failed to move page", http.StatusInternalServerError)
 		return
 	}
+	acknowledgePageChanges(r.Context(), deps, pagePath, targetPage)
 	if deps.History != nil {
 		if err := deps.History.MovePage(pagePath, targetPage); err != nil {
 			http.Error(w, "failed to move page history", http.StatusInternalServerError)
@@ -493,13 +490,6 @@ func handlePageMoveRequest(w http.ResponseWriter, r *http.Request, deps Dependen
 			Before: rewrittenPage.before.summary,
 			After:  rewrittenPage.after.summary,
 		}}, query.DiffTaskChanges(rewrittenPage.before.tasks, rewrittenPage.after.tasks))
-		if deps.OnPageChanged != nil {
-			deps.OnPageChanged(rewrittenPage.path)
-		}
-	}
-	if deps.OnPageChanged != nil {
-		deps.OnPageChanged(pagePath)
-		deps.OnPageChanged(targetPage)
 	}
 
 	writeJSON(w, http.StatusOK, pageRecordPayload(updatedPage))
@@ -527,6 +517,7 @@ func rewriteMovedPageLinks(ctx context.Context, deps Dependencies, vaultService 
 		if err := vaultService.WritePage(page.Path, []byte(nextRaw)); err != nil {
 			return nil, err
 		}
+		acknowledgePageChanges(ctx, deps, page.Path)
 		if deps.History != nil {
 			if _, err := deps.History.SaveRevision(page.Path, []byte(nextRaw)); err != nil {
 				return nil, err
@@ -863,6 +854,7 @@ func patchPageFrontmatter(ctx context.Context, deps Dependencies, pagePath strin
 	if err := vaultService.WritePage(pagePath, []byte(updatedMarkdown)); err != nil {
 		return index.PageRecord{}, err
 	}
+	acknowledgePageChanges(ctx, deps, pagePath)
 	if deps.History != nil {
 		if _, err := deps.History.SaveRevision(pagePath, []byte(updatedMarkdown)); err != nil {
 			return index.PageRecord{}, err
@@ -885,9 +877,6 @@ func patchPageFrontmatter(ctx context.Context, deps Dependencies, pagePath strin
 		Before: previousPageSummary,
 		After:  currentPageSummary,
 	}}, query.DiffTaskChanges(previousTasks, updatedPage.Tasks))
-	if deps.OnPageChanged != nil {
-		deps.OnPageChanged(pagePath)
-	}
 
 	return updatedPage, nil
 }

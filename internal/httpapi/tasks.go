@@ -29,8 +29,9 @@ type tasksResponse struct {
 }
 
 type taskEventData struct {
-	Ref  string `json:"ref"`
-	Page string `json:"page"`
+	Ref            string `json:"ref"`
+	Page           string `json:"page"`
+	OriginClientID string `json:"originClientId,omitempty"`
 }
 
 type deletedTaskResponse struct {
@@ -155,6 +156,7 @@ func handleTaskRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 		http.Error(w, "failed to write task page", http.StatusInternalServerError)
 		return
 	}
+	acknowledgePageChanges(r.Context(), deps, task.Page)
 	if deps.History != nil {
 		if _, err := deps.History.SaveRevision(task.Page, []byte(updatedMarkdown)); err != nil {
 			http.Error(w, "failed to save page history", http.StatusInternalServerError)
@@ -168,7 +170,11 @@ func handleTaskRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 	if deps.Events != nil {
 		deps.Events.Publish(Event{
 			Type: map[bool]string{true: "task.deleted", false: "task.changed"}[r.Method == http.MethodDelete],
-			Data: taskEventData{Ref: ref, Page: task.Page},
+			Data: taskEventData{
+				Ref:            ref,
+				Page:           task.Page,
+				OriginClientID: EventOriginFromContext(r.Context()),
+			},
 		})
 	}
 	var updatedPageSummary *index.PageSummary
@@ -196,9 +202,6 @@ func handleTaskRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 			Before: &oldTask,
 			After:  newTask,
 		}})
-	}
-	if deps.OnPageChanged != nil {
-		deps.OnPageChanged(task.Page)
 	}
 
 	if r.Method == http.MethodDelete {

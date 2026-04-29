@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/carnager/noterious/internal/index"
@@ -17,8 +18,13 @@ type Event struct {
 	Data any    `json:"data,omitempty"`
 }
 
+const clientIDHeaderName = "X-Noterious-Client-Id"
+
+type eventOriginContextKey struct{}
+
 type pageEventData struct {
-	Page string `json:"page"`
+	Page           string `json:"page"`
+	OriginClientID string `json:"originClientId,omitempty"`
 }
 
 type queryBlockChangedPayload struct {
@@ -209,17 +215,68 @@ func writeSSE(w http.ResponseWriter, event Event) error {
 	return nil
 }
 
+func normalizeEventOrigin(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || len(trimmed) > 128 {
+		return ""
+	}
+	for _, r := range trimmed {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '-',
+			r == '_',
+			r == '.',
+			r == ':':
+		default:
+			return ""
+		}
+	}
+	return trimmed
+}
+
+func WithEventOrigin(ctx context.Context, originClientID string) context.Context {
+	normalized := normalizeEventOrigin(originClientID)
+	if normalized == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, eventOriginContextKey{}, normalized)
+}
+
+func EventOriginFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value, _ := ctx.Value(eventOriginContextKey{}).(string)
+	return normalizeEventOrigin(value)
+}
+
+func withRequestEventOriginContext(ctx context.Context, r *http.Request) context.Context {
+	if r == nil {
+		return ctx
+	}
+	return WithEventOrigin(ctx, r.Header.Get(clientIDHeaderName))
+}
+
+func pageEventDataForContext(ctx context.Context, pagePath string) pageEventData {
+	return pageEventData{
+		Page:           pagePath,
+		OriginClientID: EventOriginFromContext(ctx),
+	}
+}
+
 func PublishInvalidationEvents(ctx context.Context, broker *EventBroker, indexService *index.Service, queryService *query.Service, pagePath string, pageChanges []query.PageChange, taskChanges []query.TaskChange) {
 	if broker == nil {
 		return
 	}
 	broker.Publish(Event{
 		Type: "page.changed",
-		Data: pageEventData{Page: pagePath},
+		Data: pageEventDataForContext(ctx, pagePath),
 	})
 	broker.Publish(Event{
 		Type: "derived.changed",
-		Data: pageEventData{Page: pagePath},
+		Data: pageEventDataForContext(ctx, pagePath),
 	})
 
 	if indexService == nil {
@@ -240,7 +297,7 @@ func PublishDeletionEvents(ctx context.Context, broker *EventBroker, indexServic
 
 	broker.Publish(Event{
 		Type: "page.deleted",
-		Data: pageEventData{Page: pagePath},
+		Data: pageEventDataForContext(ctx, pagePath),
 	})
 
 	if indexService == nil {
@@ -259,7 +316,7 @@ func PublishDeletionEvents(ctx context.Context, broker *EventBroker, indexServic
 
 		broker.Publish(Event{
 			Type: "derived.changed",
-			Data: pageEventData{Page: dependentPage},
+			Data: pageEventDataForContext(ctx, dependentPage),
 		})
 	}
 

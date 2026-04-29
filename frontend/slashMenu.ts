@@ -186,6 +186,19 @@ function slashCommandCatalog(): SlashCommand[] {
       },
     },
     {
+      id: "file",
+      title: "Upload file",
+      description: "Open the file picker and upload into the current note.",
+      keywords: "upload attachment document image media asset",
+      hint: "/file",
+      apply: function (lineText: string) {
+        return replaceSlashToken(lineText, "file", "").replace(/\s+$/, "");
+      },
+      caret: function (updatedLine: string) {
+        return updatedLine.length;
+      },
+    },
+    {
       id: "due",
       title: "Insert due date",
       description: "Append a due field with today's date.",
@@ -272,7 +285,7 @@ function findDocumentTrigger(lineText: string): DocumentTrigger | null {
     return null;
   }
   const alias = String(match[1] || "").toLowerCase();
-  if (["doc", "docs", "document", "documents", "attach", "file"].indexOf(alias) === -1) {
+  if (["doc", "docs", "document", "documents", "attach"].indexOf(alias) === -1) {
     return null;
   }
   return {

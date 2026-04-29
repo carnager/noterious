@@ -342,6 +342,131 @@
     }
   });
 
+  // frontend/documents.ts
+  function normalizePath(value) {
+    return String(value || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/").trim();
+  }
+  function stripPathSuffixes(value) {
+    return normalizePath(value).replace(/[?#].*$/, "");
+  }
+  function pageDirectory(pagePath) {
+    const normalized = normalizePath(pagePath).replace(/\.md$/i, "");
+    const parts = normalized.split("/").filter(Boolean);
+    if (parts.length <= 1) {
+      return "";
+    }
+    return parts.slice(0, -1).join("/");
+  }
+  function relativeDocumentPath(currentPagePath, documentPath) {
+    const fromDir = pageDirectory(currentPagePath);
+    const toPath = normalizePath(documentPath);
+    const fromParts = fromDir ? fromDir.split("/").filter(Boolean) : [];
+    const toParts = toPath.split("/").filter(Boolean);
+    let common = 0;
+    while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) {
+      common += 1;
+    }
+    const upwards = new Array(fromParts.length - common).fill("..");
+    const downwards = toParts.slice(common);
+    const relative = upwards.concat(downwards).join("/");
+    return relative || pathLeaf(toPath);
+  }
+  function resolveDocumentPath(currentPagePath, linkTarget) {
+    const target = normalizePath(linkTarget);
+    if (!target || /^[a-z]+:/i.test(target) || target.startsWith("#")) {
+      return target;
+    }
+    const baseDir = pageDirectory(currentPagePath);
+    const rawParts = (baseDir ? baseDir + "/" : "") + target;
+    const resolved = [];
+    rawParts.split("/").forEach(function(part) {
+      if (!part || part === ".") {
+        return;
+      }
+      if (part === "..") {
+        resolved.pop();
+        return;
+      }
+      resolved.push(part);
+    });
+    return resolved.join("/");
+  }
+  function pathLeaf(path) {
+    const parts = normalizePath(path).split("/");
+    return parts[parts.length - 1] || path;
+  }
+  function documentPathLeaf(path) {
+    return pathLeaf(path);
+  }
+  function documentDownloadURL(path) {
+    return "/api/documents/download?path=" + encodeURIComponent(normalizePath(path));
+  }
+  function inlineDocumentURL(path) {
+    return documentDownloadURL(path) + "&inline=1";
+  }
+  function isImagePath(path) {
+    return /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i.test(stripPathSuffixes(path));
+  }
+  function isImageContentType(contentType) {
+    return /^image\//i.test(String(contentType || "").trim());
+  }
+  function documentEmbedsInline(document2) {
+    return isImageContentType(document2.contentType) || isImagePath(document2.path || document2.name);
+  }
+  function markdownLinkForDocument(document2, currentPagePath) {
+    const label = String(document2.name || "").replace(/]/g, "\\]");
+    const target = relativeDocumentPath(currentPagePath, document2.path);
+    if (documentEmbedsInline(document2)) {
+      return "![" + label + "](" + target + ")";
+    }
+    return "[" + label + "](" + target + ")";
+  }
+  function matchesDocument(document2, query) {
+    const target = String(query || "").trim().toLowerCase();
+    if (!target) {
+      return true;
+    }
+    const haystack = [document2.name, document2.contentType].join(" ").toLowerCase();
+    return haystack.indexOf(target) >= 0;
+  }
+  function scoreDocument(document2, query) {
+    const target = String(query || "").trim().toLowerCase();
+    const name = String(document2.name || "").toLowerCase();
+    if (!target) {
+      return document2.createdAt ? Date.parse(document2.createdAt) || 0 : 0;
+    }
+    return (name === target ? 4e3 : 0) + (name.startsWith(target) ? 2800 : 0) + (name.indexOf(target) >= 0 ? 1200 : 0) + (document2.createdAt ? (Date.parse(document2.createdAt) || 0) / 1e12 : 0);
+  }
+  function buildDocumentSections(options) {
+    const query = String(options.inputValue || "").trim();
+    const items = options.documents.filter(function(document2) {
+      return matchesDocument(document2, query);
+    }).sort(function(left, right) {
+      return scoreDocument(right, query) - scoreDocument(left, query);
+    }).slice(0, query ? 30 : 20).map(function(document2) {
+      return {
+        title: document2.name,
+        meta: [document2.path, document2.contentType, document2.size ? Math.round(document2.size / 102.4) / 10 + " KB" : ""].filter(Boolean).join(" \xB7 "),
+        onSelect: function() {
+          options.onSelectDocument(document2);
+        }
+      };
+    });
+    return [{
+      title: query ? "Matching Documents" : "Recent Documents",
+      items
+    }];
+  }
+  function renderDocumentsResults(options) {
+    return renderPaletteSections(options.container, buildDocumentSections(options), "No matching documents.");
+  }
+  var init_documents = __esm({
+    "frontend/documents.ts"() {
+      "use strict";
+      init_palette();
+    }
+  });
+
   // frontend/markdown.ts
   function splitFrontmatter(markdown) {
     const source = String(markdown || "").replace(/\r\n/g, "\n");
@@ -575,9 +700,40 @@
     }
     return { header, rows };
   }
-  function renderInline(value) {
+  function resolveInlineDocumentTarget(target, options) {
+    const text = String(target || "").trim();
+    if (!text || /^[a-z]+:/i.test(text) || text.startsWith("#")) {
+      return "";
+    }
+    return resolveDocumentPath(options && options.currentPagePath ? String(options.currentPagePath) : "", text);
+  }
+  function renderDocumentAnchor(href, label) {
+    return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+  }
+  function renderImageAnchor(href, src, alt) {
+    return '<a class="markdown-inline-image-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener"><img class="markdown-inline-image" src="' + escapeHTML(src) + '" alt="' + escapeHTML(alt) + '"></a>';
+  }
+  function embeddedWikiLabel(target, label) {
+    const explicit = String(label || "").trim();
+    if (explicit) {
+      return explicit;
+    }
+    const leaf = documentPathLeaf(target);
+    if (leaf && leaf.indexOf(".") >= 0) {
+      return leaf;
+    }
+    return pageTitleFromPath(target);
+  }
+  function shouldRenderMarkdownLinkAsImage(label, target) {
+    const trimmedLabel = String(label || "").trim();
+    if (!trimmedLabel) {
+      return true;
+    }
+    return trimmedLabel === documentPathLeaf(target);
+  }
+  function renderInline(value, options) {
     const source = String(value || "");
-    const inlinePattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
+    const inlinePattern = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|!\[([^\]]*)\]\(([^)\s]+)\)|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
     let result = "";
     let cursor = 0;
     let match = null;
@@ -585,24 +741,67 @@
       result += escapeHTML(source.slice(cursor, match.index));
       if (match[1] !== void 0) {
         const target = String(match[1] || "").trim();
-        const label = String(match[2] || match[1] || "").trim();
-        result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
-      } else if (match[3] !== void 0) {
-        const label = String(match[3] || "").trim();
-        const href = String(match[4] || "").trim();
-        if (/^[a-z]+:/i.test(href)) {
-          result += '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+        const label = embeddedWikiLabel(target, String(match[2] || ""));
+        const resolvedPath = resolveInlineDocumentTarget(target, options);
+        const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
+        if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath)) {
+          if (isImagePath(resolvedPath)) {
+            const href = inlineDocumentURL(resolvedPath);
+            result += renderImageAnchor(href, href, label || documentPathLeaf(resolvedPath) || "image");
+          } else {
+            result += renderDocumentAnchor(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath));
+          }
         } else {
-          result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(href) + '">' + escapeHTML(label) + "</button>";
+          result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
+        }
+      } else if (match[3] !== void 0) {
+        const alt = String(match[3] || "").trim();
+        const target = String(match[4] || "").trim();
+        if (/^[a-z]+:/i.test(target)) {
+          result += renderImageAnchor(target, target, alt || documentPathLeaf(target) || "image");
+        } else {
+          const resolvedPath = resolveInlineDocumentTarget(target, options);
+          if (resolvedPath && !/\.md$/i.test(resolvedPath)) {
+            const href = inlineDocumentURL(resolvedPath);
+            result += renderImageAnchor(href, href, alt || documentPathLeaf(resolvedPath) || "image");
+          } else {
+            result += escapeHTML(match[0]);
+          }
         }
       } else if (match[5] !== void 0) {
-        result += "<code>" + escapeHTML(match[5]) + "</code>";
-      } else if (match[6] !== void 0 || match[7] !== void 0) {
-        result += "<strong>" + escapeHTML(match[6] || match[7]) + "</strong>";
-      } else if (match[8] !== void 0 || match[9] !== void 0) {
-        result += "<em>" + escapeHTML(match[8] || match[9]) + "</em>";
-      } else if (match[10] !== void 0) {
-        result += "<del>" + escapeHTML(match[10]) + "</del>";
+        const target = String(match[5] || "").trim();
+        const label = String(match[6] || match[5] || "").trim();
+        result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
+      } else if (match[7] !== void 0) {
+        const label = String(match[7] || "").trim();
+        const href = String(match[8] || "").trim();
+        if (/^[a-z]+:/i.test(href)) {
+          if (isImagePath(href) && shouldRenderMarkdownLinkAsImage(label, href)) {
+            result += renderImageAnchor(href, href, label || documentPathLeaf(href) || "image");
+          } else {
+            result += '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+          }
+        } else {
+          const resolvedPath = resolveInlineDocumentTarget(href, options);
+          if (resolvedPath && !/\.md$/i.test(resolvedPath)) {
+            if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage(label, href)) {
+              const imageHref = inlineDocumentURL(resolvedPath);
+              result += renderImageAnchor(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image");
+            } else {
+              result += renderDocumentAnchor(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath));
+            }
+          } else {
+            result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(href) + '">' + escapeHTML(label) + "</button>";
+          }
+        }
+      } else if (match[9] !== void 0) {
+        result += "<code>" + escapeHTML(match[9]) + "</code>";
+      } else if (match[10] !== void 0 || match[11] !== void 0) {
+        result += "<strong>" + escapeHTML(match[10] || match[11]) + "</strong>";
+      } else if (match[12] !== void 0 || match[13] !== void 0) {
+        result += "<em>" + escapeHTML(match[12] || match[13]) + "</em>";
+      } else if (match[14] !== void 0) {
+        result += "<del>" + escapeHTML(match[14]) + "</del>";
       }
       cursor = match.index + match[0].length;
     }
@@ -628,6 +827,8 @@
   var init_markdown = __esm({
     "frontend/markdown.ts"() {
       "use strict";
+      init_documents();
+      init_commands();
     }
   });
 
@@ -1800,6 +2001,12 @@
   }
   function mergeScopeHeaders(headers) {
     const merged = new Headers(headers);
+    const clientID = currentClientInstanceId();
+    if (clientID) {
+      merged.set(clientIDHeaderName, clientID);
+    } else {
+      merged.delete(clientIDHeaderName);
+    }
     if (activeScopePrefix) {
       merged.set(scopeHeaderName, activeScopePrefix);
     } else {
@@ -1809,6 +2016,40 @@
   }
   function setActiveScopePrefix(prefix) {
     activeScopePrefix = normalizeScopePrefix(prefix);
+  }
+  function normalizeClientInstanceId(value) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed || trimmed.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(trimmed)) {
+      return "";
+    }
+    return trimmed;
+  }
+  function generateClientInstanceId() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return "tab-" + crypto.randomUUID();
+    }
+    const randomPart = Math.random().toString(36).slice(2, 12);
+    return "tab-" + Date.now().toString(36) + "-" + randomPart;
+  }
+  function currentClientInstanceId() {
+    if (activeClientID) {
+      return activeClientID;
+    }
+    let stored = "";
+    try {
+      stored = normalizeClientInstanceId(window.sessionStorage.getItem(clientIDStorageKey) || "");
+    } catch (_error) {
+      stored = "";
+    }
+    if (!stored) {
+      stored = normalizeClientInstanceId(generateClientInstanceId());
+      try {
+        window.sessionStorage.setItem(clientIDStorageKey, stored);
+      } catch (_error) {
+      }
+    }
+    activeClientID = stored;
+    return activeClientID;
   }
   function scopedRequestInit(options) {
     return {
@@ -1841,7 +2082,7 @@
     await requireOK(response, suppressAuthEvent);
     return response.json();
   }
-  var HTTPError, scopeHeaderName, activeScopePrefix;
+  var HTTPError, scopeHeaderName, clientIDHeaderName, clientIDStorageKey, activeScopePrefix, activeClientID;
   var init_http = __esm({
     "frontend/http.ts"() {
       "use strict";
@@ -1853,7 +2094,10 @@
         }
       };
       scopeHeaderName = "X-Noterious-Scope";
+      clientIDHeaderName = "X-Noterious-Client-Id";
+      clientIDStorageKey = "noterious.client-tab-id";
       activeScopePrefix = "";
+      activeClientID = "";
     }
   });
 
@@ -3496,7 +3740,7 @@
     }
     return null;
   }
-  function renderQueryResultCell(column, value) {
+  function renderQueryResultCell(column, value, currentPagePath) {
     if (column === "path" && value) {
       const pagePath = String(value);
       return '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(pagePath) + '">' + escapeHTML(pageTitleFromPath(pagePath)) + "</button>";
@@ -3517,14 +3761,14 @@
         return '<span class="query-result-empty">\u2014</span>';
       }
       return '<div class="query-result-lines">' + items.map(function(item) {
-        return '<span class="query-result-line">' + renderInline(String(item)) + "</span>";
+        return '<span class="query-result-line">' + renderInline(String(item), { currentPagePath }) + "</span>";
       }).join("") + "</div>";
     }
     if (isPhoneLikeColumn && typeof value === "string") {
       const lines = splitPhoneLines(value);
       if (lines.length > 1) {
         return '<div class="query-result-lines">' + lines.map(function(line) {
-          return '<span class="query-result-line">' + renderInline(line) + "</span>";
+          return '<span class="query-result-line">' + renderInline(line, { currentPagePath }) + "</span>";
         }).join("") + "</div>";
       }
     }
@@ -3534,7 +3778,7 @@
     if (typeof value === "boolean") {
       return value ? "true" : "false";
     }
-    return renderInline(formatMaybeDateValue(column, String(value)));
+    return renderInline(formatMaybeDateValue(column, String(value)), { currentPagePath });
   }
   function queryResultDisplayColumns(columns, rows) {
     if (!Array.isArray(columns)) {
@@ -3568,10 +3812,10 @@
     if (linkSpec && pagePathValue) {
       const pagePath = String(pagePathValue);
       if (linkSpec.mode === "synthetic" && column === linkSpec.column) {
-        return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + renderInline(linkSpec.text) + "</button>";
+        return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + renderInline(linkSpec.text, { currentPagePath: pagePath }) + "</button>";
       }
       if (linkSpec.mode === "column" && Array.isArray(linkSpec.columns) && linkSpec.columns.indexOf(column) !== -1) {
-        return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + renderInline(String(row?.[column] || "")) + "</button>";
+        return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '">' + renderInline(String(row?.[column] || ""), { currentPagePath: pagePath }) + "</button>";
       }
     }
     if ((column === "text" || column === "task" && row && row.__taskRef) && pagePathValue) {
@@ -3579,9 +3823,9 @@
       const lineAttr = pageLineValue !== null && typeof pageLineValue !== "undefined" ? ' data-page-line="' + escapeHTML(String(pageLineValue)) + '"' : "";
       const refValue = row && row.__taskRef ? String(row.__taskRef) : "";
       const refAttr = refValue ? ' data-task-ref="' + escapeHTML(refValue) + '"' : "";
-      return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '"' + lineAttr + refAttr + ">" + renderInline(String(row ? row[column] || "" : "")) + "</button>";
+      return '<button type="button" class="wiki-link query-cell-link" data-page-link="' + escapeHTML(pagePath) + '"' + lineAttr + refAttr + ">" + renderInline(String(row ? row[column] || "" : ""), { currentPagePath: pagePath }) + "</button>";
     }
-    return renderQueryResultCell(column, row ? row[column] : void 0);
+    return renderQueryResultCell(column, row ? row[column] : void 0, pagePathValue ? String(pagePathValue) : "");
   }
   function renderEmbeddedQueryBlock(block) {
     if (!block) {
@@ -3862,86 +4106,6 @@
     "frontend/pageOperations.ts"() {
       "use strict";
       init_commands();
-    }
-  });
-
-  // frontend/documents.ts
-  function normalizePath(value) {
-    return String(value || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/").trim();
-  }
-  function pageDirectory(pagePath) {
-    const normalized = normalizePath(pagePath).replace(/\.md$/i, "");
-    const parts = normalized.split("/").filter(Boolean);
-    if (parts.length <= 1) {
-      return "";
-    }
-    return parts.slice(0, -1).join("/");
-  }
-  function relativeDocumentPath(currentPagePath, documentPath) {
-    const fromDir = pageDirectory(currentPagePath);
-    const toPath = normalizePath(documentPath);
-    const fromParts = fromDir ? fromDir.split("/").filter(Boolean) : [];
-    const toParts = toPath.split("/").filter(Boolean);
-    let common = 0;
-    while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) {
-      common += 1;
-    }
-    const upwards = new Array(fromParts.length - common).fill("..");
-    const downwards = toParts.slice(common);
-    const relative = upwards.concat(downwards).join("/");
-    return relative || pathLeaf(toPath);
-  }
-  function pathLeaf(path) {
-    const parts = normalizePath(path).split("/");
-    return parts[parts.length - 1] || path;
-  }
-  function markdownLinkForDocument(document2, currentPagePath) {
-    const label = String(document2.name || "").replace(/]/g, "\\]");
-    return "[" + label + "](" + relativeDocumentPath(currentPagePath, document2.path) + ")";
-  }
-  function matchesDocument(document2, query) {
-    const target = String(query || "").trim().toLowerCase();
-    if (!target) {
-      return true;
-    }
-    const haystack = [document2.name, document2.contentType].join(" ").toLowerCase();
-    return haystack.indexOf(target) >= 0;
-  }
-  function scoreDocument(document2, query) {
-    const target = String(query || "").trim().toLowerCase();
-    const name = String(document2.name || "").toLowerCase();
-    if (!target) {
-      return document2.createdAt ? Date.parse(document2.createdAt) || 0 : 0;
-    }
-    return (name === target ? 4e3 : 0) + (name.startsWith(target) ? 2800 : 0) + (name.indexOf(target) >= 0 ? 1200 : 0) + (document2.createdAt ? (Date.parse(document2.createdAt) || 0) / 1e12 : 0);
-  }
-  function buildDocumentSections(options) {
-    const query = String(options.inputValue || "").trim();
-    const items = options.documents.filter(function(document2) {
-      return matchesDocument(document2, query);
-    }).sort(function(left, right) {
-      return scoreDocument(right, query) - scoreDocument(left, query);
-    }).slice(0, query ? 30 : 20).map(function(document2) {
-      return {
-        title: document2.name,
-        meta: [document2.path, document2.contentType, document2.size ? Math.round(document2.size / 102.4) / 10 + " KB" : ""].filter(Boolean).join(" \xB7 "),
-        onSelect: function() {
-          options.onSelectDocument(document2);
-        }
-      };
-    });
-    return [{
-      title: query ? "Matching Documents" : "Recent Documents",
-      items
-    }];
-  }
-  function renderDocumentsResults(options) {
-    return renderPaletteSections(options.container, buildDocumentSections(options), "No matching documents.");
-  }
-  var init_documents = __esm({
-    "frontend/documents.ts"() {
-      "use strict";
-      init_palette();
     }
   });
 
@@ -4710,7 +4874,7 @@
       });
       const title = document.createElement("span");
       title.className = "page-task-title";
-      title.innerHTML = renderInline(task.text || task.ref);
+      title.innerHTML = renderInline(task.text || task.ref, { currentPagePath: task.page || currentPagePath || "" });
       button.appendChild(title);
       const meta = document.createElement("div");
       meta.className = "page-task-meta";
@@ -6789,6 +6953,19 @@
         }
       },
       {
+        id: "file",
+        title: "Upload file",
+        description: "Open the file picker and upload into the current note.",
+        keywords: "upload attachment document image media asset",
+        hint: "/file",
+        apply: function(lineText) {
+          return replaceSlashToken(lineText, "file", "").replace(/\s+$/, "");
+        },
+        caret: function(updatedLine) {
+          return updatedLine.length;
+        }
+      },
+      {
         id: "due",
         title: "Insert due date",
         description: "Append a due field with today's date.",
@@ -6858,7 +7035,7 @@
       return null;
     }
     const alias = String(match[1] || "").toLowerCase();
-    if (["doc", "docs", "document", "documents", "attach", "file"].indexOf(alias) === -1) {
+    if (["doc", "docs", "document", "documents", "attach"].indexOf(alias) === -1) {
       return null;
     }
     return {
@@ -8913,6 +9090,7 @@
           railPanelTasks: requiredElement("rail-panel-tasks"),
           noteLayout: requiredElement("note-layout"),
           noteSurface: requiredElement("note-surface"),
+          fileUploadInput: requiredElement("file-upload-input"),
           inlineTablePanel: requiredElement("inline-table-panel"),
           toggleRail: requiredElement("toggle-rail"),
           historyBack: requiredElement("history-back"),
@@ -9231,7 +9409,12 @@
             return false;
           }
           const eventPage = typeof payload.page === "string" ? payload.page : "";
+          const eventOrigin = typeof payload.originClientId === "string" ? payload.originClientId : "";
           if (!eventPage || eventPage !== state.selectedPage) {
+            return false;
+          }
+          if (eventOrigin && eventOrigin === currentClientInstanceId()) {
+            consumeExpectedLocalPageChange(eventPage);
             return false;
           }
           if (consumeExpectedLocalPageChange(eventPage)) {
@@ -9927,7 +10110,9 @@
             setMarkdownEditorScrollTop(state, els, scrollTop);
           }
           closeSlashMenu(state, els);
-          if (command.id === "table") {
+          if (command.id === "file") {
+            openFilePickerForEditor();
+          } else if (command.id === "table") {
             openInlineTableEditor2(insertedRawLineNumber, 1, 0);
           } else if (command.id === "due" || command.id === "remind") {
             openInsertedTaskPicker(insertedTaskLineNumber, command.id);
@@ -11729,6 +11914,14 @@
           }).join("\n"));
           setNoteStatus("Uploaded " + String(documents.length) + " document" + (documents.length === 1 ? "" : "s") + ".");
         }
+        function openFilePickerForEditor() {
+          if (!state.selectedPage || !state.currentPage) {
+            setNoteStatus("Open a note before uploading documents.");
+            return;
+          }
+          els.fileUploadInput.value = "";
+          els.fileUploadInput.click();
+        }
         async function deletePage2(pagePath) {
           return deletePage(pagePath, state, {
             encodePath,
@@ -12362,6 +12555,14 @@
             restoreNoteFocus();
           });
           on(els.documentsInput, "input", scheduleDocumentsRefresh);
+          on(els.fileUploadInput, "change", function() {
+            uploadDroppedFiles(els.fileUploadInput.files).catch(function(error) {
+              setNoteStatus("Upload failed: " + errorMessage(error));
+            }).finally(function() {
+              els.fileUploadInput.value = "";
+              focusMarkdownEditor(state, els, { preventScroll: true });
+            });
+          });
           on(els.railTabFiles, "click", function() {
             setRailTab("files");
           });

@@ -284,6 +284,16 @@ func TestDocumentsAPIUploadsListsAndDownloads(t *testing.T) {
 	if !strings.Contains(downloadResponse.Body.String(), "%PDF-1.4 fake") {
 		t.Fatalf("download body = %q", downloadResponse.Body.String())
 	}
+
+	inlineRequest := httptest.NewRequest(http.MethodGet, uploaded.DownloadURL+"&inline=1", nil)
+	inlineResponse := httptest.NewRecorder()
+	router.ServeHTTP(inlineResponse, inlineRequest)
+	if inlineResponse.Code != http.StatusOK {
+		t.Fatalf("GET inline download status = %d body=%s", inlineResponse.Code, inlineResponse.Body.String())
+	}
+	if got := inlineResponse.Header().Get("Content-Disposition"); !strings.HasPrefix(strings.ToLower(got), "inline;") {
+		t.Fatalf("inline Content-Disposition = %q", got)
+	}
 }
 
 func TestGetPageReturnsNotFoundForMissingPage(t *testing.T) {
@@ -9881,6 +9891,247 @@ func TestPatchTaskUpdatesMarkdownAndReindexes(t *testing.T) {
 	}
 	if tasksPayload.Tasks[0].Ref != "daily/today:3" || tasksPayload.Tasks[0].Due != "2026-05-02" || tasksPayload.Tasks[0].Remind != "" || !tasksPayload.Tasks[0].Done || tasksPayload.Tasks[0].State != "done" {
 		t.Fatalf("reindexed task = %#v", tasksPayload.Tasks[0])
+	}
+}
+
+func TestPutPageAcknowledgesWatcherBeforePublishingEvents(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	broker := NewEventBroker()
+	events, unsubscribe := broker.Subscribe()
+	defer unsubscribe()
+	type ackedChange struct {
+		page   string
+		origin string
+	}
+	acked := make(chan ackedChange)
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Events: broker,
+		OnPageChanged: func(ctx context.Context, pagePath string) {
+			acked <- ackedChange{page: pagePath, origin: EventOriginFromContext(ctx)}
+		},
+	})
+
+	request := httptest.NewRequest(http.MethodPut, "/api/pages/notes/alpha", strings.NewReader(`{"rawMarkdown":"# Alpha\n\nBody.\n"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(clientIDHeaderName, "tab-alpha")
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+
+	go func() {
+		router.ServeHTTP(recorder, request)
+		close(done)
+	}()
+
+	select {
+	case event := <-events:
+		t.Fatalf("event published before watcher ack: %#v", event)
+	case change := <-acked:
+		if change.page != "notes/alpha" || change.origin != "tab-alpha" {
+			t.Fatalf("acked change = %#v", change)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for watcher ack")
+	}
+
+	select {
+	case event := <-events:
+		if event.Type != "page.changed" {
+			t.Fatalf("first event = %#v", event)
+		}
+		payload, ok := event.Data.(pageEventData)
+		if !ok || payload.Page != "notes/alpha" || payload.OriginClientID != "tab-alpha" {
+			t.Fatalf("page.changed payload = %#v", event.Data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for page.changed")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("request did not finish")
+	}
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPatchPageFrontmatterAcknowledgesWatcherBeforePublishingEvents(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	broker := NewEventBroker()
+	events, unsubscribe := broker.Subscribe()
+	defer unsubscribe()
+	type ackedChange struct {
+		page   string
+		origin string
+	}
+	acked := make(chan ackedChange)
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Events: broker,
+		OnPageChanged: func(ctx context.Context, pagePath string) {
+			acked <- ackedChange{page: pagePath, origin: EventOriginFromContext(ctx)}
+		},
+	})
+
+	request := httptest.NewRequest(http.MethodPatch, "/api/pages/notes/alpha", strings.NewReader(`{"frontmatter":{"set":{"status":"active"}}}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(clientIDHeaderName, "tab-frontmatter")
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+
+	go func() {
+		router.ServeHTTP(recorder, request)
+		close(done)
+	}()
+
+	select {
+	case event := <-events:
+		t.Fatalf("event published before watcher ack: %#v", event)
+	case change := <-acked:
+		if change.page != "notes/alpha" || change.origin != "tab-frontmatter" {
+			t.Fatalf("acked change = %#v", change)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for watcher ack")
+	}
+
+	select {
+	case event := <-events:
+		if event.Type != "page.changed" {
+			t.Fatalf("first event = %#v", event)
+		}
+		payload, ok := event.Data.(pageEventData)
+		if !ok || payload.Page != "notes/alpha" || payload.OriginClientID != "tab-frontmatter" {
+			t.Fatalf("page.changed payload = %#v", event.Data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for page.changed")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("request did not finish")
+	}
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPatchTaskAcknowledgesWatcherBeforePublishingEvents(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "daily"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "daily", "today.md"), []byte("# Today\n\n- [ ] First task\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	broker := NewEventBroker()
+	events, unsubscribe := broker.Subscribe()
+	defer unsubscribe()
+	type ackedChange struct {
+		page   string
+		origin string
+	}
+	acked := make(chan ackedChange)
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Events: broker,
+		OnPageChanged: func(ctx context.Context, pagePath string) {
+			acked <- ackedChange{page: pagePath, origin: EventOriginFromContext(ctx)}
+		},
+	})
+
+	request := httptest.NewRequest(http.MethodPatch, "/api/tasks/daily/today:3", strings.NewReader(`{"text":"First task","state":"done"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(clientIDHeaderName, "tab-task")
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+
+	go func() {
+		router.ServeHTTP(recorder, request)
+		close(done)
+	}()
+
+	select {
+	case event := <-events:
+		t.Fatalf("event published before watcher ack: %#v", event)
+	case change := <-acked:
+		if change.page != "daily/today" || change.origin != "tab-task" {
+			t.Fatalf("acked change = %#v", change)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for watcher ack")
+	}
+
+	select {
+	case event := <-events:
+		if event.Type != "task.changed" {
+			t.Fatalf("first event = %#v", event)
+		}
+		payload, ok := event.Data.(taskEventData)
+		if !ok || payload.Page != "daily/today" || payload.Ref != "daily/today:3" || payload.OriginClientID != "tab-task" {
+			t.Fatalf("task.changed payload = %#v", event.Data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for task.changed")
+	}
+
+	select {
+	case event := <-events:
+		if event.Type != "page.changed" {
+			t.Fatalf("second event = %#v", event)
+		}
+		payload, ok := event.Data.(pageEventData)
+		if !ok || payload.Page != "daily/today" || payload.OriginClientID != "tab-task" {
+			t.Fatalf("page.changed payload = %#v", event.Data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for page.changed")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("request did not finish")
+	}
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }
 

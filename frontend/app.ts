@@ -42,7 +42,7 @@ import {
   setMarkdownEditorSelection,
   setMarkdownEditorValue,
 } from "./editorState";
-import { fetchJSON, requireOK, scopedEventSourceURL, scopedRequestInit, setActiveScopePrefix } from "./http";
+import { currentClientInstanceId, fetchJSON, requireOK, scopedEventSourceURL, scopedRequestInit, setActiveScopePrefix } from "./http";
 import {
   applyInlineTableEditor as applyInlineTableEditorUI,
   anchorInlineTableEditorToRenderedTable as anchorInlineTableEditorToRenderedTableUI,
@@ -583,6 +583,7 @@ interface TreeContextMenuState {
     railPanelTasks: requiredElement<HTMLElement>("rail-panel-tasks"),
     noteLayout: requiredElement<HTMLElement>("note-layout"),
     noteSurface: requiredElement<HTMLElement>("note-surface"),
+    fileUploadInput: requiredElement<HTMLInputElement>("file-upload-input"),
     inlineTablePanel: requiredElement<HTMLDivElement>("inline-table-panel"),
     toggleRail: requiredElement<HTMLButtonElement>("toggle-rail"),
     historyBack: requiredElement<HTMLButtonElement>("history-back"),
@@ -933,7 +934,12 @@ interface TreeContextMenuState {
       return false;
     }
     const eventPage = typeof payload.page === "string" ? payload.page : "";
+    const eventOrigin = typeof payload.originClientId === "string" ? payload.originClientId : "";
     if (!eventPage || eventPage !== state.selectedPage) {
+      return false;
+    }
+    if (eventOrigin && eventOrigin === currentClientInstanceId()) {
+      consumeExpectedLocalPageChange(eventPage);
       return false;
     }
     if (consumeExpectedLocalPageChange(eventPage)) {
@@ -1698,7 +1704,9 @@ interface TreeContextMenuState {
 
     closeSlashMenu(state, els);
 
-    if (command.id === "table") {
+    if (command.id === "file") {
+      openFilePickerForEditor();
+    } else if (command.id === "table") {
       openInlineTableEditor(insertedRawLineNumber, 1, 0);
     } else if (command.id === "due" || command.id === "remind") {
       openInsertedTaskPicker(insertedTaskLineNumber, command.id);
@@ -3727,6 +3735,15 @@ interface TreeContextMenuState {
     setNoteStatus("Uploaded " + String(documents.length) + " document" + (documents.length === 1 ? "" : "s") + ".");
   }
 
+  function openFilePickerForEditor(): void {
+    if (!state.selectedPage || !state.currentPage) {
+      setNoteStatus("Open a note before uploading documents.");
+      return;
+    }
+    els.fileUploadInput.value = "";
+    els.fileUploadInput.click();
+  }
+
   async function deletePage(pagePath: string): Promise<void> {
     return deletePageRequest(pagePath, state, {
       encodePath: encodePath,
@@ -4396,6 +4413,14 @@ interface TreeContextMenuState {
       restoreNoteFocus();
     });
     on(els.documentsInput, "input", scheduleDocumentsRefresh);
+    on(els.fileUploadInput, "change", function () {
+      uploadDroppedFiles(els.fileUploadInput.files).catch(function (error) {
+        setNoteStatus("Upload failed: " + errorMessage(error));
+      }).finally(function () {
+        els.fileUploadInput.value = "";
+        focusMarkdownEditor(state, els, {preventScroll: true});
+      });
+    });
     on(els.railTabFiles, "click", function () {
       setRailTab("files");
     });

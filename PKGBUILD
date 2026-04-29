@@ -1,5 +1,5 @@
 pkgname=noterious
-pkgver=0.1.16
+pkgver=0.1.17
 pkgrel=1
 pkgdesc="Server-first markdown notebook with queries, tasks, history, notifications, and a web UI"
 arch=('x86_64' 'aarch64')

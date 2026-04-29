@@ -50,6 +50,7 @@ func wrapWithVault(next http.Handler, settingsStore *settings.Store, cfg config.
 				}
 			}
 			ctx := vault.WithScopePrefix(r.Context(), scopePrefix)
+			ctx = withRequestEventOriginContext(ctx, r)
 			r = r.WithContext(ctx)
 		}
 		next.ServeHTTP(w, r)

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -31,7 +32,26 @@ type Dependencies struct {
 	Query         *query.Service
 	Events        *EventBroker
 	Auth          *auth.Service
-	OnPageChanged func(pagePath string)
+	OnPageChanged func(ctx context.Context, pagePath string)
+}
+
+func acknowledgePageChanges(ctx context.Context, deps Dependencies, pagePaths ...string) {
+	if deps.OnPageChanged == nil {
+		return
+	}
+
+	seen := make(map[string]struct{}, len(pagePaths))
+	for _, pagePath := range pagePaths {
+		pagePath = strings.TrimSpace(pagePath)
+		if pagePath == "" {
+			continue
+		}
+		if _, ok := seen[pagePath]; ok {
+			continue
+		}
+		seen[pagePath] = struct{}{}
+		deps.OnPageChanged(ctx, pagePath)
+	}
 }
 
 type okStatusResponse struct {

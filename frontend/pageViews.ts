@@ -560,7 +560,7 @@ export function renderPageTasks(
 
     const title = document.createElement("span");
     title.className = "page-task-title";
-    title.innerHTML = renderInline(task.text || task.ref);
+    title.innerHTML = renderInline(task.text || task.ref, {currentPagePath: task.page || currentPagePath || ""});
     button.appendChild(title);
 
     const meta = document.createElement("div");
