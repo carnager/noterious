@@ -2486,6 +2486,155 @@ func TestPutPageWritesMarkdownAndReindexes(t *testing.T) {
 	}
 }
 
+func TestPutPageAutoMergesDisjointEdits(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	baseMarkdown := "# Alpha\n\nfirst\nsecond\n"
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "alpha.md"), []byte(baseMarkdown), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	vaultService := vault.NewService(vaultDir)
+	indexService := index.NewService(dataDir)
+	if err := indexService.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = indexService.Close()
+	})
+	if err := indexService.RebuildFromVault(context.Background(), vaultService); err != nil {
+		t.Fatalf("RebuildFromVault() error = %v", err)
+	}
+	queryService := query.NewService()
+	if err := queryService.RefreshAll(context.Background(), indexService); err != nil {
+		t.Fatalf("RefreshAll() error = %v", err)
+	}
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Vault: vaultService,
+		Index: indexService,
+		Query: queryService,
+	})
+
+	remoteMarkdown := "# Alpha\n\nfirst remote\nsecond\n"
+	if err := vaultService.WritePage("notes/alpha", []byte(remoteMarkdown)); err != nil {
+		t.Fatalf("WritePage() error = %v", err)
+	}
+	if err := indexService.RebuildFromVault(context.Background(), vaultService); err != nil {
+		t.Fatalf("RebuildFromVault(remote) error = %v", err)
+	}
+	if err := queryService.RefreshAll(context.Background(), indexService); err != nil {
+		t.Fatalf("RefreshAll(remote) error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPut, "/api/pages/notes/alpha", strings.NewReader(`{"rawMarkdown":"# Alpha\n\nfirst\nsecond local\n","baseRawMarkdown":"# Alpha\n\nfirst\nsecond\n"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var payload struct {
+		RawMarkdown string `json:"rawMarkdown"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	wantMarkdown := "# Alpha\n\nfirst remote\nsecond local\n"
+	if payload.RawMarkdown != wantMarkdown {
+		t.Fatalf("payload rawMarkdown = %q want %q", payload.RawMarkdown, wantMarkdown)
+	}
+
+	written, err := os.ReadFile(filepath.Join(vaultDir, "notes", "alpha.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(written) != wantMarkdown {
+		t.Fatalf("written markdown = %q want %q", string(written), wantMarkdown)
+	}
+}
+
+func TestPutPageReturnsConflictForOverlappingEdits(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	baseMarkdown := "# Alpha\n\nshared line\n"
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "alpha.md"), []byte(baseMarkdown), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	vaultService := vault.NewService(vaultDir)
+	indexService := index.NewService(dataDir)
+	if err := indexService.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = indexService.Close()
+	})
+	if err := indexService.RebuildFromVault(context.Background(), vaultService); err != nil {
+		t.Fatalf("RebuildFromVault() error = %v", err)
+	}
+	queryService := query.NewService()
+	if err := queryService.RefreshAll(context.Background(), indexService); err != nil {
+		t.Fatalf("RefreshAll() error = %v", err)
+	}
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Vault: vaultService,
+		Index: indexService,
+		Query: queryService,
+	})
+
+	remoteMarkdown := "# Alpha\n\nremote line\n"
+	if err := vaultService.WritePage("notes/alpha", []byte(remoteMarkdown)); err != nil {
+		t.Fatalf("WritePage() error = %v", err)
+	}
+	if err := indexService.RebuildFromVault(context.Background(), vaultService); err != nil {
+		t.Fatalf("RebuildFromVault(remote) error = %v", err)
+	}
+	if err := queryService.RefreshAll(context.Background(), indexService); err != nil {
+		t.Fatalf("RefreshAll(remote) error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPut, "/api/pages/notes/alpha", strings.NewReader(`{"rawMarkdown":"# Alpha\n\nlocal line\n","baseRawMarkdown":"# Alpha\n\nshared line\n"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "overlapping edits") {
+		t.Fatalf("body = %s want overlap detail", recorder.Body.String())
+	}
+
+	written, err := os.ReadFile(filepath.Join(vaultDir, "notes", "alpha.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(written) != remoteMarkdown {
+		t.Fatalf("written markdown = %q want %q", string(written), remoteMarkdown)
+	}
+}
+
 func TestDeletePageRemovesMarkdownAndIndexEntry(t *testing.T) {
 	t.Parallel()
 

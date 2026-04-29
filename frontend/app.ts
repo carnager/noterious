@@ -9,6 +9,7 @@ import {
 import {
   deleteTask as deleteTaskRequest,
   loadPageDetailData,
+  type LoadedPageDetail,
   resolvePageTask,
   loadSavedQueryDetailData,
   savePageMarkdown,
@@ -42,7 +43,7 @@ import {
   setMarkdownEditorSelection,
   setMarkdownEditorValue,
 } from "./editorState";
-import { currentClientInstanceId, fetchJSON, requireOK, scopedEventSourceURL, scopedRequestInit, setActiveScopePrefix } from "./http";
+import { currentClientInstanceId, fetchJSON, HTTPError, requireOK, scopedEventSourceURL, scopedRequestInit, setActiveScopePrefix } from "./http";
 import {
   applyInlineTableEditor as applyInlineTableEditorUI,
   anchorInlineTableEditorToRenderedTable as anchorInlineTableEditorToRenderedTableUI,
@@ -172,6 +173,7 @@ import {
   renderSettingsHotkeyHints as renderSettingsHotkeyHintsUI,
 } from "./settingsUi";
 import { closeSlashMenu, documentCommandsForText, maybeOpenSlashMenu, moveSlashSelection, openSlashMenuWithCommands, wikilinkCommandsForContext } from "./slashMenu";
+import { buildRemoteSyncPlan, hasUnsafeRemoteSyncUIState as hasUnsafeRemoteSyncUIStateHelper } from "./remoteSync";
 import {
   applyTheme,
   builtinThemeLibrary,
@@ -375,6 +377,7 @@ interface AppState {
   settingsSection: SettingsSection;
   remoteChangePage: string;
   remoteChangeHasLocalEdits: boolean;
+  remoteChangeSyncToken: number;
   expectedLocalChangePage: string;
   expectedLocalChangeCount: number;
   expectedLocalChangeUntil: number;
@@ -512,6 +515,7 @@ interface TreeContextMenuState {
     settingsSection: "appearance",
     remoteChangePage: "",
     remoteChangeHasLocalEdits: false,
+    remoteChangeSyncToken: 0,
     expectedLocalChangePage: "",
     expectedLocalChangeCount: 0,
     expectedLocalChangeUntil: 0,
@@ -929,7 +933,7 @@ interface TreeContextMenuState {
     }
   }
 
-  function shouldPromptForRemoteReload(eventName: string, payload: Record<string, unknown>): boolean {
+  function isSelectedExternalPageChange(eventName: string, payload: Record<string, unknown>): boolean {
     if (eventName !== "page.changed" || !state.selectedPage) {
       return false;
     }
@@ -945,7 +949,122 @@ interface TreeContextMenuState {
     if (consumeExpectedLocalPageChange(eventPage)) {
       return false;
     }
-    return markdownEditorHasFocus(state, els) || inlineTableEditorHasFocus() || inlineTableEditorOpen();
+    return true;
+  }
+
+  function applyLoadedPageDetailState(pagePath: string, loaded: LoadedPageDetail, nextMarkdown: string): boolean {
+    const page = loaded.page;
+    const derived = loaded.derived;
+
+    state.currentPage = page;
+    state.currentDerived = derived;
+    state.currentMarkdown = nextMarkdown;
+    state.originalMarkdown = page.rawMarkdown || "";
+    if (state.remoteChangePage && state.remoteChangePage === (page.page || pagePath)) {
+      clearRemoteChangeToast();
+    }
+    clearAutosaveTimer();
+    clearPropertyDraft();
+    const templateFillActive = openTemplateFillDraft(page);
+    state.selectedSavedQueryPayload = null;
+    els.detailPath.textContent = page.page || page.path || pagePath;
+    setNoteHeadingValue(page.title || page.page || pagePath, true);
+
+    setStructuredViews(
+      "Page",
+      page.title || page.page,
+      {
+        page: page.page,
+        title: page.title,
+        frontmatter: page.frontmatter,
+        links: page.links,
+        tasks: page.tasks,
+      },
+      {
+        toc: derived.toc,
+        backlinks: derived.backlinks,
+        linkCounts: derived.linkCounts,
+        taskCounts: derived.taskCounts,
+        queryBlocks: derived.queryBlocks,
+      },
+      nextMarkdown
+    );
+    renderNoteStudio();
+    renderPageTasks();
+    renderPageTags();
+    renderPageContext();
+    renderPageProperties();
+    return templateFillActive;
+  }
+
+  function restoreCurrentEditorViewport(selectionStart: number, selectionEnd: number, scrollTop: number, focusEditor: boolean): void {
+    const clampedStart = Math.max(0, Math.min(selectionStart, state.currentMarkdown.length));
+    const clampedEnd = Math.max(0, Math.min(selectionEnd, state.currentMarkdown.length));
+    setMarkdownEditorSelection(state, els, clampedStart, clampedEnd);
+    setMarkdownEditorScrollTop(state, els, scrollTop);
+    if (focusEditor) {
+      focusMarkdownEditor(state, els, {preventScroll: true});
+      setMarkdownEditorSelection(state, els, clampedStart, clampedEnd);
+    }
+  }
+
+  function hasUnsafeRemoteSyncUIState(): boolean {
+    return hasUnsafeRemoteSyncUIStateHelper({
+      propertyDraftOpen: Boolean(state.propertyDraft),
+      inlineTableEditorOpen: inlineTableEditorOpen(),
+      inlineTableEditorFocused: inlineTableEditorHasFocus(),
+      noteTitleFocused: document.activeElement === els.noteHeading,
+    });
+  }
+
+  async function syncSelectedRemotePage(pagePath: string): Promise<void> {
+    if (!pagePath || state.selectedPage !== pagePath) {
+      return;
+    }
+
+    state.remoteChangeSyncToken += 1;
+    const syncToken = state.remoteChangeSyncToken;
+
+    try {
+      const loaded = await loadPageDetailData(pagePath, encodePath, "", null);
+      if (state.remoteChangeSyncToken !== syncToken || state.selectedPage !== pagePath) {
+        return;
+      }
+
+      const remoteMarkdown = loaded.page.rawMarkdown || "";
+      const baseMarkdown = state.originalMarkdown;
+      const localMarkdown = state.currentMarkdown;
+      const selectionStart = markdownEditorSelectionStart(state, els);
+      const selectionEnd = markdownEditorSelectionEnd(state, els);
+      const scrollTop = markdownEditorScrollTop(state, els);
+      const focusEditor = markdownEditorHasFocus(state, els);
+      const plan = buildRemoteSyncPlan({
+        baseMarkdown,
+        localMarkdown,
+        remoteMarkdown,
+        unsafeUIState: hasUnsafeRemoteSyncUIState(),
+      });
+      if (plan.action === "warn") {
+        showRemoteChangeToast(pagePath);
+        return;
+      }
+
+      const templateFillActive = applyLoadedPageDetailState(pagePath, loaded, plan.markdown);
+      restoreCurrentEditorViewport(selectionStart, selectionEnd, scrollTop, focusEditor && !templateFillActive);
+      setNoteStatus(
+        plan.mergedLocalEdits
+          ? ("Merged remote edits into " + pagePath + ".")
+          : ("Updated " + pagePath + " from remote changes.")
+      );
+    } catch (error) {
+      showRemoteChangeToast(pagePath);
+      setNoteStatus("Remote refresh failed: " + errorMessage(error));
+      return;
+    } finally {
+      void loadPages();
+      void loadTasks();
+      void loadSavedQueryTree();
+    }
   }
 
   function clearAutosaveTimer() {
@@ -2811,42 +2930,7 @@ interface TreeContextMenuState {
         state.pendingPageLineFocus
       );
       const page = loaded.page;
-      const derived = loaded.derived;
-
-      state.currentPage = page;
-      state.currentDerived = derived;
-      state.currentMarkdown = page.rawMarkdown || "";
-      state.originalMarkdown = page.rawMarkdown || "";
-      if (state.remoteChangePage && state.remoteChangePage === (page.page || pagePath)) {
-        clearRemoteChangeToast();
-      }
-      clearAutosaveTimer();
-      clearPropertyDraft();
-      const templateFillActive = openTemplateFillDraft(page);
-      state.selectedSavedQueryPayload = null;
-      els.detailPath.textContent = page.page || page.path || pagePath;
-      setNoteHeadingValue(page.title || page.page || pagePath, true);
-
-      setStructuredViews(
-        "Page",
-        page.title || page.page,
-        {
-          page: page.page,
-          title: page.title,
-          frontmatter: page.frontmatter,
-          links: page.links,
-          tasks: page.tasks,
-        },
-        {
-          toc: derived.toc,
-          backlinks: derived.backlinks,
-          linkCounts: derived.linkCounts,
-          taskCounts: derived.taskCounts,
-          queryBlocks: derived.queryBlocks,
-        },
-        page.rawMarkdown || ""
-      );
-      renderNoteStudio();
+      const templateFillActive = applyLoadedPageDetailState(pagePath, loaded, page.rawMarkdown || "");
       if (shouldFocusEditor && !templateFillActive && state.markdownEditorApi && !blockingOverlayOpen(els) && !inlineTableEditorOpen()) {
         state.markdownEditorApi.setHighlightedLine(
           typeof pendingLineFocus === "number" && pendingLineFocus > 0 ? pendingLineFocus : null
@@ -2875,10 +2959,6 @@ interface TreeContextMenuState {
           }
         }, 0);
       }
-      renderPageTasks();
-      renderPageTags();
-      renderPageContext();
-      renderPageProperties();
     } catch (error) {
       clearPageSelection();
       els.detailKind.textContent = "Page";
@@ -3991,22 +4071,44 @@ interface TreeContextMenuState {
 
     clearAutosaveTimer();
     const markdownToSave = state.currentMarkdown;
+    const baseMarkdown = state.originalMarkdown;
 
     setNoteStatus("Saving " + state.selectedPage + "...");
     try {
       noteLocalPageChange(state.selectedPage);
-      const payload = await savePageMarkdown(state.selectedPage, markdownToSave, encodePath);
+      const payload = await savePageMarkdown(state.selectedPage, markdownToSave, baseMarkdown, encodePath);
+      const mergedOnServer = (payload.rawMarkdown || markdownToSave) !== markdownToSave;
       state.currentPage = payload;
       state.originalMarkdown = payload.rawMarkdown || markdownToSave;
       if (state.currentMarkdown === markdownToSave) {
         state.currentMarkdown = payload.rawMarkdown || markdownToSave;
       }
-      setNoteStatus("Saved " + state.selectedPage + ".");
+      if (mergedOnServer) {
+        const selectionStart = markdownEditorSelectionStart(state, els);
+        const selectionEnd = markdownEditorSelectionEnd(state, els);
+        const scrollTop = markdownEditorScrollTop(state, els);
+        setMarkdownEditorValue(state, els, state.currentMarkdown);
+        els.rawView.textContent = state.currentMarkdown;
+        setMarkdownEditorSelection(
+          state,
+          els,
+          Math.max(0, Math.min(selectionStart, state.currentMarkdown.length)),
+          Math.max(0, Math.min(selectionEnd, state.currentMarkdown.length))
+        );
+        setMarkdownEditorScrollTop(state, els, scrollTop);
+        setNoteStatus("Merged remote edits into " + state.selectedPage + ".");
+      } else {
+        setNoteStatus("Saved " + state.selectedPage + ".");
+      }
       await loadPages();
       if (!markdownEditorHasFocus(state, els) && !inlineTableEditorHasFocus()) {
         await loadPageDetail(state.selectedPage, true, false);
       }
     } catch (error) {
+      if (error instanceof HTTPError && error.status === 409) {
+        setNoteStatus("Save conflict on " + state.selectedPage + ". Automatic merge found overlapping edits.");
+        return;
+      }
       setNoteStatus("Save failed: " + errorMessage(error));
       if (hasUnsavedPageChanges()) {
         scheduleAutosave();
@@ -4054,11 +4156,15 @@ interface TreeContextMenuState {
           payload = { raw: messageEvent.data };
         }
         addEventLine(eventName, payload, false);
-        if (shouldPromptForRemoteReload(eventName, payload)) {
-          loadPages();
-          loadTasks();
-          loadSavedQueryTree();
-          showRemoteChangeToast(String(payload.page || state.selectedPage || ""));
+        if (isSelectedExternalPageChange(eventName, payload)) {
+          if (hasUnsafeRemoteSyncUIState()) {
+            loadPages();
+            loadTasks();
+            loadSavedQueryTree();
+            showRemoteChangeToast(String(payload.page || state.selectedPage || ""));
+            return;
+          }
+          void syncSelectedRemotePage(String(payload.page || state.selectedPage || ""));
           return;
         }
         debounceRefresh();

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/markdown"
 	"github.com/carnager/noterious/internal/query"
+	"github.com/carnager/noterious/internal/textmerge"
 	"github.com/carnager/noterious/internal/vault"
 )
 
@@ -225,11 +227,29 @@ func handlePagePutRequest(w http.ResponseWriter, r *http.Request, deps Dependenc
 		}
 	}
 	var request struct {
-		RawMarkdown string `json:"rawMarkdown"`
+		RawMarkdown     string  `json:"rawMarkdown"`
+		BaseRawMarkdown *string `json:"baseRawMarkdown"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
+	}
+	currentMarkdown, err := loadPageMarkdownForSave(vaultService, pagePath)
+	if err != nil {
+		http.Error(w, "failed to read current page", http.StatusInternalServerError)
+		return
+	}
+	if request.BaseRawMarkdown != nil && currentMarkdown != request.RawMarkdown && currentMarkdown != *request.BaseRawMarkdown {
+		mergedMarkdown, err := textmerge.Merge(*request.BaseRawMarkdown, request.RawMarkdown, currentMarkdown)
+		if err != nil {
+			if errors.Is(err, textmerge.ErrConflict) {
+				http.Error(w, "page changed and automatic merge found overlapping edits", http.StatusConflict)
+				return
+			}
+			http.Error(w, "failed to merge page", http.StatusInternalServerError)
+			return
+		}
+		request.RawMarkdown = mergedMarkdown
 	}
 	if err := vaultService.WritePage(pagePath, []byte(request.RawMarkdown)); err != nil {
 		http.Error(w, "failed to write page", http.StatusInternalServerError)
@@ -261,6 +281,20 @@ func handlePagePutRequest(w http.ResponseWriter, r *http.Request, deps Dependenc
 		After:  &currentPageSummary,
 	}}, query.DiffTaskChanges(previousTasks, pageRecord.Tasks))
 	writeJSON(w, http.StatusOK, pageRecordPayload(pageRecord))
+}
+
+func loadPageMarkdownForSave(vaultService *vault.Service, pagePath string) (string, error) {
+	if vaultService == nil {
+		return "", nil
+	}
+	rawMarkdown, err := vaultService.ReadPage(pagePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	return string(rawMarkdown), nil
 }
 
 func handlePageDeleteRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, vaultService *vault.Service, pagePath string) {

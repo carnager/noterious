@@ -171,7 +171,7 @@ describe("detail helpers", function () {
       remind: "",
       who: [],
     });
-    await savePageMarkdown("notes/alpha", "# Alpha", function (pagePath: string) {
+    await savePageMarkdown("notes/alpha", "# Alpha", "# Original", function (pagePath: string) {
       return "encoded/" + pagePath;
     });
     await deleteTask("task-1");
@@ -200,7 +200,10 @@ describe("detail helpers", function () {
     expect(mockedFetchJSON).toHaveBeenNthCalledWith(3, "/api/pages/encoded/notes/alpha", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rawMarkdown: "# Alpha" }),
+      body: JSON.stringify({
+        rawMarkdown: "# Alpha",
+        baseRawMarkdown: "# Original",
+      }),
     });
     expect(mockedFetchJSON).toHaveBeenNthCalledWith(4, "/api/tasks/task-1", {
       method: "DELETE",

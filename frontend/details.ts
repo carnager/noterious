@@ -149,11 +149,15 @@ export async function deleteTask(ref: string): Promise<void> {
 export async function savePageMarkdown(
   pagePath: string,
   markdownToSave: string,
+  baseRawMarkdown: string,
   encodePath: (pagePath: string) => string
 ): Promise<PageRecord> {
   return fetchJSON<PageRecord>("/api/pages/" + encodePath(pagePath), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rawMarkdown: markdownToSave }),
+    body: JSON.stringify({
+      rawMarkdown: markdownToSave,
+      baseRawMarkdown,
+    }),
   });
 }

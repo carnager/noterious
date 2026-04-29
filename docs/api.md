@@ -190,6 +190,20 @@ It supports:
 }
 ```
 
+`PUT /api/pages/{page}` writes raw markdown. Clients may optionally include the
+markdown they originally loaded:
+
+```json
+{
+  "rawMarkdown": "# Updated note\n",
+  "baseRawMarkdown": "# Original note\n"
+}
+```
+
+When `baseRawMarkdown` is present and the page changed on the server in the
+meantime, Noterious attempts a clean automatic three-way merge for
+non-overlapping line edits. Overlapping edits return `409`.
+
 `GET /api/pages/{page}/derived` returns additional derived state including:
 
 - table of contents

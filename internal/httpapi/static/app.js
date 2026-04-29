@@ -2179,11 +2179,14 @@
       method: "DELETE"
     });
   }
-  async function savePageMarkdown(pagePath, markdownToSave, encodePath) {
+  async function savePageMarkdown(pagePath, markdownToSave, baseRawMarkdown, encodePath) {
     return fetchJSON("/api/pages/" + encodePath(pagePath), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rawMarkdown: markdownToSave })
+      body: JSON.stringify({
+        rawMarkdown: markdownToSave,
+        baseRawMarkdown
+      })
     });
   }
   var init_details = __esm({
@@ -7369,6 +7372,229 @@
     }
   });
 
+  // frontend/textMerge.ts
+  function mergeText(base, local, remote) {
+    if (local === remote) {
+      return local;
+    }
+    if (remote === base) {
+      return local;
+    }
+    if (local === base) {
+      return remote;
+    }
+    const baseLines = splitLines(base);
+    const localEdits = diffEdits(baseLines, splitLines(local));
+    const remoteEdits = diffEdits(baseLines, splitLines(remote));
+    if (!localEdits.length) {
+      return remote;
+    }
+    if (!remoteEdits.length) {
+      return local;
+    }
+    return joinLines(mergeEdits(baseLines, localEdits, remoteEdits));
+  }
+  function splitLines(text) {
+    const lines = [];
+    let start = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      if (text[index] !== "\n") {
+        continue;
+      }
+      lines.push(text.slice(start, index));
+      start = index + 1;
+    }
+    lines.push(text.slice(start));
+    return lines;
+  }
+  function joinLines(lines) {
+    if (!lines.length) {
+      return "";
+    }
+    return lines.join("\n");
+  }
+  function diffEdits(base, variant) {
+    const n = base.length;
+    const m = variant.length;
+    const lcs = Array.from({ length: n + 1 }, function() {
+      return Array.from({ length: m + 1 }, function() {
+        return 0;
+      });
+    });
+    for (let i2 = n - 1; i2 >= 0; i2 -= 1) {
+      for (let j2 = m - 1; j2 >= 0; j2 -= 1) {
+        if (base[i2] === variant[j2]) {
+          lcs[i2][j2] = lcs[i2 + 1][j2 + 1] + 1;
+          continue;
+        }
+        lcs[i2][j2] = Math.max(lcs[i2 + 1][j2], lcs[i2][j2 + 1]);
+      }
+    }
+    const edits = [];
+    let i = 0;
+    let j = 0;
+    let active = false;
+    let start = 0;
+    let replacement = [];
+    const flush = function(baseEnd) {
+      if (!active) {
+        return;
+      }
+      edits.push({
+        baseStart: start,
+        baseEnd,
+        newLines: replacement.slice()
+      });
+      active = false;
+      replacement = [];
+    };
+    while (i < n || j < m) {
+      if (i < n && j < m && base[i] === variant[j]) {
+        flush(i);
+        i += 1;
+        j += 1;
+        continue;
+      }
+      if (!active) {
+        active = true;
+        start = i;
+      }
+      if (j < m && (i === n || lcs[i][j + 1] >= lcs[i + 1][j])) {
+        replacement.push(variant[j]);
+        j += 1;
+        continue;
+      }
+      if (i < n) {
+        i += 1;
+      }
+    }
+    flush(i);
+    return edits;
+  }
+  function mergeEdits(base, localEdits, remoteEdits) {
+    const merged = [];
+    let cursor = 0;
+    let localIndex = 0;
+    let remoteIndex = 0;
+    while (cursor < base.length || localIndex < localEdits.length || remoteIndex < remoteEdits.length) {
+      let nextStart = base.length;
+      if (localIndex < localEdits.length && localEdits[localIndex].baseStart < nextStart) {
+        nextStart = localEdits[localIndex].baseStart;
+      }
+      if (remoteIndex < remoteEdits.length && remoteEdits[remoteIndex].baseStart < nextStart) {
+        nextStart = remoteEdits[remoteIndex].baseStart;
+      }
+      if (cursor < nextStart) {
+        merged.push(...base.slice(cursor, nextStart));
+        cursor = nextStart;
+      }
+      const localEdit = localIndex < localEdits.length && localEdits[localIndex].baseStart === cursor ? localEdits[localIndex] : null;
+      const remoteEdit = remoteIndex < remoteEdits.length && remoteEdits[remoteIndex].baseStart === cursor ? remoteEdits[remoteIndex] : null;
+      if (!localEdit && !remoteEdit) {
+        if (cursor < base.length) {
+          merged.push(...base.slice(cursor));
+          cursor = base.length;
+          continue;
+        }
+        return merged;
+      }
+      if (localEdit && remoteEdit) {
+        if (editsEqual(localEdit, remoteEdit)) {
+          merged.push(...localEdit.newLines);
+          cursor = Math.max(cursor, Math.max(localEdit.baseEnd, remoteEdit.baseEnd));
+          localIndex += 1;
+          remoteIndex += 1;
+          continue;
+        }
+        if (localEdit.baseStart === localEdit.baseEnd && remoteEdit.baseStart < remoteEdit.baseEnd) {
+          merged.push(...localEdit.newLines, ...remoteEdit.newLines);
+          cursor = remoteEdit.baseEnd;
+          localIndex += 1;
+          remoteIndex += 1;
+          continue;
+        }
+        if (remoteEdit.baseStart === remoteEdit.baseEnd && localEdit.baseStart < localEdit.baseEnd) {
+          merged.push(...remoteEdit.newLines, ...localEdit.newLines);
+          cursor = localEdit.baseEnd;
+          localIndex += 1;
+          remoteIndex += 1;
+          continue;
+        }
+        throw new TextMergeConflictError();
+      }
+      if (localEdit) {
+        if (remoteIndex < remoteEdits.length && remoteEdits[remoteIndex].baseStart < localEdit.baseEnd) {
+          throw new TextMergeConflictError();
+        }
+        merged.push(...localEdit.newLines);
+        cursor = localEdit.baseEnd;
+        localIndex += 1;
+        continue;
+      }
+      if (localIndex < localEdits.length && localEdits[localIndex].baseStart < remoteEdit.baseEnd) {
+        throw new TextMergeConflictError();
+      }
+      merged.push(...remoteEdit.newLines);
+      cursor = remoteEdit.baseEnd;
+      remoteIndex += 1;
+    }
+    return merged;
+  }
+  function editsEqual(left, right) {
+    if (left.baseStart !== right.baseStart || left.baseEnd !== right.baseEnd || left.newLines.length !== right.newLines.length) {
+      return false;
+    }
+    for (let index = 0; index < left.newLines.length; index += 1) {
+      if (left.newLines[index] !== right.newLines[index]) {
+        return false;
+      }
+    }
+    return true;
+  }
+  var TextMergeConflictError;
+  var init_textMerge = __esm({
+    "frontend/textMerge.ts"() {
+      "use strict";
+      TextMergeConflictError = class extends Error {
+        constructor(message = "automatic merge found overlapping edits") {
+          super(message);
+          this.name = "TextMergeConflictError";
+        }
+      };
+    }
+  });
+
+  // frontend/remoteSync.ts
+  function hasUnsafeRemoteSyncUIState(state) {
+    return Boolean(
+      state.propertyDraftOpen || state.inlineTableEditorOpen || state.inlineTableEditorFocused || state.noteTitleFocused
+    );
+  }
+  function buildRemoteSyncPlan(input) {
+    if (input.unsafeUIState) {
+      return { action: "warn", reason: "unsafe-ui-state" };
+    }
+    try {
+      const markdown = mergeText(input.baseMarkdown, input.localMarkdown, input.remoteMarkdown);
+      return {
+        action: "apply",
+        markdown,
+        mergedLocalEdits: input.localMarkdown !== input.baseMarkdown && input.remoteMarkdown !== input.baseMarkdown && markdown !== input.remoteMarkdown
+      };
+    } catch (error) {
+      if (error instanceof TextMergeConflictError) {
+        return { action: "warn", reason: "conflict" };
+      }
+      throw error;
+    }
+  }
+  var init_remoteSync = __esm({
+    "frontend/remoteSync.ts"() {
+      "use strict";
+      init_textMerge();
+    }
+  });
+
   // frontend/themes.ts
   function builtinThemeLibrary() {
     return builtinThemes.map(cloneThemeRecord);
@@ -9031,6 +9257,7 @@
       init_sessionUi();
       init_settingsUi();
       init_slashMenu();
+      init_remoteSync();
       init_themes();
       (function() {
         let pwaRegistrationPromise = null;
@@ -9148,6 +9375,7 @@
           settingsSection: "appearance",
           remoteChangePage: "",
           remoteChangeHasLocalEdits: false,
+          remoteChangeSyncToken: 0,
           expectedLocalChangePage: "",
           expectedLocalChangeCount: 0,
           expectedLocalChangeUntil: 0
@@ -9532,7 +9760,7 @@
             refreshCurrentDetail(true);
           }
         }
-        function shouldPromptForRemoteReload(eventName, payload) {
+        function isSelectedExternalPageChange(eventName, payload) {
           if (eventName !== "page.changed" || !state.selectedPage) {
             return false;
           }
@@ -9548,7 +9776,110 @@
           if (consumeExpectedLocalPageChange(eventPage)) {
             return false;
           }
-          return markdownEditorHasFocus(state, els) || inlineTableEditorHasFocus2() || inlineTableEditorOpen2();
+          return true;
+        }
+        function applyLoadedPageDetailState(pagePath, loaded, nextMarkdown) {
+          const page = loaded.page;
+          const derived = loaded.derived;
+          state.currentPage = page;
+          state.currentDerived = derived;
+          state.currentMarkdown = nextMarkdown;
+          state.originalMarkdown = page.rawMarkdown || "";
+          if (state.remoteChangePage && state.remoteChangePage === (page.page || pagePath)) {
+            clearRemoteChangeToast();
+          }
+          clearAutosaveTimer();
+          clearPropertyDraft();
+          const templateFillActive = openTemplateFillDraft(page);
+          state.selectedSavedQueryPayload = null;
+          els.detailPath.textContent = page.page || page.path || pagePath;
+          setNoteHeadingValue(page.title || page.page || pagePath, true);
+          setStructuredViews(
+            "Page",
+            page.title || page.page,
+            {
+              page: page.page,
+              title: page.title,
+              frontmatter: page.frontmatter,
+              links: page.links,
+              tasks: page.tasks
+            },
+            {
+              toc: derived.toc,
+              backlinks: derived.backlinks,
+              linkCounts: derived.linkCounts,
+              taskCounts: derived.taskCounts,
+              queryBlocks: derived.queryBlocks
+            },
+            nextMarkdown
+          );
+          renderNoteStudio();
+          renderPageTasks2();
+          renderPageTags2();
+          renderPageContext2();
+          renderPageProperties2();
+          return templateFillActive;
+        }
+        function restoreCurrentEditorViewport(selectionStart, selectionEnd, scrollTop, focusEditor) {
+          const clampedStart = Math.max(0, Math.min(selectionStart, state.currentMarkdown.length));
+          const clampedEnd = Math.max(0, Math.min(selectionEnd, state.currentMarkdown.length));
+          setMarkdownEditorSelection(state, els, clampedStart, clampedEnd);
+          setMarkdownEditorScrollTop(state, els, scrollTop);
+          if (focusEditor) {
+            focusMarkdownEditor(state, els, { preventScroll: true });
+            setMarkdownEditorSelection(state, els, clampedStart, clampedEnd);
+          }
+        }
+        function hasUnsafeRemoteSyncUIState2() {
+          return hasUnsafeRemoteSyncUIState({
+            propertyDraftOpen: Boolean(state.propertyDraft),
+            inlineTableEditorOpen: inlineTableEditorOpen2(),
+            inlineTableEditorFocused: inlineTableEditorHasFocus2(),
+            noteTitleFocused: document.activeElement === els.noteHeading
+          });
+        }
+        async function syncSelectedRemotePage(pagePath) {
+          if (!pagePath || state.selectedPage !== pagePath) {
+            return;
+          }
+          state.remoteChangeSyncToken += 1;
+          const syncToken = state.remoteChangeSyncToken;
+          try {
+            const loaded = await loadPageDetailData(pagePath, encodePath, "", null);
+            if (state.remoteChangeSyncToken !== syncToken || state.selectedPage !== pagePath) {
+              return;
+            }
+            const remoteMarkdown = loaded.page.rawMarkdown || "";
+            const baseMarkdown = state.originalMarkdown;
+            const localMarkdown = state.currentMarkdown;
+            const selectionStart = markdownEditorSelectionStart(state, els);
+            const selectionEnd = markdownEditorSelectionEnd(state, els);
+            const scrollTop = markdownEditorScrollTop(state, els);
+            const focusEditor = markdownEditorHasFocus(state, els);
+            const plan = buildRemoteSyncPlan({
+              baseMarkdown,
+              localMarkdown,
+              remoteMarkdown,
+              unsafeUIState: hasUnsafeRemoteSyncUIState2()
+            });
+            if (plan.action === "warn") {
+              showRemoteChangeToast(pagePath);
+              return;
+            }
+            const templateFillActive = applyLoadedPageDetailState(pagePath, loaded, plan.markdown);
+            restoreCurrentEditorViewport(selectionStart, selectionEnd, scrollTop, focusEditor && !templateFillActive);
+            setNoteStatus(
+              plan.mergedLocalEdits ? "Merged remote edits into " + pagePath + "." : "Updated " + pagePath + " from remote changes."
+            );
+          } catch (error) {
+            showRemoteChangeToast(pagePath);
+            setNoteStatus("Remote refresh failed: " + errorMessage(error));
+            return;
+          } finally {
+            void loadPages();
+            void loadTasks();
+            void loadSavedQueryTree();
+          }
         }
         function clearAutosaveTimer() {
           if (!state.autosaveTimer) {
@@ -11208,40 +11539,7 @@
               state.pendingPageLineFocus
             );
             const page = loaded.page;
-            const derived = loaded.derived;
-            state.currentPage = page;
-            state.currentDerived = derived;
-            state.currentMarkdown = page.rawMarkdown || "";
-            state.originalMarkdown = page.rawMarkdown || "";
-            if (state.remoteChangePage && state.remoteChangePage === (page.page || pagePath)) {
-              clearRemoteChangeToast();
-            }
-            clearAutosaveTimer();
-            clearPropertyDraft();
-            const templateFillActive = openTemplateFillDraft(page);
-            state.selectedSavedQueryPayload = null;
-            els.detailPath.textContent = page.page || page.path || pagePath;
-            setNoteHeadingValue(page.title || page.page || pagePath, true);
-            setStructuredViews(
-              "Page",
-              page.title || page.page,
-              {
-                page: page.page,
-                title: page.title,
-                frontmatter: page.frontmatter,
-                links: page.links,
-                tasks: page.tasks
-              },
-              {
-                toc: derived.toc,
-                backlinks: derived.backlinks,
-                linkCounts: derived.linkCounts,
-                taskCounts: derived.taskCounts,
-                queryBlocks: derived.queryBlocks
-              },
-              page.rawMarkdown || ""
-            );
-            renderNoteStudio();
+            const templateFillActive = applyLoadedPageDetailState(pagePath, loaded, page.rawMarkdown || "");
             if (shouldFocusEditor && !templateFillActive && state.markdownEditorApi && !blockingOverlayOpen(els) && !inlineTableEditorOpen2()) {
               state.markdownEditorApi.setHighlightedLine(
                 typeof pendingLineFocus === "number" && pendingLineFocus > 0 ? pendingLineFocus : null
@@ -11270,10 +11568,6 @@
                 }
               }, 0);
             }
-            renderPageTasks2();
-            renderPageTags2();
-            renderPageContext2();
-            renderPageProperties2();
           } catch (error) {
             clearPageSelection();
             els.detailKind.textContent = "Page";
@@ -12283,21 +12577,43 @@
           }
           clearAutosaveTimer();
           const markdownToSave = state.currentMarkdown;
+          const baseMarkdown = state.originalMarkdown;
           setNoteStatus("Saving " + state.selectedPage + "...");
           try {
             noteLocalPageChange(state.selectedPage);
-            const payload = await savePageMarkdown(state.selectedPage, markdownToSave, encodePath);
+            const payload = await savePageMarkdown(state.selectedPage, markdownToSave, baseMarkdown, encodePath);
+            const mergedOnServer = (payload.rawMarkdown || markdownToSave) !== markdownToSave;
             state.currentPage = payload;
             state.originalMarkdown = payload.rawMarkdown || markdownToSave;
             if (state.currentMarkdown === markdownToSave) {
               state.currentMarkdown = payload.rawMarkdown || markdownToSave;
             }
-            setNoteStatus("Saved " + state.selectedPage + ".");
+            if (mergedOnServer) {
+              const selectionStart = markdownEditorSelectionStart(state, els);
+              const selectionEnd = markdownEditorSelectionEnd(state, els);
+              const scrollTop = markdownEditorScrollTop(state, els);
+              setMarkdownEditorValue(state, els, state.currentMarkdown);
+              els.rawView.textContent = state.currentMarkdown;
+              setMarkdownEditorSelection(
+                state,
+                els,
+                Math.max(0, Math.min(selectionStart, state.currentMarkdown.length)),
+                Math.max(0, Math.min(selectionEnd, state.currentMarkdown.length))
+              );
+              setMarkdownEditorScrollTop(state, els, scrollTop);
+              setNoteStatus("Merged remote edits into " + state.selectedPage + ".");
+            } else {
+              setNoteStatus("Saved " + state.selectedPage + ".");
+            }
             await loadPages();
             if (!markdownEditorHasFocus(state, els) && !inlineTableEditorHasFocus2()) {
               await loadPageDetail(state.selectedPage, true, false);
             }
           } catch (error) {
+            if (error instanceof HTTPError && error.status === 409) {
+              setNoteStatus("Save conflict on " + state.selectedPage + ". Automatic merge found overlapping edits.");
+              return;
+            }
             setNoteStatus("Save failed: " + errorMessage(error));
             if (hasUnsavedPageChanges()) {
               scheduleAutosave();
@@ -12339,11 +12655,15 @@
                 payload = { raw: messageEvent.data };
               }
               addEventLine(eventName, payload, false);
-              if (shouldPromptForRemoteReload(eventName, payload)) {
-                loadPages();
-                loadTasks();
-                loadSavedQueryTree();
-                showRemoteChangeToast(String(payload.page || state.selectedPage || ""));
+              if (isSelectedExternalPageChange(eventName, payload)) {
+                if (hasUnsafeRemoteSyncUIState2()) {
+                  loadPages();
+                  loadTasks();
+                  loadSavedQueryTree();
+                  showRemoteChangeToast(String(payload.page || state.selectedPage || ""));
+                  return;
+                }
+                void syncSelectedRemotePage(String(payload.page || state.selectedPage || ""));
                 return;
               }
               debounceRefresh();
