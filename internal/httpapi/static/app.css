@@ -3382,6 +3382,46 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   gap: 0.7rem;
 }
 
+.settings-backup-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.72rem;
+  margin-top: 0.95rem;
+  padding: 0.82rem 0.88rem;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent),
+    var(--sidebar-soft);
+}
+
+.settings-backup-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.16rem;
+}
+
+.settings-backup-head strong {
+  font-size: 0.88rem;
+}
+
+.settings-backup-head span,
+.settings-backup-note {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.settings-backup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.settings-backup-note {
+  margin: 0;
+}
+
 .settings-theme-actions {
   display: flex;
   gap: 0.5rem;
@@ -3636,6 +3676,10 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 
   .settings-template-head {
     flex-direction: column;
+  }
+
+  .settings-backup-grid {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -187,6 +187,21 @@ CLI flags currently support:
 
 CLI flags override the corresponding environment variables.
 
+## Backups
+
+For a real deployment backup, back up both:
+
+- the vault root
+- the data dir
+
+The vault contains the notes and uploaded files. The data dir contains
+server-managed state such as history, trash, custom themes, auth state, and
+the SQLite index. The index is rebuildable, but the rest of the data-dir state
+is not.
+
+See [docs/backups.md](/home/carnager/Code/noterious/docs/backups.md:1) for the
+full backup and restore guidance.
+
 ## Development
 
 Rebuild the embedded UI after frontend changes:
@@ -208,6 +223,7 @@ The UI is served through Go `embed`, so after rebuilding the frontend you must r
 - [docs/api.md](/home/carnager/Code/noterious/docs/api.md:1) for HTTP endpoints
 - [docs/query-language.md](/home/carnager/Code/noterious/docs/query-language.md:1) for embedded query syntax
 - [docs/architecture.md](/home/carnager/Code/noterious/docs/architecture.md:1) for runtime/storage structure
+- [docs/backups.md](/home/carnager/Code/noterious/docs/backups.md:1) for deployment backup/restore guidance
 - [docs/templates.md](/home/carnager/Code/noterious/docs/templates.md:1) for vault-native note templates
 - [docs/themes.md](/home/carnager/Code/noterious/docs/themes.md:1) for custom theme authoring
 

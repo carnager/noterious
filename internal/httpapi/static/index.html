@@ -582,6 +582,27 @@
                 <input id="settings-ntfy-interval" type="text" placeholder="1m" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
             </div>
+            <div class="settings-backup-card">
+              <div class="settings-backup-head">
+                <strong>Backup These Paths</strong>
+                <span>Full deployment backup, not just note history.</span>
+              </div>
+              <div class="settings-backup-grid">
+                <label class="search">
+                  <span>Vault Root</span>
+                  <input id="settings-backup-vault-path" type="text" readonly>
+                </label>
+                <label class="search">
+                  <span>Data Dir</span>
+                  <input id="settings-backup-data-dir" type="text" readonly>
+                </label>
+                <label class="search modal-field-wide">
+                  <span>Index DB</span>
+                  <input id="settings-backup-database" type="text" readonly>
+                </label>
+              </div>
+              <p class="settings-backup-note" id="settings-backup-note">The SQLite index is rebuildable from the vault, but history, trash, themes, and auth state live under the data dir.</p>
+            </div>
           </section>
 
           <section class="settings-group-card hidden" id="settings-group-user-notifications">

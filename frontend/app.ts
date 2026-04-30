@@ -340,6 +340,7 @@ interface AppState {
   settingsRestartRequired: boolean;
   settingsLoaded: boolean;
   userSettingsLoaded: boolean;
+  serverMeta: MetaResponse | null;
   homePage: string;
   topLevelFoldersAsVaults: boolean;
   themeLibraryLoaded: boolean;
@@ -476,6 +477,7 @@ interface TreeContextMenuState {
     settingsRestartRequired: false,
     settingsLoaded: false,
     userSettingsLoaded: false,
+    serverMeta: null,
     homePage: "",
     topLevelFoldersAsVaults: false,
     themeLibraryLoaded: false,
@@ -691,6 +693,10 @@ interface TreeContextMenuState {
     saveSettings: requiredElement<HTMLButtonElement>("save-settings"),
     settingsVaultPath: requiredElement<HTMLInputElement>("settings-vault-path"),
     settingsNtfyInterval: requiredElement<HTMLInputElement>("settings-ntfy-interval"),
+    settingsBackupVaultPath: requiredElement<HTMLInputElement>("settings-backup-vault-path"),
+    settingsBackupDataDir: requiredElement<HTMLInputElement>("settings-backup-data-dir"),
+    settingsBackupDatabase: requiredElement<HTMLInputElement>("settings-backup-database"),
+    settingsBackupNote: requiredElement<HTMLElement>("settings-backup-note"),
     settingsUserNtfyTopicUrl: requiredElement<HTMLInputElement>("settings-user-ntfy-topic-url"),
     settingsUserNtfyToken: requiredElement<HTMLInputElement>("settings-user-ntfy-token"),
     settingsUserTopLevelVaults: requiredElement<HTMLInputElement>("settings-user-top-level-vaults"),
@@ -2773,6 +2779,7 @@ interface TreeContextMenuState {
   async function loadMeta() {
     try {
       const meta = await fetchJSON<MetaResponse>("/api/meta");
+      state.serverMeta = meta;
       const runtimeVaultPath = meta.runtimeVault && meta.runtimeVault.vaultPath
         ? meta.runtimeVault.vaultPath
         : "(none)";
@@ -2790,9 +2797,16 @@ interface TreeContextMenuState {
       }
       setMetaPills(pills);
       renderVaultHealth(meta);
+      if (els.settingsModalShell && !els.settingsModalShell.classList.contains("hidden")) {
+        renderSettingsForm();
+      }
     } catch (error) {
+      state.serverMeta = null;
       setMetaPills(["Meta error", errorMessage(error)]);
       renderVaultHealth(null);
+      if (els.settingsModalShell && !els.settingsModalShell.classList.contains("hidden")) {
+        renderSettingsForm();
+      }
     }
   }
 

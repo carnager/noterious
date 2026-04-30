@@ -1,6 +1,6 @@
 import { clearNode } from "./dom";
 import { analyzeHotkeys, detectHotkeyPlatform, hotkeyDefinitions, hotkeyDefaultGuidance } from "./hotkeys";
-import type { AppSettings as SettingsModel, FrontmatterKind, NoteTemplate, NoteTemplateField, ThemeRecord } from "./types";
+import type { AppSettings as SettingsModel, FrontmatterKind, MetaResponse, NoteTemplate, NoteTemplateField, ThemeRecord } from "./types";
 import type { Hotkeys } from "./types";
 
 export type SettingsSection = "appearance" | "templates" | "notifications" | "vault";
@@ -13,6 +13,7 @@ export interface SettingsUiState {
   themeLibrary: ThemeRecord[];
   settingsTemplateDrafts: NoteTemplate[];
   settings: SettingsModel;
+  serverMeta: MetaResponse | null;
 }
 
 export interface SettingsUiElements {
@@ -29,6 +30,10 @@ export interface SettingsUiElements {
   saveSettings: HTMLButtonElement;
   settingsVaultPath: HTMLInputElement;
   settingsNtfyInterval: HTMLInputElement;
+  settingsBackupVaultPath: HTMLInputElement;
+  settingsBackupDataDir: HTMLInputElement;
+  settingsBackupDatabase: HTMLInputElement;
+  settingsBackupNote: HTMLElement;
   settingsUserNtfyTopicUrl: HTMLInputElement;
   settingsUserNtfyToken: HTMLInputElement;
   settingsUserTopLevelVaults: HTMLInputElement;
@@ -390,6 +395,17 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
   els.saveSettings.disabled = false;
   els.settingsVaultPath.value = state.settings.vault.vaultPath || "";
   els.settingsNtfyInterval.value = state.settings.notifications.ntfyInterval || "1m";
+  const runtimeVaultPath = state.serverMeta && state.serverMeta.runtimeVault
+    ? String(state.serverMeta.runtimeVault.vaultPath || "").trim()
+    : "";
+  const dataDir = state.serverMeta ? String(state.serverMeta.dataDir || "").trim() : "";
+  const database = state.serverMeta ? String(state.serverMeta.database || "").trim() : "";
+  els.settingsBackupVaultPath.value = runtimeVaultPath || "(unknown)";
+  els.settingsBackupDataDir.value = dataDir || "(unknown)";
+  els.settingsBackupDatabase.value = database || "(unknown)";
+  els.settingsBackupNote.textContent = database
+    ? "Back up the vault root and the full data dir. The SQLite index can be rebuilt, but page history, trash, themes, auth state, and other server-managed files live under the data dir."
+    : "Back up the vault root and the full data dir. The vault is not the whole deployment state.";
   els.settingsUserNtfyTopicUrl.value = state.settings.userNotifications.ntfyTopicUrl || "";
   els.settingsUserNtfyToken.value = state.settings.userNotifications.ntfyToken || "";
   els.settingsUserTopLevelVaults.checked = state.topLevelFoldersAsVaults;

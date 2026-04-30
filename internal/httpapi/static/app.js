@@ -6732,6 +6732,13 @@
     els.saveSettings.disabled = false;
     els.settingsVaultPath.value = state.settings.vault.vaultPath || "";
     els.settingsNtfyInterval.value = state.settings.notifications.ntfyInterval || "1m";
+    const runtimeVaultPath = state.serverMeta && state.serverMeta.runtimeVault ? String(state.serverMeta.runtimeVault.vaultPath || "").trim() : "";
+    const dataDir = state.serverMeta ? String(state.serverMeta.dataDir || "").trim() : "";
+    const database = state.serverMeta ? String(state.serverMeta.database || "").trim() : "";
+    els.settingsBackupVaultPath.value = runtimeVaultPath || "(unknown)";
+    els.settingsBackupDataDir.value = dataDir || "(unknown)";
+    els.settingsBackupDatabase.value = database || "(unknown)";
+    els.settingsBackupNote.textContent = database ? "Back up the vault root and the full data dir. The SQLite index can be rebuilt, but page history, trash, themes, auth state, and other server-managed files live under the data dir." : "Back up the vault root and the full data dir. The vault is not the whole deployment state.";
     els.settingsUserNtfyTopicUrl.value = state.settings.userNotifications.ntfyTopicUrl || "";
     els.settingsUserNtfyToken.value = state.settings.userNotifications.ntfyToken || "";
     els.settingsUserTopLevelVaults.checked = state.topLevelFoldersAsVaults;
@@ -9391,6 +9398,7 @@
           settingsRestartRequired: false,
           settingsLoaded: false,
           userSettingsLoaded: false,
+          serverMeta: null,
           homePage: "",
           topLevelFoldersAsVaults: false,
           themeLibraryLoaded: false,
@@ -9605,6 +9613,10 @@
           saveSettings: requiredElement("save-settings"),
           settingsVaultPath: requiredElement("settings-vault-path"),
           settingsNtfyInterval: requiredElement("settings-ntfy-interval"),
+          settingsBackupVaultPath: requiredElement("settings-backup-vault-path"),
+          settingsBackupDataDir: requiredElement("settings-backup-data-dir"),
+          settingsBackupDatabase: requiredElement("settings-backup-database"),
+          settingsBackupNote: requiredElement("settings-backup-note"),
           settingsUserNtfyTopicUrl: requiredElement("settings-user-ntfy-topic-url"),
           settingsUserNtfyToken: requiredElement("settings-user-ntfy-token"),
           settingsUserTopLevelVaults: requiredElement("settings-user-top-level-vaults"),
@@ -11450,6 +11462,7 @@
         async function loadMeta() {
           try {
             const meta = await fetchJSON("/api/meta");
+            state.serverMeta = meta;
             const runtimeVaultPath = meta.runtimeVault && meta.runtimeVault.vaultPath ? meta.runtimeVault.vaultPath : "(none)";
             const pills = [
               "Listening " + meta.listenAddr,
@@ -11465,9 +11478,16 @@
             }
             setMetaPills(pills);
             renderVaultHealth(meta);
+            if (els.settingsModalShell && !els.settingsModalShell.classList.contains("hidden")) {
+              renderSettingsForm2();
+            }
           } catch (error) {
+            state.serverMeta = null;
             setMetaPills(["Meta error", errorMessage(error)]);
             renderVaultHealth(null);
+            if (els.settingsModalShell && !els.settingsModalShell.classList.contains("hidden")) {
+              renderSettingsForm2();
+            }
           }
         }
         async function loadPages() {
