@@ -33,6 +33,7 @@ export interface SettingsUiElements {
   settingsBackupVaultPath: HTMLInputElement;
   settingsBackupDataDir: HTMLInputElement;
   settingsBackupDatabase: HTMLInputElement;
+  settingsBackupDownload: HTMLButtonElement;
   settingsBackupNote: HTMLElement;
   settingsUserNtfyTopicUrl: HTMLInputElement;
   settingsUserNtfyToken: HTMLInputElement;
@@ -353,9 +354,10 @@ function renderTemplateDrafts(state: SettingsUiState, els: SettingsUiElements): 
 export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElements): void {
   renderSettingsModal(state, els);
 
-  const serverFields: Array<HTMLInputElement | HTMLSelectElement> = [
+  const serverFields: Array<HTMLInputElement | HTMLSelectElement | HTMLButtonElement> = [
     els.settingsVaultPath,
     els.settingsNtfyInterval,
+    els.settingsBackupDownload,
   ];
   const userFields: Array<HTMLInputElement | HTMLSelectElement> = [
     els.settingsUserNtfyTopicUrl,
@@ -403,6 +405,7 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
   els.settingsBackupVaultPath.value = runtimeVaultPath || "(unknown)";
   els.settingsBackupDataDir.value = dataDir || "(unknown)";
   els.settingsBackupDatabase.value = database || "(unknown)";
+  els.settingsBackupDownload.disabled = !state.serverMeta;
   els.settingsBackupNote.textContent = database
     ? "Back up the vault root and the full data dir. The SQLite index can be rebuilt, but page history, trash, themes, auth state, and other server-managed files live under the data dir."
     : "Back up the vault root and the full data dir. The vault is not the whole deployment state.";

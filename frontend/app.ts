@@ -1,5 +1,9 @@
 import { normalizePageDraftPath, pageTitleFromPath } from "./commands";
 import {
+  backupManifestFilename,
+  buildBackupManifest,
+} from "./backupManifest";
+import {
   cloneClientPreferences,
   defaultClientPreferences,
   loadStoredClientPreferences,
@@ -701,6 +705,7 @@ interface TreeContextMenuState {
     settingsBackupVaultPath: requiredElement<HTMLInputElement>("settings-backup-vault-path"),
     settingsBackupDataDir: requiredElement<HTMLInputElement>("settings-backup-data-dir"),
     settingsBackupDatabase: requiredElement<HTMLInputElement>("settings-backup-database"),
+    settingsBackupDownload: requiredElement<HTMLButtonElement>("settings-backup-download"),
     settingsBackupNote: requiredElement<HTMLElement>("settings-backup-note"),
     settingsUserNtfyTopicUrl: requiredElement<HTMLInputElement>("settings-user-ntfy-topic-url"),
     settingsUserNtfyToken: requiredElement<HTMLInputElement>("settings-user-ntfy-token"),
@@ -4000,6 +4005,34 @@ interface TreeContextMenuState {
     }
   }
 
+  function downloadTextFile(filename: string, content: string, contentType: string): void {
+    const blob = new Blob([content], { type: contentType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 0);
+  }
+
+  function downloadBackupManifest(): void {
+    if (!state.serverMeta) {
+      setNoteStatus("Backup manifest unavailable until server metadata loads.");
+      return;
+    }
+    const manifest = buildBackupManifest(state.serverMeta);
+    downloadTextFile(
+      backupManifestFilename(state.serverMeta),
+      JSON.stringify(manifest, null, 2) + "\n",
+      "application/json"
+    );
+    els.settingsStatus.textContent = "Backup manifest downloaded.";
+  }
+
   function renderDocumentResults() {
     renderDocumentsUploadHint();
     state.documentSelectionIndex = renderDocumentResultsUI({
@@ -5234,6 +5267,9 @@ interface TreeContextMenuState {
     on(els.settingsThemeUpload, "click", function () {
       els.settingsThemeUploadInput.value = "";
       els.settingsThemeUploadInput.click();
+    });
+    on(els.settingsBackupDownload, "click", function () {
+      downloadBackupManifest();
     });
     on(els.settingsThemeUploadInput, "change", function () {
       const file = els.settingsThemeUploadInput.files && els.settingsThemeUploadInput.files[0]

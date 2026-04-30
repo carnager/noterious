@@ -3425,6 +3425,11 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   gap: 0.7rem;
 }
 
+.settings-backup-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .settings-backup-note {
   margin: 0;
 }

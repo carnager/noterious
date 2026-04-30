@@ -344,6 +344,44 @@
     }
   });
 
+  // frontend/backupManifest.ts
+  function safeString(value, fallback = "") {
+    const trimmed = String(value || "").trim();
+    return trimmed || fallback;
+  }
+  function buildBackupManifest(meta) {
+    const runtimeVaultPath = safeString(meta.runtimeVault && meta.runtimeVault.vaultPath, "(unknown)");
+    const currentScopeVault = safeString(meta.currentVault && meta.currentVault.vaultPath);
+    return {
+      generatedAt: safeString(meta.serverTime, (/* @__PURE__ */ new Date()).toISOString()),
+      app: {
+        name: safeString(meta.name, "Noterious"),
+        listenAddr: safeString(meta.listenAddr, "(unknown)")
+      },
+      paths: {
+        vaultRoot: runtimeVaultPath,
+        dataDir: safeString(meta.dataDir, "(unknown)"),
+        database: safeString(meta.database, "(unknown)"),
+        currentScopeVault: currentScopeVault && currentScopeVault !== runtimeVaultPath ? currentScopeVault : void 0
+      },
+      restartRequired: Boolean(meta.restartRequired),
+      notes: [
+        "Back up the full vault root and the full data dir together.",
+        "The SQLite index database is rebuildable from the vault, but history, trash, themes, and auth state live under the data dir.",
+        "Restore by stopping the server, restoring vault + data dir, then starting the server again."
+      ]
+    };
+  }
+  function backupManifestFilename(meta) {
+    const isoTimestamp = safeString(meta.serverTime, (/* @__PURE__ */ new Date()).toISOString()).replace(/[:]/g, "-");
+    return "noterious-backup-manifest-" + isoTimestamp + ".json";
+  }
+  var init_backupManifest = __esm({
+    "frontend/backupManifest.ts"() {
+      "use strict";
+    }
+  });
+
   // frontend/documents.ts
   function normalizePath(value) {
     return String(value || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/").trim();
@@ -6709,7 +6747,8 @@
     renderSettingsModal(state, els);
     const serverFields = [
       els.settingsVaultPath,
-      els.settingsNtfyInterval
+      els.settingsNtfyInterval,
+      els.settingsBackupDownload
     ];
     const userFields = [
       els.settingsUserNtfyTopicUrl,
@@ -6752,6 +6791,7 @@
     els.settingsBackupVaultPath.value = runtimeVaultPath || "(unknown)";
     els.settingsBackupDataDir.value = dataDir || "(unknown)";
     els.settingsBackupDatabase.value = database || "(unknown)";
+    els.settingsBackupDownload.disabled = !state.serverMeta;
     els.settingsBackupNote.textContent = database ? "Back up the vault root and the full data dir. The SQLite index can be rebuilt, but page history, trash, themes, auth state, and other server-managed files live under the data dir." : "Back up the vault root and the full data dir. The vault is not the whole deployment state.";
     els.settingsUserNtfyTopicUrl.value = state.settings.userNotifications.ntfyTopicUrl || "";
     els.settingsUserNtfyToken.value = state.settings.userNotifications.ntfyToken || "";
@@ -9311,6 +9351,7 @@
   var require_app = __commonJS({
     "frontend/app.ts"() {
       init_commands();
+      init_backupManifest();
       init_clientPreferences();
       init_details();
       init_datetime();
@@ -9632,6 +9673,7 @@
           settingsBackupVaultPath: requiredElement("settings-backup-vault-path"),
           settingsBackupDataDir: requiredElement("settings-backup-data-dir"),
           settingsBackupDatabase: requiredElement("settings-backup-database"),
+          settingsBackupDownload: requiredElement("settings-backup-download"),
           settingsBackupNote: requiredElement("settings-backup-note"),
           settingsUserNtfyTopicUrl: requiredElement("settings-user-ntfy-topic-url"),
           settingsUserNtfyToken: requiredElement("settings-user-ntfy-token"),
@@ -12576,6 +12618,32 @@
             document.body.removeChild(textarea);
           }
         }
+        function downloadTextFile(filename, content, contentType) {
+          const blob = new Blob([content], { type: contentType });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.setTimeout(function() {
+            URL.revokeObjectURL(url);
+          }, 0);
+        }
+        function downloadBackupManifest() {
+          if (!state.serverMeta) {
+            setNoteStatus("Backup manifest unavailable until server metadata loads.");
+            return;
+          }
+          const manifest = buildBackupManifest(state.serverMeta);
+          downloadTextFile(
+            backupManifestFilename(state.serverMeta),
+            JSON.stringify(manifest, null, 2) + "\n",
+            "application/json"
+          );
+          els.settingsStatus.textContent = "Backup manifest downloaded.";
+        }
         function renderDocumentResults2() {
           renderDocumentsUploadHint();
           state.documentSelectionIndex = renderDocumentResults({
@@ -13760,6 +13828,9 @@
           on(els.settingsThemeUpload, "click", function() {
             els.settingsThemeUploadInput.value = "";
             els.settingsThemeUploadInput.click();
+          });
+          on(els.settingsBackupDownload, "click", function() {
+            downloadBackupManifest();
           });
           on(els.settingsThemeUploadInput, "change", function() {
             const file = els.settingsThemeUploadInput.files && els.settingsThemeUploadInput.files[0] ? els.settingsThemeUploadInput.files[0] : null;

@@ -53,6 +53,10 @@ That is enough to restore:
 - custom themes
 - auth state
 
+The Settings screen also exposes the resolved runtime paths and can download a
+small backup manifest JSON. That manifest is not the backup itself. It is only
+a record of which paths belong to the current deployment.
+
 ## Restore Strategy
 
 The safest restore order is:
