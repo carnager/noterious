@@ -34,7 +34,13 @@ export interface SettingsUiElements {
   settingsBackupDataDir: HTMLInputElement;
   settingsBackupDatabase: HTMLInputElement;
   settingsBackupDownload: HTMLButtonElement;
+  settingsBackupScript: HTMLButtonElement;
   settingsBackupNote: HTMLElement;
+  settingsRuntimeListenAddr: HTMLInputElement;
+  settingsRuntimeServerTime: HTMLInputElement;
+  settingsRuntimeCurrentVault: HTMLInputElement;
+  settingsRuntimeRestartRequired: HTMLInputElement;
+  settingsRuntimeHealth: HTMLInputElement;
   settingsUserNtfyTopicUrl: HTMLInputElement;
   settingsUserNtfyToken: HTMLInputElement;
   settingsUserTopLevelVaults: HTMLInputElement;
@@ -406,9 +412,28 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
   els.settingsBackupDataDir.value = dataDir || "(unknown)";
   els.settingsBackupDatabase.value = database || "(unknown)";
   els.settingsBackupDownload.disabled = !state.serverMeta;
+  els.settingsBackupScript.disabled = !state.serverMeta;
   els.settingsBackupNote.textContent = database
-    ? "Back up the vault root and the full data dir. The SQLite index can be rebuilt, but page history, trash, themes, auth state, and other server-managed files live under the data dir."
+    ? "Back up the vault root and the full data dir. Download the manifest for metadata, or the shell script for a ready-to-run archive command. The SQLite index can be rebuilt, but page history, trash, themes, auth state, and other server-managed files live under the data dir."
     : "Back up the vault root and the full data dir. The vault is not the whole deployment state.";
+  const currentVault = state.serverMeta && state.serverMeta.currentVault
+    ? String(state.serverMeta.currentVault.vaultPath || "").trim()
+    : "";
+  const serverTime = state.serverMeta ? String(state.serverMeta.serverTime || "").trim() : "";
+  const vaultHealth = state.serverMeta && state.serverMeta.vaultHealth
+    ? state.serverMeta.vaultHealth
+    : null;
+  els.settingsRuntimeListenAddr.value = state.serverMeta
+    ? String(state.serverMeta.listenAddr || "").trim() || "(unknown)"
+    : "(unknown)";
+  els.settingsRuntimeServerTime.value = serverTime || "(unknown)";
+  els.settingsRuntimeCurrentVault.value = currentVault || runtimeVaultPath || "(vault root)";
+  els.settingsRuntimeRestartRequired.value = state.serverMeta && state.serverMeta.restartRequired ? "Yes" : "No";
+  els.settingsRuntimeHealth.value = !state.serverMeta
+    ? "(unknown)"
+    : vaultHealth && vaultHealth.healthy
+      ? "Healthy"
+      : String(vaultHealth && vaultHealth.message ? vaultHealth.message : "Unavailable");
   els.settingsUserNtfyTopicUrl.value = state.settings.userNotifications.ntfyTopicUrl || "";
   els.settingsUserNtfyToken.value = state.settings.userNotifications.ntfyToken || "";
   els.settingsUserTopLevelVaults.checked = state.topLevelFoldersAsVaults;

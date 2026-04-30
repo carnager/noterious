@@ -4,6 +4,10 @@ import {
   buildBackupManifest,
 } from "./backupManifest";
 import {
+  backupScriptFilename,
+  buildBackupScript,
+} from "./backupScript";
+import {
   cloneClientPreferences,
   defaultClientPreferences,
   loadStoredClientPreferences,
@@ -706,7 +710,13 @@ interface TreeContextMenuState {
     settingsBackupDataDir: requiredElement<HTMLInputElement>("settings-backup-data-dir"),
     settingsBackupDatabase: requiredElement<HTMLInputElement>("settings-backup-database"),
     settingsBackupDownload: requiredElement<HTMLButtonElement>("settings-backup-download"),
+    settingsBackupScript: requiredElement<HTMLButtonElement>("settings-backup-script"),
     settingsBackupNote: requiredElement<HTMLElement>("settings-backup-note"),
+    settingsRuntimeListenAddr: requiredElement<HTMLInputElement>("settings-runtime-listen-addr"),
+    settingsRuntimeServerTime: requiredElement<HTMLInputElement>("settings-runtime-server-time"),
+    settingsRuntimeCurrentVault: requiredElement<HTMLInputElement>("settings-runtime-current-vault"),
+    settingsRuntimeRestartRequired: requiredElement<HTMLInputElement>("settings-runtime-restart-required"),
+    settingsRuntimeHealth: requiredElement<HTMLInputElement>("settings-runtime-health"),
     settingsUserNtfyTopicUrl: requiredElement<HTMLInputElement>("settings-user-ntfy-topic-url"),
     settingsUserNtfyToken: requiredElement<HTMLInputElement>("settings-user-ntfy-token"),
     settingsUserTopLevelVaults: requiredElement<HTMLInputElement>("settings-user-top-level-vaults"),
@@ -4033,6 +4043,19 @@ interface TreeContextMenuState {
     els.settingsStatus.textContent = "Backup manifest downloaded.";
   }
 
+  function downloadBackupScript(): void {
+    if (!state.serverMeta) {
+      setNoteStatus("Backup script unavailable until server metadata loads.");
+      return;
+    }
+    downloadTextFile(
+      backupScriptFilename(state.serverMeta),
+      buildBackupScript(state.serverMeta),
+      "text/x-shellscript"
+    );
+    els.settingsStatus.textContent = "Backup script downloaded.";
+  }
+
   function renderDocumentResults() {
     renderDocumentsUploadHint();
     state.documentSelectionIndex = renderDocumentResultsUI({
@@ -5270,6 +5293,9 @@ interface TreeContextMenuState {
     });
     on(els.settingsBackupDownload, "click", function () {
       downloadBackupManifest();
+    });
+    on(els.settingsBackupScript, "click", function () {
+      downloadBackupScript();
     });
     on(els.settingsThemeUploadInput, "change", function () {
       const file = els.settingsThemeUploadInput.files && els.settingsThemeUploadInput.files[0]

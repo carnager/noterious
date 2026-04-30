@@ -7,13 +7,13 @@ missing product and reliability work in the current app.
 
 ## Priority 1: Conflict Recovery
 
-- [ ] Build a real conflict-resolution UI for page save conflicts and unsafe
+- [x] Build a real conflict-resolution UI for page save conflicts and unsafe
       remote-change merges.
       Today Noterious can auto-merge non-overlapping edits, but fallback is
       still mostly "warn and reload/save again". It needs a proper flow that
       shows local vs remote vs base content and lets the user choose or merge
       manually.
-- [ ] Add an explicit "review remote changes" path when auto-merge is blocked
+- [x] Add an explicit "review remote changes" path when auto-merge is blocked
       by unsafe UI state (property draft, inline table editor, title edit).
 - [ ] Add broader end-to-end coverage for multi-client editing:
       - live `page.changed` event -> fetch -> merge -> editor update
@@ -22,15 +22,19 @@ missing product and reliability work in the current app.
 
 ## Priority 2: Backup And Restore
 
-- [ ] Document and surface a first-class backup strategy for the full
+- [x] Document and surface a first-class backup strategy for the full
       deployment, not just per-page history.
       The vault is not the whole state: themes, auth, history, trash, and the
       disposable index live under the data dir.
-- [ ] Add a simple export/import or backup/restore admin flow.
+- [x] Export deployment metadata and backup instructions from the UI.
+      Done today:
+      - backup manifest download
+      - generated shell backup script
+      - runtime path visibility in Settings
+- [ ] Add a simple restore flow or restore validation aid.
       Minimum useful scope:
-      - export deployment metadata/instructions
-      - restore from data-dir + vault backup safely
-      - make it obvious what must be backed up
+      - validate that a backup set matches the current deployment paths
+      - make the restore order obvious at restore time, not only in docs
 - [ ] Decide whether full-vault restore belongs in the UI, API, or docs-only
       operational tooling.
 
@@ -43,8 +47,10 @@ missing product and reliability work in the current app.
       - per-folder asset subfolder
       - fixed attachment folder
 - [ ] Add basic asset management visibility:
-      - show where uploads will go
-      - make image/file behavior consistent in rendered mode
+      Done today:
+      - uploads show where they will go
+      - image/file rendering is consistent in rendered mode
+      Remaining:
       - consider surfacing orphaned files or unused uploads
 - [ ] Decide whether task click targets should get bracket syntax parity with
       reminders (`[click: ...]` vs `click:: ...`).
@@ -65,7 +71,13 @@ missing product and reliability work in the current app.
 
 - [ ] Improve operational docs for upgrades, rebuilds, and generated assets.
       The current flow is workable but still fairly engineer-facing.
-- [ ] Add a small admin/debug surface for runtime health:
+- [x] Expose core runtime state in Settings:
+      - listen address
+      - current scope
+      - server time
+      - restart-required flag
+      - vault health
+- [ ] Extend the runtime/debug surface with deeper operational state:
       - watcher state
       - index freshness
       - notification status
@@ -78,9 +90,9 @@ missing product and reliability work in the current app.
 
 ## Nice To Have
 
-- [ ] More polished note move/rename UX now that the title field can edit full
-      paths.
-      Possible follow-ups:
+- [x] Let the note title field edit the full path so rename and move are one
+      flow.
+- [ ] Follow up on the note move/rename UX:
       - path validation feedback while typing
       - folder suggestions/autocomplete
       - clearer "rename" vs "move" affordances

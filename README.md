@@ -200,7 +200,8 @@ the SQLite index. The index is rebuildable, but the rest of the data-dir state
 is not.
 
 The settings modal also shows the resolved runtime backup paths and can
-download a small backup manifest JSON for the current deployment.
+download a backup manifest JSON plus a generated shell backup script for the
+current deployment.
 
 See [docs/backups.md](/home/carnager/Code/noterious/docs/backups.md:1) for the
 full backup and restore guidance.

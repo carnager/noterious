@@ -3389,7 +3389,8 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   gap: 0.7rem;
 }
 
-.settings-backup-card {
+.settings-backup-card,
+.settings-runtime-card {
   display: flex;
   flex-direction: column;
   gap: 0.72rem;
@@ -3428,6 +3429,8 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 .settings-backup-actions {
   display: flex;
   justify-content: flex-start;
+  gap: 0.55rem;
+  flex-wrap: wrap;
 }
 
 .settings-backup-note {

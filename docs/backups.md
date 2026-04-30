@@ -53,9 +53,14 @@ That is enough to restore:
 - custom themes
 - auth state
 
-The Settings screen also exposes the resolved runtime paths and can download a
-small backup manifest JSON. That manifest is not the backup itself. It is only
-a record of which paths belong to the current deployment.
+The Settings screen also exposes the resolved runtime paths and can download:
+
+- a small backup manifest JSON
+- a generated shell backup script for creating `vault.tar.gz` and
+  `data-dir.tar.gz`
+
+Neither of those files is the backup itself. They are operational helpers
+around the real backup paths.
 
 ## Restore Strategy
 
@@ -68,6 +73,9 @@ The safest restore order is:
 
 If the SQLite index is stale or missing after restore, Noterious can rebuild it
 from the vault content. The vault and data-dir files are the important part.
+
+The generated backup script also writes a `RESTORE.txt` alongside the produced
+archives so the restore order stays with the backup set.
 
 ## Operational Notes
 
