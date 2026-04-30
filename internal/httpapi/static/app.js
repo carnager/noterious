@@ -359,6 +359,20 @@
     }
     return parts.slice(0, -1).join("/");
   }
+  function documentUploadDirectory(currentPagePath) {
+    return pageDirectory(currentPagePath);
+  }
+  function documentUploadTargetLabel(currentPagePath) {
+    const directory = documentUploadDirectory(currentPagePath);
+    return directory ? directory + "/" : "vault root";
+  }
+  function documentUploadHint(currentPagePath, noteOpen) {
+    if (!noteOpen) {
+      return "Open a note to upload new files into its folder. Without a note, selecting a document opens the file instead of inserting a link.";
+    }
+    const directory = documentUploadDirectory(currentPagePath);
+    return directory ? "New uploads for this note go to the same folder: " + directory + "/." : "New uploads for this note go to the vault root.";
+  }
   function relativeDocumentPath(currentPagePath, documentPath) {
     const fromDir = pageDirectory(currentPagePath);
     const toPath = normalizePath(documentPath);
@@ -7086,7 +7100,7 @@
       {
         id: "file",
         title: "Upload file",
-        description: "Open the file picker and upload into the current note.",
+        description: "Open the file picker and upload into the current note's folder.",
         keywords: "upload attachment document image media asset",
         hint: "/file",
         apply: function(lineText) {
@@ -9310,6 +9324,7 @@
       init_helpUi();
       init_noteView();
       init_pageOperations();
+      init_documents();
       init_paletteModals();
       init_palette();
       init_pageViews();
@@ -9561,6 +9576,7 @@
           documentsModalShell: requiredElement("documents-modal-shell"),
           closeDocumentsModal: requiredElement("close-documents-modal"),
           documentsInput: requiredElement("documents-input"),
+          documentsUploadHint: requiredElement("documents-upload-hint"),
           documentsResults: requiredElement("documents-results"),
           conflictModalShell: requiredElement("conflict-modal-shell"),
           closeConflictModal: requiredElement("close-conflict-modal"),
@@ -11911,9 +11927,18 @@
         }
         function setDocumentsOpen2(open) {
           setDocumentsOpen(els, open, rememberNoteFocus);
+          if (open) {
+            renderDocumentsUploadHint();
+          }
         }
         function closeDocumentsModal() {
           setDocumentsOpen2(false);
+        }
+        function renderDocumentsUploadHint() {
+          els.documentsUploadHint.textContent = documentUploadHint(
+            state.selectedPage || "",
+            Boolean(state.selectedPage && state.currentPage)
+          );
         }
         function renderPageConflictModal() {
           const conflict = state.pageConflict;
@@ -12552,6 +12577,7 @@
           }
         }
         function renderDocumentResults2() {
+          renderDocumentsUploadHint();
           state.documentSelectionIndex = renderDocumentResults({
             els,
             inputValue: els.documentsInput ? els.documentsInput.value : "",
@@ -12640,7 +12666,10 @@
             return;
           }
           const documents = [];
-          setNoteStatus("Uploading " + String(fileList.length) + " document" + (fileList.length === 1 ? "" : "s") + "\u2026");
+          const uploadTarget = documentUploadTargetLabel(state.selectedPage);
+          setNoteStatus(
+            "Uploading " + String(fileList.length) + " document" + (fileList.length === 1 ? "" : "s") + " to " + uploadTarget + "\u2026"
+          );
           for (let index = 0; index < fileList.length; index += 1) {
             const file = fileList[index];
             if (!file) {
@@ -12655,7 +12684,9 @@
           insertTextAtEditorSelection(documents.map(function(document2) {
             return documentLinkForSelection(document2, state.selectedPage);
           }).join("\n"));
-          setNoteStatus("Uploaded " + String(documents.length) + " document" + (documents.length === 1 ? "" : "s") + ".");
+          setNoteStatus(
+            "Uploaded " + String(documents.length) + " document" + (documents.length === 1 ? "" : "s") + " to " + uploadTarget + "."
+          );
         }
         function openFilePickerForEditor() {
           if (!state.selectedPage || !state.currentPage) {

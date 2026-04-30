@@ -3150,6 +3150,13 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   border: 1px solid var(--line);
 }
 
+.documents-upload-hint {
+  margin: -0.12rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .modal-card {
   width: min(540px, 100%);
   max-height: calc(100vh - 2rem);

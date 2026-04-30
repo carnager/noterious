@@ -29,6 +29,25 @@ function pageDirectory(pagePath: string): string {
   return parts.slice(0, -1).join("/");
 }
 
+export function documentUploadDirectory(currentPagePath: string): string {
+  return pageDirectory(currentPagePath);
+}
+
+export function documentUploadTargetLabel(currentPagePath: string): string {
+  const directory = documentUploadDirectory(currentPagePath);
+  return directory ? (directory + "/") : "vault root";
+}
+
+export function documentUploadHint(currentPagePath: string, noteOpen: boolean): string {
+  if (!noteOpen) {
+    return "Open a note to upload new files into its folder. Without a note, selecting a document opens the file instead of inserting a link.";
+  }
+  const directory = documentUploadDirectory(currentPagePath);
+  return directory
+    ? ("New uploads for this note go to the same folder: " + directory + "/.")
+    : "New uploads for this note go to the vault root.";
+}
+
 export function relativeDocumentPath(currentPagePath: string, documentPath: string): string {
   const fromDir = pageDirectory(currentPagePath);
   const toPath = normalizePath(documentPath);

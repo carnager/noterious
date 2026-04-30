@@ -98,6 +98,10 @@ import {
   renamePage as renamePageRequest,
 } from "./pageOperations";
 import {
+  documentUploadHint,
+  documentUploadTargetLabel,
+} from "./documents";
+import {
   documentLinkForSelection,
   movePaletteModalSelection,
   paletteModalButtons,
@@ -641,6 +645,7 @@ interface TreeContextMenuState {
     documentsModalShell: requiredElement<HTMLElement>("documents-modal-shell"),
     closeDocumentsModal: requiredElement<HTMLButtonElement>("close-documents-modal"),
     documentsInput: requiredElement<HTMLInputElement>("documents-input"),
+    documentsUploadHint: requiredElement<HTMLElement>("documents-upload-hint"),
     documentsResults: requiredElement<HTMLDivElement>("documents-results"),
     conflictModalShell: requiredElement<HTMLElement>("conflict-modal-shell"),
     closeConflictModal: requiredElement<HTMLButtonElement>("close-conflict-modal"),
@@ -3283,10 +3288,20 @@ interface TreeContextMenuState {
 
   function setDocumentsOpen(open: boolean): void {
     setDocumentsOpenUI(els, open, rememberNoteFocus);
+    if (open) {
+      renderDocumentsUploadHint();
+    }
   }
 
   function closeDocumentsModal() {
     setDocumentsOpen(false);
+  }
+
+  function renderDocumentsUploadHint(): void {
+    els.documentsUploadHint.textContent = documentUploadHint(
+      state.selectedPage || "",
+      Boolean(state.selectedPage && state.currentPage)
+    );
   }
 
   function renderPageConflictModal(): void {
@@ -3986,6 +4001,7 @@ interface TreeContextMenuState {
   }
 
   function renderDocumentResults() {
+    renderDocumentsUploadHint();
     state.documentSelectionIndex = renderDocumentResultsUI({
       els: els,
       inputValue: els.documentsInput ? els.documentsInput.value : "",
@@ -4083,7 +4099,10 @@ interface TreeContextMenuState {
     }
 
     const documents: DocumentRecord[] = [];
-    setNoteStatus("Uploading " + String(fileList.length) + " document" + (fileList.length === 1 ? "" : "s") + "…");
+    const uploadTarget = documentUploadTargetLabel(state.selectedPage);
+    setNoteStatus(
+      "Uploading " + String(fileList.length) + " document" + (fileList.length === 1 ? "" : "s") + " to " + uploadTarget + "…"
+    );
     for (let index = 0; index < fileList.length; index += 1) {
       const file = fileList[index];
       if (!file) {
@@ -4099,7 +4118,9 @@ interface TreeContextMenuState {
     insertTextAtEditorSelection(documents.map(function (document) {
       return documentLinkForSelection(document, state.selectedPage);
     }).join("\n"));
-    setNoteStatus("Uploaded " + String(documents.length) + " document" + (documents.length === 1 ? "" : "s") + ".");
+    setNoteStatus(
+      "Uploaded " + String(documents.length) + " document" + (documents.length === 1 ? "" : "s") + " to " + uploadTarget + "."
+    );
   }
 
   function openFilePickerForEditor(): void {
