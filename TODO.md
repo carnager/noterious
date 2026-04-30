@@ -46,12 +46,7 @@ missing product and reliability work in the current app.
       - same folder as note
       - per-folder asset subfolder
       - fixed attachment folder
-- [ ] Add basic asset management visibility:
-      Done today:
-      - uploads show where they will go
-      - image/file rendering is consistent in rendered mode
-      Remaining:
-      - consider surfacing orphaned files or unused uploads
+- [ ] Surface orphaned files or unused uploads.
 - [ ] Decide whether task click targets should get bracket syntax parity with
       reminders (`[click: ...]` vs `click:: ...`).
 
@@ -104,3 +99,12 @@ missing product and reliability work in the current app.
       - diff view improvements
       - restore preview polish
       - easier copy-from-revision flow
+
+## Current Stop Point
+
+- [x] Conflict recovery UI, backup helpers, upload target visibility, and basic
+      runtime admin status are all in place.
+- [ ] Next most useful slice:
+      - end-to-end merge/conflict coverage, or
+      - restore validation flow, or
+      - attachment policy decision
