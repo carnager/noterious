@@ -421,6 +421,59 @@
       </div>
     </div>
 
+    <div class="modal-shell hidden" id="conflict-modal-shell">
+      <div class="modal-card conflict-modal-card">
+        <div class="section-head conflict-modal-head">
+          <div>
+            <p class="eyebrow">Conflict Recovery</p>
+            <h2 id="conflict-title">Resolve Conflict</h2>
+            <p class="conflict-summary" id="conflict-summary">Review the page versions and decide how to continue.</p>
+          </div>
+          <button type="button" id="close-conflict-modal" aria-label="Close conflict dialog">×</button>
+        </div>
+        <p class="conflict-callout" id="conflict-callout"></p>
+        <div class="conflict-layout">
+          <section class="conflict-pane">
+            <div class="conflict-pane-head">
+              <h3>Base</h3>
+            </div>
+            <textarea id="conflict-base-markdown" readonly autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"></textarea>
+          </section>
+          <section class="conflict-pane">
+            <div class="conflict-pane-head">
+              <h3>Local</h3>
+            </div>
+            <textarea id="conflict-local-markdown" readonly autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"></textarea>
+          </section>
+          <section class="conflict-pane">
+            <div class="conflict-pane-head">
+              <h3>Remote</h3>
+            </div>
+            <textarea id="conflict-remote-markdown" readonly autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"></textarea>
+          </section>
+        </div>
+        <section class="conflict-resolution-panel" id="conflict-resolution-panel">
+          <div class="conflict-pane-head">
+            <h3>Resolution</h3>
+            <div class="conflict-pane-actions">
+              <button type="button" id="conflict-load-base">Load Base</button>
+              <button type="button" id="conflict-load-local">Load Mine</button>
+              <button type="button" id="conflict-load-remote">Load Remote</button>
+            </div>
+          </div>
+          <textarea id="conflict-resolution-markdown" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"></textarea>
+        </section>
+        <div class="conflict-modal-footer">
+          <p class="conflict-status" id="conflict-status" aria-live="polite"></p>
+          <div class="task-picker-footer-actions">
+            <button type="button" id="conflict-reload-remote" class="hidden">Reload Remote</button>
+            <button type="button" id="conflict-save-resolution">Save Resolution</button>
+            <button type="button" id="conflict-cancel" class="ghost">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-shell hidden" id="page-history-modal-shell">
       <div class="modal-card history-modal-card">
         <div class="section-head history-modal-head">

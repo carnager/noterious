@@ -69,6 +69,7 @@ function paletteOptions(overrides: Partial<Parameters<typeof buildCommandPalette
 describe("command helpers", function () {
   it("normalizes draft paths and derives page titles", function () {
     expect(normalizePageDraftPath(" /notes\\\\alpha.md ")).toBe("notes/alpha");
+    expect(normalizePageDraftPath(" /notes / projects / alpha.md ")).toBe("notes/projects/alpha");
     expect(pageTitleFromPath("notes/alpha")).toBe("alpha");
   });
 

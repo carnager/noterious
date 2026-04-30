@@ -171,7 +171,9 @@
 
   // frontend/commands.ts
   function normalizePageDraftPath(value) {
-    return String(value || "").trim().replace(/\\/g, "/").replace(/\.md$/i, "").replace(/^\/+/, "").replace(/\/+/g, "/");
+    return String(value || "").trim().replace(/\\/g, "/").replace(/\.md$/i, "").replace(/^\/+/, "").replace(/\/+/g, "/").split("/").map(function(segment) {
+      return segment.trim();
+    }).filter(Boolean).join("/");
   }
   function pageTitleFromPath(pagePath) {
     const parts = String(pagePath || "").split("/");
@@ -2655,7 +2657,7 @@
   }
   function blockingOverlayOpen(elements) {
     return Boolean(
-      elements.taskModalShell && !elements.taskModalShell.classList.contains("hidden") || !elements.searchModalShell.classList.contains("hidden") || !elements.commandModalShell.classList.contains("hidden") || Boolean(elements.quickSwitcherModalShell && !elements.quickSwitcherModalShell.classList.contains("hidden")) || Boolean(elements.documentsModalShell && !elements.documentsModalShell.classList.contains("hidden")) || Boolean(elements.helpModalShell && !elements.helpModalShell.classList.contains("hidden")) || Boolean(elements.settingsModalShell && !elements.settingsModalShell.classList.contains("hidden")) || Boolean(elements.pageHistoryModalShell && !elements.pageHistoryModalShell.classList.contains("hidden")) || Boolean(elements.trashModalShell && !elements.trashModalShell.classList.contains("hidden"))
+      elements.taskModalShell && !elements.taskModalShell.classList.contains("hidden") || !elements.searchModalShell.classList.contains("hidden") || !elements.commandModalShell.classList.contains("hidden") || Boolean(elements.quickSwitcherModalShell && !elements.quickSwitcherModalShell.classList.contains("hidden")) || Boolean(elements.documentsModalShell && !elements.documentsModalShell.classList.contains("hidden")) || Boolean(elements.conflictModalShell && !elements.conflictModalShell.classList.contains("hidden")) || Boolean(elements.helpModalShell && !elements.helpModalShell.classList.contains("hidden")) || Boolean(elements.settingsModalShell && !elements.settingsModalShell.classList.contains("hidden")) || Boolean(elements.pageHistoryModalShell && !elements.pageHistoryModalShell.classList.contains("hidden")) || Boolean(elements.trashModalShell && !elements.trashModalShell.classList.contains("hidden"))
     );
   }
   function restoreEditorFocus(state, elements, selectedPage) {
@@ -7595,6 +7597,62 @@
     }
   });
 
+  // frontend/pageConflict.ts
+  function normalizeMarkdown(value) {
+    return String(value || "");
+  }
+  function createPageConflictDraft(input) {
+    const pagePath = String(input.pagePath || "").trim();
+    const baseMarkdown = normalizeMarkdown(input.baseMarkdown);
+    const localMarkdown = normalizeMarkdown(input.localMarkdown);
+    const remoteMarkdown = normalizeMarkdown(input.remoteMarkdown);
+    if (input.mode === "save-conflict") {
+      return {
+        mode: input.mode,
+        pagePath,
+        baseMarkdown,
+        localMarkdown,
+        remoteMarkdown,
+        resolutionMarkdown: localMarkdown,
+        title: "Resolve Save Conflict",
+        summary: pagePath ? pagePath + " changed before your save completed. Review both versions and save the markdown you want to keep." : "The page changed before your save completed. Review both versions and save the markdown you want to keep.",
+        callout: "Your local markdown is preserved. Nothing was overwritten on the server.",
+        editable: true
+      };
+    }
+    if (input.mode === "remote-conflict") {
+      return {
+        mode: input.mode,
+        pagePath,
+        baseMarkdown,
+        localMarkdown,
+        remoteMarkdown,
+        resolutionMarkdown: localMarkdown,
+        title: "Resolve Remote Change",
+        summary: pagePath ? pagePath + " changed while you were editing. Automatic merge stopped because both sides touched overlapping lines." : "The page changed while you were editing. Automatic merge stopped because both sides touched overlapping lines.",
+        callout: "Your local markdown is preserved in this dialog until you choose how to continue.",
+        editable: true
+      };
+    }
+    return {
+      mode: input.mode,
+      pagePath,
+      baseMarkdown,
+      localMarkdown,
+      remoteMarkdown,
+      resolutionMarkdown: localMarkdown,
+      title: "Review Remote Change",
+      summary: pagePath ? pagePath + " changed while a structured editor was open. Automatic merge paused to avoid discarding draft state that is not yet part of the markdown." : "The page changed while a structured editor was open. Automatic merge paused to avoid discarding draft state that is not yet part of the markdown.",
+      callout: "Finish or cancel the open property, table, or title edit first if you want to keep working locally. Reloading now will discard those transient edits.",
+      editable: false
+    };
+  }
+  var init_pageConflict = __esm({
+    "frontend/pageConflict.ts"() {
+      "use strict";
+    }
+  });
+
   // frontend/themes.ts
   function builtinThemeLibrary() {
     return builtinThemes.map(cloneThemeRecord);
@@ -9258,6 +9316,7 @@
       init_settingsUi();
       init_slashMenu();
       init_remoteSync();
+      init_pageConflict();
       init_themes();
       (function() {
         let pwaRegistrationPromise = null;
@@ -9378,7 +9437,10 @@
           remoteChangeSyncToken: 0,
           expectedLocalChangePage: "",
           expectedLocalChangeCount: 0,
-          expectedLocalChangeUntil: 0
+          expectedLocalChangeUntil: 0,
+          pageConflict: null,
+          pageConflictRemoteLoaded: null,
+          pageConflictStatus: ""
         };
         const els = {
           appShell: optionalQuery(".shell"),
@@ -9492,6 +9554,23 @@
           closeDocumentsModal: requiredElement("close-documents-modal"),
           documentsInput: requiredElement("documents-input"),
           documentsResults: requiredElement("documents-results"),
+          conflictModalShell: requiredElement("conflict-modal-shell"),
+          closeConflictModal: requiredElement("close-conflict-modal"),
+          conflictTitle: requiredElement("conflict-title"),
+          conflictSummary: requiredElement("conflict-summary"),
+          conflictCallout: requiredElement("conflict-callout"),
+          conflictBaseMarkdown: requiredElement("conflict-base-markdown"),
+          conflictLocalMarkdown: requiredElement("conflict-local-markdown"),
+          conflictRemoteMarkdown: requiredElement("conflict-remote-markdown"),
+          conflictResolutionPanel: requiredElement("conflict-resolution-panel"),
+          conflictResolutionMarkdown: requiredElement("conflict-resolution-markdown"),
+          conflictLoadBase: requiredElement("conflict-load-base"),
+          conflictLoadLocal: requiredElement("conflict-load-local"),
+          conflictLoadRemote: requiredElement("conflict-load-remote"),
+          conflictReloadRemote: requiredElement("conflict-reload-remote"),
+          conflictSaveResolution: requiredElement("conflict-save-resolution"),
+          conflictCancel: requiredElement("conflict-cancel"),
+          conflictStatus: requiredElement("conflict-status"),
           pageHistoryButton: requiredElement("open-page-history"),
           pageHistoryModalShell: requiredElement("page-history-modal-shell"),
           purgePageHistory: requiredElement("purge-page-history"),
@@ -9778,6 +9857,24 @@
           }
           return true;
         }
+        function isCurrentConflictPageChange(eventName, payload) {
+          if (eventName !== "page.changed" || !state.pageConflict) {
+            return false;
+          }
+          const eventPage = typeof payload.page === "string" ? payload.page : "";
+          const eventOrigin = typeof payload.originClientId === "string" ? payload.originClientId : "";
+          if (!eventPage || eventPage !== state.pageConflict.pagePath) {
+            return false;
+          }
+          if (eventOrigin && eventOrigin === currentClientInstanceId()) {
+            consumeExpectedLocalPageChange(eventPage);
+            return false;
+          }
+          if (consumeExpectedLocalPageChange(eventPage)) {
+            return false;
+          }
+          return true;
+        }
         function applyLoadedPageDetailState(pagePath, loaded, nextMarkdown) {
           const page = loaded.page;
           const derived = loaded.derived;
@@ -9863,7 +9960,16 @@
               unsafeUIState: hasUnsafeRemoteSyncUIState2()
             });
             if (plan.action === "warn") {
-              showRemoteChangeToast(pagePath);
+              openPageConflictDialog(
+                plan.reason === "unsafe-ui-state" ? "unsafe-remote-review" : "remote-conflict",
+                pagePath,
+                loaded,
+                localMarkdown,
+                plan.reason === "unsafe-ui-state" ? "Remote changes are ready to review, but Noterious paused automatic merge because a structured editor is still open." : "Automatic merge found overlapping local and remote edits. Review both versions and save the final markdown you want to keep."
+              );
+              setNoteStatus(
+                plan.reason === "unsafe-ui-state" ? "Remote change review needed for " + pagePath + "." : "Conflict review opened for " + pagePath + "."
+              );
               return;
             }
             const templateFillActive = applyLoadedPageDetailState(pagePath, loaded, plan.markdown);
@@ -10607,45 +10713,46 @@
           }
           return page.title || pageTitleFromPath(page.page || page.path || state.selectedPage || "");
         }
+        function currentPageHeadingEditValue() {
+          const page = currentPageView2();
+          return currentPagePath(page) || normalizePageDraftPath(state.selectedPage || "");
+        }
         function setNoteHeadingValue(value, editable) {
           els.noteHeading.value = value;
           els.noteHeading.disabled = !editable;
           els.noteHeading.readOnly = !editable;
-          els.noteHeading.title = editable ? "Rename note file" : "";
+          els.noteHeading.title = editable ? "Rename or move note" : "";
         }
-        function normalizePageTitleDraft(value) {
-          return String(value || "").trim().replace(/\\/g, " ").replace(/\//g, " ").replace(/\.md$/i, "").replace(/\s+/g, " ");
-        }
-        async function renameCurrentPageFromTitle(nextTitle) {
+        async function renameCurrentPageFromHeading(nextValue) {
           if (!state.selectedPage || !state.currentPage || state.renamingPageTitle) {
             return;
           }
-          const normalizedTitle = normalizePageTitleDraft(nextTitle);
-          const currentPath = state.selectedPage;
+          const normalizedDraftPath = normalizePageDraftPath(nextValue);
+          const currentPath = normalizePageDraftPath(state.selectedPage);
           const currentLeaf = pageTitleFromPath(currentPath);
-          if (!normalizedTitle) {
+          if (!normalizedDraftPath) {
             setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
             return;
           }
-          if (normalizedTitle === currentLeaf) {
-            setNoteHeadingValue(normalizedTitle, true);
+          const slash = currentPath.lastIndexOf("/");
+          const parentFolder = slash >= 0 ? currentPath.slice(0, slash) : "";
+          const targetPath = normalizedDraftPath.indexOf("/") >= 0 ? normalizedDraftPath : parentFolder ? parentFolder + "/" + normalizedDraftPath : normalizedDraftPath;
+          if (targetPath === currentPath) {
+            setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
             return;
           }
-          let targetPath;
-          if (normalizedTitle.indexOf("/") >= 0) {
-            targetPath = normalizedTitle;
-          } else {
-            const slash = currentPath.lastIndexOf("/");
-            const parentFolder = slash >= 0 ? currentPath.slice(0, slash) : "";
-            targetPath = parentFolder ? parentFolder + "/" + normalizedTitle : normalizedTitle;
-          }
+          const targetLeaf = pageTitleFromPath(targetPath);
+          const targetParent = targetPath.lastIndexOf("/") >= 0 ? targetPath.slice(0, targetPath.lastIndexOf("/")) : "";
+          const movedFolders = targetParent !== parentFolder;
           state.renamingPageTitle = true;
           try {
             if (hasUnsavedPageChanges()) {
               await saveCurrentPage();
             }
-            await movePage2(currentPath, targetPath);
-            setNoteStatus("Renamed " + currentLeaf + " to " + normalizedTitle + ".");
+            await renamePage2(currentPath, normalizedDraftPath);
+            setNoteStatus(
+              movedFolders ? "Moved " + currentPath + " to " + targetPath + "." : "Renamed " + currentLeaf + " to " + targetLeaf + "."
+            );
           } catch (error) {
             setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
             setNoteStatus("Rename failed: " + errorMessage(error));
@@ -11788,6 +11895,200 @@
         function closeDocumentsModal() {
           setDocumentsOpen2(false);
         }
+        function renderPageConflictModal() {
+          const conflict = state.pageConflict;
+          els.conflictStatus.textContent = state.pageConflictStatus;
+          if (!conflict) {
+            els.conflictTitle.textContent = "Resolve Conflict";
+            els.conflictSummary.textContent = "Review the page versions and decide how to continue.";
+            els.conflictCallout.textContent = "";
+            els.conflictBaseMarkdown.value = "";
+            els.conflictLocalMarkdown.value = "";
+            els.conflictRemoteMarkdown.value = "";
+            els.conflictResolutionMarkdown.value = "";
+            els.conflictResolutionPanel.classList.add("hidden");
+            els.conflictSaveResolution.classList.add("hidden");
+            els.conflictReloadRemote.classList.add("hidden");
+            els.conflictCancel.textContent = "Close";
+            return;
+          }
+          els.conflictTitle.textContent = conflict.title;
+          els.conflictSummary.textContent = conflict.summary;
+          els.conflictCallout.textContent = conflict.callout;
+          els.conflictBaseMarkdown.value = conflict.baseMarkdown;
+          els.conflictLocalMarkdown.value = conflict.localMarkdown;
+          els.conflictRemoteMarkdown.value = conflict.remoteMarkdown;
+          els.conflictResolutionMarkdown.value = conflict.resolutionMarkdown;
+          els.conflictResolutionPanel.classList.toggle("hidden", !conflict.editable);
+          els.conflictSaveResolution.classList.toggle("hidden", !conflict.editable);
+          els.conflictReloadRemote.classList.toggle("hidden", conflict.editable);
+          els.conflictLoadBase.disabled = !conflict.editable;
+          els.conflictLoadLocal.disabled = !conflict.editable;
+          els.conflictLoadRemote.disabled = !conflict.editable;
+          els.conflictCancel.textContent = conflict.editable ? "Cancel" : "Keep Editing";
+        }
+        function setPageConflictOpen(open) {
+          if (open) {
+            if (!state.pageConflict) {
+              return;
+            }
+            rememberNoteFocus();
+            clearRemoteChangeToast();
+            els.searchModalShell.classList.add("hidden");
+            els.commandModalShell.classList.add("hidden");
+            els.quickSwitcherModalShell.classList.add("hidden");
+            els.documentsModalShell.classList.add("hidden");
+            els.helpModalShell.classList.add("hidden");
+            els.pageHistoryModalShell.classList.add("hidden");
+            els.trashModalShell.classList.add("hidden");
+            els.settingsModalShell.classList.add("hidden");
+            els.conflictModalShell.classList.remove("hidden");
+            renderPageConflictModal();
+            window.requestAnimationFrame(function() {
+              if (state.pageConflict && state.pageConflict.editable) {
+                focusWithoutScroll(els.conflictResolutionMarkdown);
+                els.conflictResolutionMarkdown.setSelectionRange(
+                  els.conflictResolutionMarkdown.value.length,
+                  els.conflictResolutionMarkdown.value.length
+                );
+                return;
+              }
+              focusWithoutScroll(els.closeConflictModal);
+            });
+            return;
+          }
+          state.pageConflictStatus = "";
+          els.conflictModalShell.classList.add("hidden");
+        }
+        function closePageConflictModal() {
+          state.pageConflict = null;
+          state.pageConflictRemoteLoaded = null;
+          setPageConflictOpen(false);
+        }
+        function dismissPageConflictModal() {
+          const mode = state.pageConflict ? state.pageConflict.mode : "";
+          closePageConflictModal();
+          if (mode !== "unsafe-remote-review") {
+            restoreNoteFocus();
+          }
+        }
+        function updatePageConflictDraft(mutator) {
+          if (!state.pageConflict) {
+            return;
+          }
+          state.pageConflict = mutator(state.pageConflict);
+          renderPageConflictModal();
+        }
+        function setPageConflictResolution(markdown) {
+          updatePageConflictDraft(function(draft) {
+            return {
+              ...draft,
+              resolutionMarkdown: markdown
+            };
+          });
+        }
+        async function loadLatestConflictDetail(pagePath) {
+          return loadPageDetailData(pagePath, encodePath, "", null);
+        }
+        function openPageConflictDialog(mode, pagePath, loadedRemote, resolutionMarkdown, statusMessage) {
+          const remoteMarkdown = loadedRemote.page.rawMarkdown || "";
+          const draft = createPageConflictDraft({
+            mode,
+            pagePath,
+            baseMarkdown: state.originalMarkdown,
+            localMarkdown: state.currentMarkdown,
+            remoteMarkdown
+          });
+          if (typeof resolutionMarkdown === "string") {
+            draft.resolutionMarkdown = resolutionMarkdown;
+          }
+          state.pageConflict = draft;
+          state.pageConflictRemoteLoaded = loadedRemote;
+          state.pageConflictStatus = statusMessage || "";
+          setPageConflictOpen(true);
+        }
+        async function applyConflictRemoteVersion() {
+          const conflict = state.pageConflict;
+          const loadedRemote = state.pageConflictRemoteLoaded;
+          if (!conflict || !loadedRemote || !conflict.pagePath || state.selectedPage !== conflict.pagePath) {
+            return;
+          }
+          const templateFillActive = applyLoadedPageDetailState(
+            conflict.pagePath,
+            loadedRemote,
+            loadedRemote.page.rawMarkdown || ""
+          );
+          closePageConflictModal();
+          await Promise.all([loadPages(), loadTasks(), loadSavedQueryTree()]);
+          if (state.selectedPage === conflict.pagePath && !templateFillActive) {
+            restoreNoteFocus();
+          }
+          setNoteStatus("Loaded remote version of " + conflict.pagePath + ".");
+        }
+        async function savePageConflictResolution() {
+          const conflict = state.pageConflict;
+          if (!conflict || !conflict.editable || !conflict.pagePath || state.selectedPage !== conflict.pagePath) {
+            return;
+          }
+          const markdownToSave = els.conflictResolutionMarkdown.value;
+          setPageConflictResolution(markdownToSave);
+          state.pageConflictStatus = "Saving resolved markdown\u2026";
+          renderPageConflictModal();
+          try {
+            noteLocalPageChange(conflict.pagePath);
+            const payload = await savePageMarkdown(conflict.pagePath, markdownToSave, conflict.remoteMarkdown, encodePath);
+            state.currentPage = payload;
+            state.currentMarkdown = payload.rawMarkdown || markdownToSave;
+            state.originalMarkdown = payload.rawMarkdown || markdownToSave;
+            setMarkdownEditorValue(state, els, state.currentMarkdown);
+            els.rawView.textContent = state.currentMarkdown;
+            refreshLivePageChrome();
+            closePageConflictModal();
+            await Promise.all([loadPages(), loadTasks(), loadSavedQueryTree()]);
+            if (state.selectedPage === conflict.pagePath) {
+              await loadPageDetail(conflict.pagePath, true, false);
+            }
+            restoreNoteFocus();
+            setNoteStatus("Saved resolved version of " + conflict.pagePath + ".");
+          } catch (error) {
+            if (error instanceof HTTPError && error.status === 409) {
+              try {
+                const loadedRemote = await loadLatestConflictDetail(conflict.pagePath);
+                if (state.selectedPage !== conflict.pagePath) {
+                  return;
+                }
+                openPageConflictDialog(
+                  conflict.mode,
+                  conflict.pagePath,
+                  loadedRemote,
+                  markdownToSave,
+                  "The page changed again while you were resolving it. Review the latest remote version and save again."
+                );
+                setNoteStatus("Conflict changed again on " + conflict.pagePath + ".");
+                return;
+              } catch (reloadError) {
+                state.pageConflictStatus = "The page changed again, and the latest remote version could not be loaded: " + errorMessage(reloadError);
+                renderPageConflictModal();
+                return;
+              }
+            }
+            state.pageConflictStatus = "Save failed: " + errorMessage(error);
+            renderPageConflictModal();
+          }
+        }
+        async function openSaveConflictResolution(pagePath, markdownToSave) {
+          const loadedRemote = await loadLatestConflictDetail(pagePath);
+          if (state.selectedPage !== pagePath) {
+            return;
+          }
+          openPageConflictDialog(
+            "save-conflict",
+            pagePath,
+            loadedRemote,
+            markdownToSave,
+            "Automatic merge found overlapping edits. Review both versions and save the final markdown you want to keep."
+          );
+        }
         function selectedPageHistoryRevision2() {
           return selectedPageHistoryRevision(state);
         }
@@ -12611,7 +12912,12 @@
             }
           } catch (error) {
             if (error instanceof HTTPError && error.status === 409) {
-              setNoteStatus("Save conflict on " + state.selectedPage + ". Automatic merge found overlapping edits.");
+              try {
+                await openSaveConflictResolution(state.selectedPage, markdownToSave);
+                setNoteStatus("Save conflict on " + state.selectedPage + ". Review opened.");
+              } catch (reloadError) {
+                setNoteStatus("Save conflict on " + state.selectedPage + ", and the latest remote version could not be loaded: " + errorMessage(reloadError));
+              }
               return;
             }
             setNoteStatus("Save failed: " + errorMessage(error));
@@ -12655,14 +12961,13 @@
                 payload = { raw: messageEvent.data };
               }
               addEventLine(eventName, payload, false);
+              if (isCurrentConflictPageChange(eventName, payload)) {
+                state.pageConflictStatus = "Remote changes are still arriving. Saving your resolution will recheck against the latest server version.";
+                renderPageConflictModal();
+                debounceRefresh();
+                return;
+              }
               if (isSelectedExternalPageChange(eventName, payload)) {
-                if (hasUnsafeRemoteSyncUIState2()) {
-                  loadPages();
-                  loadTasks();
-                  loadSavedQueryTree();
-                  showRemoteChangeToast(String(payload.page || state.selectedPage || ""));
-                  return;
-                }
                 void syncSelectedRemotePage(String(payload.page || state.selectedPage || ""));
                 return;
               }
@@ -12693,6 +12998,55 @@
           });
           on(els.remoteChangeDismiss, "click", function() {
             clearRemoteChangeToast();
+          });
+          on(els.closeConflictModal, "click", function() {
+            dismissPageConflictModal();
+          });
+          on(els.conflictCancel, "click", function() {
+            dismissPageConflictModal();
+          });
+          on(els.conflictResolutionMarkdown, "input", function() {
+            if (!state.pageConflict || !state.pageConflict.editable) {
+              return;
+            }
+            state.pageConflict.resolutionMarkdown = els.conflictResolutionMarkdown.value;
+          });
+          on(els.conflictResolutionMarkdown, "keydown", function(rawEvent) {
+            const event = rawEvent;
+            if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && state.pageConflict && state.pageConflict.editable) {
+              event.preventDefault();
+              void savePageConflictResolution();
+            }
+          });
+          on(els.conflictLoadBase, "click", function() {
+            if (!state.pageConflict || !state.pageConflict.editable) {
+              return;
+            }
+            setPageConflictResolution(state.pageConflict.baseMarkdown);
+            focusWithoutScroll(els.conflictResolutionMarkdown);
+          });
+          on(els.conflictLoadLocal, "click", function() {
+            if (!state.pageConflict || !state.pageConflict.editable) {
+              return;
+            }
+            setPageConflictResolution(state.pageConflict.localMarkdown);
+            focusWithoutScroll(els.conflictResolutionMarkdown);
+          });
+          on(els.conflictLoadRemote, "click", function() {
+            if (!state.pageConflict || !state.pageConflict.editable) {
+              return;
+            }
+            setPageConflictResolution(state.pageConflict.remoteMarkdown);
+            focusWithoutScroll(els.conflictResolutionMarkdown);
+          });
+          on(els.conflictReloadRemote, "click", function() {
+            applyConflictRemoteVersion().catch(function(error) {
+              state.pageConflictStatus = "Remote reload failed: " + errorMessage(error);
+              renderPageConflictModal();
+            });
+          });
+          on(els.conflictSaveResolution, "click", function() {
+            void savePageConflictResolution();
           });
           function isTypingTarget(target) {
             const element = target instanceof Element ? target : null;
@@ -13296,10 +13650,16 @@
               restoreNoteFocus();
             }
           });
+          on(els.conflictModalShell, "click", function(event) {
+            if (event.target === els.conflictModalShell) {
+              dismissPageConflictModal();
+            }
+          });
           on(els.noteHeading, "focus", function() {
             if (!state.selectedPage || !state.currentPage || els.noteHeading.disabled) {
               return;
             }
+            els.noteHeading.value = currentPageHeadingEditValue() || state.selectedPage || "";
             window.setTimeout(function() {
               els.noteHeading.select();
             }, 0);
@@ -13321,7 +13681,7 @@
             if (!state.selectedPage || !state.currentPage || els.noteHeading.disabled) {
               return;
             }
-            renameCurrentPageFromTitle(els.noteHeading.value).catch(function(error) {
+            renameCurrentPageFromHeading(els.noteHeading.value).catch(function(error) {
               setNoteStatus("Rename failed: " + errorMessage(error));
             });
           });
@@ -13464,6 +13824,13 @@
             if (event.key === "Escape" && els.documentsModalShell && !els.documentsModalShell.classList.contains("hidden")) {
               closeDocumentsModal();
               restoreNoteFocus();
+              return;
+            }
+            if (event.key === "Escape" && els.conflictModalShell && !els.conflictModalShell.classList.contains("hidden")) {
+              dismissPageConflictModal();
+              return;
+            }
+            if (els.conflictModalShell && !els.conflictModalShell.classList.contains("hidden")) {
               return;
             }
             if (event.key === "Escape" && els.pageHistoryModalShell && !els.pageHistoryModalShell.classList.contains("hidden")) {

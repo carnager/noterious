@@ -45,7 +45,13 @@ export function normalizePageDraftPath(value: string): string {
     .replace(/\\/g, "/")
     .replace(/\.md$/i, "")
     .replace(/^\/+/, "")
-    .replace(/\/+/g, "/");
+    .replace(/\/+/g, "/")
+    .split("/")
+    .map(function (segment) {
+      return segment.trim();
+    })
+    .filter(Boolean)
+    .join("/");
 }
 
 export function pageTitleFromPath(pagePath: string): string {
