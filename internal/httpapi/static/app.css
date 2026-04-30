@@ -3291,6 +3291,7 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 
 .settings-modal-card {
   width: min(920px, calc(100vw - 2rem));
+  height: min(780px, calc(100vh - 4.2rem));
   max-height: calc(100vh - 4.2rem);
   gap: 0.72rem;
   overflow: hidden;
@@ -3398,9 +3399,7 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   padding: 0.82rem 0.88rem;
   border-radius: 16px;
   border: 1px solid var(--line);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent),
-    var(--sidebar-soft);
+  background: transparent;
 }
 
 .settings-backup-head {
@@ -3424,6 +3423,25 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.7rem;
+}
+
+.settings-static-field {
+  min-width: 0;
+}
+
+.settings-static-value {
+  min-height: 2.1rem;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.46rem 0.62rem;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  background: transparent;
+  color: var(--ink);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .settings-backup-actions {

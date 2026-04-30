@@ -30,17 +30,17 @@ export interface SettingsUiElements {
   saveSettings: HTMLButtonElement;
   settingsVaultPath: HTMLInputElement;
   settingsNtfyInterval: HTMLInputElement;
-  settingsBackupVaultPath: HTMLInputElement;
-  settingsBackupDataDir: HTMLInputElement;
-  settingsBackupDatabase: HTMLInputElement;
+  settingsBackupVaultPath: HTMLElement;
+  settingsBackupDataDir: HTMLElement;
+  settingsBackupDatabase: HTMLElement;
   settingsBackupDownload: HTMLButtonElement;
   settingsBackupScript: HTMLButtonElement;
   settingsBackupNote: HTMLElement;
-  settingsRuntimeListenAddr: HTMLInputElement;
-  settingsRuntimeServerTime: HTMLInputElement;
-  settingsRuntimeCurrentVault: HTMLInputElement;
-  settingsRuntimeRestartRequired: HTMLInputElement;
-  settingsRuntimeHealth: HTMLInputElement;
+  settingsRuntimeListenAddr: HTMLElement;
+  settingsRuntimeServerTime: HTMLElement;
+  settingsRuntimeCurrentVault: HTMLElement;
+  settingsRuntimeRestartRequired: HTMLElement;
+  settingsRuntimeHealth: HTMLElement;
   settingsUserNtfyTopicUrl: HTMLInputElement;
   settingsUserNtfyToken: HTMLInputElement;
   settingsUserTopLevelVaults: HTMLInputElement;
@@ -408,9 +408,9 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
     : "";
   const dataDir = state.serverMeta ? String(state.serverMeta.dataDir || "").trim() : "";
   const database = state.serverMeta ? String(state.serverMeta.database || "").trim() : "";
-  els.settingsBackupVaultPath.value = runtimeVaultPath || "(unknown)";
-  els.settingsBackupDataDir.value = dataDir || "(unknown)";
-  els.settingsBackupDatabase.value = database || "(unknown)";
+  els.settingsBackupVaultPath.textContent = runtimeVaultPath || "(unknown)";
+  els.settingsBackupDataDir.textContent = dataDir || "(unknown)";
+  els.settingsBackupDatabase.textContent = database || "(unknown)";
   els.settingsBackupDownload.disabled = !state.serverMeta;
   els.settingsBackupScript.disabled = !state.serverMeta;
   els.settingsBackupNote.textContent = database
@@ -423,13 +423,13 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
   const vaultHealth = state.serverMeta && state.serverMeta.vaultHealth
     ? state.serverMeta.vaultHealth
     : null;
-  els.settingsRuntimeListenAddr.value = state.serverMeta
+  els.settingsRuntimeListenAddr.textContent = state.serverMeta
     ? String(state.serverMeta.listenAddr || "").trim() || "(unknown)"
     : "(unknown)";
-  els.settingsRuntimeServerTime.value = serverTime || "(unknown)";
-  els.settingsRuntimeCurrentVault.value = currentVault || runtimeVaultPath || "(vault root)";
-  els.settingsRuntimeRestartRequired.value = state.serverMeta && state.serverMeta.restartRequired ? "Yes" : "No";
-  els.settingsRuntimeHealth.value = !state.serverMeta
+  els.settingsRuntimeServerTime.textContent = serverTime || "(unknown)";
+  els.settingsRuntimeCurrentVault.textContent = currentVault || runtimeVaultPath || "(vault root)";
+  els.settingsRuntimeRestartRequired.textContent = state.serverMeta && state.serverMeta.restartRequired ? "Yes" : "No";
+  els.settingsRuntimeHealth.textContent = !state.serverMeta
     ? "(unknown)"
     : vaultHealth && vaultHealth.healthy
       ? "Healthy"
