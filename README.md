@@ -269,7 +269,7 @@ That tag is moved to the newest release tag. If you want a fixed release instead
 
 ```nix
 {
-  inputs.noterious.url = "github:carnager/noterious/v0.1.18";
+  inputs.noterious.url = "github:carnager/noterious/v0.1.19";
 }
 ```
 

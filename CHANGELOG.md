@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.19] - 2026-04-30
+
+### Added
+- A conflict recovery dialog now handles page save conflicts and unsafe remote-change reviews with base/local/remote versions plus an editable resolution buffer.
+- The Settings backup section can now download both a deployment backup manifest JSON and a generated shell backup script, and also exposes live runtime status such as listen address, current scope, vault health, and restart-required state.
+
+### Changed
+- The Documents modal and `/file` flow now make the upload destination explicit, so attachments clearly land in the current note folder or vault root as appropriate.
+- The settings backup/runtime sections now render as stable metadata panels instead of dark readonly mini-forms, and the settings dialog keeps a fixed height when switching sections.
+
 ## [v0.1.18] - 2026-04-29
 
 ### Added
