@@ -1,13 +1,16 @@
-const CACHE_NAME = "noterious-shell-v2";
+const CACHE_NAME = "noterious-shell-v3";
 const SHELL_URLS = [
   "/",
   "/manifest.webmanifest",
   "/assets/app.css",
   "/assets/app.js",
   "/assets/editor.bundle.js",
-  "/assets/favicon.svg",
-  "/assets/pwa-icon.svg",
-  "/assets/pwa-icon-maskable.svg",
+  "/assets/favicon.ico",
+  "/assets/favicon-32.png",
+  "/assets/apple-touch-icon.png",
+  "/assets/pwa-icon-192.png",
+  "/assets/pwa-icon-512.png",
+  "/assets/pwa-icon-maskable-512.png",
 ];
 
 self.addEventListener("install", function (event) {

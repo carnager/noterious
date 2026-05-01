@@ -25,6 +25,25 @@ type TreeDragItem =
 
 let activeDragItem: TreeDragItem | null = null;
 
+function normalizeScopePrefix(scopePrefix: string): string {
+  return String(scopePrefix || "").trim().replace(/^\/+|\/+$/g, "");
+}
+
+function displayPathWithinScope(path: string, scopePrefix: string): string {
+  const normalizedPath = String(path || "").trim().replace(/^\/+|\/+$/g, "");
+  const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
+  if (!normalizedPath || !normalizedScopePrefix) {
+    return normalizedPath;
+  }
+  if (normalizedPath === normalizedScopePrefix) {
+    return "";
+  }
+  if (normalizedPath.startsWith(normalizedScopePrefix + "/")) {
+    return normalizedPath.slice(normalizedScopePrefix.length + 1);
+  }
+  return normalizedPath;
+}
+
 function formatReminderLabel(value: string): string {
   const text = String(value || "").trim();
   if (!text) {
@@ -114,16 +133,31 @@ export function ensureExpandedPageAncestors(path: string, expandedPageFolders: R
   }
 }
 
-function buildPageTree(pages: PageSummary[]): PageTreeRoot {
+function buildPageTree(pages: PageSummary[], scopePrefix: string): PageTreeRoot {
   const root: PageTreeRoot = { folders: {}, pages: [] };
+  const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
+  const scopeParts = normalizedScopePrefix ? normalizedScopePrefix.split("/") : [];
 
   pages.forEach(function (page) {
-    const segments = String(page.path || "").split("/");
+    const canonicalPath = String(page.path || "");
+    const displayPath = displayPathWithinScope(canonicalPath, normalizedScopePrefix);
+    const segments = displayPath ? displayPath.split("/") : [];
+    const canonicalSegments = canonicalPath.split("/").filter(Boolean);
+    const offset = normalizedScopePrefix && canonicalPath.startsWith(normalizedScopePrefix + "/")
+      ? scopeParts.length
+      : 0;
+
+    if (segments.length <= 1) {
+      root.pages.push(page);
+      return;
+    }
+
     let cursor: PageTreeRoot | PageTreeFolder = root;
     for (let index = 0; index < segments.length - 1; index += 1) {
       const segment = segments[index];
+      const canonicalKey = canonicalSegments.slice(0, offset + index + 1).join("/");
       if (!cursor.folders[segment]) {
-        cursor.folders[segment] = { key: segments.slice(0, index + 1).join("/"), name: segment, folders: {}, pages: [] };
+        cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [] };
       }
       cursor = cursor.folders[segment];
     }
@@ -296,6 +330,9 @@ export function renderPagesTree(
   selectedPage: string,
   expandedPageFolders: Record<string, boolean>,
   pageSearchQuery: string,
+  scopePrefix: string,
+  rootFolderPath: string,
+  rootLabelText: string,
   onToggleFolder: (folderKey: string) => void,
   onSelectPage: (pagePath: string) => void,
   onCreatePage: (folderKey: string) => void,
@@ -309,14 +346,20 @@ export function renderPagesTree(
   onMoveFolder: (folderKey: string, targetFolder: string) => void
 ): void {
   clearNode(container);
+  const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
+  const normalizedRootFolderPath = String(rootFolderPath || "").trim().replace(/^\/+|\/+$/g, "");
 
   if (pageSearchQuery) {
     const expanded: Record<string, boolean> = {};
     pages.forEach(function (page) {
-      const parts = String(page.path || "").split("/");
-      let key = "";
+      const displayPath = displayPathWithinScope(String(page.path || ""), normalizedScopePrefix);
+      const parts = displayPath ? displayPath.split("/") : [];
+      const canonicalParts = String(page.path || "").split("/").filter(Boolean);
+      const offset = normalizedScopePrefix && String(page.path || "").startsWith(normalizedScopePrefix + "/")
+        ? normalizedScopePrefix.split("/").length
+        : 0;
       for (let index = 0; index < parts.length - 1; index += 1) {
-        key = key ? key + "/" + parts[index] : parts[index];
+        const key = canonicalParts.slice(0, offset + index + 1).join("/");
         expanded[key] = true;
       }
     });
@@ -330,7 +373,7 @@ export function renderPagesTree(
 
   const rootLabel = document.createElement("div");
   rootLabel.className = "page-tree-root-label";
-  rootLabel.textContent = "Vault root";
+  rootLabel.textContent = rootLabelText;
   rootRow.appendChild(rootLabel);
 
   const rootActions = document.createElement("div");
@@ -345,7 +388,7 @@ export function renderPagesTree(
   createRootNote.addEventListener("click", function (event) {
     event.preventDefault();
     event.stopPropagation();
-    onCreatePage("");
+    onCreatePage(normalizedRootFolderPath);
   });
   rootActions.appendChild(createRootNote);
 
@@ -358,7 +401,7 @@ export function renderPagesTree(
   createRootFolder.addEventListener("click", function (event) {
     event.preventDefault();
     event.stopPropagation();
-    onCreateSubfolder("");
+    onCreateSubfolder(normalizedRootFolderPath);
   });
   rootActions.appendChild(createRootFolder);
 
@@ -409,10 +452,10 @@ export function renderPagesTree(
     event.preventDefault();
     event.stopPropagation();
     if (payload.kind === "page") {
-      onMovePage(payload.path, "");
+      onMovePage(payload.path, normalizedRootFolderPath);
       return;
     }
-    onMoveFolder(payload.path, "");
+    onMoveFolder(payload.path, normalizedRootFolderPath);
   }
   [rootRow, rootLabel, rootActions].forEach(function (element) {
     element.addEventListener("dragover", handleRootDragOver);
@@ -468,7 +511,7 @@ export function renderPagesTree(
     onMoveFolder(payload.path, "");
   };
 
-  container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
+  container.appendChild(renderPageTreeNode(buildPageTree(pages, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
 }
 
 export interface TaskPanelFilters {

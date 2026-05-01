@@ -261,6 +261,8 @@ interface TaskDateEditDetail {
   field?: string;
   left?: number;
   top?: number;
+  anchorTop?: number;
+  anchorBottom?: number;
 }
 
 interface TaskDeleteDetail {
@@ -852,12 +854,14 @@ interface TreeContextMenuState {
     });
   }
 
-  function openInlineTaskPicker(ref: string, mode: "due" | "remind", left: number, top: number): void {
+  function openInlineTaskPicker(ref: string, mode: "due" | "remind", left: number, top: number, anchorTop?: number, anchorBottom?: number): void {
     openInlineTaskPickerUI(taskPickerState, {
       ref: ref,
       mode: mode,
       left: left,
       top: top,
+      anchorTop: anchorTop,
+      anchorBottom: anchorBottom,
       task: ref ? findCurrentTask(ref) : null,
       rememberNoteFocus: rememberNoteFocus,
       closeTaskPickers: closeTaskPickers,
@@ -2979,7 +2983,9 @@ interface TreeContextMenuState {
       const caretRect = state.markdownEditorApi ? state.markdownEditorApi.getCaretRect() : null;
       const left = caretRect ? caretRect.left : 0;
       const top = caretRect ? (caretRect.bottom + 10) : 0;
-      openInlineTaskPicker(task.ref, mode, left, top);
+      const anchorTop = caretRect ? caretRect.top : 0;
+      const anchorBottom = caretRect ? caretRect.bottom : 0;
+      openInlineTaskPicker(task.ref, mode, left, top, anchorTop, anchorBottom);
     });
   }
 
@@ -5594,7 +5600,9 @@ interface TreeContextMenuState {
         const field = detail.field === "remind" ? "remind" : "due";
         const left = Number(detail.left) || 0;
         const top = Number(detail.top) || 0;
-        openInlineTaskPicker(ref, field, left, top);
+        const anchorTop = Number(detail.anchorTop) || 0;
+        const anchorBottom = Number(detail.anchorBottom) || 0;
+        openInlineTaskPicker(ref, field, left, top, anchorTop, anchorBottom);
       });
       on(markdownEditorApi.host, "noterious:task-delete", function (event) {
         const detail = (event as CustomEvent<TaskDeleteDetail>).detail || {};

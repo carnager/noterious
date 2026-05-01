@@ -27682,6 +27682,37 @@
     }
   });
 
+  // frontend/taskNavigation.ts
+  function taskLineMatch(text) {
+    return String(text || "").match(/^(\s*)-\s+\[[ xX]\]\s+/);
+  }
+  function taskPrefixLength(text) {
+    const match = taskLineMatch(text);
+    return match ? match[0].length : 0;
+  }
+  function taskLineHasInlineDate(text) {
+    const match = taskLineMatch(text);
+    if (!match) {
+      return false;
+    }
+    const body = String(text || "").slice(match[0].length);
+    const pattern = new RegExp(taskInlineDatePattern.source, taskInlineDatePattern.flags);
+    return pattern.test(body);
+  }
+  function renderedTaskVisibleColumn(text, rawColumn) {
+    return Math.max(0, Number(rawColumn) || 0) - taskPrefixLength(text);
+  }
+  function renderedTaskRawColumn(text, visibleColumn) {
+    return Math.max(0, Number(visibleColumn) || 0) + taskPrefixLength(text);
+  }
+  var taskInlineDatePattern;
+  var init_taskNavigation = __esm({
+    "frontend/taskNavigation.ts"() {
+      "use strict";
+      taskInlineDatePattern = /\[(due|remind):\s*[^\]]+?\]|\b(due|remind)::\s*[^\s]+(?:\s+\d{2}:\d{2})?/g;
+    }
+  });
+
   // frontend/editor.ts
   var require_editor = __commonJS({
     "frontend/editor.ts"() {
@@ -27703,6 +27734,7 @@
       init_commands();
       init_documents();
       init_markdown();
+      init_taskNavigation();
       var measureCanvas = document.createElement("canvas");
       var measureContext = measureCanvas.getContext("2d");
       function bindTransientScrollClass(element, className) {
@@ -27744,7 +27776,7 @@
       var setTasksEffect = StateEffect.define();
       var setPagePathEffect = StateEffect.define();
       var setHighlightedLineEffect = StateEffect.define();
-      var taskInlineDatePattern = /\[(due|remind):\s*[^\]]+?\]|\b(due|remind)::\s*[^\s]+(?:\s+\d{2}:\d{2})?/g;
+      var taskInlineDatePattern2 = /\[(due|remind):\s*[^\]]+?\]|\b(due|remind)::\s*[^\s]+(?:\s+\d{2}:\d{2})?/g;
       var codeLanguages = [
         LanguageDescription.of({ name: "JavaScript", alias: ["js", "javascript"], extensions: ["js", "mjs", "cjs"], support: javascript() }),
         LanguageDescription.of({ name: "TypeScript", alias: ["ts", "typescript"], extensions: ["ts", "tsx"], support: javascript({ typescript: true }) }),
@@ -28258,6 +28290,34 @@
         }
         return false;
       }
+      function handleRenderedTaskArrow(view, key) {
+        if (!view.state.field(renderModeField, false)) {
+          return false;
+        }
+        const selection = view.state.selection.main;
+        if (!selection.empty) {
+          return false;
+        }
+        const currentLine = view.state.doc.lineAt(selection.head);
+        const targetLineNumber = key === "ArrowDown" ? currentLine.number + 1 : currentLine.number - 1;
+        if (targetLineNumber < 1 || targetLineNumber > view.state.doc.lines) {
+          return false;
+        }
+        const targetLine = view.state.doc.line(targetLineNumber);
+        if (!taskLineHasInlineDate(currentLine.text) && !taskLineHasInlineDate(targetLine.text)) {
+          return false;
+        }
+        const rawColumn = Math.max(0, selection.head - currentLine.from);
+        const visibleColumn = renderedTaskVisibleColumn(currentLine.text, rawColumn);
+        const targetRawColumn = renderedTaskRawColumn(targetLine.text, visibleColumn);
+        view.dispatch({
+          selection: {
+            anchor: Math.min(targetLine.from + targetRawColumn, targetLine.to)
+          },
+          scrollIntoView: true
+        });
+        return true;
+      }
       var atomicRangeDecoration = Decoration.mark({});
       function addAtomicRange(builder, from, to) {
         if (to > from) {
@@ -28605,7 +28665,7 @@
             addAtomicRange(atomicBuilder, from, from + prefixLength);
             inlineStart = prefixLength;
             let dateMatch = null;
-            while ((dateMatch = taskInlineDatePattern.exec(bodyText)) !== null) {
+            while ((dateMatch = taskInlineDatePattern2.exec(bodyText)) !== null) {
               const field = String(dateMatch[1] || "");
               const start = from + prefixLength + dateMatch.index;
               const end = start + dateMatch[0].length;
@@ -28621,7 +28681,7 @@
                 })
               });
             }
-            taskInlineDatePattern.lastIndex = 0;
+            taskInlineDatePattern2.lastIndex = 0;
             if (task.text && bodyText.startsWith(task.text) && task.who && task.who.length) {
               taskMetaWidget = new TaskMetaWidget(task);
             }
@@ -28826,7 +28886,9 @@
                     ref: taskDateEdit.getAttribute("data-task-ref") || "",
                     field: taskDateEdit.getAttribute("data-task-date-edit") || "",
                     left: rect ? rect.left : 0,
-                    top: rect ? rect.bottom + 6 : 0
+                    top: rect ? rect.bottom + 6 : 0,
+                    anchorTop: rect ? rect.top : 0,
+                    anchorBottom: rect ? rect.bottom : 0
                   },
                   bubbles: true
                 }));
@@ -28863,6 +28925,10 @@
                 return true;
               }
               if (!event.altKey && !event.ctrlKey && !event.metaKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                if (handleRenderedTaskArrow(view2, event.key === "ArrowDown" ? "ArrowDown" : "ArrowUp")) {
+                  event.preventDefault();
+                  return true;
+                }
                 if (revealRenderedCodeBlockByArrow(view2, event.key)) {
                   event.preventDefault();
                   return true;

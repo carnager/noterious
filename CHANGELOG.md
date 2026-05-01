@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.20] - 2026-05-01
+
+### Added
+- The bundled frontend now ships a generated PNG/ICO app icon set from the project logo for browser tabs, installable PWA icons, and Apple touch icons.
+
+### Changed
+- Top-level folder scope mode now keeps canonical full paths throughout the page tree and only shortens labels for display, so scopes behave more like a filtered view/default prefix than a second path system.
+
+### Fixed
+- Inline `due` and `remind` pickers now flip upward and stay within the viewport when opened near the bottom of the page.
+- Rendered tasks with inline `due`/`remind` fields now move one logical line at a time with Up/Down instead of skipping tasks.
+- Creating notes inside folders in top-level scope mode no longer drops them into the scope root, and folders with repeated names inside a scope resolve correctly.
+
 ## [v0.1.19] - 2026-04-30
 
 ### Added

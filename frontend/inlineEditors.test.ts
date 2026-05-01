@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   canDeleteInlineTableEditorColumn,
   canDeleteInlineTableEditorRow,
   deleteInlineTableEditorColumn,
   deleteInlineTableEditorRow,
+  defaultTaskPickerState,
+  positionInlineTaskPicker,
   type TableEditorState,
 } from "./inlineEditors";
 
@@ -30,6 +32,16 @@ function tableEditorState(rows: string[][], row: number, col: number): TableEdit
     headerFontWeight: "",
   };
 }
+
+function taskPickerElements(picker: HTMLDivElement) {
+  return {
+    inlineTaskPicker: picker,
+  } as any;
+}
+
+afterEach(function () {
+  vi.unstubAllGlobals();
+});
 
 describe("inline table editor helpers", function () {
   it("only allows deleting body rows when more than one exists", function () {
@@ -95,5 +107,44 @@ describe("inline table editor helpers", function () {
     expect(state.col).toBe(1);
     expect(state.row).toBe(2);
     expect(state.dirty).toBe(true);
+  });
+
+  it("keeps the task picker below the anchor when there is room", function () {
+    vi.stubGlobal("window", { innerWidth: 1200, innerHeight: 900 });
+    const picker = {
+      style: { left: "", top: "" },
+      offsetWidth: 320,
+      offsetHeight: 240,
+    } as any;
+
+    const state = defaultTaskPickerState();
+    state.left = 200;
+    state.top = 306;
+    state.anchorTop = 280;
+    state.anchorBottom = 300;
+
+    positionInlineTaskPicker(state, taskPickerElements(picker));
+
+    expect(picker.style.left).toBe("200px");
+    expect(picker.style.top).toBe("306px");
+  });
+
+  it("flips the task picker above the anchor near the viewport bottom", function () {
+    vi.stubGlobal("window", { innerWidth: 1200, innerHeight: 520 });
+    const picker = {
+      style: { left: "", top: "" },
+      offsetWidth: 320,
+      offsetHeight: 240,
+    } as any;
+
+    const state = defaultTaskPickerState();
+    state.left = 200;
+    state.top = 476;
+    state.anchorTop = 450;
+    state.anchorBottom = 470;
+
+    positionInlineTaskPicker(state, taskPickerElements(picker));
+
+    expect(picker.style.top).toBe("204px");
   });
 });

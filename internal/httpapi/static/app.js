@@ -2840,6 +2840,8 @@
       ref: "",
       left: 0,
       top: 0,
+      anchorTop: 0,
+      anchorBottom: 0,
       year: 0,
       month: 0,
       day: 0,
@@ -2914,10 +2916,28 @@
   }
   function positionInlineTaskPicker(taskPickerState, els) {
     const picker = els.inlineTaskPicker;
+    const viewportWidth = Math.max(320, window.innerWidth || 0);
+    const viewportHeight = Math.max(320, window.innerHeight || 0);
     const width = picker.offsetWidth || 320;
-    const maxLeft = Math.max(12, window.innerWidth - width - 12);
+    const height = picker.offsetHeight || 0;
+    const maxLeft = Math.max(12, viewportWidth - width - 12);
+    const anchorBottom = Number.isFinite(taskPickerState.anchorBottom) && taskPickerState.anchorBottom > 0 ? taskPickerState.anchorBottom : taskPickerState.top;
+    const gap = Math.max(6, Math.round(taskPickerState.top - anchorBottom) || 0);
+    const anchorTop = Number.isFinite(taskPickerState.anchorTop) && taskPickerState.anchorTop > 0 ? taskPickerState.anchorTop : Math.max(12, anchorBottom - gap);
+    const belowTop = Math.max(12, taskPickerState.top);
+    let top = belowTop;
+    if (height > 0) {
+      const fitsBelow = belowTop + height <= viewportHeight - 12;
+      const aboveTop = anchorTop - height - gap;
+      const fitsAbove = aboveTop >= 12;
+      if (!fitsBelow && fitsAbove) {
+        top = aboveTop;
+      } else {
+        top = Math.max(12, Math.min(belowTop, viewportHeight - height - 12));
+      }
+    }
     picker.style.left = Math.max(12, Math.min(taskPickerState.left, maxLeft)) + "px";
-    picker.style.top = Math.max(12, taskPickerState.top) + "px";
+    picker.style.top = top + "px";
   }
   function closeTaskPickers(taskPickerState, els) {
     taskPickerState.mode = "";
@@ -3637,6 +3657,8 @@
     taskPickerState.ref = options.ref;
     taskPickerState.left = options.left;
     taskPickerState.top = options.top;
+    taskPickerState.anchorTop = Number(options.anchorTop) || 0;
+    taskPickerState.anchorBottom = Number(options.anchorBottom) || 0;
     taskPickerState.year = parts.year;
     taskPickerState.month = parts.month;
     taskPickerState.day = parts.day;
@@ -4663,6 +4685,23 @@
   });
 
   // frontend/pageViews.ts
+  function normalizeScopePrefix2(scopePrefix) {
+    return String(scopePrefix || "").trim().replace(/^\/+|\/+$/g, "");
+  }
+  function displayPathWithinScope(path, scopePrefix) {
+    const normalizedPath = String(path || "").trim().replace(/^\/+|\/+$/g, "");
+    const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
+    if (!normalizedPath || !normalizedScopePrefix) {
+      return normalizedPath;
+    }
+    if (normalizedPath === normalizedScopePrefix) {
+      return "";
+    }
+    if (normalizedPath.startsWith(normalizedScopePrefix + "/")) {
+      return normalizedPath.slice(normalizedScopePrefix.length + 1);
+    }
+    return normalizedPath;
+  }
   function formatReminderLabel(value) {
     const text = String(value || "").trim();
     if (!text) {
@@ -4745,15 +4784,26 @@
       expandedPageFolders[key] = true;
     }
   }
-  function buildPageTree(pages) {
+  function buildPageTree(pages, scopePrefix) {
     const root = { folders: {}, pages: [] };
+    const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
+    const scopeParts = normalizedScopePrefix ? normalizedScopePrefix.split("/") : [];
     pages.forEach(function(page) {
-      const segments = String(page.path || "").split("/");
+      const canonicalPath = String(page.path || "");
+      const displayPath = displayPathWithinScope(canonicalPath, normalizedScopePrefix);
+      const segments = displayPath ? displayPath.split("/") : [];
+      const canonicalSegments = canonicalPath.split("/").filter(Boolean);
+      const offset = normalizedScopePrefix && canonicalPath.startsWith(normalizedScopePrefix + "/") ? scopeParts.length : 0;
+      if (segments.length <= 1) {
+        root.pages.push(page);
+        return;
+      }
       let cursor = root;
       for (let index = 0; index < segments.length - 1; index += 1) {
         const segment = segments[index];
+        const canonicalKey = canonicalSegments.slice(0, offset + index + 1).join("/");
         if (!cursor.folders[segment]) {
-          cursor.folders[segment] = { key: segments.slice(0, index + 1).join("/"), name: segment, folders: {}, pages: [] };
+          cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [] };
         }
         cursor = cursor.folders[segment];
       }
@@ -4871,15 +4921,19 @@
     });
     return group;
   }
-  function renderPagesTree(container, pages, selectedPage, expandedPageFolders, pageSearchQuery, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder) {
+  function renderPagesTree(container, pages, selectedPage, expandedPageFolders, pageSearchQuery, scopePrefix, rootFolderPath, rootLabelText, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder) {
     clearNode(container);
+    const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
+    const normalizedRootFolderPath = String(rootFolderPath || "").trim().replace(/^\/+|\/+$/g, "");
     if (pageSearchQuery) {
       const expanded = {};
       pages.forEach(function(page) {
-        const parts = String(page.path || "").split("/");
-        let key = "";
+        const displayPath = displayPathWithinScope(String(page.path || ""), normalizedScopePrefix);
+        const parts = displayPath ? displayPath.split("/") : [];
+        const canonicalParts = String(page.path || "").split("/").filter(Boolean);
+        const offset = normalizedScopePrefix && String(page.path || "").startsWith(normalizedScopePrefix + "/") ? normalizedScopePrefix.split("/").length : 0;
         for (let index = 0; index < parts.length - 1; index += 1) {
-          key = key ? key + "/" + parts[index] : parts[index];
+          const key = canonicalParts.slice(0, offset + index + 1).join("/");
           expanded[key] = true;
         }
       });
@@ -4891,7 +4945,7 @@
     rootRow.className = "page-tree-root-drop";
     const rootLabel = document.createElement("div");
     rootLabel.className = "page-tree-root-label";
-    rootLabel.textContent = "Vault root";
+    rootLabel.textContent = rootLabelText;
     rootRow.appendChild(rootLabel);
     const rootActions = document.createElement("div");
     rootActions.className = "page-tree-actions page-tree-actions-visible";
@@ -4904,7 +4958,7 @@
     createRootNote.addEventListener("click", function(event) {
       event.preventDefault();
       event.stopPropagation();
-      onCreatePage("");
+      onCreatePage(normalizedRootFolderPath);
     });
     rootActions.appendChild(createRootNote);
     const createRootFolder = document.createElement("button");
@@ -4916,7 +4970,7 @@
     createRootFolder.addEventListener("click", function(event) {
       event.preventDefault();
       event.stopPropagation();
-      onCreateSubfolder("");
+      onCreateSubfolder(normalizedRootFolderPath);
     });
     rootActions.appendChild(createRootFolder);
     rootRow.appendChild(rootActions);
@@ -4966,10 +5020,10 @@
       event.preventDefault();
       event.stopPropagation();
       if (payload.kind === "page") {
-        onMovePage(payload.path, "");
+        onMovePage(payload.path, normalizedRootFolderPath);
         return;
       }
-      onMoveFolder(payload.path, "");
+      onMoveFolder(payload.path, normalizedRootFolderPath);
     }
     [rootRow, rootLabel, rootActions].forEach(function(element) {
       element.addEventListener("dragover", handleRootDragOver);
@@ -5020,7 +5074,7 @@
       }
       onMoveFolder(payload.path, "");
     };
-    container.appendChild(renderPageTreeNode(buildPageTree(pages), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
+    container.appendChild(renderPageTreeNode(buildPageTree(pages, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
   }
   function filterTasks(tasks, filters, currentPagePath) {
     if (!tasks || !tasks.length) {
@@ -5242,12 +5296,12 @@
       pageList.classList.toggle("no-scroll", overflow <= 8);
     });
   }
-  function normalizeScopePrefix2(scopePrefix) {
+  function normalizeScopePrefix3(scopePrefix) {
     return normalizePageDraftPath(scopePrefix || "");
   }
-  function toDisplayPath(path, scopePrefix) {
+  function displayPathWithinScope2(path, scopePrefix) {
     const normalizedPath = normalizePageDraftPath(path || "");
-    const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
+    const normalizedScopePrefix = normalizeScopePrefix3(scopePrefix);
     if (!normalizedPath || !normalizedScopePrefix) {
       return normalizedPath;
     }
@@ -5259,40 +5313,23 @@
     }
     return normalizedPath;
   }
-  function toScopedPath(path, scopePrefix, rootMeansScope) {
-    const normalizedPath = normalizePageDraftPath(path || "");
-    const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
-    if (!normalizedScopePrefix) {
-      return normalizedPath;
-    }
-    if (!normalizedPath) {
-      return rootMeansScope ? normalizedScopePrefix : "";
-    }
-    if (normalizedPath === normalizedScopePrefix || normalizedPath.startsWith(normalizedScopePrefix + "/")) {
-      return normalizedPath;
-    }
-    return normalizedScopePrefix + "/" + normalizedPath;
-  }
   function pageTreeDisplayStateForScope(state) {
-    const scopePrefix = normalizeScopePrefix2(state.scopePrefix || "");
-    const selectedPage = toDisplayPath(state.selectedPage, scopePrefix);
+    const scopePrefix = normalizeScopePrefix3(state.scopePrefix || "");
+    const selectedPage = state.selectedPage;
     const pages = state.pages.map(function(page) {
       return {
         ...page,
-        path: toDisplayPath(page.path, scopePrefix)
+        path: page.path
       };
     }).filter(function(page) {
-      return Boolean(page.path);
+      return Boolean(displayPathWithinScope2(page.path, scopePrefix) || page.path);
     });
     const expandedPageFolders = {};
     Object.keys(state.expandedPageFolders).forEach(function(key) {
       if (!state.expandedPageFolders[key]) {
         return;
       }
-      const displayKey = toDisplayPath(key, scopePrefix);
-      if (displayKey) {
-        expandedPageFolders[displayKey] = true;
-      }
+      expandedPageFolders[key] = true;
     });
     return {
       selectedPage,
@@ -5301,21 +5338,25 @@
     };
   }
   function renderPagesSection(state, els, actions, openTreeContextMenu2) {
-    const scopePrefix = normalizeScopePrefix2(state.scopePrefix || "");
+    const scopePrefix = normalizeScopePrefix3(state.scopePrefix || "");
     const displayState = pageTreeDisplayStateForScope(state);
+    const rootFolderPath = scopePrefix;
+    const rootLabel = scopePrefix ? "Scope root" : "Vault root";
     renderPagesTree(
       els.pageList,
       displayState.pages,
       displayState.selectedPage,
       displayState.expandedPageFolders,
       els.pageSearch.value.trim(),
+      scopePrefix,
+      rootFolderPath,
+      rootLabel,
       function(folderKey) {
-        const scopedFolderKey = toScopedPath(folderKey, scopePrefix, true);
-        state.expandedPageFolders[scopedFolderKey] = !state.expandedPageFolders[scopedFolderKey];
+        state.expandedPageFolders[folderKey] = !state.expandedPageFolders[folderKey];
         renderPagesSection(state, els, actions, openTreeContextMenu2);
       },
       function(pagePath) {
-        actions.navigateToPage(toScopedPath(pagePath, scopePrefix, false), false);
+        actions.navigateToPage(pagePath, false);
       },
       function(folderKey) {
         const name = window.prompt('New note in "' + folderKey + '"', "");
@@ -5348,12 +5389,12 @@
         if (!nextName || nextName === currentName) {
           return;
         }
-        actions.renameFolder(toScopedPath(folderKey, scopePrefix, true), nextName).catch(function(error) {
+        actions.renameFolder(folderKey, nextName).catch(function(error) {
           actions.setNoteStatus("Rename folder failed: " + actions.errorMessage(error));
         });
       },
       function(folderKey) {
-        actions.deleteFolder(toScopedPath(folderKey, scopePrefix, true)).catch(function(error) {
+        actions.deleteFolder(folderKey).catch(function(error) {
           actions.setNoteStatus("Delete folder failed: " + actions.errorMessage(error));
         });
       },
@@ -5363,33 +5404,30 @@
         if (!nextName || nextName === currentName) {
           return;
         }
-        actions.renamePage(toScopedPath(pagePath, scopePrefix, false), nextName).catch(function(error) {
+        actions.renamePage(pagePath, nextName).catch(function(error) {
           actions.setNoteStatus("Rename note failed: " + actions.errorMessage(error));
         });
       },
       function(pagePath) {
-        actions.deletePage(toScopedPath(pagePath, scopePrefix, false)).catch(function(error) {
+        actions.deletePage(pagePath).catch(function(error) {
           actions.setNoteStatus("Delete page failed: " + actions.errorMessage(error));
         });
       },
       function(target, left, top) {
-        openTreeContextMenu2({
-          ...target,
-          path: toScopedPath(target.path, scopePrefix, target.kind === "folder")
-        }, left, top);
+        openTreeContextMenu2(target, left, top);
       },
       function(pagePath, folderKey) {
         actions.movePageToFolder(
-          toScopedPath(pagePath, scopePrefix, false),
-          toScopedPath(folderKey, scopePrefix, true)
+          pagePath,
+          folderKey
         ).catch(function(error) {
           actions.setNoteStatus("Move page failed: " + actions.errorMessage(error));
         });
       },
       function(folderKey, targetFolder) {
         actions.moveFolder(
-          toScopedPath(folderKey, scopePrefix, true),
-          toScopedPath(targetFolder, scopePrefix, true)
+          folderKey,
+          targetFolder
         ).catch(function(error) {
           actions.setNoteStatus("Move folder failed: " + actions.errorMessage(error));
         });
@@ -9906,12 +9944,14 @@
             errorMessage
           });
         }
-        function openInlineTaskPicker2(ref, mode, left, top) {
+        function openInlineTaskPicker2(ref, mode, left, top, anchorTop, anchorBottom) {
           openInlineTaskPicker(taskPickerState, {
             ref,
             mode,
             left,
             top,
+            anchorTop,
+            anchorBottom,
             task: ref ? findCurrentTask(ref) : null,
             rememberNoteFocus,
             closeTaskPickers: closeTaskPickers2,
@@ -11797,7 +11837,9 @@
             const caretRect = state.markdownEditorApi ? state.markdownEditorApi.getCaretRect() : null;
             const left = caretRect ? caretRect.left : 0;
             const top = caretRect ? caretRect.bottom + 10 : 0;
-            openInlineTaskPicker2(task.ref, mode, left, top);
+            const anchorTop = caretRect ? caretRect.top : 0;
+            const anchorBottom = caretRect ? caretRect.bottom : 0;
+            openInlineTaskPicker2(task.ref, mode, left, top, anchorTop, anchorBottom);
           });
         }
         async function toggleTaskDone2(task) {
@@ -14250,7 +14292,9 @@
               const field = detail.field === "remind" ? "remind" : "due";
               const left = Number(detail.left) || 0;
               const top = Number(detail.top) || 0;
-              openInlineTaskPicker2(ref, field, left, top);
+              const anchorTop = Number(detail.anchorTop) || 0;
+              const anchorBottom = Number(detail.anchorBottom) || 0;
+              openInlineTaskPicker2(ref, field, left, top, anchorTop, anchorBottom);
             });
             on(markdownEditorApi.host, "noterious:task-delete", function(event) {
               const detail = event.detail || {};

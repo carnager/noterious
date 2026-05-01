@@ -1,5 +1,9 @@
 # Noterious
 
+<p align="center">
+  <img src="logo.png" alt="Noterious logo" width="168">
+</p>
+
 Noterious is a server-first markdown notebook. Your notes stay as markdown files on disk, while the server handles indexing, queries, rendering, history, notifications, and the web UI.
 
 ## What It Does
@@ -269,7 +273,7 @@ That tag is moved to the newest release tag. If you want a fixed release instead
 
 ```nix
 {
-  inputs.noterious.url = "github:carnager/noterious/v0.1.19";
+  inputs.noterious.url = "github:carnager/noterious/v0.1.20";
 }
 ```
 

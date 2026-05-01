@@ -25,6 +25,8 @@ export interface TaskPickerState {
   ref: string;
   left: number;
   top: number;
+  anchorTop: number;
+  anchorBottom: number;
   year: number;
   month: number;
   day: number;
@@ -76,6 +78,8 @@ export function defaultTaskPickerState(): TaskPickerState {
     ref: "",
     left: 0,
     top: 0,
+    anchorTop: 0,
+    anchorBottom: 0,
     year: 0,
     month: 0,
     day: 0,
@@ -162,10 +166,32 @@ export function setTaskDateApplySuppressed(markdownEditorApi: NoteriousEditorApi
 
 export function positionInlineTaskPicker(taskPickerState: TaskPickerState, els: InlineEditorElements): void {
   const picker = els.inlineTaskPicker;
+  const viewportWidth = Math.max(320, window.innerWidth || 0);
+  const viewportHeight = Math.max(320, window.innerHeight || 0);
   const width = picker.offsetWidth || 320;
-  const maxLeft = Math.max(12, window.innerWidth - width - 12);
+  const height = picker.offsetHeight || 0;
+  const maxLeft = Math.max(12, viewportWidth - width - 12);
+  const anchorBottom = Number.isFinite(taskPickerState.anchorBottom) && taskPickerState.anchorBottom > 0
+    ? taskPickerState.anchorBottom
+    : taskPickerState.top;
+  const gap = Math.max(6, Math.round(taskPickerState.top - anchorBottom) || 0);
+  const anchorTop = Number.isFinite(taskPickerState.anchorTop) && taskPickerState.anchorTop > 0
+    ? taskPickerState.anchorTop
+    : Math.max(12, anchorBottom - gap);
+  const belowTop = Math.max(12, taskPickerState.top);
+  let top = belowTop;
+  if (height > 0) {
+    const fitsBelow = belowTop + height <= viewportHeight - 12;
+    const aboveTop = anchorTop - height - gap;
+    const fitsAbove = aboveTop >= 12;
+    if (!fitsBelow && fitsAbove) {
+      top = aboveTop;
+    } else {
+      top = Math.max(12, Math.min(belowTop, viewportHeight - height - 12));
+    }
+  }
   picker.style.left = Math.max(12, Math.min(taskPickerState.left, maxLeft)) + "px";
-  picker.style.top = Math.max(12, taskPickerState.top) + "px";
+  picker.style.top = top + "px";
 }
 
 export function closeTaskPickers(taskPickerState: TaskPickerState, els: InlineEditorElements): void {
@@ -974,6 +1000,8 @@ export function openInlineTaskPicker(taskPickerState: TaskPickerState, options: 
   mode: "due" | "remind";
   left: number;
   top: number;
+  anchorTop?: number;
+  anchorBottom?: number;
   task: TaskRecord | null;
   rememberNoteFocus: () => void;
   closeTaskPickers: () => void;
@@ -996,6 +1024,8 @@ export function openInlineTaskPicker(taskPickerState: TaskPickerState, options: 
   taskPickerState.ref = options.ref;
   taskPickerState.left = options.left;
   taskPickerState.top = options.top;
+  taskPickerState.anchorTop = Number(options.anchorTop) || 0;
+  taskPickerState.anchorBottom = Number(options.anchorBottom) || 0;
   taskPickerState.year = parts.year;
   taskPickerState.month = parts.month;
   taskPickerState.day = parts.day;

@@ -3100,6 +3100,212 @@ func TestMovePageRewritesScopeRelativeWikiLinks(t *testing.T) {
 	}
 }
 
+func TestMovePageIntoTopLevelScopeAppearsInScopedPageList(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	for _, dir := range []string{
+		filepath.Join(vaultDir, "Work"),
+		filepath.Join(vaultDir, "Contacts"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "Work", "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(alpha) error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	moveRequest := httptest.NewRequest(http.MethodPost, "/api/pages/Work/alpha/move", strings.NewReader(`{"targetPage":"Contacts/alpha"}`))
+	moveRequest.Header.Set("Content-Type", "application/json")
+	moveResponse := httptest.NewRecorder()
+	router.ServeHTTP(moveResponse, moveRequest)
+	if moveResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/pages/.../move status = %d body=%s", moveResponse.Code, moveResponse.Body.String())
+	}
+
+	pagesRequest := httptest.NewRequest(http.MethodGet, "/api/pages", nil)
+	pagesRequest.Header.Set(requestScopeHeader, "Contacts")
+	pagesResponse := httptest.NewRecorder()
+	router.ServeHTTP(pagesResponse, pagesRequest)
+	if pagesResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/pages scoped status = %d body=%s", pagesResponse.Code, pagesResponse.Body.String())
+	}
+
+	var pagesPayload struct {
+		Count int `json:"count"`
+		Pages []struct {
+			Path string `json:"path"`
+		} `json:"pages"`
+	}
+	if err := json.NewDecoder(pagesResponse.Body).Decode(&pagesPayload); err != nil {
+		t.Fatalf("Decode(scoped pages) error = %v", err)
+	}
+	if pagesPayload.Count != 1 || len(pagesPayload.Pages) != 1 || pagesPayload.Pages[0].Path != "Contacts/alpha" {
+		t.Fatalf("scoped pages payload = %#v", pagesPayload)
+	}
+}
+
+func TestMoveFolderIntoTopLevelScopeAppearsInScopedPageList(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	for _, dir := range []string{
+		filepath.Join(vaultDir, "Work", "notes"),
+		filepath.Join(vaultDir, "Contacts"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "Work", "notes", "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(alpha) error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	moveRequest := httptest.NewRequest(http.MethodPost, "/api/folders/Work/notes/move", strings.NewReader(`{"targetFolder":"Contacts"}`))
+	moveRequest.Header.Set("Content-Type", "application/json")
+	moveResponse := httptest.NewRecorder()
+	router.ServeHTTP(moveResponse, moveRequest)
+	if moveResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/folders/.../move status = %d body=%s", moveResponse.Code, moveResponse.Body.String())
+	}
+
+	pagesRequest := httptest.NewRequest(http.MethodGet, "/api/pages", nil)
+	pagesRequest.Header.Set(requestScopeHeader, "Contacts")
+	pagesResponse := httptest.NewRecorder()
+	router.ServeHTTP(pagesResponse, pagesRequest)
+	if pagesResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/pages scoped status = %d body=%s", pagesResponse.Code, pagesResponse.Body.String())
+	}
+
+	var pagesPayload struct {
+		Count int `json:"count"`
+		Pages []struct {
+			Path string `json:"path"`
+		} `json:"pages"`
+	}
+	if err := json.NewDecoder(pagesResponse.Body).Decode(&pagesPayload); err != nil {
+		t.Fatalf("Decode(scoped pages) error = %v", err)
+	}
+	if pagesPayload.Count != 1 || len(pagesPayload.Pages) != 1 || pagesPayload.Pages[0].Path != "Contacts/notes/alpha" {
+		t.Fatalf("scoped pages payload = %#v", pagesPayload)
+	}
+}
+
+func TestScopedMovePageIntoDifferentTopLevelScopeAppearsInScopedPageList(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	for _, dir := range []string{
+		filepath.Join(vaultDir, "Work"),
+		filepath.Join(vaultDir, "Contacts"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "Work", "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(alpha) error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	moveRequest := httptest.NewRequest(http.MethodPost, "/api/pages/Work/alpha/move", strings.NewReader(`{"targetPage":"Contacts/alpha"}`))
+	moveRequest.Header.Set("Content-Type", "application/json")
+	moveRequest.Header.Set(requestScopeHeader, "Work")
+	moveResponse := httptest.NewRecorder()
+	router.ServeHTTP(moveResponse, moveRequest)
+	if moveResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/pages/.../move scoped status = %d body=%s", moveResponse.Code, moveResponse.Body.String())
+	}
+
+	pagesRequest := httptest.NewRequest(http.MethodGet, "/api/pages", nil)
+	pagesRequest.Header.Set(requestScopeHeader, "Contacts")
+	pagesResponse := httptest.NewRecorder()
+	router.ServeHTTP(pagesResponse, pagesRequest)
+	if pagesResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/pages scoped status = %d body=%s", pagesResponse.Code, pagesResponse.Body.String())
+	}
+
+	var pagesPayload struct {
+		Count int `json:"count"`
+		Pages []struct {
+			Path string `json:"path"`
+		} `json:"pages"`
+	}
+	if err := json.NewDecoder(pagesResponse.Body).Decode(&pagesPayload); err != nil {
+		t.Fatalf("Decode(scoped pages) error = %v", err)
+	}
+	if pagesPayload.Count != 1 || len(pagesPayload.Pages) != 1 || pagesPayload.Pages[0].Path != "Contacts/alpha" {
+		t.Fatalf("scoped pages payload = %#v", pagesPayload)
+	}
+}
+
+func TestScopedMoveFolderIntoDifferentTopLevelScopeAppearsInScopedPageList(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	for _, dir := range []string{
+		filepath.Join(vaultDir, "Work", "notes"),
+		filepath.Join(vaultDir, "Contacts"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "Work", "notes", "alpha.md"), []byte("# Alpha\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(alpha) error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	moveRequest := httptest.NewRequest(http.MethodPost, "/api/folders/Work/notes/move", strings.NewReader(`{"targetFolder":"Contacts"}`))
+	moveRequest.Header.Set("Content-Type", "application/json")
+	moveRequest.Header.Set(requestScopeHeader, "Work")
+	moveResponse := httptest.NewRecorder()
+	router.ServeHTTP(moveResponse, moveRequest)
+	if moveResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/folders/.../move scoped status = %d body=%s", moveResponse.Code, moveResponse.Body.String())
+	}
+
+	pagesRequest := httptest.NewRequest(http.MethodGet, "/api/pages", nil)
+	pagesRequest.Header.Set(requestScopeHeader, "Contacts")
+	pagesResponse := httptest.NewRecorder()
+	router.ServeHTTP(pagesResponse, pagesRequest)
+	if pagesResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/pages scoped status = %d body=%s", pagesResponse.Code, pagesResponse.Body.String())
+	}
+
+	var pagesPayload struct {
+		Count int `json:"count"`
+		Pages []struct {
+			Path string `json:"path"`
+		} `json:"pages"`
+	}
+	if err := json.NewDecoder(pagesResponse.Body).Decode(&pagesPayload); err != nil {
+		t.Fatalf("Decode(scoped pages) error = %v", err)
+	}
+	if pagesPayload.Count != 1 || len(pagesPayload.Pages) != 1 || pagesPayload.Pages[0].Path != "Contacts/notes/alpha" {
+		t.Fatalf("scoped pages payload = %#v", pagesPayload)
+	}
+}
+
 func TestPatchPageFrontmatterUpdatesMarkdownAndReindexes(t *testing.T) {
 	t.Parallel()
 

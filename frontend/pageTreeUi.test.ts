@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { pageTreeDisplayStateForScope, type PageTreeUiState } from "./pageTreeUi";
+import { displayPathWithinScope, pageTreeDisplayStateForScope, type PageTreeUiState } from "./pageTreeUi";
 import type { PageSummary } from "./types";
 
 function page(path: string): PageSummary {
@@ -39,7 +39,7 @@ describe("page tree display state", function () {
     expect(displayState.expandedPageFolders).toEqual({});
   });
 
-  it("maps expanded folders and pages into the active scope", function () {
+  it("keeps canonical paths while display labels can still be derived from the active scope", function () {
     const state: PageTreeUiState = {
       selectedPage: "Work/contacts/rasmus",
       pages: [
@@ -54,12 +54,19 @@ describe("page tree display state", function () {
     };
 
     const displayState = pageTreeDisplayStateForScope(state);
-    expect(displayState.selectedPage).toBe("contacts/rasmus");
+    expect(displayState.selectedPage).toBe("Work/contacts/rasmus");
     expect(displayState.pages.map(function (entry) {
       return entry.path;
-    })).toEqual(["contacts/rasmus", "notes/index"]);
+    })).toEqual(["Work/contacts/rasmus", "Work/notes/index"]);
     expect(displayState.expandedPageFolders).toEqual({
-      contacts: true,
+      Work: true,
+      "Work/contacts": true,
     });
+    expect(displayPathWithinScope("Work/contacts/rasmus", "Work")).toBe("contacts/rasmus");
+    expect(displayPathWithinScope("Work/notes/index", "Work")).toBe("notes/index");
+  });
+
+  it("handles repeated top-level names without collapsing them into the scope root", function () {
+    expect(displayPathWithinScope("Contacts/Contacts/alpha", "Contacts")).toBe("Contacts/alpha");
   });
 });

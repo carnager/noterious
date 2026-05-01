@@ -52,7 +52,7 @@ function normalizeScopePrefix(scopePrefix: string): string {
   return normalizePageDraftPath(scopePrefix || "");
 }
 
-function toDisplayPath(path: string, scopePrefix: string): string {
+export function displayPathWithinScope(path: string, scopePrefix: string): string {
   const normalizedPath = normalizePageDraftPath(path || "");
   const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
   if (!normalizedPath || !normalizedScopePrefix) {
@@ -67,41 +67,23 @@ function toDisplayPath(path: string, scopePrefix: string): string {
   return normalizedPath;
 }
 
-function toScopedPath(path: string, scopePrefix: string, rootMeansScope: boolean): string {
-  const normalizedPath = normalizePageDraftPath(path || "");
-  const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
-  if (!normalizedScopePrefix) {
-    return normalizedPath;
-  }
-  if (!normalizedPath) {
-    return rootMeansScope ? normalizedScopePrefix : "";
-  }
-  if (normalizedPath === normalizedScopePrefix || normalizedPath.startsWith(normalizedScopePrefix + "/")) {
-    return normalizedPath;
-  }
-  return normalizedScopePrefix + "/" + normalizedPath;
-}
-
 export function pageTreeDisplayStateForScope(state: PageTreeUiState): PageTreeDisplayState {
   const scopePrefix = normalizeScopePrefix(state.scopePrefix || "");
-  const selectedPage = toDisplayPath(state.selectedPage, scopePrefix);
+  const selectedPage = state.selectedPage;
   const pages = state.pages.map(function (page) {
     return {
       ...page,
-      path: toDisplayPath(page.path, scopePrefix),
+      path: page.path,
     };
   }).filter(function (page) {
-    return Boolean(page.path);
+    return Boolean(displayPathWithinScope(page.path, scopePrefix) || page.path);
   });
   const expandedPageFolders: Record<string, boolean> = {};
   Object.keys(state.expandedPageFolders).forEach(function (key) {
     if (!state.expandedPageFolders[key]) {
       return;
     }
-    const displayKey = toDisplayPath(key, scopePrefix);
-    if (displayKey) {
-      expandedPageFolders[displayKey] = true;
-    }
+    expandedPageFolders[key] = true;
   });
   return {
     selectedPage: selectedPage,
@@ -113,6 +95,8 @@ export function pageTreeDisplayStateForScope(state: PageTreeUiState): PageTreeDi
 export function renderPagesSection(state: PageTreeUiState, els: PageTreeElements, actions: PageTreeActions, openTreeContextMenu: (target: PageTreeMenuTarget, left: number, top: number) => void): void {
   const scopePrefix = normalizeScopePrefix(state.scopePrefix || "");
   const displayState = pageTreeDisplayStateForScope(state);
+  const rootFolderPath = scopePrefix;
+  const rootLabel = scopePrefix ? "Scope root" : "Vault root";
 
   renderPagesTree(
     els.pageList,
@@ -120,13 +104,15 @@ export function renderPagesSection(state: PageTreeUiState, els: PageTreeElements
     displayState.selectedPage,
     displayState.expandedPageFolders,
     els.pageSearch.value.trim(),
+    scopePrefix,
+    rootFolderPath,
+    rootLabel,
     function (folderKey) {
-      const scopedFolderKey = toScopedPath(folderKey, scopePrefix, true);
-      state.expandedPageFolders[scopedFolderKey] = !state.expandedPageFolders[scopedFolderKey];
+      state.expandedPageFolders[folderKey] = !state.expandedPageFolders[folderKey];
       renderPagesSection(state, els, actions, openTreeContextMenu);
     },
     function (pagePath) {
-      actions.navigateToPage(toScopedPath(pagePath, scopePrefix, false), false);
+      actions.navigateToPage(pagePath, false);
     },
     function (folderKey) {
       const name = window.prompt('New note in "' + folderKey + '"', "");
@@ -159,12 +145,12 @@ export function renderPagesSection(state: PageTreeUiState, els: PageTreeElements
       if (!nextName || nextName === currentName) {
         return;
       }
-      actions.renameFolder(toScopedPath(folderKey, scopePrefix, true), nextName).catch(function (error) {
+      actions.renameFolder(folderKey, nextName).catch(function (error) {
         actions.setNoteStatus("Rename folder failed: " + actions.errorMessage(error));
       });
     },
     function (folderKey) {
-      actions.deleteFolder(toScopedPath(folderKey, scopePrefix, true)).catch(function (error) {
+      actions.deleteFolder(folderKey).catch(function (error) {
         actions.setNoteStatus("Delete folder failed: " + actions.errorMessage(error));
       });
     },
@@ -174,33 +160,30 @@ export function renderPagesSection(state: PageTreeUiState, els: PageTreeElements
       if (!nextName || nextName === currentName) {
         return;
       }
-      actions.renamePage(toScopedPath(pagePath, scopePrefix, false), nextName).catch(function (error) {
+      actions.renamePage(pagePath, nextName).catch(function (error) {
         actions.setNoteStatus("Rename note failed: " + actions.errorMessage(error));
       });
     },
     function (pagePath) {
-      actions.deletePage(toScopedPath(pagePath, scopePrefix, false)).catch(function (error) {
+      actions.deletePage(pagePath).catch(function (error) {
         actions.setNoteStatus("Delete page failed: " + actions.errorMessage(error));
       });
     },
     function (target, left, top) {
-      openTreeContextMenu({
-        ...target,
-        path: toScopedPath(target.path, scopePrefix, target.kind === "folder"),
-      }, left, top);
+      openTreeContextMenu(target, left, top);
     },
     function (pagePath, folderKey) {
       actions.movePageToFolder(
-        toScopedPath(pagePath, scopePrefix, false),
-        toScopedPath(folderKey, scopePrefix, true)
+        pagePath,
+        folderKey
       ).catch(function (error) {
         actions.setNoteStatus("Move page failed: " + actions.errorMessage(error));
       });
     },
     function (folderKey, targetFolder) {
       actions.moveFolder(
-        toScopedPath(folderKey, scopePrefix, true),
-        toScopedPath(targetFolder, scopePrefix, true)
+        folderKey,
+        targetFolder
       ).catch(function (error) {
         actions.setNoteStatus("Move folder failed: " + actions.errorMessage(error));
       });

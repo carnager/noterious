@@ -16,6 +16,7 @@ import { formatDateTimeValue, formatDateValue, normalizeDateTimeDisplayFormat, s
 import { pageTitleFromPath } from "./commands";
 import { documentDownloadURL, documentPathLeaf, inlineDocumentURL, isImagePath, resolveDocumentPath } from "./documents";
 import { markdownCodeFenceBlockAt, markdownTableBlockAt, renderedBodyBoundaryStart, splitFrontmatter } from "./markdown";
+import { renderedTaskRawColumn, renderedTaskVisibleColumn, taskLineHasInlineDate } from "./taskNavigation";
 import type { NoteriousEditorApi, QueryBlockRender, TaskRender } from "./types";
 
 interface EditorTaskState {
@@ -689,6 +690,39 @@ function handleRenderedTableArrowUp(view: EditorView): boolean {
   return false;
 }
 
+function handleRenderedTaskArrow(view: EditorView, key: "ArrowUp" | "ArrowDown"): boolean {
+  if (!view.state.field(renderModeField, false)) {
+    return false;
+  }
+
+  const selection = view.state.selection.main;
+  if (!selection.empty) {
+    return false;
+  }
+
+  const currentLine = view.state.doc.lineAt(selection.head);
+  const targetLineNumber = key === "ArrowDown" ? currentLine.number + 1 : currentLine.number - 1;
+  if (targetLineNumber < 1 || targetLineNumber > view.state.doc.lines) {
+    return false;
+  }
+
+  const targetLine = view.state.doc.line(targetLineNumber);
+  if (!taskLineHasInlineDate(currentLine.text) && !taskLineHasInlineDate(targetLine.text)) {
+    return false;
+  }
+
+  const rawColumn = Math.max(0, selection.head - currentLine.from);
+  const visibleColumn = renderedTaskVisibleColumn(currentLine.text, rawColumn);
+  const targetRawColumn = renderedTaskRawColumn(targetLine.text, visibleColumn);
+  view.dispatch({
+    selection: {
+      anchor: Math.min(targetLine.from + targetRawColumn, targetLine.to),
+    },
+    scrollIntoView: true,
+  });
+  return true;
+}
+
 interface InlineDeco {
   from: number;
   to: number;
@@ -1331,6 +1365,8 @@ window.NoteriousCodeEditor = {
               field: taskDateEdit.getAttribute("data-task-date-edit") || "",
               left: rect ? rect.left : 0,
               top: rect ? rect.bottom + 6 : 0,
+              anchorTop: rect ? rect.top : 0,
+              anchorBottom: rect ? rect.bottom : 0,
             },
             bubbles: true,
           }));
@@ -1369,6 +1405,10 @@ window.NoteriousCodeEditor = {
           return true;
         }
         if (!event.altKey && !event.ctrlKey && !event.metaKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+          if (handleRenderedTaskArrow(view, event.key === "ArrowDown" ? "ArrowDown" : "ArrowUp")) {
+            event.preventDefault();
+            return true;
+          }
           if (revealRenderedCodeBlockByArrow(view, event.key)) {
             event.preventDefault();
             return true;
