@@ -20,6 +20,11 @@ Noterious is a server-first markdown notebook. Your notes stay as markdown files
 - supports built-in and custom UI themes
 - ships Nix packaging plus a multi-instance NixOS module
 
+## Android Apps
+
+- [noterious-android](https://github.com/carnager/noterious-android) for the general Android client
+- [noterious-shopping](https://github.com/carnager/noterious-shopping) for the shopping-focused Android companion
+
 ## Quick Start
 
 Requirements:
