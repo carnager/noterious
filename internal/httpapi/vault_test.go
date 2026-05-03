@@ -22,6 +22,7 @@ func TestRequiresVaultIndex(t *testing.T) {
 		{path: "/api/query/execute", want: true},
 		{path: "/api/query/count", want: true},
 		{path: "/api/query/workbench", want: true},
+		{path: "/api/query/copilot", want: true},
 		{path: "/api/query/analyze", want: false},
 		{path: "/api/query/plan", want: false},
 		{path: "/api/query/lint", want: false},

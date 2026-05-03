@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/carnager/noterious/internal/ai"
 	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/config"
 	"github.com/carnager/noterious/internal/documents"
@@ -24,6 +25,7 @@ type App struct {
 	cfg                    config.Config
 	configuredVault        vault.Vault
 	auth                   *auth.Service
+	ai                     *ai.Service
 	themes                 *themes.Service
 	index                  *index.Service
 	store                  *settings.Store
@@ -90,6 +92,10 @@ func New(cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bootstrap auth: %w", err)
 	}
+	aiService, err := ai.NewService(cfg.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("init ai store: %w", err)
+	}
 	vaultService := vault.NewService(cfg.VaultPath)
 	themeService, err := themes.NewService(cfg.DataDir)
 	if err != nil {
@@ -131,6 +137,7 @@ func New(cfg config.Config) (*App, error) {
 		Vault:         vaultService,
 		Index:         indexService,
 		Query:         queryService,
+		AI:            aiService,
 		Events:        eventBroker,
 		Auth:          authService,
 		OnPageChanged: configuredVaultWatcher.Acknowledge,
@@ -147,6 +154,7 @@ func New(cfg config.Config) (*App, error) {
 		cfg:                    cfg,
 		configuredVault:        configuredVault,
 		auth:                   authService,
+		ai:                     aiService,
 		themes:                 themeService,
 		index:                  indexService,
 		store:                  settingsStore,

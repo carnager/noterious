@@ -1,6 +1,7 @@
 import { normalizePageDraftPath, pageTitleFromPath } from "./commands";
 import { clearNode } from "./dom";
 import {
+  filterPagesByScope,
   renderPagesTree,
   type PageTreeMenuTarget,
 } from "./pageViews";
@@ -70,13 +71,11 @@ export function displayPathWithinScope(path: string, scopePrefix: string): strin
 export function pageTreeDisplayStateForScope(state: PageTreeUiState): PageTreeDisplayState {
   const scopePrefix = normalizeScopePrefix(state.scopePrefix || "");
   const selectedPage = state.selectedPage;
-  const pages = state.pages.map(function (page) {
+  const pages = filterPagesByScope(state.pages, scopePrefix).map(function (page) {
     return {
       ...page,
       path: page.path,
     };
-  }).filter(function (page) {
-    return Boolean(displayPathWithinScope(page.path, scopePrefix) || page.path);
   });
   const expandedPageFolders: Record<string, boolean> = {};
   Object.keys(state.expandedPageFolders).forEach(function (key) {

@@ -10,6 +10,7 @@ Noterious is a server-first markdown notebook. Your notes stay as markdown files
 
 - keeps markdown files as the source of truth
 - serves a web UI for browsing, editing, tasks, backlinks, and embedded queries
+- includes a dedicated Queries screen with an optional AI copilot for drafting Noterious queries
 - supports drag-and-drop and `/file` uploads, including inline image embeds for uploaded image assets
 - builds a disposable SQLite index for fast search and query execution
 - supports vault-native note templates under `_templates/`
@@ -160,6 +161,21 @@ Task example:
 ```md
 - [ ] Buy groceries [remind: 2026-05-01 17:30] click:: noteriousshopping://shopping
 ```
+
+## AI Query Copilot
+
+The Queries screen includes an optional AI copilot for drafting Noterious
+queries from plain-language intent.
+
+- it is configured server-side in `Settings -> AI`
+- v1 supports one OpenAI-compatible endpoint at a time by `baseUrl + model`
+- the API key is stored on the server and is never sent back to the browser
+- the prompt is grounded in the query language docs plus the live query
+  schema/capabilities/examples
+- live note content, preview rows, and vault data are not sent to the model
+
+This is intentionally query-only. It does not act as a general note-writing
+assistant.
 
 ## Themes
 

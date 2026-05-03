@@ -85,6 +85,46 @@ The response includes:
 
 Appearance preferences such as font choice, font size, date format, hotkeys, and selected theme are browser-local and are not stored through `/api/user/settings`.
 
+## AI Query Copilot Settings
+
+- `GET /api/ai/settings`
+- `PUT /api/ai/settings`
+
+These endpoints configure the server-managed AI query copilot.
+
+Noterious v1 supports one active OpenAI-compatible provider at a time, configured by:
+
+- `enabled`
+- `provider` (`openai-compatible`)
+- `baseUrl`
+- `model`
+
+`GET /api/ai/settings` returns:
+
+- `settings`
+- `apiKeyConfigured`
+
+The raw API key is never returned.
+
+`PUT /api/ai/settings` accepts the public settings plus:
+
+- optional write-only `apiKey`
+- optional `clearApiKey: true`
+
+Example:
+
+```json
+{
+  "settings": {
+    "enabled": true,
+    "provider": "openai-compatible",
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-5-mini"
+  },
+  "apiKey": "sk-..."
+}
+```
+
 ## Themes
 
 - `GET /api/themes`
@@ -333,6 +373,7 @@ The saved-query execute/analyze/plan/lint/format/suggest/preview/count/workbench
 - `POST /api/query/suggest`
 - `POST /api/query/format`
 - `POST /api/query/execute`
+- `POST /api/query/copilot`
 
 These endpoints are meant for query editors and embedded query tooling.
 
@@ -343,6 +384,33 @@ Highlights:
 - `/api/query/schema` combines datasets, capabilities, examples, and saved-query summaries
 - `/api/query/editor` returns a fuller editor bootstrap payload with suggestion seeds
 - `/api/query/analyze`, `/plan`, `/lint`, `/preview`, `/count`, and `/workbench` all return `200` even for invalid queries, with `valid: false` and an `error` string for inline diagnostics
+- `/api/query/copilot` is the server-managed AI drafting endpoint for the Queries screen
+
+`POST /api/query/copilot` accepts:
+
+```json
+{
+  "intent": "show open tasks due this week",
+  "currentQuery": "",
+  "previewLimit": 10
+}
+```
+
+The response includes:
+
+- `query`
+- `formattedQuery`
+- `explanation`
+- `assumptions`
+- `attempts`
+- `repaired`
+- `valid`
+- `analyze`
+- `lint`
+- `workbench`
+- optional `error`
+
+The copilot is grounded in the query-language docs plus live schema/capabilities/examples. It does not send preview rows, note bodies, page frontmatter values, or other live vault content back to the model. When the first generated draft is invalid, the server performs one repair retry using only the generated query and validator feedback.
 
 ## Events
 

@@ -68,7 +68,8 @@ func requiresVaultIndex(requestPath string) bool {
 	case requestPath == "/api/query/execute",
 		requestPath == "/api/query/preview",
 		requestPath == "/api/query/count",
-		requestPath == "/api/query/workbench":
+		requestPath == "/api/query/workbench",
+		requestPath == "/api/query/copilot":
 		return true
 	default:
 		return false

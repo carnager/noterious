@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { filterPagesByTag, filterTasks, summarizeTagsForPages, type TaskPanelFilters } from "./pageViews";
+import { filterPagesByScope, filterPagesByTag, filterTasks, summarizeTagsForPages, type TaskPanelFilters } from "./pageViews";
 import type { PageSummary, TaskRecord } from "./types";
 
 function makeFilters(overrides?: Partial<TaskPanelFilters>): TaskPanelFilters {
@@ -71,5 +71,18 @@ describe("tag panel helpers", function () {
     expect(filterPagesByTag(pages, "SHIP").map(function (entry) {
       return entry.path;
     })).toEqual(["work/beta", "work/gamma"]);
+  });
+
+  it("filters pages to the active scope prefix", function () {
+    expect(filterPagesByScope([
+      page("Work/contacts/alina", []),
+      page("Work/notes/index", []),
+      page("Personal/home", []),
+    ], "Work").map(function (entry) {
+      return entry.path;
+    })).toEqual([
+      "Work/contacts/alina",
+      "Work/notes/index",
+    ]);
   });
 });

@@ -157,6 +157,7 @@ export function renderCommandResults(options: {
   onOpenHelp: () => void;
   onOpenSettings: () => void;
   onOpenDocuments: () => void;
+  onOpenQueries: () => void;
   onOpenQuickSwitcher: () => void;
   onQuickNote: () => void;
   onOpenSearch: () => void;
@@ -179,6 +180,7 @@ export function renderCommandResults(options: {
     onOpenHelp: options.onOpenHelp,
     onOpenSettings: options.onOpenSettings,
     onOpenDocuments: options.onOpenDocuments,
+    onOpenQueries: options.onOpenQueries,
     onOpenQuickSwitcher: options.onOpenQuickSwitcher,
     onQuickNote: options.onQuickNote,
     onOpenSearch: options.onOpenSearch,

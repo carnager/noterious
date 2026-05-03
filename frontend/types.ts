@@ -3,6 +3,7 @@ export type FrontmatterValue = FrontmatterScalar | FrontmatterScalar[];
 export type FrontmatterMap = Record<string, FrontmatterValue>;
 export type QueryRow = Record<string, unknown>;
 export type FrontmatterKind = "text" | "list" | "tags" | "bool" | "date" | "datetime" | "notification";
+export type AppScreen = "notes" | "queries";
 
 export interface PageIdentity {
   page?: string;
@@ -55,6 +56,62 @@ export interface HeadingRecord {
 export interface QueryResult {
   columns: string[];
   rows: QueryRow[];
+}
+
+export interface QueryAnalysis {
+  valid: boolean;
+  error?: string;
+  dataset?: string;
+  projectedColumns?: string[];
+  aggregate?: boolean;
+  grouped?: boolean;
+  distinct?: boolean;
+}
+
+export interface QueryPlan {
+  valid: boolean;
+  error?: string;
+  dataset?: string;
+  mode?: string;
+  projectedColumns?: string[];
+}
+
+export interface QueryLintWarning {
+  code: string;
+  clause: string;
+  message: string;
+}
+
+export interface QueryLintResult {
+  valid: boolean;
+  error?: string;
+  dataset?: string;
+  warnings?: QueryLintWarning[];
+  count: number;
+}
+
+export interface QueryPreviewResult {
+  valid: boolean;
+  error?: string;
+  columns?: string[];
+  rows?: QueryRow[];
+  count: number;
+  limit?: number;
+  truncated?: boolean;
+}
+
+export interface QueryCountResult {
+  valid: boolean;
+  error?: string;
+  count: number;
+}
+
+export interface QueryWorkbenchResult {
+  analyze?: QueryAnalysis;
+  plan?: QueryPlan;
+  lint?: QueryLintResult;
+  preview?: QueryPreviewResult;
+  count?: QueryCountResult;
 }
 
 export interface QueryBlockRecord {
@@ -294,6 +351,32 @@ export interface UserSettings {
 export interface ServerSettings {
   vault: VaultSettings;
   notifications: ServerNotificationSettings;
+}
+
+export interface AISettings {
+  enabled: boolean;
+  provider: string;
+  baseUrl: string;
+  model: string;
+}
+
+export interface AISettingsResponse {
+  settings: AISettings;
+  apiKeyConfigured: boolean;
+}
+
+export interface QueryCopilotResponse {
+  query: string;
+  formattedQuery?: string;
+  explanation?: string;
+  assumptions?: string[];
+  attempts: number;
+  repaired: boolean;
+  valid: boolean;
+  analyze: QueryAnalysis;
+  lint: QueryLintResult;
+  workbench: QueryWorkbenchResult;
+  error?: string;
 }
 
 export interface AppSettings extends ServerSettings {

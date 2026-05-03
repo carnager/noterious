@@ -24,16 +24,24 @@ describe("routing helpers", function () {
     expect(parseURLState("https://example.test/?page=notes%2Falpha&query=recent")).toEqual({
       page: "notes/alpha",
       query: "recent",
+      screen: "notes",
     });
 
-    expect(buildSelectionURL("https://example.test/?old=1", "notes/alpha", "").toString()).toBe(
+    expect(buildSelectionURL("https://example.test/?old=1", "notes/alpha", "", "notes").toString()).toBe(
       "https://example.test/?old=1&page=notes%2Falpha"
+    );
+    expect(buildSelectionURL("https://example.test/?old=1", "", "recent", "queries").toString()).toBe(
+      "https://example.test/?old=1&query=recent&screen=queries"
+    );
+    expect(buildSelectionURL("https://example.test/?query=recent&screen=queries", "", "recent", "notes").toString()).toBe(
+      "https://example.test/"
     );
   });
 
   it("applies URL state with page, query, home page, or idle fallback", function () {
     const onNavigateToPage = vi.fn();
     const onSelectSavedQuery = vi.fn();
+    const onOpenQueriesScreen = vi.fn();
     const onRenderIdle = vi.fn();
 
     applyURLState({
@@ -42,6 +50,7 @@ describe("routing helpers", function () {
       pages: [samplePage("notes/alpha")],
       onNavigateToPage,
       onSelectSavedQuery,
+      onOpenQueriesScreen,
       onRenderIdle,
     });
     expect(onNavigateToPage).toHaveBeenCalledWith("notes/alpha", true);
@@ -54,6 +63,7 @@ describe("routing helpers", function () {
       pages: [samplePage("notes/work-home")],
       onNavigateToPage,
       onSelectSavedQuery,
+      onOpenQueriesScreen,
       onRenderIdle,
     });
     expect(onNavigateToPage).not.toHaveBeenCalled();
@@ -66,17 +76,21 @@ describe("routing helpers", function () {
       pages: [],
       onNavigateToPage,
       onSelectSavedQuery,
+      onOpenQueriesScreen,
       onRenderIdle,
     });
+    expect(onOpenQueriesScreen).toHaveBeenCalled();
     expect(onSelectSavedQuery).toHaveBeenCalledWith("recent");
 
     onSelectSavedQuery.mockReset();
+    onOpenQueriesScreen.mockReset();
     applyURLState({
       href: "https://example.test/",
       currentHomePage: "notes/home",
       pages: [samplePage("notes/home")],
       onNavigateToPage,
       onSelectSavedQuery,
+      onOpenQueriesScreen,
       onRenderIdle,
     });
     expect(onNavigateToPage).toHaveBeenCalledWith("notes/home", true);
@@ -88,9 +102,22 @@ describe("routing helpers", function () {
       pages: [samplePage("notes/home")],
       onNavigateToPage,
       onSelectSavedQuery,
+      onOpenQueriesScreen,
       onRenderIdle,
     });
     expect(onRenderIdle).toHaveBeenCalled();
+
+    onRenderIdle.mockReset();
+    applyURLState({
+      href: "https://example.test/?screen=queries",
+      currentHomePage: "",
+      pages: [samplePage("notes/home")],
+      onNavigateToPage,
+      onSelectSavedQuery,
+      onOpenQueriesScreen,
+      onRenderIdle,
+    });
+    expect(onOpenQueriesScreen).toHaveBeenCalled();
   });
 
   it("drives page selection callbacks in the correct order", function () {

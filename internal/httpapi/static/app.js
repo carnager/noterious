@@ -202,6 +202,12 @@
         run: options.onOpenDocuments
       },
       {
+        title: "Open Queries",
+        meta: "Queries",
+        keywords: "queries saved queries query workbench ai copilot",
+        run: options.onOpenQueries
+      },
+      {
         title: "Open Help",
         meta: "Help",
         keywords: "help shortcuts keyboard keymap",
@@ -4622,6 +4628,7 @@
       onOpenHelp: options.onOpenHelp,
       onOpenSettings: options.onOpenSettings,
       onOpenDocuments: options.onOpenDocuments,
+      onOpenQueries: options.onOpenQueries,
       onOpenQuickSwitcher: options.onOpenQuickSwitcher,
       onQuickNote: options.onQuickNote,
       onOpenSearch: options.onOpenSearch,
@@ -4688,6 +4695,17 @@
   function normalizeScopePrefix2(scopePrefix) {
     return String(scopePrefix || "").trim().replace(/^\/+|\/+$/g, "");
   }
+  function pageWithinScope(path, scopePrefix) {
+    const normalizedPath = String(path || "").trim().replace(/^\/+|\/+$/g, "");
+    const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
+    if (!normalizedPath) {
+      return false;
+    }
+    if (!normalizedScopePrefix) {
+      return true;
+    }
+    return normalizedPath === normalizedScopePrefix || normalizedPath.startsWith(normalizedScopePrefix + "/");
+  }
   function displayPathWithinScope(path, scopePrefix) {
     const normalizedPath = String(path || "").trim().replace(/^\/+|\/+$/g, "");
     const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
@@ -4701,6 +4719,11 @@
       return normalizedPath.slice(normalizedScopePrefix.length + 1);
     }
     return normalizedPath;
+  }
+  function filterPagesByScope(pages, scopePrefix) {
+    return (Array.isArray(pages) ? pages : []).filter(function(page) {
+      return pageWithinScope(String(page.path || ""), scopePrefix);
+    });
   }
   function formatReminderLabel(value) {
     const text = String(value || "").trim();
@@ -5289,6 +5312,66 @@
     }
   });
 
+  // frontend/vaultScopes.ts
+  function normalizeVaultPath(path) {
+    return String(path || "").replace(/\\/g, "/").replace(/\/+$/, "").trim();
+  }
+  function fallbackScopePrefix(selectedVault) {
+    if (!selectedVault) {
+      return "";
+    }
+    const fromName = normalizePageDraftPath(selectedVault.name || "");
+    if (fromName) {
+      return fromName;
+    }
+    const normalizedPath = normalizeVaultPath(selectedVault.vaultPath || "");
+    const leaf = normalizedPath.split("/").filter(Boolean).pop() || "";
+    return normalizePageDraftPath(leaf);
+  }
+  function scopePrefixForVaultSelection(rootVault, selectedVault) {
+    if (!selectedVault) {
+      return "";
+    }
+    if (!rootVault) {
+      return fallbackScopePrefix(selectedVault);
+    }
+    const rootPath = normalizeVaultPath(rootVault.vaultPath || "");
+    const currentPath = normalizeVaultPath(selectedVault.vaultPath || "");
+    if (!rootPath || !currentPath || rootPath === currentPath) {
+      return "";
+    }
+    if (!currentPath.startsWith(rootPath + "/")) {
+      return fallbackScopePrefix(selectedVault);
+    }
+    return normalizePageDraftPath(currentPath.slice(rootPath.length + 1)) || "";
+  }
+  function resolveVisibleVaultSelection(options) {
+    const rootVault = options.rootVault || null;
+    const discoveredVaults = Array.isArray(options.discoveredVaults) ? options.discoveredVaults.slice() : [];
+    const storedScopePrefix = normalizePageDraftPath(options.storedScopePrefix || "");
+    if (!options.topLevelFoldersAsVaults) {
+      return {
+        availableVaults: rootVault ? [rootVault] : [],
+        currentVault: rootVault,
+        scopePrefix: ""
+      };
+    }
+    const currentVault = discoveredVaults.find(function(vault) {
+      return scopePrefixForVaultSelection(rootVault, vault) === storedScopePrefix;
+    }) || discoveredVaults[0] || rootVault;
+    return {
+      availableVaults: discoveredVaults.length > 0 ? discoveredVaults : rootVault ? [rootVault] : [],
+      currentVault,
+      scopePrefix: scopePrefixForVaultSelection(rootVault, currentVault)
+    };
+  }
+  var init_vaultScopes = __esm({
+    "frontend/vaultScopes.ts"() {
+      "use strict";
+      init_commands();
+    }
+  });
+
   // frontend/pageTreeUi.ts
   function updatePageListScrollState(pageList) {
     window.requestAnimationFrame(function() {
@@ -5299,30 +5382,14 @@
   function normalizeScopePrefix3(scopePrefix) {
     return normalizePageDraftPath(scopePrefix || "");
   }
-  function displayPathWithinScope2(path, scopePrefix) {
-    const normalizedPath = normalizePageDraftPath(path || "");
-    const normalizedScopePrefix = normalizeScopePrefix3(scopePrefix);
-    if (!normalizedPath || !normalizedScopePrefix) {
-      return normalizedPath;
-    }
-    if (normalizedPath === normalizedScopePrefix) {
-      return "";
-    }
-    if (normalizedPath.startsWith(normalizedScopePrefix + "/")) {
-      return normalizedPath.slice(normalizedScopePrefix.length + 1);
-    }
-    return normalizedPath;
-  }
   function pageTreeDisplayStateForScope(state) {
     const scopePrefix = normalizeScopePrefix3(state.scopePrefix || "");
     const selectedPage = state.selectedPage;
-    const pages = state.pages.map(function(page) {
+    const pages = filterPagesByScope(state.pages, scopePrefix).map(function(page) {
       return {
         ...page,
         path: page.path
       };
-    }).filter(function(page) {
-      return Boolean(displayPathWithinScope2(page.path, scopePrefix) || page.path);
     });
     const expandedPageFolders = {};
     Object.keys(state.expandedPageFolders).forEach(function(key) {
@@ -5568,15 +5635,17 @@
   });
 
   // frontend/settingsPersistence.ts
-  function prepareSettingsSave(collectClientPreferences, collectUserSettings, collectServerSettings, applyClientPreferences) {
+  function prepareSettingsSaveWithExtra(collectClientPreferences, collectUserSettings, collectServerSettings, collectExtra, applyClientPreferences) {
     const clientPreferences = collectClientPreferences();
     const userSettings = collectUserSettings();
     const serverSettings = collectServerSettings();
+    const extra = collectExtra();
     applyClientPreferences(clientPreferences);
     return {
       clientPreferences,
       userSettings,
-      serverSettings
+      serverSettings,
+      extra
     };
   }
   var init_settingsPersistence = __esm({
@@ -6417,20 +6486,26 @@
     const url = new URL(href);
     return {
       page: url.searchParams.get("page") || "",
-      query: url.searchParams.get("query") || ""
+      query: url.searchParams.get("query") || "",
+      screen: url.searchParams.get("screen") === "queries" ? "queries" : "notes"
     };
   }
-  function buildSelectionURL(href, selectedPage, selectedSavedQuery) {
+  function buildSelectionURL(href, selectedPage, selectedSavedQuery, screen) {
     const url = new URL(href);
     if (selectedPage) {
       url.searchParams.set("page", selectedPage);
     } else {
       url.searchParams.delete("page");
     }
-    if (selectedSavedQuery) {
+    if (screen === "queries" && selectedSavedQuery) {
       url.searchParams.set("query", selectedSavedQuery);
     } else {
       url.searchParams.delete("query");
+    }
+    if (screen === "queries") {
+      url.searchParams.set("screen", "queries");
+    } else {
+      url.searchParams.delete("screen");
     }
     return url;
   }
@@ -6443,7 +6518,12 @@
       return;
     }
     if (urlState.query) {
+      options.onOpenQueriesScreen();
       options.onSelectSavedQuery(urlState.query);
+      return;
+    }
+    if (urlState.screen === "queries") {
+      options.onOpenQueriesScreen();
       return;
     }
     const homePage = String(options.currentHomePage || "").trim();
@@ -6629,7 +6709,7 @@
     return "appearance";
   }
   function availableSettingsSections() {
-    return ["appearance", "notifications", "vault"];
+    return ["appearance", "notifications", "ai", "vault"];
   }
   function normalizeSettingsSection(state) {
     if (!availableSettingsSections().includes(state.settingsSection)) {
@@ -6645,6 +6725,7 @@
       { button: els.settingsNavAppearance, section: "appearance" },
       { button: els.settingsNavTemplates, section: "templates" },
       { button: els.settingsNavNotifications, section: "notifications" },
+      { button: els.settingsNavAI, section: "ai" },
       { button: els.settingsNavVault, section: "vault" }
     ];
     navButtons.forEach(function(entry) {
@@ -6656,6 +6737,7 @@
     els.settingsGroupSession.classList.toggle("hidden", activeSection !== "appearance");
     els.settingsGroupTemplates.classList.toggle("hidden", activeSection !== "templates");
     els.settingsGroupUserNotifications.classList.toggle("hidden", activeSection !== "notifications");
+    els.settingsGroupAI.classList.toggle("hidden", activeSection !== "ai");
     els.settingsGroupServer.classList.toggle("hidden", activeSection !== "vault");
     els.saveSettings.classList.remove("hidden");
     els.saveSettings.textContent = "Save Settings";
@@ -6884,6 +6966,13 @@
       els.settingsNtfyInterval,
       els.settingsBackupDownload
     ];
+    const aiFields = [
+      els.settingsAIEnabled,
+      els.settingsAIBaseURL,
+      els.settingsAIModel,
+      els.settingsAIAPIKey,
+      els.settingsAIClearKey
+    ];
     const userFields = [
       els.settingsUserNtfyTopicUrl,
       els.settingsUserNtfyToken,
@@ -6903,6 +6992,9 @@
     ];
     serverFields.forEach(function(field) {
       field.disabled = !state.settingsLoaded;
+    });
+    aiFields.forEach(function(field) {
+      field.disabled = !state.aiSettingsLoaded;
     });
     userFields.forEach(function(field) {
       field.disabled = false;
@@ -6938,6 +7030,13 @@
     els.settingsRuntimeHealth.textContent = !state.serverMeta ? "(unknown)" : vaultHealth && vaultHealth.healthy ? "Healthy" : String(vaultHealth && vaultHealth.message ? vaultHealth.message : "Unavailable");
     els.settingsUserNtfyTopicUrl.value = state.settings.userNotifications.ntfyTopicUrl || "";
     els.settingsUserNtfyToken.value = state.settings.userNotifications.ntfyToken || "";
+    els.settingsAIEnabled.checked = Boolean(state.aiSettings.enabled);
+    els.settingsAIBaseURL.value = state.aiSettings.baseUrl || "https://api.openai.com/v1";
+    els.settingsAIModel.value = state.aiSettings.model || "gpt-5-mini";
+    els.settingsAIAPIKey.value = "";
+    els.settingsAIClearKey.textContent = state.aiClearKeyPending ? "Keep Stored Key" : "Clear Stored Key";
+    els.settingsAIKeyStatus.textContent = state.aiClearKeyPending ? "Stored API key will be removed on save." : state.aiAPIKeyConfigured ? "A server-side API key is stored." : "No API key stored yet.";
+    els.settingsAIHelp.textContent = "OpenAI-compatible only in v1. Example base URLs: https://api.openai.com/v1 or https://api.deepseek.com/v1. Browser-local keys are intentionally not supported.";
     els.settingsUserTopLevelVaults.checked = state.topLevelFoldersAsVaults;
     renderThemeOptions(state, els);
     els.settingsFontFamily.value = state.settings.preferences.ui.fontFamily || "mono";
@@ -7171,6 +7270,9 @@
     if (command.id === "table") {
       return parseTableDimensions(args) !== null;
     }
+    if (command.id === "query") {
+      return Boolean(String(args || "").trim());
+    }
     return false;
   }
   function slashCommandCatalog() {
@@ -7275,6 +7377,19 @@
           const trigger = parseSlashTrigger(lineText);
           const dimensions = parseTableDimensions(trigger ? trigger.args : "");
           return buildMarkdownTable(dimensions ? dimensions.columns : 2, dimensions ? dimensions.rows : 1);
+        },
+        caret: function(updatedLine) {
+          return updatedLine.length;
+        }
+      },
+      {
+        id: "query",
+        title: "Generate query",
+        description: "Ask the AI copilot to draft a markdown query block from plain language.",
+        keywords: "ai query search filter report workbench copilot",
+        hint: "/query <intent>",
+        apply: function(lineText) {
+          return replaceSlashToken(lineText, "query", "").replace(/\s+$/, "");
         },
         caret: function(updatedLine) {
           return updatedLine.length;
@@ -7476,6 +7591,7 @@
     state.slashSelectionIndex = -1;
     state.slashContext = null;
     elements.slashMenu.classList.add("hidden");
+    elements.slashMenu.style.visibility = "";
     clearNode(elements.slashMenuResults);
   }
   function updateSlashSelection(state, elements) {
@@ -7519,9 +7635,31 @@
       button.appendChild(description);
       elements.slashMenuResults.appendChild(button);
     });
-    elements.slashMenu.style.left = (context.left || 0) + "px";
-    elements.slashMenu.style.top = (context.top || 0) + "px";
+    const preferredLeft = Math.max(12, Number(context.left) || 0);
+    const preferredTop = Math.max(12, Number(context.top) || 0);
+    elements.slashMenu.style.visibility = "hidden";
     elements.slashMenu.classList.remove("hidden");
+    const menuWidth = elements.slashMenu.offsetWidth || 320;
+    const menuHeight = elements.slashMenu.offsetHeight || 240;
+    const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+    const viewportHeight = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+    const horizontalPadding = 12;
+    const verticalPadding = 12;
+    const clampedLeft = Math.max(
+      horizontalPadding,
+      Math.min(preferredLeft, viewportWidth - menuWidth - horizontalPadding)
+    );
+    let positionedTop = preferredTop;
+    if (preferredTop + menuHeight > viewportHeight - verticalPadding) {
+      positionedTop = Math.max(verticalPadding, preferredTop - menuHeight - 12);
+    }
+    positionedTop = Math.max(
+      verticalPadding,
+      Math.min(positionedTop, viewportHeight - menuHeight - verticalPadding)
+    );
+    elements.slashMenu.style.left = clampedLeft + "px";
+    elements.slashMenu.style.top = positionedTop + "px";
+    elements.slashMenu.style.visibility = "";
   }
   function moveSlashSelection(state, elements, delta) {
     if (!state.slashOpen) {
@@ -7566,6 +7704,10 @@
       type: context.type,
       lineIndex: context.lineIndex
     }, onApplySelection);
+  }
+  function queryIntentForText(text) {
+    const match = String(text || "").trim().match(/^\/query\s+(.+)$/i);
+    return match ? String(match[1] || "").trim() : "";
   }
   var init_slashMenu = __esm({
     "frontend/slashMenu.ts"() {
@@ -9513,6 +9655,7 @@
       init_paletteModals();
       init_palette();
       init_pageViews();
+      init_vaultScopes();
       init_pageTreeUi();
       init_settingsPersistence();
       init_properties();
@@ -9544,6 +9687,7 @@
           return pwaRegistrationPromise;
         }
         const state = {
+          appScreen: "notes",
           selectedPage: "",
           selectedSavedQuery: "",
           pages: [],
@@ -9575,7 +9719,6 @@
           editingBlockKey: "",
           pendingBlockFocusKey: "",
           pendingEditSeed: "",
-          debugOpen: false,
           railOpen: false,
           railTab: "files",
           sourceOpen: false,
@@ -9597,8 +9740,18 @@
           },
           settingsRestartRequired: false,
           settingsLoaded: false,
+          aiSettingsLoaded: false,
           userSettingsLoaded: false,
           serverMeta: null,
+          aiSettings: {
+            enabled: false,
+            provider: "openai-compatible",
+            baseUrl: "https://api.openai.com/v1",
+            model: "gpt-5-mini"
+          },
+          aiAPIKeyConfigured: false,
+          aiClearKeyPending: false,
+          activeScopePrefix: "",
           homePage: "",
           topLevelFoldersAsVaults: false,
           themeLibraryLoaded: false,
@@ -9648,7 +9801,11 @@
           expectedLocalChangeUntil: 0,
           pageConflict: null,
           pageConflictRemoteLoaded: null,
-          pageConflictStatus: ""
+          pageConflictStatus: "",
+          queryWorkbench: null,
+          queryWorkbenchStatus: "Run an ad hoc query here, or ask the AI copilot to draft one.",
+          queryCopilotResponse: null,
+          queryCopilotPending: false
         };
         const els = {
           appShell: optionalQuery(".shell"),
@@ -9687,6 +9844,9 @@
           propertyActions: optionalQuery(".property-actions"),
           querySearch: requiredElement("query-search"),
           queryTree: requiredElement("query-tree"),
+          queryScreenEyebrow: requiredElement("query-screen-eyebrow"),
+          queryScreenTitle: requiredElement("query-screen-title"),
+          queryScreenMeta: requiredElement("query-screen-meta"),
           detailKind: requiredElement("detail-kind"),
           detailTitle: requiredElement("detail-title"),
           detailPath: requiredElement("detail-path"),
@@ -9702,8 +9862,14 @@
           structuredView: requiredElement("structured-view"),
           derivedView: requiredElement("derived-view"),
           rawView: requiredElement("raw-view"),
+          queryIntent: requiredElement("query-intent"),
           queryEditor: requiredElement("query-editor"),
+          queryDiagnostics: requiredElement("query-diagnostics"),
+          queryPreview: requiredElement("query-preview"),
           queryOutput: requiredElement("query-output"),
+          queryCopilotStatus: requiredElement("query-copilot-status"),
+          queryCopilotExplanation: requiredElement("query-copilot-explanation"),
+          queryCopilotAssumptions: requiredElement("query-copilot-assumptions"),
           eventStatus: requiredElement("event-status"),
           eventLog: requiredElement("event-log"),
           appLayout: optionalQuery(".app-layout"),
@@ -9714,6 +9880,8 @@
           railPanelFiles: requiredElement("rail-panel-files"),
           railPanelContext: requiredElement("rail-panel-context"),
           railPanelTasks: requiredElement("rail-panel-tasks"),
+          notesScreen: requiredElement("notes-screen"),
+          queriesScreen: requiredElement("queries-screen"),
           noteLayout: requiredElement("note-layout"),
           noteSurface: requiredElement("note-surface"),
           fileUploadInput: requiredElement("file-upload-input"),
@@ -9722,6 +9890,7 @@
           historyBack: requiredElement("history-back"),
           historyForward: requiredElement("history-forward"),
           openHomePage: requiredElement("open-home-page"),
+          openQueries: requiredElement("open-queries"),
           openQuickSwitcher: requiredElement("open-quick-switcher"),
           openDocuments: requiredElement("open-documents"),
           openSearch: requiredElement("open-search"),
@@ -9740,11 +9909,9 @@
           vaultSwitcherList: requiredElement("vault-switcher-list"),
           reloadPages: optionalElement("reload-pages"),
           reloadQueries: optionalElement("reload-queries"),
-          toggleDebug: optionalElement("toggle-debug"),
-          debugDrawer: requiredElement("debug-drawer"),
-          loadSelectedQuery: requiredElement("load-selected-query"),
           formatQuery: requiredElement("format-query"),
           runQuery: requiredElement("run-query"),
+          generateQuery: requiredElement("generate-query"),
           inlineTaskPicker: requiredElement("inline-task-picker"),
           searchModalShell: requiredElement("search-modal-shell"),
           closeSearchModal: requiredElement("close-search-modal"),
@@ -9805,11 +9972,13 @@
           settingsNavAppearance: requiredElement("settings-nav-appearance"),
           settingsNavTemplates: requiredElement("settings-nav-templates"),
           settingsNavNotifications: requiredElement("settings-nav-notifications"),
+          settingsNavAI: requiredElement("settings-nav-ai"),
           settingsNavVault: requiredElement("settings-nav-vault"),
           settingsGroupServer: requiredElement("settings-group-server"),
           settingsGroupSession: requiredElement("settings-group-session"),
           settingsGroupTemplates: requiredElement("settings-group-templates"),
           settingsGroupUserNotifications: requiredElement("settings-group-user-notifications"),
+          settingsGroupAI: requiredElement("settings-group-ai"),
           cancelSettings: requiredElement("cancel-settings"),
           saveSettings: requiredElement("save-settings"),
           settingsVaultPath: requiredElement("settings-vault-path"),
@@ -9827,6 +9996,13 @@
           settingsRuntimeHealth: requiredElement("settings-runtime-health"),
           settingsUserNtfyTopicUrl: requiredElement("settings-user-ntfy-topic-url"),
           settingsUserNtfyToken: requiredElement("settings-user-ntfy-token"),
+          settingsAIEnabled: requiredElement("settings-ai-enabled"),
+          settingsAIBaseURL: requiredElement("settings-ai-base-url"),
+          settingsAIModel: requiredElement("settings-ai-model"),
+          settingsAIAPIKey: requiredElement("settings-ai-api-key"),
+          settingsAIClearKey: requiredElement("settings-ai-clear-key"),
+          settingsAIKeyStatus: requiredElement("settings-ai-key-status"),
+          settingsAIHelp: requiredElement("settings-ai-help"),
           settingsUserTopLevelVaults: requiredElement("settings-user-top-level-vaults"),
           settingsTheme: requiredElement("settings-ui-theme"),
           settingsThemeUpload: requiredElement("settings-theme-upload"),
@@ -10270,6 +10446,36 @@
           els.openHomePage.disabled = !homePage;
           els.openHomePage.title = homePage ? "Open home page: " + homePage : "No home page configured";
         }
+        function renderAppScreen() {
+          const queriesVisible = state.appScreen === "queries";
+          els.notesScreen.classList.toggle("hidden", queriesVisible);
+          els.queriesScreen.classList.toggle("hidden", !queriesVisible);
+          els.openQueries.classList.toggle("active", queriesVisible);
+          if (els.appLayout) {
+            els.appLayout.classList.toggle("queries-mode", queriesVisible);
+            els.appLayout.classList.toggle("rail-collapsed", queriesVisible || !state.railOpen);
+          }
+          els.toggleRail.disabled = queriesVisible;
+          if (queriesVisible) {
+            const selected = state.selectedSavedQueryPayload;
+            els.detailPath.textContent = selected ? selected.name || selected.title || "Queries" : "Queries";
+            return;
+          }
+          if (state.selectedPage) {
+            els.detailPath.textContent = state.selectedPage;
+            return;
+          }
+          els.detailPath.textContent = "Select a page";
+        }
+        function setAppScreen(screen, replaceURL) {
+          state.appScreen = screen;
+          renderAppScreen();
+          syncURLState(replaceURL);
+        }
+        function openQueriesScreen(replaceURL) {
+          setAppScreen("queries", replaceURL);
+          renderQueryScreen();
+        }
         function setSessionMenuOpen2(open) {
           setSessionMenuOpen(state, els, open);
         }
@@ -10415,6 +10621,9 @@
               setNoteStatus("Theme library failed: " + errorMessage(error));
             }),
             loadSettings(),
+            loadAISettings().catch(function(error) {
+              setNoteStatus("AI settings failed: " + errorMessage(error));
+            }),
             loadUserSettings().catch(function(error) {
               setNoteStatus("User settings failed: " + errorMessage(error));
             }),
@@ -10427,7 +10636,11 @@
           applyURLState2();
           connectEvents();
         }
-        function setVisibleVaultState(availableVaults, currentVault) {
+        function setCurrentScopePrefix(prefix) {
+          state.activeScopePrefix = normalizePageDraftPath(prefix || "");
+          setActiveScopePrefix(state.topLevelFoldersAsVaults ? state.activeScopePrefix : "");
+        }
+        function setVisibleVaultState(availableVaults, currentVault, scopePrefix) {
           state.availableVaults = Array.isArray(availableVaults) ? availableVaults.slice() : [];
           if (currentVault) {
             state.currentVault = currentVault;
@@ -10436,7 +10649,7 @@
           })) {
             state.currentVault = state.availableVaults[0] || null;
           }
-          setActiveScopePrefix(currentScopePrefix());
+          setCurrentScopePrefix(scopePrefix);
           syncHomePageForCurrentScope();
           state.vaultSwitchPending = false;
           state.vaultSwitcherOpen = false;
@@ -10467,21 +10680,23 @@
         }
         async function loadAvailableVaults() {
           const rootVault = state.rootVault;
-          const snapshot = await fetchJSON("/api/user/vaults");
-          const discoveredVaults = Array.isArray(snapshot.vaults) ? snapshot.vaults.slice() : [];
           const storedScopePrefix = loadStoredScopePrefix();
           if (!state.topLevelFoldersAsVaults) {
             storeScopePrefix("");
-            setVisibleVaultState(rootVault ? [rootVault] : [], rootVault);
+            setVisibleVaultState(rootVault ? [rootVault] : [], rootVault, "");
             return;
           }
-          const desiredVault = discoveredVaults.find(function(vault) {
-            const relativePath = rootVault ? normalizePageDraftPath(normalizeVaultPath(vault.vaultPath).slice(normalizeVaultPath(rootVault.vaultPath).length + 1)) : "";
-            return relativePath === storedScopePrefix;
-          }) || discoveredVaults[0] || rootVault;
-          const visibleVaults = discoveredVaults.length > 0 ? discoveredVaults : rootVault ? [rootVault] : [];
-          storeScopePrefix(rootVault && desiredVault ? scopePrefixForVaultSelection(rootVault, desiredVault) : "");
-          setVisibleVaultState(visibleVaults, desiredVault);
+          setCurrentScopePrefix(storedScopePrefix);
+          const snapshot = await fetchJSON("/api/user/vaults");
+          const discoveredVaults = Array.isArray(snapshot.vaults) ? snapshot.vaults.slice() : [];
+          const selection = resolveVisibleVaultSelection({
+            rootVault,
+            discoveredVaults,
+            storedScopePrefix,
+            topLevelFoldersAsVaults: state.topLevelFoldersAsVaults
+          });
+          storeScopePrefix(selection.scopePrefix);
+          setVisibleVaultState(selection.availableVaults, selection.currentVault, selection.scopePrefix);
         }
         async function switchVault(vaultID) {
           if (!Number.isFinite(vaultID) || vaultID <= 0) {
@@ -10499,8 +10714,9 @@
             if (!nextVault) {
               throw new Error("Selected vault is unavailable.");
             }
-            storeScopePrefix(state.rootVault ? scopePrefixForVaultSelection(state.rootVault, nextVault) : "");
-            setActiveScopePrefix(state.rootVault ? scopePrefixForVaultSelection(state.rootVault, nextVault) : "");
+            const nextScopePrefix = scopePrefixForVaultSelection(state.rootVault, nextVault);
+            storeScopePrefix(nextScopePrefix);
+            setCurrentScopePrefix(nextScopePrefix);
             setVaultSwitcherOpen2(false);
             setSessionMenuOpen2(false);
             window.location.reload();
@@ -10524,7 +10740,7 @@
           }
         }
         function syncURLState(replace) {
-          const url = buildSelectionURL(window.location.href, state.selectedPage, state.selectedSavedQuery);
+          const url = buildSelectionURL(window.location.href, state.selectedPage, state.selectedSavedQuery, state.appScreen);
           if (url.href === window.location.href) {
             return;
           }
@@ -10541,17 +10757,26 @@
             pages: state.pages,
             onNavigateToPage: navigateToPage,
             onSelectSavedQuery: function(name) {
+              state.appScreen = "queries";
               state.selectedSavedQuery = name;
               state.selectedPage = "";
+              renderAppScreen();
               renderPages();
               renderSavedQueryTree2();
               loadSavedQueryDetail(name);
             },
+            onOpenQueriesScreen: function() {
+              state.appScreen = "queries";
+              renderAppScreen();
+              renderQueryScreen();
+            },
             onRenderIdle: function() {
               state.selectedPage = "";
               state.selectedSavedQuery = "";
+              state.appScreen = "notes";
               renderPages();
               renderSavedQueryTree2();
+              renderAppScreen();
               syncURLState(true);
             }
           });
@@ -10569,8 +10794,10 @@
             },
             onSelectPage: function(path) {
               clearRemoteChangeToast();
+              state.appScreen = "notes";
               state.selectedPage = path;
               state.selectedSavedQuery = "";
+              renderAppScreen();
             },
             onSyncURL: syncURLState,
             onRenderPages: renderPages,
@@ -10589,33 +10816,11 @@
             return String(page.path || "").toLowerCase() === normalized;
           });
         }
-        function normalizeVaultPath(path) {
-          return String(path || "").replace(/\\/g, "/").replace(/\/+$/, "").trim();
-        }
-        function scopePrefixForVaultSelection(rootVault, selectedVault) {
-          const rootPath = normalizeVaultPath(rootVault.vaultPath || "");
-          const currentPath = normalizeVaultPath(selectedVault.vaultPath || "");
-          if (!rootPath || !currentPath || rootPath === currentPath) {
-            return "";
-          }
-          if (!currentPath.startsWith(rootPath + "/")) {
-            return "";
-          }
-          return normalizePageDraftPath(currentPath.slice(rootPath.length + 1)) || "";
-        }
         function currentScopePrefix() {
-          if (!state.topLevelFoldersAsVaults || !state.rootVault || !state.currentVault) {
+          if (!state.topLevelFoldersAsVaults) {
             return "";
           }
-          const rootPath = normalizeVaultPath(state.rootVault.vaultPath || "");
-          const currentPath = normalizeVaultPath(state.currentVault.vaultPath || "");
-          if (!rootPath || !currentPath || rootPath === currentPath) {
-            return "";
-          }
-          if (!currentPath.startsWith(rootPath + "/")) {
-            return "";
-          }
-          return normalizePageDraftPath(currentPath.slice(rootPath.length + 1)) || "";
+          return normalizePageDraftPath(state.activeScopePrefix || "");
         }
         function applyCurrentScopePrefix(pagePath) {
           const normalized = normalizePageDraftPath(pagePath);
@@ -10660,8 +10865,10 @@
             },
             onSelectPage: function(path) {
               clearRemoteChangeToast();
+              state.appScreen = "notes";
               state.selectedPage = path;
               state.selectedSavedQuery = "";
+              renderAppScreen();
             },
             onSyncURL: syncURLState,
             onRenderPages: renderPages,
@@ -10686,8 +10893,10 @@
             },
             onSelectPage: function(path) {
               clearRemoteChangeToast();
+              state.appScreen = "notes";
               state.selectedPage = path;
               state.selectedSavedQuery = "";
+              renderAppScreen();
             },
             onSyncURL: syncURLState,
             onRenderPages: renderPages,
@@ -10862,6 +11071,114 @@
           });
           return true;
         }
+        function buildQueryFence(query) {
+          const trimmed = String(query || "").trim();
+          return "```query\n" + trimmed + "\n```";
+        }
+        function transientSlashQueryPlaceholder(frame) {
+          const suffixes = [".", "..", "...", ".."];
+          return "> Generating query" + suffixes[frame % suffixes.length];
+        }
+        function replaceTransientEditorLine(originalValue, lineStart, lineEnd, replacement, scrollTop) {
+          const nextValue = originalValue.slice(0, lineStart) + replacement + originalValue.slice(lineEnd);
+          setMarkdownEditorValue(state, els, nextValue);
+          state.currentMarkdown = nextValue;
+          els.rawView.textContent = nextValue;
+          const caret = Math.max(0, Math.min(lineStart + replacement.length, nextValue.length));
+          focusMarkdownEditor(state, els, { preventScroll: true });
+          setMarkdownEditorSelection(state, els, caret, caret);
+          setMarkdownEditorScrollTop(state, els, scrollTop);
+          return nextValue;
+        }
+        async function runSlashQueryCommand(rawContext) {
+          const intent = queryIntentForText(rawContext.lineText);
+          closeSlashMenu(state, els);
+          if (!intent) {
+            setNoteStatus("Add what the query should do after /query.");
+            return false;
+          }
+          if (!state.aiSettingsLoaded) {
+            setNoteStatus("AI settings are still loading.");
+            return false;
+          }
+          if (!state.aiSettings.enabled) {
+            setNoteStatus("Enable the AI query copilot in Settings > AI first.");
+            return false;
+          }
+          if (!state.aiAPIKeyConfigured) {
+            setNoteStatus("Add an AI API key in Settings > AI first.");
+            return false;
+          }
+          clearAutosaveTimer();
+          const scrollTop = markdownEditorScrollTop(state, els);
+          const originalValue = rawContext.value;
+          let placeholderValue = replaceTransientEditorLine(
+            originalValue,
+            rawContext.lineStart,
+            rawContext.lineEnd,
+            transientSlashQueryPlaceholder(0),
+            scrollTop
+          );
+          let placeholderFrame = 1;
+          const animation = window.setInterval(function() {
+            if (markdownEditorValue(state, els) !== placeholderValue) {
+              window.clearInterval(animation);
+              return;
+            }
+            placeholderValue = replaceTransientEditorLine(
+              originalValue,
+              rawContext.lineStart,
+              rawContext.lineEnd,
+              transientSlashQueryPlaceholder(placeholderFrame),
+              scrollTop
+            );
+            placeholderFrame += 1;
+          }, 320);
+          setNoteStatus('Generating query for "' + intent + '"\u2026');
+          try {
+            const payload = await fetchJSON("/api/query/copilot", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                intent,
+                previewLimit: 10
+              })
+            });
+            const queryText = String(payload.formattedQuery || payload.query || "").trim();
+            if (!queryText) {
+              window.clearInterval(animation);
+              if (markdownEditorValue(state, els) === placeholderValue) {
+                replaceTransientEditorLine(originalValue, rawContext.lineStart, rawContext.lineEnd, rawContext.lineText, scrollTop);
+                scheduleAutosave();
+              }
+              setNoteStatus(payload.error || "AI returned no query.");
+              return false;
+            }
+            const block = buildQueryFence(queryText);
+            window.clearInterval(animation);
+            if (markdownEditorValue(state, els) !== placeholderValue) {
+              setNoteStatus("Query generated, but the note changed before insertion.");
+              return false;
+            }
+            replaceTransientEditorLine(originalValue, rawContext.lineStart, rawContext.lineEnd, block, scrollTop);
+            scheduleAutosave();
+            state.queryCopilotResponse = payload;
+            state.queryWorkbench = payload.workbench;
+            state.queryWorkbenchStatus = payload.valid ? "Inserted AI-generated query block." : payload.error || "Inserted an AI query draft that still needs review.";
+            setNoteStatus(
+              payload.valid ? "Inserted AI-generated query block." : "Inserted AI query draft with validation warnings."
+            );
+            return true;
+          } catch (error) {
+            window.clearInterval(animation);
+            if (markdownEditorValue(state, els) === placeholderValue) {
+              replaceTransientEditorLine(originalValue, rawContext.lineStart, rawContext.lineEnd, rawContext.lineText, scrollTop);
+              scheduleAutosave();
+            }
+            setNoteStatus("AI query generation failed: " + errorMessage(error));
+            return false;
+          }
+        }
         function applySlashSelection() {
           if (!state.slashOpen || !state.slashContext) {
             closeSlashMenu(state, els);
@@ -10874,6 +11191,10 @@
             return false;
           }
           const rawContext = currentRawLineContext(state, els);
+          if (command.id === "query") {
+            void runSlashQueryCommand(rawContext);
+            return true;
+          }
           const updated = command.apply(rawContext.lineText);
           const nextValue = rawContext.value.slice(0, rawContext.lineStart) + updated + rawContext.value.slice(rawContext.lineEnd);
           const scrollTop = markdownEditorScrollTop(state, els);
@@ -11119,11 +11440,29 @@
         function renderPageContext2() {
           renderPageContext(els.pageContext, state.currentPage, state.currentDerived);
         }
+        async function refreshCurrentDerivedState(pagePath) {
+          if (!pagePath || state.selectedPage !== pagePath) {
+            return;
+          }
+          const derived = await fetchJSON("/api/pages/" + encodePath(pagePath) + "/derived");
+          if (state.selectedPage !== pagePath) {
+            return;
+          }
+          state.currentDerived = derived;
+          renderPageContext2();
+          if (state.currentPage) {
+            const page = currentPageView2();
+            if (state.markdownEditorApi && page) {
+              markdownEditorSetQueryBlocks(state, renderedQueryBlocksForEditor(state.currentDerived));
+              markdownEditorSetTasks(state, renderedTasksForEditor(page));
+            }
+          }
+        }
         function visiblePagesForRail() {
-          return filterPagesByTag(state.pages, state.pageTagFilter);
+          return filterPagesByTag(filterPagesByScope(state.pages, currentScopePrefix()), state.pageTagFilter);
         }
         function renderPageTags2() {
-          renderPageTags(els.pageTags, state.pages, state.pageTagFilter, function(tag) {
+          renderPageTags(els.pageTags, filterPagesByScope(state.pages, currentScopePrefix()), state.pageTagFilter, function(tag) {
             const nextTag = String(tag || "").trim();
             state.pageTagFilter = state.pageTagFilter.toLowerCase() === nextTag.toLowerCase() ? "" : nextTag;
             renderPages();
@@ -11395,18 +11734,14 @@
             onSetNoteStatus: setNoteStatus
           });
         }
-        function clearPageSelection() {
+        function clearLoadedPageState() {
           clearAutosaveTimer();
           state.selectedPage = "";
-          state.selectedSavedQuery = "";
           state.currentPage = null;
           state.currentDerived = null;
           state.currentMarkdown = "";
           state.originalMarkdown = "";
           clearPropertyDraft();
-          syncURLState(true);
-          els.detailPath.textContent = "Select a page";
-          setNoteHeadingValue("Waiting for selection", false);
           renderNoteStudio();
           renderSourceModeButton();
           renderPageHistoryButton();
@@ -11414,6 +11749,13 @@
           renderPageTags2();
           renderPageContext2();
           renderPageProperties2();
+        }
+        function clearPageSelection() {
+          clearLoadedPageState();
+          state.selectedSavedQuery = "";
+          els.detailPath.textContent = "Select a page";
+          setNoteHeadingValue("Waiting for selection", false);
+          syncURLState(true);
         }
         function setStructuredViews(kind, title, structured, derived, raw) {
           els.detailKind.textContent = kind;
@@ -11534,6 +11876,20 @@
           };
           state.userSettingsLoaded = true;
           renderSettingsForm2();
+        }
+        function setAISettingsSnapshot(snapshot) {
+          state.aiSettings = {
+            enabled: Boolean(snapshot.settings.enabled),
+            provider: snapshot.settings.provider || "openai-compatible",
+            baseUrl: snapshot.settings.baseUrl || "https://api.openai.com/v1",
+            model: snapshot.settings.model || "gpt-5-mini"
+          };
+          state.aiAPIKeyConfigured = Boolean(snapshot.apiKeyConfigured);
+          state.aiSettingsLoaded = true;
+          state.aiClearKeyPending = false;
+          els.settingsAIAPIKey.value = "";
+          renderSettingsForm2();
+          renderQueryScreen();
         }
         function currentThemeID() {
           return String(state.settings.preferences.ui.themeId || defaultThemeId).trim() || defaultThemeId;
@@ -11665,6 +12021,16 @@
             setUserSettingsSnapshot(snapshot);
           } catch (error) {
             state.userSettingsLoaded = false;
+            renderSettingsForm2();
+            throw error;
+          }
+        }
+        async function loadAISettings() {
+          try {
+            const snapshot = await fetchJSON("/api/ai/settings");
+            setAISettingsSnapshot(snapshot);
+          } catch (error) {
+            state.aiSettingsLoaded = false;
             renderSettingsForm2();
             throw error;
           }
@@ -11804,8 +12170,10 @@
         }
         function renderSavedQueryTree2() {
           renderSavedQueryTree(els.queryTree, state.queryTree, state.selectedSavedQuery, function(name) {
+            state.appScreen = "queries";
             state.selectedSavedQuery = name;
             state.selectedPage = "";
+            renderAppScreen();
             syncURLState(false);
             renderPages();
             renderSavedQueryTree2();
@@ -11917,26 +12285,25 @@
           }
         }
         async function loadSavedQueryDetail(name) {
-          clearPageSelection();
+          clearLoadedPageState();
+          state.appScreen = "queries";
+          renderAppScreen();
           try {
             const detail = await loadSavedQueryDetailData(name);
             const savedQuery = detail.savedQuery;
             state.selectedSavedQueryPayload = savedQuery;
-            els.detailPath.textContent = savedQuery.name || name;
-            setNoteHeadingValue(savedQuery.title || savedQuery.name || name, false);
-            setStructuredViews("Saved Query", savedQuery.title || savedQuery.name, savedQuery, detail.workbench, savedQuery.query || "");
-            setNoteStatus("Viewing saved query details. Select a page to edit notes.");
-            renderPageContext2();
-            renderPageProperties2();
+            els.queryEditor.value = savedQuery.query || "";
+            state.queryCopilotResponse = null;
+            state.queryWorkbench = detail.workbench;
+            state.queryWorkbenchStatus = 'Loaded saved query "' + (savedQuery.title || savedQuery.name || name) + '".';
+            renderQueryScreen();
+            setNoteStatus('Loaded saved query "' + (savedQuery.title || savedQuery.name || name) + '".');
           } catch (error) {
             state.selectedSavedQueryPayload = null;
-            els.detailKind.textContent = "Saved Query";
-            els.detailTitle.textContent = name;
-            els.structuredView.textContent = errorMessage(error);
-            els.derivedView.textContent = "";
-            els.rawView.textContent = "";
-            setNoteStatus("Select a page to edit and preview markdown.");
-            renderPageContext2();
+            state.queryWorkbench = null;
+            state.queryWorkbenchStatus = errorMessage(error);
+            renderQueryScreen();
+            setNoteStatus("Saved query failed: " + errorMessage(error));
           }
         }
         function refreshCurrentDetail(force) {
@@ -11976,13 +12343,156 @@
             els.eventLog.removeChild(lastChild);
           }
         }
+        function renderQueryPreview() {
+          clearNode(els.queryPreview);
+          const preview = state.queryWorkbench && state.queryWorkbench.preview ? state.queryWorkbench.preview : null;
+          if (!preview) {
+            renderEmpty(els.queryPreview, "Run a query to preview results.");
+            return;
+          }
+          if (!preview.valid) {
+            renderEmpty(els.queryPreview, preview.error || "Preview failed.");
+            return;
+          }
+          const columns = Array.isArray(preview.columns) ? preview.columns : [];
+          const rows = Array.isArray(preview.rows) ? preview.rows : [];
+          if (!columns.length) {
+            renderEmpty(els.queryPreview, "Preview returned no visible columns.");
+            return;
+          }
+          if (!rows.length) {
+            renderEmpty(els.queryPreview, "Preview returned no rows.");
+            return;
+          }
+          const table = document.createElement("table");
+          table.className = "query-preview-table";
+          const head = document.createElement("thead");
+          const headRow = document.createElement("tr");
+          columns.forEach(function(column) {
+            const th = document.createElement("th");
+            th.textContent = column;
+            headRow.appendChild(th);
+          });
+          head.appendChild(headRow);
+          table.appendChild(head);
+          const body = document.createElement("tbody");
+          rows.forEach(function(row) {
+            const tr = document.createElement("tr");
+            columns.forEach(function(column) {
+              const td = document.createElement("td");
+              const value = row && typeof row === "object" ? row[column] : "";
+              td.textContent = typeof value === "string" ? value : JSON.stringify(value ?? "");
+              tr.appendChild(td);
+            });
+            body.appendChild(tr);
+          });
+          table.appendChild(body);
+          els.queryPreview.appendChild(table);
+        }
+        function renderQueryDiagnostics() {
+          clearNode(els.queryDiagnostics);
+          const workbench = state.queryWorkbench;
+          if (!workbench) {
+            return;
+          }
+          const diagnostics = [];
+          if (workbench.analyze) {
+            diagnostics.push({
+              label: "Analyze",
+              ok: Boolean(workbench.analyze.valid),
+              detail: workbench.analyze.valid ? workbench.analyze.dataset || "valid" : workbench.analyze.error || "invalid"
+            });
+          }
+          if (workbench.lint) {
+            diagnostics.push({
+              label: "Lint",
+              ok: Boolean(workbench.lint.valid),
+              detail: workbench.lint.valid ? (workbench.lint.count || 0) + " warning" + ((workbench.lint.count || 0) === 1 ? "" : "s") : workbench.lint.error || "invalid"
+            });
+          }
+          if (workbench.preview) {
+            diagnostics.push({
+              label: "Preview",
+              ok: Boolean(workbench.preview.valid),
+              detail: workbench.preview.valid ? (workbench.preview.count || 0) + " row" + ((workbench.preview.count || 0) === 1 ? "" : "s") : workbench.preview.error || "failed"
+            });
+          }
+          if (workbench.count) {
+            diagnostics.push({
+              label: "Count",
+              ok: Boolean(workbench.count.valid),
+              detail: workbench.count.valid ? String(workbench.count.count || 0) : workbench.count.error || "failed"
+            });
+          }
+          diagnostics.forEach(function(diagnostic) {
+            const card = document.createElement("div");
+            card.className = "query-diagnostic" + (diagnostic.ok ? " ok" : " warn");
+            const strong = document.createElement("strong");
+            strong.textContent = diagnostic.label;
+            card.appendChild(strong);
+            const span = document.createElement("span");
+            span.textContent = diagnostic.detail;
+            card.appendChild(span);
+            els.queryDiagnostics.appendChild(card);
+          });
+        }
+        function renderQueryCopilotResult() {
+          const aiReady = state.aiSettingsLoaded && state.aiSettings.enabled && state.aiAPIKeyConfigured;
+          if (state.queryCopilotPending) {
+            els.queryCopilotStatus.textContent = "Generating query\u2026";
+          } else if (!state.aiSettingsLoaded) {
+            els.queryCopilotStatus.textContent = "AI settings are still loading.";
+          } else if (!state.aiSettings.enabled) {
+            els.queryCopilotStatus.textContent = "Enable the AI query copilot in Settings > AI.";
+          } else if (!state.aiAPIKeyConfigured) {
+            els.queryCopilotStatus.textContent = "Add an API key in Settings > AI to use the copilot.";
+          } else if (state.queryCopilotResponse) {
+            els.queryCopilotStatus.textContent = state.queryCopilotResponse.valid ? "Generated and validated in " + String(state.queryCopilotResponse.attempts) + " attempt" + (state.queryCopilotResponse.attempts === 1 ? "" : "s") + "." : state.queryCopilotResponse.error || "Generated a draft that still needs review.";
+          } else {
+            els.queryCopilotStatus.textContent = aiReady ? "Describe the query you want and let the server draft it." : "";
+          }
+          const response = state.queryCopilotResponse;
+          if (response && response.explanation) {
+            els.queryCopilotExplanation.textContent = response.explanation;
+            els.queryCopilotExplanation.classList.remove("hidden");
+          } else {
+            els.queryCopilotExplanation.textContent = "";
+            els.queryCopilotExplanation.classList.add("hidden");
+          }
+          clearNode(els.queryCopilotAssumptions);
+          if (response && Array.isArray(response.assumptions) && response.assumptions.length) {
+            response.assumptions.forEach(function(assumption) {
+              const item = document.createElement("li");
+              item.textContent = assumption;
+              els.queryCopilotAssumptions.appendChild(item);
+            });
+            els.queryCopilotAssumptions.classList.remove("hidden");
+          } else {
+            els.queryCopilotAssumptions.classList.add("hidden");
+          }
+        }
+        function renderQueryScreen() {
+          const selected = state.selectedSavedQueryPayload;
+          els.queryScreenEyebrow.textContent = selected ? "Saved Query" : "Queries";
+          els.queryScreenTitle.textContent = selected ? selected.title || selected.name || "Query Workbench" : "Query Workbench";
+          els.queryScreenMeta.textContent = selected ? [selected.name, selected.folder, selected.tags && selected.tags.length ? "#" + selected.tags.join(" #") : ""].filter(Boolean).join(" \xB7 ") : "Draft ad hoc queries, preview them, and use AI to generate a starting point.";
+          els.generateQuery.disabled = !state.aiSettingsLoaded || !state.aiSettings.enabled || !state.aiAPIKeyConfigured || state.queryCopilotPending;
+          els.queryIntent.placeholder = state.aiSettings.enabled ? "show open tasks due this week" : "Enable the AI query copilot in Settings > AI";
+          renderQueryCopilotResult();
+          renderQueryDiagnostics();
+          renderQueryPreview();
+          els.queryOutput.textContent = state.queryWorkbench ? pretty(state.queryWorkbench) : state.queryWorkbenchStatus;
+        }
         async function runQueryWorkbench() {
           const query = els.queryEditor.value.trim();
           if (!query) {
-            els.queryOutput.textContent = "Enter a query first.";
+            state.queryWorkbench = null;
+            state.queryWorkbenchStatus = "Enter a query first.";
+            renderQueryScreen();
             return;
           }
-          els.queryOutput.textContent = "Running query workbench...";
+          state.queryWorkbenchStatus = "Running query workbench...";
+          renderQueryScreen();
           try {
             const payload = await fetchJSON("/api/query/workbench", {
               method: "POST",
@@ -11992,44 +12502,78 @@
                 previewLimit: 10
               })
             });
-            els.queryOutput.textContent = pretty(payload);
+            state.queryWorkbench = payload;
+            state.queryWorkbenchStatus = "Query workbench updated.";
+            renderQueryScreen();
           } catch (error) {
-            els.queryOutput.textContent = errorMessage(error);
+            state.queryWorkbench = null;
+            state.queryWorkbenchStatus = errorMessage(error);
+            renderQueryScreen();
           }
         }
         async function formatQueryText() {
           const query = els.queryEditor.value.trim();
           if (!query) {
-            els.queryOutput.textContent = "Enter a query first.";
+            state.queryWorkbenchStatus = "Enter a query first.";
+            renderQueryScreen();
             return;
           }
-          els.queryOutput.textContent = "Formatting query...";
+          state.queryWorkbenchStatus = "Formatting query...";
+          renderQueryScreen();
           try {
             const payload = await fetchJSON("/api/query/format", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ query })
             });
-            els.queryOutput.textContent = pretty(payload);
             if (payload.valid && payload.formatted) {
               els.queryEditor.value = payload.formatted;
+              state.queryWorkbenchStatus = "Formatted query.";
+            } else {
+              state.queryWorkbenchStatus = payload.error || "Format failed.";
             }
+            renderQueryScreen();
           } catch (error) {
-            els.queryOutput.textContent = errorMessage(error);
+            state.queryWorkbenchStatus = errorMessage(error);
+            renderQueryScreen();
           }
         }
-        function loadSelectedQueryIntoEditor() {
-          if (state.selectedSavedQueryPayload && state.selectedSavedQueryPayload.query) {
-            els.queryEditor.value = state.selectedSavedQueryPayload.query;
-            els.queryOutput.textContent = "Loaded selected saved query into the editor.";
+        async function generateQueryWithAI() {
+          const intent = String(els.queryIntent.value || "").trim();
+          if (!intent) {
+            els.queryCopilotStatus.textContent = "Enter what you want the query to do first.";
             return;
           }
-          if (els.rawView.textContent && els.detailKind.textContent === "Saved Query") {
-            els.queryEditor.value = els.rawView.textContent;
-            els.queryOutput.textContent = "Loaded visible saved query text into the editor.";
-            return;
+          state.queryCopilotPending = true;
+          renderQueryScreen();
+          try {
+            const payload = await fetchJSON("/api/query/copilot", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                intent,
+                currentQuery: String(els.queryEditor.value || ""),
+                previewLimit: 10
+              })
+            });
+            state.queryCopilotResponse = payload;
+            if (payload.formattedQuery) {
+              els.queryEditor.value = payload.formattedQuery;
+            } else if (payload.query) {
+              els.queryEditor.value = payload.query;
+            }
+            state.queryWorkbench = payload.workbench;
+            state.queryWorkbenchStatus = payload.valid ? "AI query generated and validated." : payload.error || "AI generated a draft that still needs review.";
+            setNoteStatus(
+              payload.valid ? "AI query generated." : "AI query draft returned with validation issues."
+            );
+          } catch (error) {
+            state.queryWorkbenchStatus = errorMessage(error);
+            setNoteStatus("AI query generation failed: " + errorMessage(error));
+          } finally {
+            state.queryCopilotPending = false;
+            renderQueryScreen();
           }
-          els.queryOutput.textContent = "Select a saved query first, or type directly into the editor.";
         }
         function setSearchOpen2(open) {
           setSearchOpen(els, open, rememberNoteFocus);
@@ -12575,6 +13119,20 @@
             }
           };
         }
+        function collectAISettingsForm() {
+          const apiKey = String(els.settingsAIAPIKey.value || "").trim();
+          return {
+            settings: {
+              enabled: Boolean(els.settingsAIEnabled.checked),
+              provider: "openai-compatible",
+              baseUrl: String(els.settingsAIBaseURL.value || "").trim(),
+              model: String(els.settingsAIModel.value || "").trim()
+            },
+            apiKeyConfigured: state.aiAPIKeyConfigured,
+            apiKey: apiKey || void 0,
+            clearApiKey: state.aiClearKeyPending && !apiKey
+          };
+        }
         function currentUserSettingsPayload() {
           return {
             settings: {
@@ -12615,6 +13173,7 @@
           state.settings.preferences = cloneClientPreferences(preferences);
           state.settingsTemplateDrafts = cloneNoteTemplates(state.settings.preferences.templates);
           state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
+          setCurrentScopePrefix(state.topLevelFoldersAsVaults ? state.activeScopePrefix : "");
           syncHomePageForCurrentScope();
           state.savedThemeId = currentThemeID();
           state.previewThemeId = currentThemeID();
@@ -12637,12 +13196,14 @@
             return;
           }
           const previousTopLevelFoldersAsVaults = state.topLevelFoldersAsVaults;
-          const nextSettings = prepareSettingsSave(
+          const nextSettings = prepareSettingsSaveWithExtra(
             collectClientPreferencesForm,
             collectUserSettingsForm,
             collectServerSettingsForm,
+            collectAISettingsForm,
             applyClientPreferences
           );
+          const aiSettings = nextSettings.extra;
           els.settingsStatus.textContent = "Saving settings\u2026";
           try {
             const userSnapshot = await fetchJSON("/api/user/settings", {
@@ -12657,6 +13218,12 @@
               body: JSON.stringify(nextSettings.serverSettings)
             });
             setSettingsSnapshot(settingsSnapshot);
+            const aiSnapshot = await fetchJSON("/api/ai/settings", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(aiSettings)
+            });
+            setAISettingsSnapshot(aiSnapshot);
             await loadMeta();
             await loadAvailableVaults();
             if (state.selectedPage || state.selectedSavedQuery) {
@@ -12688,8 +13255,10 @@
               navigateToPageAtTask(pagePath, taskRef, lineNumber, false);
             },
             onOpenSavedQuery: function(name) {
+              state.appScreen = "queries";
               state.selectedSavedQuery = name;
               state.selectedPage = "";
+              renderAppScreen();
               syncURLState(false);
               renderPages();
               renderSavedQueryTree2();
@@ -13029,6 +13598,10 @@
               setDocumentsOpen2(true);
               scheduleDocumentsRefresh();
             },
+            onOpenQueries: function() {
+              closeCommandPalette();
+              openQueriesScreen(false);
+            },
             onOpenQuickSwitcher: function() {
               closeCommandPalette();
               setQuickSwitcherOpen2(true);
@@ -13112,13 +13685,6 @@
             setMarkdownEditorScrollTop(state, els, scrollTop);
           }, 0);
         }
-        function setDebugOpen(open) {
-          state.debugOpen = Boolean(open);
-          els.debugDrawer.classList.toggle("hidden", !state.debugOpen);
-          if (els.toggleDebug) {
-            els.toggleDebug.classList.toggle("active", state.debugOpen);
-          }
-        }
         function setRailOpen(open) {
           state.railOpen = Boolean(open);
           const mobileLayout = window.matchMedia("(max-width: 1180px)").matches;
@@ -13126,7 +13692,7 @@
             els.rail.classList.toggle("open", state.railOpen);
           }
           if (els.appLayout) {
-            els.appLayout.classList.toggle("rail-collapsed", !mobileLayout && !state.railOpen);
+            els.appLayout.classList.toggle("rail-collapsed", state.appScreen === "queries" || !mobileLayout && !state.railOpen);
           }
           if (els.toggleRail) {
             els.toggleRail.classList.toggle("active", state.railOpen);
@@ -13194,6 +13760,8 @@
             await loadPages();
             if (!markdownEditorHasFocus(state, els) && !inlineTableEditorHasFocus2()) {
               await loadPageDetail(state.selectedPage, true, false);
+            } else {
+              await refreshCurrentDerivedState(state.selectedPage);
             }
           } catch (error) {
             if (error instanceof HTTPError && error.status === 409) {
@@ -13401,8 +13969,19 @@
             state.settingsSection = "notifications";
             renderSettingsForm2();
           });
+          on(els.settingsNavAI, "click", function() {
+            state.settingsSection = "ai";
+            renderSettingsForm2();
+          });
           on(els.settingsNavVault, "click", function() {
             state.settingsSection = "vault";
+            renderSettingsForm2();
+          });
+          on(els.settingsAIClearKey, "click", function() {
+            state.aiClearKeyPending = !state.aiClearKeyPending;
+            if (state.aiClearKeyPending) {
+              els.settingsAIAPIKey.value = "";
+            }
             renderSettingsForm2();
           });
           on(els.settingsTemplateAdd, "click", function() {
@@ -13552,6 +14131,14 @@
             }
             navigateToPage(homePage, false);
           });
+          on(els.openQueries, "click", function() {
+            setSessionMenuOpen2(false);
+            if (state.appScreen === "queries") {
+              setAppScreen("notes", false);
+              return;
+            }
+            openQueriesScreen(false);
+          });
           on(els.openDocuments, "click", function() {
             setSessionMenuOpen2(false);
             setDocumentsOpen2(true);
@@ -13684,12 +14271,13 @@
             });
             renderPageTasks2();
           });
-          on(els.toggleDebug, "click", function() {
-            setDebugOpen(!state.debugOpen);
-          });
-          on(els.loadSelectedQuery, "click", loadSelectedQueryIntoEditor);
           on(els.formatQuery, "click", formatQueryText);
           on(els.runQuery, "click", runQueryWorkbench);
+          on(els.generateQuery, "click", function() {
+            generateQueryWithAI().catch(function(error) {
+              setNoteStatus("AI query generation failed: " + errorMessage(error));
+            });
+          });
           on(els.noteSurface, "dragenter", function(event) {
             event.preventDefault();
             els.noteSurface.classList.add("drop-active");
@@ -14327,7 +14915,6 @@
               anchorInlineTableEditorToRenderedTable(state, els, state.tableEditor.startLine);
             }
           });
-          setDebugOpen(false);
           setRailTab("files");
           setRailOpen(!window.matchMedia("(max-width: 1180px)").matches);
           setPageSearchOpen(false);
@@ -14335,10 +14922,14 @@
           state.themeCache = loadStoredThemeCache();
           state.settings.preferences = loadStoredClientPreferences();
           state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
+          state.activeScopePrefix = loadStoredScopePrefix();
+          setActiveScopePrefix(state.topLevelFoldersAsVaults ? state.activeScopePrefix : "");
           state.savedThemeId = currentThemeID();
           state.previewThemeId = currentThemeID();
           applyUIPreferences();
           renderNoteStudio();
+          renderQueryScreen();
+          renderAppScreen();
           renderPageTasks2();
           renderPageContext2();
           renderPageProperties2();

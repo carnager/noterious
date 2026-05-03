@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carnager/noterious/internal/ai"
 	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/config"
 	"github.com/carnager/noterious/internal/documents"
@@ -24,6 +25,7 @@ import (
 type Dependencies struct {
 	Config        config.Config
 	Settings      *settings.Store
+	AI            *ai.Service
 	Documents     *documents.Service
 	History       *history.Service
 	Themes        *themes.Service
@@ -152,6 +154,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		}
 		writeJSON(w, http.StatusOK, snapshot)
 	})
+	mountAIEndpoints(mux, deps)
 	mountThemeEndpoints(mux, deps)
 	mountDocumentAndFolderEndpoints(mux, deps)
 

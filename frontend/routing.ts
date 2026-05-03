@@ -1,8 +1,9 @@
-import type { PageSummary } from "./types";
+import type { AppScreen, PageSummary } from "./types";
 
 export interface URLState {
   page: string;
   query: string;
+  screen: AppScreen;
 }
 
 export interface ApplyURLStateOptions {
@@ -11,6 +12,7 @@ export interface ApplyURLStateOptions {
   pages: PageSummary[];
   onNavigateToPage(pagePath: string, replace: boolean): void;
   onSelectSavedQuery(name: string): void;
+  onOpenQueriesScreen(): void;
   onRenderIdle(): void;
 }
 
@@ -33,20 +35,26 @@ export function parseURLState(href: string): URLState {
   return {
     page: url.searchParams.get("page") || "",
     query: url.searchParams.get("query") || "",
+    screen: url.searchParams.get("screen") === "queries" ? "queries" : "notes",
   };
 }
 
-export function buildSelectionURL(href: string, selectedPage: string, selectedSavedQuery: string): URL {
+export function buildSelectionURL(href: string, selectedPage: string, selectedSavedQuery: string, screen: AppScreen): URL {
   const url = new URL(href);
   if (selectedPage) {
     url.searchParams.set("page", selectedPage);
   } else {
     url.searchParams.delete("page");
   }
-  if (selectedSavedQuery) {
+  if (screen === "queries" && selectedSavedQuery) {
     url.searchParams.set("query", selectedSavedQuery);
   } else {
     url.searchParams.delete("query");
+  }
+  if (screen === "queries") {
+    url.searchParams.set("screen", "queries");
+  } else {
+    url.searchParams.delete("screen");
   }
   return url;
 }
@@ -60,7 +68,12 @@ export function applyURLState(options: ApplyURLStateOptions): void {
     return;
   }
   if (urlState.query) {
+    options.onOpenQueriesScreen();
     options.onSelectSavedQuery(urlState.query);
+    return;
+  }
+  if (urlState.screen === "queries") {
+    options.onOpenQueriesScreen();
     return;
   }
   const homePage = String(options.currentHomePage || "").trim();

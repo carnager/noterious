@@ -96,6 +96,10 @@
             <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><path d="M4.5 10.5 12 4l7.5 6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 9.5V19a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V9.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span class="sr-only">Home page</span>
           </button>
+          <button type="button" id="open-queries" class="topbar-toggle topbar-toggle-icon hidden" aria-label="Queries" title="Queries">
+            <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><path d="M5 7.5h14M5 12h8M5 16.5h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="17.5" cy="12" r="1.25" fill="currentColor"/></svg>
+            <span class="sr-only">Queries</span>
+          </button>
           <button type="button" id="open-quick-switcher" class="topbar-toggle topbar-toggle-icon" aria-label="Open note" title="Open note">
             <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><path d="M5 4.5h8.5L19 10v9.5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1Zm8 1.5v4h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span class="sr-only">Open note</span>
@@ -202,97 +206,126 @@
         </aside>
 
         <section class="panel focus">
-          <div class="section-head hero">
-            <div>
-              <p class="eyebrow" id="detail-kind">Note</p>
-              <h2 id="detail-title">Waiting for selection</h2>
+          <section id="notes-screen" class="notes-screen">
+            <div class="section-head hero">
+              <div>
+                <p class="eyebrow" id="detail-kind">Note</p>
+                <h2 id="detail-title">Waiting for selection</h2>
+              </div>
+              <div class="hero-actions">
+              </div>
             </div>
-            <div class="hero-actions">
+
+            <div class="note-layout" id="note-layout">
+              <section class="note-column">
+                <section class="card note-card">
+                  <div class="note-frame">
+                    <div class="note-heading-row">
+                      <input type="text" class="note-heading-input" id="note-heading" value="Waiting for selection" aria-label="Note title" autocomplete="off" spellcheck="false">
+                      <button type="button" id="open-page-history" class="mode-button note-mode-button" aria-label="Open page history">History</button>
+                      <button type="button" id="toggle-source-mode" class="mode-button note-mode-button" aria-pressed="false">Raw</button>
+                    </div>
+                  </div>
+                  <div class="property-list" id="page-properties">
+                    <div class="empty">Select a page to see properties.</div>
+                  </div>
+                  <div class="property-actions">
+                    <button type="button" id="add-property">Add Property</button>
+                  </div>
+                  <div class="note-surface" id="note-surface">
+                    <textarea id="markdown-editor" class="markdown-editor hidden" spellcheck="false" placeholder="Select a page to start editing markdown."></textarea>
+                    <input id="file-upload-input" type="file" class="hidden" aria-hidden="true" multiple>
+                    <div id="slash-menu" class="slash-menu hidden">
+                      <div id="slash-menu-results" class="slash-menu-results"></div>
+                    </div>
+                    <div id="inline-task-picker" class="task-inline-picker hidden"></div>
+                  </div>
+                  <div id="inline-table-panel" class="table-editor-panel hidden"></div>
+                </section>
+              </section>
             </div>
-          </div>
+          </section>
 
-          <div class="note-layout" id="note-layout">
-            <section class="note-column">
-              <section class="card note-card">
-                <div class="note-frame">
-                  <div class="note-heading-row">
-                    <input type="text" class="note-heading-input" id="note-heading" value="Waiting for selection" aria-label="Note title" autocomplete="off" spellcheck="false">
-                    <button type="button" id="open-page-history" class="mode-button note-mode-button" aria-label="Open page history">History</button>
-                    <button type="button" id="toggle-source-mode" class="mode-button note-mode-button" aria-pressed="false">Raw</button>
-                  </div>
-                </div>
-                <div class="property-list" id="page-properties">
-                  <div class="empty">Select a page to see properties.</div>
-                </div>
-                <div class="property-actions">
-                  <button type="button" id="add-property">Add Property</button>
-                </div>
-                <div class="note-surface" id="note-surface">
-                  <textarea id="markdown-editor" class="markdown-editor hidden" spellcheck="false" placeholder="Select a page to start editing markdown."></textarea>
-                  <input id="file-upload-input" type="file" class="hidden" aria-hidden="true" multiple>
-                  <div id="slash-menu" class="slash-menu hidden">
-                    <div id="slash-menu-results" class="slash-menu-results"></div>
-                  </div>
-                  <div id="inline-task-picker" class="task-inline-picker hidden"></div>
-                </div>
-                <div id="inline-table-panel" class="table-editor-panel hidden"></div>
-              </section>
-            </section>
-          </div>
-
-          <section class="debug-drawer hidden" id="debug-drawer">
-            <div class="focus-grid">
-              <section class="card wide lab-card">
+          <section class="queries-screen hidden" id="queries-screen">
+            <div class="queries-layout">
+              <section class="card queries-sidebar-card">
                 <div class="section-head">
-                  <h3>Query Lab</h3>
-                  <div class="hero-actions">
-                    <button type="button" id="load-selected-query">Load Selected</button>
-                    <button type="button" id="format-query">Format</button>
-                    <button type="button" id="run-query">Run Workbench</button>
+                  <div>
+                    <p class="eyebrow">Queries</p>
+                    <h3>Saved Queries</h3>
                   </div>
-                </div>
-                <label class="search">
-                  <span>Ad hoc query</span>
-                  <textarea id="query-editor" class="query-editor" spellcheck="false" placeholder="from tasks&#10;where done = false&#10;order by due&#10;select ref, due"></textarea>
-                </label>
-                <pre class="code-block" id="query-output">Run an ad hoc query here. Selecting a saved query can preload the editor.</pre>
-              </section>
-
-              <section class="card">
-                <div class="section-head">
-                  <h3>Saved Queries</h3>
                   <button type="button" id="reload-queries">Reload</button>
                 </div>
                 <label class="search">
                   <span>Search saved queries</span>
                   <input id="query-search" type="text" placeholder="ops, dashboard, links" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
                 </label>
-                <div class="tree" id="query-tree"></div>
+                <div class="tree queries-tree" id="query-tree"></div>
               </section>
 
-              <section class="card">
+              <section class="card queries-main-card">
                 <div class="section-head">
-                  <h3>Live Events</h3>
-                  <span class="status-dot" id="event-status">offline</span>
+                  <div>
+                    <p class="eyebrow" id="query-screen-eyebrow">Queries</p>
+                    <h2 id="query-screen-title">Query Workbench</h2>
+                    <p class="queries-meta" id="query-screen-meta">Draft ad hoc queries, preview them, and use AI to generate a starting point.</p>
+                  </div>
+                  <div class="hero-actions">
+                    <button type="button" id="format-query">Format</button>
+                    <button type="button" id="run-query">Run</button>
+                  </div>
                 </div>
-                <div class="event-log" id="event-log"></div>
-              </section>
 
-              <section class="card">
-                <h3>Structured</h3>
-                <pre class="code-block" id="structured-view">Select a page or saved query to inspect structured server output.</pre>
-              </section>
+                <label class="search modal-field-wide">
+                  <span>Ask AI to build a query</span>
+                  <textarea id="query-intent" class="query-intent" spellcheck="true" placeholder="show open tasks due this week"></textarea>
+                </label>
+                <div class="queries-ai-actions">
+                  <button type="button" id="generate-query">Generate Query</button>
+                  <span class="inline-meta" id="query-copilot-status">Enable the AI query copilot in Settings &gt; AI.</span>
+                </div>
+                <p class="queries-explanation hidden" id="query-copilot-explanation"></p>
+                <ul class="queries-assumptions hidden" id="query-copilot-assumptions"></ul>
 
-              <section class="card">
-                <h3>Derived / Workbench</h3>
-                <pre class="code-block" id="derived-view">Derived state and query previews land here.</pre>
-              </section>
+                <label class="search modal-field-wide">
+                  <span>Query</span>
+                  <textarea id="query-editor" class="query-editor" spellcheck="false" placeholder="from tasks&#10;where done = false&#10;order by due&#10;select ref, due"></textarea>
+                </label>
 
-              <section class="card wide">
-                <h3>Raw Markdown / Query</h3>
-                <pre class="code-block raw" id="raw-view">Raw source appears here.</pre>
+                <div class="queries-diagnostics" id="query-diagnostics"></div>
+                <div class="queries-preview" id="query-preview">
+                  <div class="empty">Run a query to preview results.</div>
+                </div>
+                <pre class="code-block" id="query-output">Run an ad hoc query here. Selecting a saved query will preload the editor.</pre>
               </section>
             </div>
+
+            <section class="debug-drawer hidden" id="debug-drawer">
+              <div class="focus-grid">
+                <section class="card">
+                  <div class="section-head">
+                    <h3>Live Events</h3>
+                    <span class="status-dot" id="event-status">offline</span>
+                  </div>
+                  <div class="event-log" id="event-log"></div>
+                </section>
+
+                <section class="card">
+                  <h3>Structured</h3>
+                  <pre class="code-block" id="structured-view">Select a page or saved query to inspect structured server output.</pre>
+                </section>
+
+                <section class="card">
+                  <h3>Derived / Workbench</h3>
+                  <pre class="code-block" id="derived-view">Derived state and query previews land here.</pre>
+                </section>
+
+                <section class="card wide">
+                  <h3>Raw Markdown / Query</h3>
+                  <pre class="code-block raw" id="raw-view">Raw source appears here.</pre>
+                </section>
+              </div>
+            </section>
           </section>
         </section>
       </main>
@@ -568,6 +601,7 @@
             <button type="button" class="settings-nav-button active" id="settings-nav-appearance">Appearance &amp; Hotkeys</button>
             <button type="button" class="settings-nav-button" id="settings-nav-templates">Templates</button>
             <button type="button" class="settings-nav-button" id="settings-nav-notifications">Notifications</button>
+            <button type="button" class="settings-nav-button" id="settings-nav-ai">AI</button>
             <button type="button" class="settings-nav-button hidden" id="settings-nav-vault">Vault Root &amp; Polling</button>
           </aside>
           <div class="settings-main">
@@ -653,6 +687,35 @@
                 <span>ntfy Token</span>
                 <input id="settings-user-ntfy-token" type="password" placeholder="Optional bearer token" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
+            </div>
+          </section>
+
+          <section class="settings-group-card hidden" id="settings-group-ai">
+            <div class="settings-group-head">
+              <h3>AI Query Copilot</h3>
+            </div>
+            <div class="modal-fields settings-group-fields">
+              <label class="settings-toggle-row modal-field-wide">
+                <input id="settings-ai-enabled" type="checkbox">
+                <span>Enable the AI query copilot</span>
+              </label>
+              <label class="search modal-field-wide">
+                <span>Base URL</span>
+                <input id="settings-ai-base-url" type="text" placeholder="https://api.openai.com/v1" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+              <label class="search">
+                <span>Model</span>
+                <input id="settings-ai-model" type="text" placeholder="gpt-5-mini" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+              <label class="search">
+                <span>API Key</span>
+                <input id="settings-ai-api-key" type="password" placeholder="Stored on the server" autocomplete="new-password" autocorrect="off" autocapitalize="none" spellcheck="false">
+              </label>
+              <div class="modal-field-wide settings-theme-actions">
+                <button type="button" id="settings-ai-clear-key" class="ghost">Clear Stored Key</button>
+              </div>
+              <p class="settings-theme-help modal-field-wide" id="settings-ai-key-status">No API key stored yet.</p>
+              <p class="settings-theme-help modal-field-wide" id="settings-ai-help">OpenAI-compatible only in v1.</p>
             </div>
           </section>
 

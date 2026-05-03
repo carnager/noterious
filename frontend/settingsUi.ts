@@ -1,19 +1,23 @@
 import { clearNode } from "./dom";
 import { analyzeHotkeys, detectHotkeyPlatform, hotkeyDefinitions, hotkeyDefaultGuidance } from "./hotkeys";
-import type { AppSettings as SettingsModel, FrontmatterKind, MetaResponse, NoteTemplate, NoteTemplateField, ThemeRecord } from "./types";
+import type { AISettings, AppSettings as SettingsModel, FrontmatterKind, MetaResponse, NoteTemplate, NoteTemplateField, ThemeRecord } from "./types";
 import type { Hotkeys } from "./types";
 
-export type SettingsSection = "appearance" | "templates" | "notifications" | "vault";
+export type SettingsSection = "appearance" | "templates" | "notifications" | "ai" | "vault";
 
 export interface SettingsUiState {
   settingsSection: SettingsSection;
   settingsLoaded: boolean;
+  aiSettingsLoaded: boolean;
   topLevelFoldersAsVaults: boolean;
   themeLibraryLoaded: boolean;
   themeLibrary: ThemeRecord[];
   settingsTemplateDrafts: NoteTemplate[];
   settings: SettingsModel;
   serverMeta: MetaResponse | null;
+  aiSettings: AISettings;
+  aiAPIKeyConfigured: boolean;
+  aiClearKeyPending: boolean;
 }
 
 export interface SettingsUiElements {
@@ -22,11 +26,13 @@ export interface SettingsUiElements {
   settingsNavAppearance: HTMLButtonElement;
   settingsNavTemplates: HTMLButtonElement;
   settingsNavNotifications: HTMLButtonElement;
+  settingsNavAI: HTMLButtonElement;
   settingsNavVault: HTMLButtonElement;
   settingsGroupServer: HTMLElement;
   settingsGroupSession: HTMLElement;
   settingsGroupTemplates: HTMLElement;
   settingsGroupUserNotifications: HTMLElement;
+  settingsGroupAI: HTMLElement;
   saveSettings: HTMLButtonElement;
   settingsVaultPath: HTMLInputElement;
   settingsNtfyInterval: HTMLInputElement;
@@ -43,6 +49,13 @@ export interface SettingsUiElements {
   settingsRuntimeHealth: HTMLElement;
   settingsUserNtfyTopicUrl: HTMLInputElement;
   settingsUserNtfyToken: HTMLInputElement;
+  settingsAIEnabled: HTMLInputElement;
+  settingsAIBaseURL: HTMLInputElement;
+  settingsAIModel: HTMLInputElement;
+  settingsAIAPIKey: HTMLInputElement;
+  settingsAIClearKey: HTMLButtonElement;
+  settingsAIKeyStatus: HTMLElement;
+  settingsAIHelp: HTMLElement;
   settingsUserTopLevelVaults: HTMLInputElement;
   settingsFontFamily: HTMLSelectElement;
   settingsFontSize: HTMLSelectElement;
@@ -71,7 +84,7 @@ export function defaultSettingsSection(): SettingsSection {
 }
 
 export function availableSettingsSections(): SettingsSection[] {
-  return ["appearance", "notifications", "vault"];
+  return ["appearance", "notifications", "ai", "vault"];
 }
 
 export function normalizeSettingsSection(state: SettingsUiState): void {
@@ -91,6 +104,7 @@ export function renderSettingsModal(state: SettingsUiState, els: SettingsUiEleme
     { button: els.settingsNavAppearance, section: "appearance" },
     { button: els.settingsNavTemplates, section: "templates" },
     { button: els.settingsNavNotifications, section: "notifications" },
+    { button: els.settingsNavAI, section: "ai" },
     { button: els.settingsNavVault, section: "vault" },
   ];
 
@@ -104,6 +118,7 @@ export function renderSettingsModal(state: SettingsUiState, els: SettingsUiEleme
   els.settingsGroupSession.classList.toggle("hidden", activeSection !== "appearance");
   els.settingsGroupTemplates.classList.toggle("hidden", activeSection !== "templates");
   els.settingsGroupUserNotifications.classList.toggle("hidden", activeSection !== "notifications");
+  els.settingsGroupAI.classList.toggle("hidden", activeSection !== "ai");
   els.settingsGroupServer.classList.toggle("hidden", activeSection !== "vault");
   els.saveSettings.classList.remove("hidden");
   els.saveSettings.textContent = "Save Settings";
@@ -365,6 +380,13 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
     els.settingsNtfyInterval,
     els.settingsBackupDownload,
   ];
+  const aiFields: Array<HTMLInputElement | HTMLButtonElement> = [
+    els.settingsAIEnabled,
+    els.settingsAIBaseURL,
+    els.settingsAIModel,
+    els.settingsAIAPIKey,
+    els.settingsAIClearKey,
+  ];
   const userFields: Array<HTMLInputElement | HTMLSelectElement> = [
     els.settingsUserNtfyTopicUrl,
     els.settingsUserNtfyToken,
@@ -385,6 +407,9 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
 
   serverFields.forEach(function (field) {
     field.disabled = !state.settingsLoaded;
+  });
+  aiFields.forEach(function (field) {
+    field.disabled = !state.aiSettingsLoaded;
   });
   userFields.forEach(function (field) {
     field.disabled = false;
@@ -436,6 +461,17 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
       : String(vaultHealth && vaultHealth.message ? vaultHealth.message : "Unavailable");
   els.settingsUserNtfyTopicUrl.value = state.settings.userNotifications.ntfyTopicUrl || "";
   els.settingsUserNtfyToken.value = state.settings.userNotifications.ntfyToken || "";
+  els.settingsAIEnabled.checked = Boolean(state.aiSettings.enabled);
+  els.settingsAIBaseURL.value = state.aiSettings.baseUrl || "https://api.openai.com/v1";
+  els.settingsAIModel.value = state.aiSettings.model || "gpt-5-mini";
+  els.settingsAIAPIKey.value = "";
+  els.settingsAIClearKey.textContent = state.aiClearKeyPending ? "Keep Stored Key" : "Clear Stored Key";
+  els.settingsAIKeyStatus.textContent = state.aiClearKeyPending
+    ? "Stored API key will be removed on save."
+    : state.aiAPIKeyConfigured
+      ? "A server-side API key is stored."
+      : "No API key stored yet.";
+  els.settingsAIHelp.textContent = "OpenAI-compatible only in v1. Example base URLs: https://api.openai.com/v1 or https://api.deepseek.com/v1. Browser-local keys are intentionally not supported.";
   els.settingsUserTopLevelVaults.checked = state.topLevelFoldersAsVaults;
   renderThemeOptions(state, els);
   els.settingsFontFamily.value = state.settings.preferences.ui.fontFamily || "mono";

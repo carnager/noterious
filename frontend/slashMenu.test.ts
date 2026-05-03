@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { documentCommandsForText, slashCommandsForText, wikilinkCommandsForContext } from "./slashMenu";
+import { documentCommandsForText, queryIntentForText, slashCommandsForText, wikilinkCommandsForContext } from "./slashMenu";
 import type { DocumentRecord, PageSummary } from "./types";
 
 function page(path: string, title?: string): PageSummary {
@@ -110,6 +110,15 @@ describe("slash menu", function () {
 
   it("closes the slash menu again for invalid table dimensions", function () {
     expect(slashCommandsForText("/table 3 nope")).toEqual([]);
+  });
+
+  it("keeps the query slash command open while typing an intent", function () {
+    const commands = slashCommandsForText("/query show all contacts");
+
+    expect(commands.map(function (command) {
+      return command.id;
+    })).toEqual(["query"]);
+    expect(queryIntentForText("/query show all contacts")).toBe("show all contacts");
   });
 
   it("offers a file upload command in the slash menu", function () {

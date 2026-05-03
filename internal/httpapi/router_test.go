@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carnager/noterious/internal/ai"
 	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/config"
 	"github.com/carnager/noterious/internal/documents"
@@ -197,6 +198,191 @@ func TestSettingsAPIStoresRuntimeSettingsOnly(t *testing.T) {
 	}
 	if updated.Settings.Notifications.NtfyInterval != "2m" {
 		t.Fatalf("notifications = %#v", updated.Settings.Notifications)
+	}
+}
+
+func TestAISettingsAPISeparatesAPIKeyFromReadResponses(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(vaultDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "index.md"), []byte("# Home\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{})
+
+	putRequest := httptest.NewRequest(http.MethodPut, "/api/ai/settings", strings.NewReader(`{
+	  "settings": {
+	    "enabled": true,
+	    "provider": "openai-compatible",
+	    "baseUrl": "https://api.deepseek.com/v1",
+	    "model": "deepseek-chat"
+	  },
+	  "apiKey": "secret-token"
+	}`))
+	putRequest.Header.Set("Content-Type", "application/json")
+	putResponse := httptest.NewRecorder()
+	router.ServeHTTP(putResponse, putRequest)
+	if putResponse.Code != http.StatusOK {
+		t.Fatalf("PUT /api/ai/settings status = %d want %d body=%s", putResponse.Code, http.StatusOK, putResponse.Body.String())
+	}
+	if strings.Contains(putResponse.Body.String(), "secret-token") {
+		t.Fatalf("PUT /api/ai/settings leaked raw api key: %s", putResponse.Body.String())
+	}
+
+	var updated ai.SettingsResponse
+	if err := json.NewDecoder(putResponse.Body).Decode(&updated); err != nil {
+		t.Fatalf("Decode(updated) error = %v", err)
+	}
+	if !updated.APIKeyConfigured {
+		t.Fatalf("updated snapshot should report configured api key")
+	}
+	if updated.Settings.BaseURL != "https://api.deepseek.com/v1" {
+		t.Fatalf("baseURL = %q", updated.Settings.BaseURL)
+	}
+	if updated.Settings.Model != "deepseek-chat" {
+		t.Fatalf("model = %q", updated.Settings.Model)
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/ai/settings", nil)
+	getResponse := httptest.NewRecorder()
+	router.ServeHTTP(getResponse, getRequest)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/ai/settings status = %d want %d body=%s", getResponse.Code, http.StatusOK, getResponse.Body.String())
+	}
+	if strings.Contains(getResponse.Body.String(), "secret-token") {
+		t.Fatalf("GET /api/ai/settings leaked raw api key: %s", getResponse.Body.String())
+	}
+
+	var snapshot ai.SettingsResponse
+	if err := json.NewDecoder(getResponse.Body).Decode(&snapshot); err != nil {
+		t.Fatalf("Decode(snapshot) error = %v", err)
+	}
+	if !snapshot.APIKeyConfigured {
+		t.Fatalf("snapshot should report configured api key")
+	}
+	if snapshot.Settings.Provider != "openai-compatible" {
+		t.Fatalf("provider = %q", snapshot.Settings.Provider)
+	}
+
+	clearRequest := httptest.NewRequest(http.MethodPut, "/api/ai/settings", strings.NewReader(`{
+	  "settings": {
+	    "enabled": true,
+	    "provider": "openai-compatible",
+	    "baseUrl": "https://api.deepseek.com/v1",
+	    "model": "deepseek-chat"
+	  },
+	  "clearApiKey": true
+	}`))
+	clearRequest.Header.Set("Content-Type", "application/json")
+	clearResponse := httptest.NewRecorder()
+	router.ServeHTTP(clearResponse, clearRequest)
+	if clearResponse.Code != http.StatusOK {
+		t.Fatalf("PUT /api/ai/settings clear status = %d want %d body=%s", clearResponse.Code, http.StatusOK, clearResponse.Body.String())
+	}
+
+	var cleared ai.SettingsResponse
+	if err := json.NewDecoder(clearResponse.Body).Decode(&cleared); err != nil {
+		t.Fatalf("Decode(cleared) error = %v", err)
+	}
+	if cleared.APIKeyConfigured {
+		t.Fatalf("cleared snapshot should not report configured api key")
+	}
+}
+
+func TestQueryCopilotAPIRepairsAndValidatesQuery(t *testing.T) {
+	t.Parallel()
+
+	attempt := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt++
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{
+				map[string]any{
+					"message": map[string]any{
+						"content": func() string {
+							if attempt == 1 {
+								return `{"query":"from tasks\nselect count(*) as total, ref","explanation":"broken","assumptions":["first try"]}`
+							}
+							return `{"query":"from tasks\nwhere done = false\norder by due\nselect ref, due","explanation":"Lists open tasks by due date.","assumptions":["Due means the due field."]}`
+						}(),
+					},
+				},
+			},
+		})
+	}))
+	defer upstream.Close()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "daily"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "daily", "today.md"), []byte(`# Today
+
+- [ ] Follow up due:: 2026-05-01
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	aiService, err := ai.NewService(dataDir)
+	if err != nil {
+		t.Fatalf("ai.NewService() error = %v", err)
+	}
+	if _, err := aiService.Update(ai.UpdateSettingsRequest{
+		Settings: ai.Settings{
+			Enabled:  true,
+			Provider: "openai-compatible",
+			BaseURL:  upstream.URL,
+			Model:    "test-model",
+		},
+		APIKey: "secret-token",
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		AI: aiService,
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/query/copilot", strings.NewReader(`{
+	  "intent": "show open tasks due this week",
+	  "previewLimit": 5
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST /api/query/copilot status = %d want %d body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	var payload ai.QueryCopilotResponse
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("Decode(payload) error = %v", err)
+	}
+	if !payload.Valid {
+		t.Fatalf("payload should be valid after repair: %#v", payload)
+	}
+	if !payload.Repaired || payload.Attempts != 2 {
+		t.Fatalf("repair metadata = attempts:%d repaired:%t", payload.Attempts, payload.Repaired)
+	}
+	if payload.Analyze.Dataset != "tasks" {
+		t.Fatalf("analyze dataset = %q", payload.Analyze.Dataset)
+	}
+	if payload.Workbench.Preview == nil || !payload.Workbench.Preview.Valid {
+		t.Fatalf("preview = %#v", payload.Workbench.Preview)
+	}
+	if payload.Workbench.Preview.Count != 1 {
+		t.Fatalf("preview count = %d", payload.Workbench.Preview.Count)
 	}
 }
 
@@ -1834,6 +2020,7 @@ func TestProtectedAPIsRequireAuthWhenEnabled(t *testing.T) {
 	for _, path := range []string{
 		"/api/pages",
 		"/api/settings",
+		"/api/ai/settings",
 		"/api/user/settings",
 		"/api/themes",
 		"/api/events",
@@ -1844,6 +2031,14 @@ func TestProtectedAPIsRequireAuthWhenEnabled(t *testing.T) {
 		if response.Code != http.StatusUnauthorized {
 			t.Fatalf("%s status = %d want %d body=%s", path, response.Code, http.StatusUnauthorized, response.Body.String())
 		}
+	}
+
+	copilotRequest := httptest.NewRequest(http.MethodPost, "/api/query/copilot", strings.NewReader(`{"intent":"show open tasks"}`))
+	copilotRequest.Header.Set("Content-Type", "application/json")
+	copilotResponse := httptest.NewRecorder()
+	router.ServeHTTP(copilotResponse, copilotRequest)
+	if copilotResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("/api/query/copilot status = %d want %d body=%s", copilotResponse.Code, http.StatusUnauthorized, copilotResponse.Body.String())
 	}
 
 	publicRequest := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
@@ -11783,6 +11978,13 @@ func buildTestRouterWithDeps(t *testing.T, vaultDir, dataDir string, deps Depend
 			t.Fatalf("themes.NewService() error = %v", err)
 		}
 		deps.Themes = themeService
+	}
+	if deps.AI == nil {
+		aiService, err := ai.NewService(dataDir)
+		if err != nil {
+			t.Fatalf("ai.NewService() error = %v", err)
+		}
+		deps.AI = aiService
 	}
 
 	return NewRouter(deps)

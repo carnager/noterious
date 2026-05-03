@@ -1,9 +1,9 @@
 import { fetchJSON } from "./http";
 import { rawOffsetForLineNumber, rawOffsetForTaskLine } from "./markdown";
-import type { DerivedPage, PageRecord, SavedQueryRecord, TaskRecord } from "./types";
+import type { DerivedPage, PageRecord, QueryWorkbenchResult, SavedQueryRecord, TaskRecord } from "./types";
 
 interface SavedQueryWorkbenchResponse extends SavedQueryRecord {
-  workbench: unknown;
+  workbench: QueryWorkbenchResult;
 }
 
 export interface LoadedPageDetail {
@@ -14,7 +14,7 @@ export interface LoadedPageDetail {
 
 export interface SavedQueryDetailData {
   savedQuery: SavedQueryRecord;
-  workbench: unknown;
+  workbench: QueryWorkbenchResult;
 }
 
 export interface TaskSavePayload {

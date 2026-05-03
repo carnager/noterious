@@ -66,6 +66,23 @@ describe("page tree display state", function () {
     expect(displayPathWithinScope("Work/notes/index", "Work")).toBe("notes/index");
   });
 
+  it("filters out pages from other top-level scopes", function () {
+    const state: PageTreeUiState = {
+      selectedPage: "Work/contacts/rasmus",
+      pages: [
+        page("Work/contacts/rasmus"),
+        page("Personal/home"),
+      ],
+      expandedPageFolders: {},
+      scopePrefix: "Work",
+    };
+
+    const displayState = pageTreeDisplayStateForScope(state);
+    expect(displayState.pages.map(function (entry) {
+      return entry.path;
+    })).toEqual(["Work/contacts/rasmus"]);
+  });
+
   it("handles repeated top-level names without collapsing them into the scope root", function () {
     expect(displayPathWithinScope("Contacts/Contacts/alpha", "Contacts")).toBe("Contacts/alpha");
   });

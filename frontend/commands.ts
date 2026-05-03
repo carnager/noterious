@@ -28,6 +28,7 @@ export interface RenderCommandPaletteOptions {
   onOpenHelp(): void;
   onOpenSettings(): void;
   onOpenDocuments(): void;
+  onOpenQueries(): void;
   onOpenQuickSwitcher(): void;
   onQuickNote(): void;
   onOpenSearch(): void;
@@ -80,6 +81,12 @@ function buildCommandEntries(options: RenderCommandPaletteOptions): CommandEntry
       meta: "Documents",
       keywords: "documents files attachments uploads",
       run: options.onOpenDocuments,
+    },
+    {
+      title: "Open Queries",
+      meta: "Queries",
+      keywords: "queries saved queries query workbench ai copilot",
+      run: options.onOpenQueries,
     },
     {
       title: "Open Help",

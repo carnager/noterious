@@ -145,6 +145,9 @@ function commandSupportsSlashArgs(command: SlashCommand, args: string): boolean 
   if (command.id === "table") {
     return parseTableDimensions(args) !== null;
   }
+  if (command.id === "query") {
+    return Boolean(String(args || "").trim());
+  }
   return false;
 }
 
@@ -250,6 +253,19 @@ function slashCommandCatalog(): SlashCommand[] {
         const trigger = parseSlashTrigger(lineText);
         const dimensions = parseTableDimensions(trigger ? trigger.args : "");
         return buildMarkdownTable(dimensions ? dimensions.columns : 2, dimensions ? dimensions.rows : 1);
+      },
+      caret: function (updatedLine: string) {
+        return updatedLine.length;
+      },
+    },
+    {
+      id: "query",
+      title: "Generate query",
+      description: "Ask the AI copilot to draft a markdown query block from plain language.",
+      keywords: "ai query search filter report workbench copilot",
+      hint: "/query <intent>",
+      apply: function (lineText: string) {
+        return replaceSlashToken(lineText, "query", "").replace(/\s+$/, "");
       },
       caret: function (updatedLine: string) {
         return updatedLine.length;
@@ -504,6 +520,7 @@ export function closeSlashMenu(state: SlashMenuState, elements: SlashMenuElement
   state.slashSelectionIndex = -1;
   state.slashContext = null;
   elements.slashMenu.classList.add("hidden");
+  elements.slashMenu.style.visibility = "";
   clearNode(elements.slashMenuResults);
 }
 
@@ -562,9 +579,31 @@ function openSlashMenu(
     elements.slashMenuResults.appendChild(button);
   });
 
-  elements.slashMenu.style.left = (context.left || 0) + "px";
-  elements.slashMenu.style.top = (context.top || 0) + "px";
+  const preferredLeft = Math.max(12, Number(context.left) || 0);
+  const preferredTop = Math.max(12, Number(context.top) || 0);
+  elements.slashMenu.style.visibility = "hidden";
   elements.slashMenu.classList.remove("hidden");
+  const menuWidth = elements.slashMenu.offsetWidth || 320;
+  const menuHeight = elements.slashMenu.offsetHeight || 240;
+  const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+  const viewportHeight = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+  const horizontalPadding = 12;
+  const verticalPadding = 12;
+  const clampedLeft = Math.max(
+    horizontalPadding,
+    Math.min(preferredLeft, viewportWidth - menuWidth - horizontalPadding)
+  );
+  let positionedTop = preferredTop;
+  if (preferredTop + menuHeight > viewportHeight - verticalPadding) {
+    positionedTop = Math.max(verticalPadding, preferredTop - menuHeight - 12);
+  }
+  positionedTop = Math.max(
+    verticalPadding,
+    Math.min(positionedTop, viewportHeight - menuHeight - verticalPadding)
+  );
+  elements.slashMenu.style.left = clampedLeft + "px";
+  elements.slashMenu.style.top = positionedTop + "px";
+  elements.slashMenu.style.visibility = "";
 }
 
 export function moveSlashSelection(state: SlashMenuState, elements: SlashMenuElements, delta: number): void {
@@ -628,4 +667,9 @@ export function openSlashMenuWithCommands(
     type: context.type,
     lineIndex: context.lineIndex,
   }, onApplySelection);
+}
+
+export function queryIntentForText(text: string): string {
+  const match = String(text || "").trim().match(/^\/query\s+(.+)$/i);
+  return match ? String(match[1] || "").trim() : "";
 }

@@ -134,6 +134,7 @@ import {
 } from "./palette";
 import {
   ensureExpandedPageAncestors,
+  filterPagesByScope,
   filterPagesByTag,
   type PageTreeMenuTarget,
   renderPageContext as renderPageContextUI,
@@ -142,11 +143,15 @@ import {
   type TaskPanelFilters,
 } from "./pageViews";
 import {
+  resolveVisibleVaultSelection,
+  scopePrefixForVaultSelection,
+} from "./vaultScopes";
+import {
   closeTreeContextMenu as closeTreeContextMenuUI,
   openTreeContextMenu as openTreeContextMenuUI,
   renderPagesSection,
 } from "./pageTreeUi";
-import { prepareSettingsSave } from "./settingsPersistence";
+import { prepareSettingsSaveWithExtra } from "./settingsPersistence";
 import {
   applyPropertyDraftKind,
   coercePropertyValue,
@@ -184,7 +189,7 @@ import {
   renderSettingsForm as renderSettingsFormUI,
   renderSettingsHotkeyHints as renderSettingsHotkeyHintsUI,
 } from "./settingsUi";
-import { closeSlashMenu, documentCommandsForText, maybeOpenSlashMenu, moveSlashSelection, openSlashMenuWithCommands, wikilinkCommandsForContext } from "./slashMenu";
+import { closeSlashMenu, documentCommandsForText, maybeOpenSlashMenu, moveSlashSelection, openSlashMenuWithCommands, queryIntentForText, wikilinkCommandsForContext } from "./slashMenu";
 import { buildRemoteSyncPlan, hasUnsafeRemoteSyncUIState as hasUnsafeRemoteSyncUIStateHelper } from "./remoteSync";
 import { createPageConflictDraft, type PageConflictDraft, type PageConflictMode } from "./pageConflict";
 import {
@@ -200,7 +205,10 @@ import {
   normalizeThemeListResponse,
 } from "./themes";
 import type {
+  AISettings,
+  AISettingsResponse,
   AppSettings as SettingsModel,
+  AppScreen,
   AuthSessionResponse,
   AuthenticatedUser,
   BacklinkRecord,
@@ -221,6 +229,8 @@ import type {
   PageSummary,
   PropertyDraft,
   QueryBlockRecord,
+  QueryCopilotResponse,
+  QueryWorkbenchResult,
   QueryRow,
   Preferences as ClientPreferences,
   SavedQueryRecord,
@@ -302,18 +312,12 @@ interface CodeCopyDetail {
 
 interface QueryFormatResponse {
   valid: boolean;
+  error?: string;
   formatted?: string;
 }
 
-interface QueryWorkbenchPayload {
-  analyze?: unknown;
-  plan?: unknown;
-  lint?: unknown;
-  preview?: unknown;
-  count?: unknown;
-}
-
 interface AppState {
+  appScreen: AppScreen;
   selectedPage: string;
   selectedSavedQuery: string;
   pages: PageSummary[];
@@ -345,7 +349,6 @@ interface AppState {
   editingBlockKey: string;
   pendingBlockFocusKey: string;
   pendingEditSeed: string;
-  debugOpen: boolean;
   railOpen: boolean;
   railTab: string;
   sourceOpen: boolean;
@@ -353,8 +356,13 @@ interface AppState {
   appliedVault: VaultSettings;
   settingsRestartRequired: boolean;
   settingsLoaded: boolean;
+  aiSettingsLoaded: boolean;
   userSettingsLoaded: boolean;
   serverMeta: MetaResponse | null;
+  aiSettings: AISettings;
+  aiAPIKeyConfigured: boolean;
+  aiClearKeyPending: boolean;
+  activeScopePrefix: string;
   homePage: string;
   topLevelFoldersAsVaults: boolean;
   themeLibraryLoaded: boolean;
@@ -400,6 +408,10 @@ interface AppState {
   pageConflict: PageConflictDraft | null;
   pageConflictRemoteLoaded: LoadedPageDetail | null;
   pageConflictStatus: string;
+  queryWorkbench: QueryWorkbenchResult | null;
+  queryWorkbenchStatus: string;
+  queryCopilotResponse: QueryCopilotResponse | null;
+  queryCopilotPending: boolean;
 }
 
 interface TemplateFillSession {
@@ -437,6 +449,7 @@ interface TreeContextMenuState {
   }
 
   const state: AppState = {
+    appScreen: "notes",
     selectedPage: "",
     selectedSavedQuery: "",
     pages: [],
@@ -468,7 +481,6 @@ interface TreeContextMenuState {
     editingBlockKey: "",
     pendingBlockFocusKey: "",
     pendingEditSeed: "",
-    debugOpen: false,
     railOpen: false,
     railTab: "files",
     sourceOpen: false,
@@ -490,8 +502,18 @@ interface TreeContextMenuState {
     },
     settingsRestartRequired: false,
     settingsLoaded: false,
+    aiSettingsLoaded: false,
     userSettingsLoaded: false,
     serverMeta: null,
+    aiSettings: {
+      enabled: false,
+      provider: "openai-compatible",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-5-mini",
+    },
+    aiAPIKeyConfigured: false,
+    aiClearKeyPending: false,
+    activeScopePrefix: "",
     homePage: "",
     topLevelFoldersAsVaults: false,
     themeLibraryLoaded: false,
@@ -542,6 +564,10 @@ interface TreeContextMenuState {
     pageConflict: null,
     pageConflictRemoteLoaded: null,
     pageConflictStatus: "",
+    queryWorkbench: null,
+    queryWorkbenchStatus: "Run an ad hoc query here, or ask the AI copilot to draft one.",
+    queryCopilotResponse: null,
+    queryCopilotPending: false,
   };
 
   const els = {
@@ -581,6 +607,9 @@ interface TreeContextMenuState {
     propertyActions: optionalQuery<HTMLDivElement>(".property-actions"),
     querySearch: requiredElement<HTMLInputElement>("query-search"),
     queryTree: requiredElement<HTMLDivElement>("query-tree"),
+    queryScreenEyebrow: requiredElement<HTMLElement>("query-screen-eyebrow"),
+    queryScreenTitle: requiredElement<HTMLElement>("query-screen-title"),
+    queryScreenMeta: requiredElement<HTMLElement>("query-screen-meta"),
     detailKind: requiredElement<HTMLElement>("detail-kind"),
     detailTitle: requiredElement<HTMLElement>("detail-title"),
     detailPath: requiredElement<HTMLElement>("detail-path"),
@@ -596,8 +625,14 @@ interface TreeContextMenuState {
     structuredView: requiredElement<HTMLElement>("structured-view"),
     derivedView: requiredElement<HTMLElement>("derived-view"),
     rawView: requiredElement<HTMLElement>("raw-view"),
+    queryIntent: requiredElement<HTMLTextAreaElement>("query-intent"),
     queryEditor: requiredElement<HTMLTextAreaElement>("query-editor"),
+    queryDiagnostics: requiredElement<HTMLDivElement>("query-diagnostics"),
+    queryPreview: requiredElement<HTMLDivElement>("query-preview"),
     queryOutput: requiredElement<HTMLElement>("query-output"),
+    queryCopilotStatus: requiredElement<HTMLElement>("query-copilot-status"),
+    queryCopilotExplanation: requiredElement<HTMLElement>("query-copilot-explanation"),
+    queryCopilotAssumptions: requiredElement<HTMLUListElement>("query-copilot-assumptions"),
     eventStatus: requiredElement<HTMLElement>("event-status"),
     eventLog: requiredElement<HTMLDivElement>("event-log"),
     appLayout: optionalQuery<HTMLElement>(".app-layout"),
@@ -608,6 +643,8 @@ interface TreeContextMenuState {
     railPanelFiles: requiredElement<HTMLElement>("rail-panel-files"),
     railPanelContext: requiredElement<HTMLElement>("rail-panel-context"),
     railPanelTasks: requiredElement<HTMLElement>("rail-panel-tasks"),
+    notesScreen: requiredElement<HTMLElement>("notes-screen"),
+    queriesScreen: requiredElement<HTMLElement>("queries-screen"),
     noteLayout: requiredElement<HTMLElement>("note-layout"),
     noteSurface: requiredElement<HTMLElement>("note-surface"),
     fileUploadInput: requiredElement<HTMLInputElement>("file-upload-input"),
@@ -616,6 +653,7 @@ interface TreeContextMenuState {
     historyBack: requiredElement<HTMLButtonElement>("history-back"),
     historyForward: requiredElement<HTMLButtonElement>("history-forward"),
     openHomePage: requiredElement<HTMLButtonElement>("open-home-page"),
+    openQueries: requiredElement<HTMLButtonElement>("open-queries"),
     openQuickSwitcher: requiredElement<HTMLButtonElement>("open-quick-switcher"),
     openDocuments: requiredElement<HTMLButtonElement>("open-documents"),
     openSearch: requiredElement<HTMLButtonElement>("open-search"),
@@ -634,11 +672,9 @@ interface TreeContextMenuState {
     vaultSwitcherList: requiredElement<HTMLDivElement>("vault-switcher-list"),
     reloadPages: optionalElement<HTMLButtonElement>("reload-pages"),
     reloadQueries: optionalElement<HTMLButtonElement>("reload-queries"),
-    toggleDebug: optionalElement<HTMLButtonElement>("toggle-debug"),
-    debugDrawer: requiredElement<HTMLElement>("debug-drawer"),
-    loadSelectedQuery: requiredElement<HTMLButtonElement>("load-selected-query"),
     formatQuery: requiredElement<HTMLButtonElement>("format-query"),
     runQuery: requiredElement<HTMLButtonElement>("run-query"),
+    generateQuery: requiredElement<HTMLButtonElement>("generate-query"),
     inlineTaskPicker: requiredElement<HTMLDivElement>("inline-task-picker"),
     searchModalShell: requiredElement<HTMLElement>("search-modal-shell"),
     closeSearchModal: requiredElement<HTMLButtonElement>("close-search-modal"),
@@ -699,11 +735,13 @@ interface TreeContextMenuState {
     settingsNavAppearance: requiredElement<HTMLButtonElement>("settings-nav-appearance"),
     settingsNavTemplates: requiredElement<HTMLButtonElement>("settings-nav-templates"),
     settingsNavNotifications: requiredElement<HTMLButtonElement>("settings-nav-notifications"),
+    settingsNavAI: requiredElement<HTMLButtonElement>("settings-nav-ai"),
     settingsNavVault: requiredElement<HTMLButtonElement>("settings-nav-vault"),
     settingsGroupServer: requiredElement<HTMLElement>("settings-group-server"),
     settingsGroupSession: requiredElement<HTMLElement>("settings-group-session"),
     settingsGroupTemplates: requiredElement<HTMLElement>("settings-group-templates"),
     settingsGroupUserNotifications: requiredElement<HTMLElement>("settings-group-user-notifications"),
+    settingsGroupAI: requiredElement<HTMLElement>("settings-group-ai"),
     cancelSettings: requiredElement<HTMLButtonElement>("cancel-settings"),
     saveSettings: requiredElement<HTMLButtonElement>("save-settings"),
     settingsVaultPath: requiredElement<HTMLInputElement>("settings-vault-path"),
@@ -721,6 +759,13 @@ interface TreeContextMenuState {
     settingsRuntimeHealth: requiredElement<HTMLElement>("settings-runtime-health"),
     settingsUserNtfyTopicUrl: requiredElement<HTMLInputElement>("settings-user-ntfy-topic-url"),
     settingsUserNtfyToken: requiredElement<HTMLInputElement>("settings-user-ntfy-token"),
+    settingsAIEnabled: requiredElement<HTMLInputElement>("settings-ai-enabled"),
+    settingsAIBaseURL: requiredElement<HTMLInputElement>("settings-ai-base-url"),
+    settingsAIModel: requiredElement<HTMLInputElement>("settings-ai-model"),
+    settingsAIAPIKey: requiredElement<HTMLInputElement>("settings-ai-api-key"),
+    settingsAIClearKey: requiredElement<HTMLButtonElement>("settings-ai-clear-key"),
+    settingsAIKeyStatus: requiredElement<HTMLElement>("settings-ai-key-status"),
+    settingsAIHelp: requiredElement<HTMLElement>("settings-ai-help"),
     settingsUserTopLevelVaults: requiredElement<HTMLInputElement>("settings-user-top-level-vaults"),
     settingsTheme: requiredElement<HTMLSelectElement>("settings-ui-theme"),
     settingsThemeUpload: requiredElement<HTMLButtonElement>("settings-theme-upload"),
@@ -1225,6 +1270,41 @@ interface TreeContextMenuState {
       : "No home page configured";
   }
 
+  function renderAppScreen(): void {
+    const queriesVisible = state.appScreen === "queries";
+    els.notesScreen.classList.toggle("hidden", queriesVisible);
+    els.queriesScreen.classList.toggle("hidden", !queriesVisible);
+    els.openQueries.classList.toggle("active", queriesVisible);
+    if (els.appLayout) {
+      els.appLayout.classList.toggle("queries-mode", queriesVisible);
+      els.appLayout.classList.toggle("rail-collapsed", queriesVisible || !state.railOpen);
+    }
+    els.toggleRail.disabled = queriesVisible;
+    if (queriesVisible) {
+      const selected = state.selectedSavedQueryPayload;
+      els.detailPath.textContent = selected
+        ? (selected.name || selected.title || "Queries")
+        : "Queries";
+      return;
+    }
+    if (state.selectedPage) {
+      els.detailPath.textContent = state.selectedPage;
+      return;
+    }
+    els.detailPath.textContent = "Select a page";
+  }
+
+  function setAppScreen(screen: AppScreen, replaceURL: boolean): void {
+    state.appScreen = screen;
+    renderAppScreen();
+    syncURLState(replaceURL);
+  }
+
+  function openQueriesScreen(replaceURL: boolean): void {
+    setAppScreen("queries", replaceURL);
+    renderQueryScreen();
+  }
+
   function setSessionMenuOpen(open: boolean): void {
     setSessionMenuOpenUI(state, els, open);
   }
@@ -1386,6 +1466,9 @@ interface TreeContextMenuState {
         setNoteStatus("Theme library failed: " + errorMessage(error));
       }),
       loadSettings(),
+      loadAISettings().catch(function (error) {
+        setNoteStatus("AI settings failed: " + errorMessage(error));
+      }),
       loadUserSettings().catch(function (error) {
         setNoteStatus("User settings failed: " + errorMessage(error));
       }),
@@ -1399,7 +1482,12 @@ interface TreeContextMenuState {
     connectEvents();
   }
 
-  function setVisibleVaultState(availableVaults: VaultRecord[], currentVault: VaultRecord | null): void {
+  function setCurrentScopePrefix(prefix: string): void {
+    state.activeScopePrefix = normalizePageDraftPath(prefix || "");
+    setActiveScopePrefix(state.topLevelFoldersAsVaults ? state.activeScopePrefix : "");
+  }
+
+  function setVisibleVaultState(availableVaults: VaultRecord[], currentVault: VaultRecord | null, scopePrefix: string): void {
     state.availableVaults = Array.isArray(availableVaults) ? availableVaults.slice() : [];
     if (currentVault) {
       state.currentVault = currentVault;
@@ -1408,7 +1496,7 @@ interface TreeContextMenuState {
     })) {
       state.currentVault = state.availableVaults[0] || null;
     }
-    setActiveScopePrefix(currentScopePrefix());
+    setCurrentScopePrefix(scopePrefix);
     syncHomePageForCurrentScope();
     state.vaultSwitchPending = false;
     state.vaultSwitcherOpen = false;
@@ -1444,26 +1532,24 @@ interface TreeContextMenuState {
 
   async function loadAvailableVaults(): Promise<void> {
     const rootVault = state.rootVault;
-    const snapshot = await fetchJSON<VaultListResponse>("/api/user/vaults");
-    const discoveredVaults = Array.isArray(snapshot.vaults) ? snapshot.vaults.slice() : [];
     const storedScopePrefix = loadStoredScopePrefix();
     if (!state.topLevelFoldersAsVaults) {
       storeScopePrefix("");
-      setVisibleVaultState(rootVault ? [rootVault] : [], rootVault);
+      setVisibleVaultState(rootVault ? [rootVault] : [], rootVault, "");
       return;
     }
+    setCurrentScopePrefix(storedScopePrefix);
 
-    const desiredVault = discoveredVaults.find(function (vault: VaultRecord) {
-      const relativePath = rootVault
-        ? normalizePageDraftPath(normalizeVaultPath(vault.vaultPath).slice(normalizeVaultPath(rootVault.vaultPath).length + 1))
-        : "";
-      return relativePath === storedScopePrefix;
-    }) || discoveredVaults[0] || rootVault;
-    const visibleVaults = discoveredVaults.length > 0
-      ? discoveredVaults
-      : (rootVault ? [rootVault] : []);
-    storeScopePrefix(rootVault && desiredVault ? scopePrefixForVaultSelection(rootVault, desiredVault) : "");
-    setVisibleVaultState(visibleVaults, desiredVault);
+    const snapshot = await fetchJSON<VaultListResponse>("/api/user/vaults");
+    const discoveredVaults = Array.isArray(snapshot.vaults) ? snapshot.vaults.slice() : [];
+    const selection = resolveVisibleVaultSelection({
+      rootVault: rootVault,
+      discoveredVaults: discoveredVaults,
+      storedScopePrefix: storedScopePrefix,
+      topLevelFoldersAsVaults: state.topLevelFoldersAsVaults,
+    });
+    storeScopePrefix(selection.scopePrefix);
+    setVisibleVaultState(selection.availableVaults, selection.currentVault, selection.scopePrefix);
   }
 
   async function switchVault(vaultID: number): Promise<void> {
@@ -1482,8 +1568,9 @@ interface TreeContextMenuState {
       if (!nextVault) {
         throw new Error("Selected vault is unavailable.");
       }
-      storeScopePrefix(state.rootVault ? scopePrefixForVaultSelection(state.rootVault, nextVault) : "");
-      setActiveScopePrefix(state.rootVault ? scopePrefixForVaultSelection(state.rootVault, nextVault) : "");
+      const nextScopePrefix = scopePrefixForVaultSelection(state.rootVault, nextVault);
+      storeScopePrefix(nextScopePrefix);
+      setCurrentScopePrefix(nextScopePrefix);
       setVaultSwitcherOpen(false);
       setSessionMenuOpen(false);
       window.location.reload();
@@ -1509,7 +1596,7 @@ interface TreeContextMenuState {
   }
 
   function syncURLState(replace: boolean) {
-    const url = buildSelectionURL(window.location.href, state.selectedPage, state.selectedSavedQuery);
+    const url = buildSelectionURL(window.location.href, state.selectedPage, state.selectedSavedQuery, state.appScreen);
     if (url.href === window.location.href) {
       return;
     }
@@ -1527,17 +1614,26 @@ interface TreeContextMenuState {
       pages: state.pages,
       onNavigateToPage: navigateToPage,
       onSelectSavedQuery: function (name) {
+        state.appScreen = "queries";
         state.selectedSavedQuery = name;
         state.selectedPage = "";
+        renderAppScreen();
         renderPages();
         renderSavedQueryTree();
         loadSavedQueryDetail(name);
       },
+      onOpenQueriesScreen: function () {
+        state.appScreen = "queries";
+        renderAppScreen();
+        renderQueryScreen();
+      },
       onRenderIdle: function () {
         state.selectedPage = "";
         state.selectedSavedQuery = "";
+        state.appScreen = "notes";
         renderPages();
         renderSavedQueryTree();
+        renderAppScreen();
         syncURLState(true);
       },
     });
@@ -1556,8 +1652,10 @@ interface TreeContextMenuState {
       },
       onSelectPage: function (path) {
         clearRemoteChangeToast();
+        state.appScreen = "notes";
         state.selectedPage = path;
         state.selectedSavedQuery = "";
+        renderAppScreen();
       },
       onSyncURL: syncURLState,
       onRenderPages: renderPages,
@@ -1578,35 +1676,11 @@ interface TreeContextMenuState {
     });
   }
 
-  function normalizeVaultPath(path: string): string {
-    return String(path || "").replace(/\\/g, "/").replace(/\/+$/, "").trim();
-  }
-
-  function scopePrefixForVaultSelection(rootVault: VaultRecord, selectedVault: VaultRecord): string {
-    const rootPath = normalizeVaultPath(rootVault.vaultPath || "");
-    const currentPath = normalizeVaultPath(selectedVault.vaultPath || "");
-    if (!rootPath || !currentPath || rootPath === currentPath) {
-      return "";
-    }
-    if (!currentPath.startsWith(rootPath + "/")) {
-      return "";
-    }
-    return normalizePageDraftPath(currentPath.slice(rootPath.length + 1)) || "";
-  }
-
   function currentScopePrefix(): string {
-    if (!state.topLevelFoldersAsVaults || !state.rootVault || !state.currentVault) {
+    if (!state.topLevelFoldersAsVaults) {
       return "";
     }
-    const rootPath = normalizeVaultPath(state.rootVault.vaultPath || "");
-    const currentPath = normalizeVaultPath(state.currentVault.vaultPath || "");
-    if (!rootPath || !currentPath || rootPath === currentPath) {
-      return "";
-    }
-    if (!currentPath.startsWith(rootPath + "/")) {
-      return "";
-    }
-    return normalizePageDraftPath(currentPath.slice(rootPath.length + 1)) || "";
+    return normalizePageDraftPath(state.activeScopePrefix || "");
   }
 
   function applyCurrentScopePrefix(pagePath: string): string {
@@ -1654,8 +1728,10 @@ interface TreeContextMenuState {
       },
       onSelectPage: function (path) {
         clearRemoteChangeToast();
+        state.appScreen = "notes";
         state.selectedPage = path;
         state.selectedSavedQuery = "";
+        renderAppScreen();
       },
       onSyncURL: syncURLState,
       onRenderPages: renderPages,
@@ -1681,8 +1757,10 @@ interface TreeContextMenuState {
       },
       onSelectPage: function (path) {
         clearRemoteChangeToast();
+        state.appScreen = "notes";
         state.selectedPage = path;
         state.selectedSavedQuery = "";
+        renderAppScreen();
       },
       onSyncURL: syncURLState,
       onRenderPages: renderPages,
@@ -1871,6 +1949,130 @@ interface TreeContextMenuState {
     return true;
   }
 
+  function buildQueryFence(query: string): string {
+    const trimmed = String(query || "").trim();
+    return "```query\n" + trimmed + "\n```";
+  }
+
+  function transientSlashQueryPlaceholder(frame: number): string {
+    const suffixes = [".", "..", "...", ".."];
+    return "> Generating query" + suffixes[frame % suffixes.length];
+  }
+
+  function replaceTransientEditorLine(
+    originalValue: string,
+    lineStart: number,
+    lineEnd: number,
+    replacement: string,
+    scrollTop: number
+  ): string {
+    const nextValue = originalValue.slice(0, lineStart) + replacement + originalValue.slice(lineEnd);
+    setMarkdownEditorValue(state, els, nextValue);
+    state.currentMarkdown = nextValue;
+    els.rawView.textContent = nextValue;
+    const caret = Math.max(0, Math.min(lineStart + replacement.length, nextValue.length));
+    focusMarkdownEditor(state, els, {preventScroll: true});
+    setMarkdownEditorSelection(state, els, caret, caret);
+    setMarkdownEditorScrollTop(state, els, scrollTop);
+    return nextValue;
+  }
+
+  async function runSlashQueryCommand(rawContext: ReturnType<typeof currentRawLineContext>): Promise<boolean> {
+    const intent = queryIntentForText(rawContext.lineText);
+    closeSlashMenu(state, els);
+    if (!intent) {
+      setNoteStatus("Add what the query should do after /query.");
+      return false;
+    }
+    if (!state.aiSettingsLoaded) {
+      setNoteStatus("AI settings are still loading.");
+      return false;
+    }
+    if (!state.aiSettings.enabled) {
+      setNoteStatus("Enable the AI query copilot in Settings > AI first.");
+      return false;
+    }
+    if (!state.aiAPIKeyConfigured) {
+      setNoteStatus("Add an AI API key in Settings > AI first.");
+      return false;
+    }
+
+    clearAutosaveTimer();
+    const scrollTop = markdownEditorScrollTop(state, els);
+    const originalValue = rawContext.value;
+    let placeholderValue = replaceTransientEditorLine(
+      originalValue,
+      rawContext.lineStart,
+      rawContext.lineEnd,
+      transientSlashQueryPlaceholder(0),
+      scrollTop
+    );
+    let placeholderFrame = 1;
+    const animation = window.setInterval(function () {
+      if (markdownEditorValue(state, els) !== placeholderValue) {
+        window.clearInterval(animation);
+        return;
+      }
+      placeholderValue = replaceTransientEditorLine(
+        originalValue,
+        rawContext.lineStart,
+        rawContext.lineEnd,
+        transientSlashQueryPlaceholder(placeholderFrame),
+        scrollTop
+      );
+      placeholderFrame += 1;
+    }, 320);
+
+    setNoteStatus('Generating query for "' + intent + '"…');
+    try {
+      const payload = await fetchJSON<QueryCopilotResponse>("/api/query/copilot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          intent: intent,
+          previewLimit: 10,
+        }),
+      });
+      const queryText = String(payload.formattedQuery || payload.query || "").trim();
+      if (!queryText) {
+        window.clearInterval(animation);
+        if (markdownEditorValue(state, els) === placeholderValue) {
+          replaceTransientEditorLine(originalValue, rawContext.lineStart, rawContext.lineEnd, rawContext.lineText, scrollTop);
+          scheduleAutosave();
+        }
+        setNoteStatus(payload.error || "AI returned no query.");
+        return false;
+      }
+      const block = buildQueryFence(queryText);
+      window.clearInterval(animation);
+      if (markdownEditorValue(state, els) !== placeholderValue) {
+        setNoteStatus("Query generated, but the note changed before insertion.");
+        return false;
+      }
+      replaceTransientEditorLine(originalValue, rawContext.lineStart, rawContext.lineEnd, block, scrollTop);
+      scheduleAutosave();
+      state.queryCopilotResponse = payload;
+      state.queryWorkbench = payload.workbench;
+      state.queryWorkbenchStatus = payload.valid
+        ? "Inserted AI-generated query block."
+        : (payload.error || "Inserted an AI query draft that still needs review.");
+      setNoteStatus(
+        payload.valid
+          ? "Inserted AI-generated query block."
+          : "Inserted AI query draft with validation warnings."
+      );
+      return true;
+    } catch (error) {
+      window.clearInterval(animation);
+      if (markdownEditorValue(state, els) === placeholderValue) {
+        replaceTransientEditorLine(originalValue, rawContext.lineStart, rawContext.lineEnd, rawContext.lineText, scrollTop);
+        scheduleAutosave();
+      }
+      setNoteStatus("AI query generation failed: " + errorMessage(error));
+      return false;
+    }
+  }
+
   function applySlashSelection() {
     if (!state.slashOpen || !state.slashContext) {
       closeSlashMenu(state, els);
@@ -1884,6 +2086,10 @@ interface TreeContextMenuState {
     }
 
     const rawContext = currentRawLineContext(state, els);
+    if (command.id === "query") {
+      void runSlashQueryCommand(rawContext);
+      return true;
+    }
     const updated = command.apply(rawContext.lineText);
     const nextValue = rawContext.value.slice(0, rawContext.lineStart) + updated + rawContext.value.slice(rawContext.lineEnd);
     const scrollTop = markdownEditorScrollTop(state, els);
@@ -2167,12 +2373,31 @@ interface TreeContextMenuState {
     renderPageContextUI(els.pageContext, state.currentPage, state.currentDerived);
   }
 
+  async function refreshCurrentDerivedState(pagePath: string): Promise<void> {
+    if (!pagePath || state.selectedPage !== pagePath) {
+      return;
+    }
+    const derived = await fetchJSON<DerivedPage>("/api/pages/" + encodePath(pagePath) + "/derived");
+    if (state.selectedPage !== pagePath) {
+      return;
+    }
+    state.currentDerived = derived;
+    renderPageContext();
+    if (state.currentPage) {
+      const page = currentPageView();
+      if (state.markdownEditorApi && page) {
+        markdownEditorSetQueryBlocks(state, renderedQueryBlocksForEditor(state.currentDerived));
+        markdownEditorSetTasks(state, renderedTasksForEditor(page));
+      }
+    }
+  }
+
   function visiblePagesForRail(): PageSummary[] {
-    return filterPagesByTag(state.pages, state.pageTagFilter);
+    return filterPagesByTag(filterPagesByScope(state.pages, currentScopePrefix()), state.pageTagFilter);
   }
 
   function renderPageTags() {
-    renderPageTagsUI(els.pageTags, state.pages, state.pageTagFilter, function (tag) {
+    renderPageTagsUI(els.pageTags, filterPagesByScope(state.pages, currentScopePrefix()), state.pageTagFilter, function (tag) {
       const nextTag = String(tag || "").trim();
       state.pageTagFilter = state.pageTagFilter.toLowerCase() === nextTag.toLowerCase() ? "" : nextTag;
       renderPages();
@@ -2497,18 +2722,14 @@ interface TreeContextMenuState {
     });
   }
 
-  function clearPageSelection() {
+  function clearLoadedPageState() {
     clearAutosaveTimer();
     state.selectedPage = "";
-    state.selectedSavedQuery = "";
     state.currentPage = null;
     state.currentDerived = null;
     state.currentMarkdown = "";
     state.originalMarkdown = "";
     clearPropertyDraft();
-    syncURLState(true);
-    els.detailPath.textContent = "Select a page";
-    setNoteHeadingValue("Waiting for selection", false);
     renderNoteStudio();
     renderSourceModeButton();
     renderPageHistoryButton();
@@ -2516,6 +2737,14 @@ interface TreeContextMenuState {
     renderPageTags();
     renderPageContext();
     renderPageProperties();
+  }
+
+  function clearPageSelection() {
+    clearLoadedPageState();
+    state.selectedSavedQuery = "";
+    els.detailPath.textContent = "Select a page";
+    setNoteHeadingValue("Waiting for selection", false);
+    syncURLState(true);
   }
 
   function setStructuredViews(kind: string, title: string, structured: unknown, derived: unknown, raw: string): void {
@@ -2651,6 +2880,21 @@ interface TreeContextMenuState {
     };
     state.userSettingsLoaded = true;
     renderSettingsForm();
+  }
+
+  function setAISettingsSnapshot(snapshot: AISettingsResponse): void {
+    state.aiSettings = {
+      enabled: Boolean(snapshot.settings.enabled),
+      provider: snapshot.settings.provider || "openai-compatible",
+      baseUrl: snapshot.settings.baseUrl || "https://api.openai.com/v1",
+      model: snapshot.settings.model || "gpt-5-mini",
+    };
+    state.aiAPIKeyConfigured = Boolean(snapshot.apiKeyConfigured);
+    state.aiSettingsLoaded = true;
+    state.aiClearKeyPending = false;
+    els.settingsAIAPIKey.value = "";
+    renderSettingsForm();
+    renderQueryScreen();
   }
 
   function currentThemeID(): string {
@@ -2795,6 +3039,17 @@ interface TreeContextMenuState {
       setUserSettingsSnapshot(snapshot);
     } catch (error) {
       state.userSettingsLoaded = false;
+      renderSettingsForm();
+      throw error;
+    }
+  }
+
+  async function loadAISettings() {
+    try {
+      const snapshot = await fetchJSON<AISettingsResponse>("/api/ai/settings");
+      setAISettingsSnapshot(snapshot);
+    } catch (error) {
+      state.aiSettingsLoaded = false;
       renderSettingsForm();
       throw error;
     }
@@ -2947,8 +3202,10 @@ interface TreeContextMenuState {
 
   function renderSavedQueryTree() {
     renderSavedQueryTreeUI(els.queryTree, state.queryTree, state.selectedSavedQuery, function (name) {
+      state.appScreen = "queries";
       state.selectedSavedQuery = name;
       state.selectedPage = "";
+      renderAppScreen();
       syncURLState(false);
       renderPages();
       renderSavedQueryTree();
@@ -3068,26 +3325,25 @@ interface TreeContextMenuState {
   }
 
   async function loadSavedQueryDetail(name: string): Promise<void> {
-    clearPageSelection();
+    clearLoadedPageState();
+    state.appScreen = "queries";
+    renderAppScreen();
     try {
       const detail = await loadSavedQueryDetailData(name);
       const savedQuery = detail.savedQuery;
       state.selectedSavedQueryPayload = savedQuery;
-      els.detailPath.textContent = savedQuery.name || name;
-      setNoteHeadingValue(savedQuery.title || savedQuery.name || name, false);
-      setStructuredViews("Saved Query", savedQuery.title || savedQuery.name, savedQuery, detail.workbench, savedQuery.query || "");
-      setNoteStatus("Viewing saved query details. Select a page to edit notes.");
-      renderPageContext();
-      renderPageProperties();
+      els.queryEditor.value = savedQuery.query || "";
+      state.queryCopilotResponse = null;
+      state.queryWorkbench = detail.workbench as QueryWorkbenchResult;
+      state.queryWorkbenchStatus = 'Loaded saved query "' + (savedQuery.title || savedQuery.name || name) + '".';
+      renderQueryScreen();
+      setNoteStatus('Loaded saved query "' + (savedQuery.title || savedQuery.name || name) + '".');
     } catch (error) {
       state.selectedSavedQueryPayload = null;
-      els.detailKind.textContent = "Saved Query";
-      els.detailTitle.textContent = name;
-      els.structuredView.textContent = errorMessage(error);
-      els.derivedView.textContent = "";
-      els.rawView.textContent = "";
-      setNoteStatus("Select a page to edit and preview markdown.");
-      renderPageContext();
+      state.queryWorkbench = null;
+      state.queryWorkbenchStatus = errorMessage(error);
+      renderQueryScreen();
+      setNoteStatus("Saved query failed: " + errorMessage(error));
     }
   }
 
@@ -3133,16 +3389,192 @@ interface TreeContextMenuState {
     }
   }
 
-  async function runQueryWorkbench() {
-    const query = els.queryEditor.value.trim();
-    if (!query) {
-      els.queryOutput.textContent = "Enter a query first.";
+  function renderQueryPreview(): void {
+    clearNode(els.queryPreview);
+    const preview = state.queryWorkbench && state.queryWorkbench.preview ? state.queryWorkbench.preview : null;
+    if (!preview) {
+      renderEmpty(els.queryPreview, "Run a query to preview results.");
+      return;
+    }
+    if (!preview.valid) {
+      renderEmpty(els.queryPreview, preview.error || "Preview failed.");
+      return;
+    }
+    const columns = Array.isArray(preview.columns) ? preview.columns : [];
+    const rows = Array.isArray(preview.rows) ? preview.rows : [];
+    if (!columns.length) {
+      renderEmpty(els.queryPreview, "Preview returned no visible columns.");
+      return;
+    }
+    if (!rows.length) {
+      renderEmpty(els.queryPreview, "Preview returned no rows.");
       return;
     }
 
-    els.queryOutput.textContent = "Running query workbench...";
+    const table = document.createElement("table");
+    table.className = "query-preview-table";
+
+    const head = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    columns.forEach(function (column) {
+      const th = document.createElement("th");
+      th.textContent = column;
+      headRow.appendChild(th);
+    });
+    head.appendChild(headRow);
+    table.appendChild(head);
+
+    const body = document.createElement("tbody");
+    rows.forEach(function (row) {
+      const tr = document.createElement("tr");
+      columns.forEach(function (column) {
+        const td = document.createElement("td");
+        const value = row && typeof row === "object" ? (row as QueryRow)[column] : "";
+        td.textContent = typeof value === "string" ? value : JSON.stringify(value ?? "");
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+    table.appendChild(body);
+    els.queryPreview.appendChild(table);
+  }
+
+  function renderQueryDiagnostics(): void {
+    clearNode(els.queryDiagnostics);
+    const workbench = state.queryWorkbench;
+    if (!workbench) {
+      return;
+    }
+    const diagnostics: Array<{ label: string; ok: boolean; detail: string }> = [];
+    if (workbench.analyze) {
+      diagnostics.push({
+        label: "Analyze",
+        ok: Boolean(workbench.analyze.valid),
+        detail: workbench.analyze.valid
+          ? (workbench.analyze.dataset || "valid")
+          : (workbench.analyze.error || "invalid"),
+      });
+    }
+    if (workbench.lint) {
+      diagnostics.push({
+        label: "Lint",
+        ok: Boolean(workbench.lint.valid),
+        detail: workbench.lint.valid
+          ? ((workbench.lint.count || 0) + " warning" + ((workbench.lint.count || 0) === 1 ? "" : "s"))
+          : (workbench.lint.error || "invalid"),
+      });
+    }
+    if (workbench.preview) {
+      diagnostics.push({
+        label: "Preview",
+        ok: Boolean(workbench.preview.valid),
+        detail: workbench.preview.valid
+          ? ((workbench.preview.count || 0) + " row" + ((workbench.preview.count || 0) === 1 ? "" : "s"))
+          : (workbench.preview.error || "failed"),
+      });
+    }
+    if (workbench.count) {
+      diagnostics.push({
+        label: "Count",
+        ok: Boolean(workbench.count.valid),
+        detail: workbench.count.valid
+          ? String(workbench.count.count || 0)
+          : (workbench.count.error || "failed"),
+      });
+    }
+
+    diagnostics.forEach(function (diagnostic) {
+      const card = document.createElement("div");
+      card.className = "query-diagnostic" + (diagnostic.ok ? " ok" : " warn");
+
+      const strong = document.createElement("strong");
+      strong.textContent = diagnostic.label;
+      card.appendChild(strong);
+
+      const span = document.createElement("span");
+      span.textContent = diagnostic.detail;
+      card.appendChild(span);
+
+      els.queryDiagnostics.appendChild(card);
+    });
+  }
+
+  function renderQueryCopilotResult(): void {
+    const aiReady = state.aiSettingsLoaded && state.aiSettings.enabled && state.aiAPIKeyConfigured;
+    if (state.queryCopilotPending) {
+      els.queryCopilotStatus.textContent = "Generating query…";
+    } else if (!state.aiSettingsLoaded) {
+      els.queryCopilotStatus.textContent = "AI settings are still loading.";
+    } else if (!state.aiSettings.enabled) {
+      els.queryCopilotStatus.textContent = "Enable the AI query copilot in Settings > AI.";
+    } else if (!state.aiAPIKeyConfigured) {
+      els.queryCopilotStatus.textContent = "Add an API key in Settings > AI to use the copilot.";
+    } else if (state.queryCopilotResponse) {
+      els.queryCopilotStatus.textContent = state.queryCopilotResponse.valid
+        ? ("Generated and validated in " + String(state.queryCopilotResponse.attempts) + " attempt" + (state.queryCopilotResponse.attempts === 1 ? "" : "s") + ".")
+        : (state.queryCopilotResponse.error || "Generated a draft that still needs review.");
+    } else {
+      els.queryCopilotStatus.textContent = aiReady
+        ? "Describe the query you want and let the server draft it."
+        : "";
+    }
+
+    const response = state.queryCopilotResponse;
+    if (response && response.explanation) {
+      els.queryCopilotExplanation.textContent = response.explanation;
+      els.queryCopilotExplanation.classList.remove("hidden");
+    } else {
+      els.queryCopilotExplanation.textContent = "";
+      els.queryCopilotExplanation.classList.add("hidden");
+    }
+
+    clearNode(els.queryCopilotAssumptions);
+    if (response && Array.isArray(response.assumptions) && response.assumptions.length) {
+      response.assumptions.forEach(function (assumption) {
+        const item = document.createElement("li");
+        item.textContent = assumption;
+        els.queryCopilotAssumptions.appendChild(item);
+      });
+      els.queryCopilotAssumptions.classList.remove("hidden");
+    } else {
+      els.queryCopilotAssumptions.classList.add("hidden");
+    }
+  }
+
+  function renderQueryScreen(): void {
+    const selected = state.selectedSavedQueryPayload;
+    els.queryScreenEyebrow.textContent = selected ? "Saved Query" : "Queries";
+    els.queryScreenTitle.textContent = selected
+      ? (selected.title || selected.name || "Query Workbench")
+      : "Query Workbench";
+    els.queryScreenMeta.textContent = selected
+      ? [selected.name, selected.folder, selected.tags && selected.tags.length ? ("#" + selected.tags.join(" #")) : ""].filter(Boolean).join(" · ")
+      : "Draft ad hoc queries, preview them, and use AI to generate a starting point.";
+    els.generateQuery.disabled = !state.aiSettingsLoaded || !state.aiSettings.enabled || !state.aiAPIKeyConfigured || state.queryCopilotPending;
+    els.queryIntent.placeholder = state.aiSettings.enabled
+      ? "show open tasks due this week"
+      : "Enable the AI query copilot in Settings > AI";
+    renderQueryCopilotResult();
+    renderQueryDiagnostics();
+    renderQueryPreview();
+    els.queryOutput.textContent = state.queryWorkbench
+      ? pretty(state.queryWorkbench)
+      : state.queryWorkbenchStatus;
+  }
+
+  async function runQueryWorkbench() {
+    const query = els.queryEditor.value.trim();
+    if (!query) {
+      state.queryWorkbench = null;
+      state.queryWorkbenchStatus = "Enter a query first.";
+      renderQueryScreen();
+      return;
+    }
+
+    state.queryWorkbenchStatus = "Running query workbench...";
+    renderQueryScreen();
     try {
-      const payload = await fetchJSON<QueryWorkbenchPayload>("/api/query/workbench", {
+      const payload = await fetchJSON<QueryWorkbenchResult>("/api/query/workbench", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3150,47 +3582,86 @@ interface TreeContextMenuState {
           previewLimit: 10,
         }),
       });
-      els.queryOutput.textContent = pretty(payload);
+      state.queryWorkbench = payload;
+      state.queryWorkbenchStatus = "Query workbench updated.";
+      renderQueryScreen();
     } catch (error) {
-      els.queryOutput.textContent = errorMessage(error);
+      state.queryWorkbench = null;
+      state.queryWorkbenchStatus = errorMessage(error);
+      renderQueryScreen();
     }
   }
 
   async function formatQueryText() {
     const query = els.queryEditor.value.trim();
     if (!query) {
-      els.queryOutput.textContent = "Enter a query first.";
+      state.queryWorkbenchStatus = "Enter a query first.";
+      renderQueryScreen();
       return;
     }
 
-    els.queryOutput.textContent = "Formatting query...";
+    state.queryWorkbenchStatus = "Formatting query...";
+    renderQueryScreen();
     try {
       const payload = await fetchJSON<QueryFormatResponse>("/api/query/format", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: query }),
       });
-      els.queryOutput.textContent = pretty(payload);
       if (payload.valid && payload.formatted) {
         els.queryEditor.value = payload.formatted;
+        state.queryWorkbenchStatus = "Formatted query.";
+      } else {
+        state.queryWorkbenchStatus = payload.error || "Format failed.";
       }
+      renderQueryScreen();
     } catch (error) {
-      els.queryOutput.textContent = errorMessage(error);
+      state.queryWorkbenchStatus = errorMessage(error);
+      renderQueryScreen();
     }
   }
 
-  function loadSelectedQueryIntoEditor() {
-    if (state.selectedSavedQueryPayload && state.selectedSavedQueryPayload.query) {
-      els.queryEditor.value = state.selectedSavedQueryPayload.query;
-      els.queryOutput.textContent = "Loaded selected saved query into the editor.";
+  async function generateQueryWithAI() {
+    const intent = String(els.queryIntent.value || "").trim();
+    if (!intent) {
+      els.queryCopilotStatus.textContent = "Enter what you want the query to do first.";
       return;
     }
-    if (els.rawView.textContent && els.detailKind.textContent === "Saved Query") {
-      els.queryEditor.value = els.rawView.textContent;
-      els.queryOutput.textContent = "Loaded visible saved query text into the editor.";
-      return;
+
+    state.queryCopilotPending = true;
+    renderQueryScreen();
+    try {
+      const payload = await fetchJSON<QueryCopilotResponse>("/api/query/copilot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          intent: intent,
+          currentQuery: String(els.queryEditor.value || ""),
+          previewLimit: 10,
+        }),
+      });
+      state.queryCopilotResponse = payload;
+      if (payload.formattedQuery) {
+        els.queryEditor.value = payload.formattedQuery;
+      } else if (payload.query) {
+        els.queryEditor.value = payload.query;
+      }
+      state.queryWorkbench = payload.workbench;
+      state.queryWorkbenchStatus = payload.valid
+        ? "AI query generated and validated."
+        : (payload.error || "AI generated a draft that still needs review.");
+      setNoteStatus(
+        payload.valid
+          ? "AI query generated."
+          : "AI query draft returned with validation issues."
+      );
+    } catch (error) {
+      state.queryWorkbenchStatus = errorMessage(error);
+      setNoteStatus("AI query generation failed: " + errorMessage(error));
+    } finally {
+      state.queryCopilotPending = false;
+      renderQueryScreen();
     }
-    els.queryOutput.textContent = "Select a saved query first, or type directly into the editor.";
   }
 
   function setSearchOpen(open: boolean): void {
@@ -3813,6 +4284,21 @@ interface TreeContextMenuState {
     };
   }
 
+  function collectAISettingsForm(): AISettingsResponse & { apiKey?: string; clearApiKey?: boolean } {
+    const apiKey = String(els.settingsAIAPIKey.value || "").trim();
+    return {
+      settings: {
+        enabled: Boolean(els.settingsAIEnabled.checked),
+        provider: "openai-compatible",
+        baseUrl: String(els.settingsAIBaseURL.value || "").trim(),
+        model: String(els.settingsAIModel.value || "").trim(),
+      },
+      apiKeyConfigured: state.aiAPIKeyConfigured,
+      apiKey: apiKey || undefined,
+      clearApiKey: state.aiClearKeyPending && !apiKey,
+    };
+  }
+
   function currentUserSettingsPayload(): UserSettingsResponse {
     return {
       settings: {
@@ -3855,6 +4341,7 @@ interface TreeContextMenuState {
     state.settings.preferences = cloneClientPreferences(preferences);
     state.settingsTemplateDrafts = cloneNoteTemplates(state.settings.preferences.templates);
     state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
+    setCurrentScopePrefix(state.topLevelFoldersAsVaults ? state.activeScopePrefix : "");
     syncHomePageForCurrentScope();
     state.savedThemeId = currentThemeID();
     state.previewThemeId = currentThemeID();
@@ -3878,12 +4365,14 @@ interface TreeContextMenuState {
       return;
     }
     const previousTopLevelFoldersAsVaults = state.topLevelFoldersAsVaults;
-    const nextSettings = prepareSettingsSave(
+    const nextSettings = prepareSettingsSaveWithExtra(
       collectClientPreferencesForm,
       collectUserSettingsForm,
       collectServerSettingsForm,
+      collectAISettingsForm,
       applyClientPreferences,
     );
+    const aiSettings = nextSettings.extra;
     els.settingsStatus.textContent = "Saving settings…";
     try {
       const userSnapshot = await fetchJSON<UserSettingsResponse>("/api/user/settings", {
@@ -3898,6 +4387,12 @@ interface TreeContextMenuState {
         body: JSON.stringify(nextSettings.serverSettings),
       });
       setSettingsSnapshot(settingsSnapshot);
+      const aiSnapshot = await fetchJSON<AISettingsResponse>("/api/ai/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(aiSettings),
+      });
+      setAISettingsSnapshot(aiSnapshot);
       await loadMeta();
       await loadAvailableVaults();
       if (state.selectedPage || state.selectedSavedQuery) {
@@ -3932,8 +4427,10 @@ interface TreeContextMenuState {
         navigateToPageAtTask(pagePath, taskRef, lineNumber, false);
       },
       onOpenSavedQuery: function (name) {
+        state.appScreen = "queries";
         state.selectedSavedQuery = name;
         state.selectedPage = "";
+        renderAppScreen();
         syncURLState(false);
         renderPages();
         renderSavedQueryTree();
@@ -4300,6 +4797,10 @@ interface TreeContextMenuState {
         setDocumentsOpen(true);
         scheduleDocumentsRefresh();
       },
+      onOpenQueries: function () {
+        closeCommandPalette();
+        openQueriesScreen(false);
+      },
       onOpenQuickSwitcher: function () {
         closeCommandPalette();
         setQuickSwitcherOpen(true);
@@ -4386,14 +4887,6 @@ interface TreeContextMenuState {
     }, 0);
   }
 
-  function setDebugOpen(open: boolean): void {
-    state.debugOpen = Boolean(open);
-    els.debugDrawer.classList.toggle("hidden", !state.debugOpen);
-    if (els.toggleDebug) {
-      els.toggleDebug.classList.toggle("active", state.debugOpen);
-    }
-  }
-
   function setRailOpen(open: boolean): void {
     state.railOpen = Boolean(open);
     const mobileLayout = window.matchMedia("(max-width: 1180px)").matches;
@@ -4401,7 +4894,7 @@ interface TreeContextMenuState {
       els.rail.classList.toggle("open", state.railOpen);
     }
     if (els.appLayout) {
-      els.appLayout.classList.toggle("rail-collapsed", !mobileLayout && !state.railOpen);
+      els.appLayout.classList.toggle("rail-collapsed", state.appScreen === "queries" || (!mobileLayout && !state.railOpen));
     }
     if (els.toggleRail) {
       els.toggleRail.classList.toggle("active", state.railOpen);
@@ -4473,6 +4966,8 @@ interface TreeContextMenuState {
       await loadPages();
       if (!markdownEditorHasFocus(state, els) && !inlineTableEditorHasFocus()) {
         await loadPageDetail(state.selectedPage, true, false);
+      } else {
+        await refreshCurrentDerivedState(state.selectedPage);
       }
     } catch (error) {
       if (error instanceof HTTPError && error.status === 409) {
@@ -4688,8 +5183,19 @@ interface TreeContextMenuState {
       state.settingsSection = "notifications";
       renderSettingsForm();
     });
+    on(els.settingsNavAI, "click", function () {
+      state.settingsSection = "ai";
+      renderSettingsForm();
+    });
     on(els.settingsNavVault, "click", function () {
       state.settingsSection = "vault";
+      renderSettingsForm();
+    });
+    on(els.settingsAIClearKey, "click", function () {
+      state.aiClearKeyPending = !state.aiClearKeyPending;
+      if (state.aiClearKeyPending) {
+        els.settingsAIAPIKey.value = "";
+      }
       renderSettingsForm();
     });
     on(els.settingsTemplateAdd, "click", function () {
@@ -4848,6 +5354,14 @@ interface TreeContextMenuState {
       }
       navigateToPage(homePage, false);
     });
+    on(els.openQueries, "click", function () {
+      setSessionMenuOpen(false);
+      if (state.appScreen === "queries") {
+        setAppScreen("notes", false);
+        return;
+      }
+      openQueriesScreen(false);
+    });
     on(els.openDocuments, "click", function () {
       setSessionMenuOpen(false);
       setDocumentsOpen(true);
@@ -4986,12 +5500,13 @@ interface TreeContextMenuState {
       });
       renderPageTasks();
     });
-    on(els.toggleDebug, "click", function () {
-      setDebugOpen(!state.debugOpen);
-    });
-    on(els.loadSelectedQuery, "click", loadSelectedQueryIntoEditor);
     on(els.formatQuery, "click", formatQueryText);
     on(els.runQuery, "click", runQueryWorkbench);
+    on(els.generateQuery, "click", function () {
+      generateQueryWithAI().catch(function (error) {
+        setNoteStatus("AI query generation failed: " + errorMessage(error));
+      });
+    });
     on(els.noteSurface, "dragenter", function (event) {
       event.preventDefault();
       els.noteSurface.classList.add("drop-active");
@@ -5637,7 +6152,6 @@ interface TreeContextMenuState {
         anchorInlineTableEditorToRenderedTableUI(state, els, state.tableEditor.startLine);
       }
     });
-    setDebugOpen(false);
     setRailTab("files");
     setRailOpen(!window.matchMedia("(max-width: 1180px)").matches);
     setPageSearchOpen(false);
@@ -5645,10 +6159,14 @@ interface TreeContextMenuState {
     state.themeCache = loadStoredThemeCache();
     state.settings.preferences = loadStoredClientPreferences();
     state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
+    state.activeScopePrefix = loadStoredScopePrefix();
+    setActiveScopePrefix(state.topLevelFoldersAsVaults ? state.activeScopePrefix : "");
     state.savedThemeId = currentThemeID();
     state.previewThemeId = currentThemeID();
     applyUIPreferences();
     renderNoteStudio();
+    renderQueryScreen();
+    renderAppScreen();
     renderPageTasks();
     renderPageContext();
     renderPageProperties();

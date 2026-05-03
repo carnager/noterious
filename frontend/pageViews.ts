@@ -29,6 +29,18 @@ function normalizeScopePrefix(scopePrefix: string): string {
   return String(scopePrefix || "").trim().replace(/^\/+|\/+$/g, "");
 }
 
+export function pageWithinScope(path: string, scopePrefix: string): boolean {
+  const normalizedPath = String(path || "").trim().replace(/^\/+|\/+$/g, "");
+  const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
+  if (!normalizedPath) {
+    return false;
+  }
+  if (!normalizedScopePrefix) {
+    return true;
+  }
+  return normalizedPath === normalizedScopePrefix || normalizedPath.startsWith(normalizedScopePrefix + "/");
+}
+
 function displayPathWithinScope(path: string, scopePrefix: string): string {
   const normalizedPath = String(path || "").trim().replace(/^\/+|\/+$/g, "");
   const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
@@ -42,6 +54,12 @@ function displayPathWithinScope(path: string, scopePrefix: string): string {
     return normalizedPath.slice(normalizedScopePrefix.length + 1);
   }
   return normalizedPath;
+}
+
+export function filterPagesByScope(pages: PageSummary[], scopePrefix: string): PageSummary[] {
+  return (Array.isArray(pages) ? pages : []).filter(function (page) {
+    return pageWithinScope(String(page.path || ""), scopePrefix);
+  });
 }
 
 function formatReminderLabel(value: string): string {
