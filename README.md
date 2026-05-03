@@ -10,7 +10,7 @@ Noterious is a server-first markdown notebook. Your notes stay as markdown files
 
 - keeps markdown files as the source of truth
 - serves a web UI for browsing, editing, tasks, backlinks, and embedded queries
-- includes a dedicated Queries screen with an optional AI copilot for drafting Noterious queries
+- includes an optional server-managed AI copilot for drafting Noterious queries, including inline `/query ...` generation
 - supports drag-and-drop and `/file` uploads, including inline image embeds for uploaded image assets
 - builds a disposable SQLite index for fast search and query execution
 - supports vault-native note templates under `_templates/`
@@ -294,7 +294,7 @@ That tag is moved to the newest release tag. If you want a fixed release instead
 
 ```nix
 {
-  inputs.noterious.url = "github:carnager/noterious/v0.1.20";
+  inputs.noterious.url = "github:carnager/noterious/v0.1.21";
 }
 ```
 

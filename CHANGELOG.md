@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.21] - 2026-05-03
+
+### Added
+- A server-managed AI query copilot can now draft Noterious queries from natural-language prompts through the new `/query ...` slash command, with grounded validation and one repair pass.
+
+### Changed
+- Query blocks generated inline now refresh their rendered results immediately after save instead of waiting for a page reload.
+- The settings dialog now uses clearer one-dimensional grouping, with separate Appearance and Hotkeys sections and more coherent Vault/Server placement.
+- Built-in hotkey defaults now use `Mod+Shift+D` for the daily note, `Mod+Shift+H` for help, and `Mod+E` for raw mode.
+
+### Fixed
+- Tree, trash, history, task, and theme actions no longer rely on browser `prompt()` / `confirm()` dialogs; they now use in-app dialogs that match the rest of the UI.
+
 ## [v0.1.20] - 2026-05-01
 
 ### Added
