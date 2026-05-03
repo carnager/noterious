@@ -587,6 +587,27 @@
       </div>
     </div>
 
+    <div class="modal-shell hidden" id="action-dialog-shell">
+      <div class="modal-card action-dialog-card">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" id="action-dialog-eyebrow">Confirm</p>
+            <h2 id="action-dialog-title">Confirm Action</h2>
+          </div>
+          <button type="button" id="close-action-dialog" aria-label="Close dialog">×</button>
+        </div>
+        <p class="help-lead" id="action-dialog-message"></p>
+        <form id="action-dialog-form" class="action-dialog-form">
+          <div id="action-dialog-fields" class="action-dialog-fields"></div>
+        </form>
+        <p id="action-dialog-status" class="action-dialog-status" aria-live="polite"></p>
+        <div class="task-modal-footer">
+          <button type="button" id="action-dialog-cancel" class="ghost">Cancel</button>
+          <button type="submit" id="action-dialog-confirm" form="action-dialog-form">Confirm</button>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-shell hidden" id="settings-modal-shell">
       <div class="modal-card settings-modal-card">
         <div class="section-head">
@@ -598,26 +619,44 @@
         </div>
         <div class="settings-layout">
           <aside class="settings-sidebar" aria-label="Settings sections">
-            <button type="button" class="settings-nav-button active" id="settings-nav-appearance">Appearance &amp; Hotkeys</button>
+            <button type="button" class="settings-nav-button active" id="settings-nav-appearance">Appearance</button>
+            <button type="button" class="settings-nav-button" id="settings-nav-hotkeys">Hotkeys</button>
             <button type="button" class="settings-nav-button" id="settings-nav-templates">Templates</button>
             <button type="button" class="settings-nav-button" id="settings-nav-notifications">Notifications</button>
             <button type="button" class="settings-nav-button" id="settings-nav-ai">AI</button>
-            <button type="button" class="settings-nav-button hidden" id="settings-nav-vault">Vault Root &amp; Polling</button>
+            <button type="button" class="settings-nav-button hidden" id="settings-nav-vault">Vault &amp; Server</button>
           </aside>
           <div class="settings-main">
           <section class="settings-group-card settings-group-server hidden" id="settings-group-server">
             <div class="settings-group-head">
-              <h3>Vault Root &amp; Polling</h3>
+              <h3>Vault &amp; Server</h3>
             </div>
-            <div class="modal-fields settings-group-fields">
+            <div class="settings-form-stack settings-group-fields">
+              <p class="settings-section-intro">Control how Noterious treats top-level folders and where the server watches for notes.</p>
+              <div class="settings-subsection">
+                <div class="settings-subsection-head">
+                  <strong>Workspace</strong>
+                  <span>Use top-level folders as scope-like vault views without changing canonical note paths.</span>
+                </div>
+                <label class="settings-toggle-row">
+                  <input id="settings-user-top-level-vaults" type="checkbox">
+                  <span>Use top-level folders as vaults</span>
+                </label>
+              </div>
+              <div class="settings-subsection">
+                <div class="settings-subsection-head">
+                  <strong>Server Paths</strong>
+                  <span>These control where the server reads notes and how often it checks reminders.</span>
+                </div>
               <label class="search modal-field-wide">
                 <span>Vault Root</span>
                 <input id="settings-vault-path" type="text" placeholder="./vault" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
-              <label class="search">
+              <label class="search modal-field-wide">
                 <span>Reminder Poll Interval</span>
                 <input id="settings-ntfy-interval" type="text" placeholder="1m" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
+              </div>
             </div>
             <div class="settings-backup-card">
               <div class="settings-backup-head">
@@ -678,7 +717,8 @@
             <div class="settings-group-head">
               <h3>Notifications</h3>
             </div>
-            <div class="modal-fields settings-group-fields">
+            <div class="settings-form-stack settings-group-fields">
+              <p class="settings-section-intro">These credentials belong to your user account and are used for personal ntfy delivery.</p>
               <label class="search modal-field-wide">
                 <span>ntfy Topic URL</span>
                 <input id="settings-user-ntfy-topic-url" type="text" placeholder="https://ntfy.sh/your-topic" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
@@ -694,12 +734,13 @@
             <div class="settings-group-head">
               <h3>AI Query Copilot</h3>
             </div>
-            <div class="modal-fields settings-group-fields">
-              <label class="settings-toggle-row modal-field-wide">
+            <div class="settings-form-stack settings-group-fields">
+              <p class="settings-section-intro">Configure one server-managed OpenAI-compatible endpoint for query generation. The browser never stores the key.</p>
+              <label class="settings-toggle-row">
                 <input id="settings-ai-enabled" type="checkbox">
                 <span>Enable the AI query copilot</span>
               </label>
-              <label class="search modal-field-wide">
+              <label class="search">
                 <span>Base URL</span>
                 <input id="settings-ai-base-url" type="text" placeholder="https://api.openai.com/v1" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
@@ -721,83 +762,153 @@
 
           <section class="settings-group-card settings-group-session" id="settings-group-session">
             <div class="settings-group-head">
-              <h3>Appearance &amp; Hotkeys</h3>
+              <h3>Appearance</h3>
             </div>
-            <div class="modal-fields settings-group-fields">
-              <label class="settings-toggle-row modal-field-wide">
-                <input id="settings-user-top-level-vaults" type="checkbox">
-                <span>Use top-level folders as vaults</span>
-              </label>
-              <label class="search">
-                <span>Font</span>
-                <select id="settings-ui-font-family">
-                  <option value="mono">Mono</option>
-                  <option value="sans">Sans</option>
-                  <option value="serif">Serif</option>
-                </select>
-              </label>
-              <label class="search modal-field-wide">
-                <span>Theme</span>
-                <select id="settings-ui-theme"></select>
-              </label>
-              <div class="modal-field-wide settings-theme-actions">
-                <button type="button" id="settings-theme-upload">Upload Theme</button>
-                <button type="button" id="settings-theme-delete">Delete Theme</button>
-                <input id="settings-theme-upload-input" type="file" accept=".json,application/json" class="hidden" aria-hidden="true">
+            <div class="settings-form-stack settings-group-fields">
+              <p class="settings-section-intro">Keep the visual settings sparse and predictable. Theme and reading comfort belong here; shortcuts get their own section.</p>
+              <div class="settings-subsection">
+                <div class="settings-subsection-head">
+                  <strong>Theme</strong>
+                  <span>Choose the active color theme or upload a custom JSON token theme.</span>
+                </div>
+                <label class="search">
+                  <span>Theme</span>
+                  <select id="settings-ui-theme"></select>
+                </label>
+                <div class="settings-button-row">
+                  <button type="button" id="settings-theme-upload">Upload Theme</button>
+                  <button type="button" id="settings-theme-delete">Delete Theme</button>
+                  <input id="settings-theme-upload-input" type="file" accept=".json,application/json" class="hidden" aria-hidden="true">
+                </div>
+                <p id="settings-theme-help" class="settings-theme-help"></p>
               </div>
-              <p id="settings-theme-help" class="settings-theme-help modal-field-wide"></p>
-              <label class="search">
-                <span>Font Size</span>
-                <select id="settings-ui-font-size">
-                  <option value="14">14 px</option>
-                  <option value="15">15 px</option>
-                  <option value="16">16 px</option>
-                  <option value="17">17 px</option>
-                  <option value="18">18 px</option>
-                  <option value="19">19 px</option>
-                  <option value="20">20 px</option>
-                </select>
-              </label>
-              <label class="search">
-                <span>Date &amp; Time</span>
-                <select id="settings-ui-date-time-format">
-                  <option value="browser">Browser Default</option>
-                  <option value="iso">ISO</option>
-                  <option value="de">DE</option>
-                </select>
-              </label>
-              <label class="search">
-                <span>Quick Switcher</span>
-                <input id="settings-hotkey-quick-switcher" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-              </label>
-              <label class="search">
-                <span>Full Search</span>
-                <input id="settings-hotkey-global-search" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-              </label>
-              <label class="search">
-                <span>Command Palette</span>
-                <input id="settings-hotkey-command-palette" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-              </label>
-              <label class="search">
-                <span>Open Daily Note</span>
-                <input id="settings-hotkey-quick-note" type="text" placeholder="Not set" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-              </label>
-              <label class="search">
-                <span>Open Help</span>
-                <input id="settings-hotkey-help" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-              </label>
-              <label class="search">
-                <span>Save Current Note</span>
-                <input id="settings-hotkey-save-current-page" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-              </label>
-              <label class="search">
-                <span>Toggle Raw Mode</span>
-                <input id="settings-hotkey-toggle-raw-mode" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-              </label>
-              <label class="search">
-                <span>Toggle Task Done</span>
-                <input id="settings-hotkey-toggle-task-done" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-              </label>
+              <div class="settings-subsection">
+                <div class="settings-subsection-head">
+                  <strong>Reading Comfort</strong>
+                  <span>Typography and date formatting that affect the whole UI.</span>
+                </div>
+                <label class="search">
+                  <span>Font</span>
+                  <select id="settings-ui-font-family">
+                    <option value="mono">Mono</option>
+                    <option value="sans">Sans</option>
+                    <option value="serif">Serif</option>
+                  </select>
+                </label>
+                <div class="settings-pair-grid">
+                  <label class="search">
+                    <span>Font Size</span>
+                    <select id="settings-ui-font-size">
+                      <option value="14">14 px</option>
+                      <option value="15">15 px</option>
+                      <option value="16">16 px</option>
+                      <option value="17">17 px</option>
+                      <option value="18">18 px</option>
+                      <option value="19">19 px</option>
+                      <option value="20">20 px</option>
+                    </select>
+                  </label>
+                  <label class="search">
+                    <span>Date &amp; Time</span>
+                    <select id="settings-ui-date-time-format">
+                      <option value="browser">Browser Default</option>
+                      <option value="iso">ISO</option>
+                      <option value="de">DE</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-group-card hidden" id="settings-group-hotkeys">
+            <div class="settings-group-head">
+              <h3>Hotkeys</h3>
+            </div>
+            <div class="settings-form-stack settings-group-fields">
+              <p class="settings-section-intro">Press a shortcut to record it. If the browser steals the combo, type it manually. Each row shows the built-in default and warns about collisions.</p>
+              <div class="settings-hotkey-list">
+                <div class="settings-hotkey-row">
+                  <div class="settings-hotkey-row-copy">
+                    <strong>Quick Switcher</strong>
+                    <span>Global shortcut</span>
+                  </div>
+                  <label class="search settings-hotkey-row-control">
+                    <span>Binding</span>
+                    <input id="settings-hotkey-quick-switcher" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  </label>
+                </div>
+                <div class="settings-hotkey-row">
+                  <div class="settings-hotkey-row-copy">
+                    <strong>Full Search</strong>
+                    <span>Global shortcut</span>
+                  </div>
+                  <label class="search settings-hotkey-row-control">
+                    <span>Binding</span>
+                    <input id="settings-hotkey-global-search" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  </label>
+                </div>
+                <div class="settings-hotkey-row">
+                  <div class="settings-hotkey-row-copy">
+                    <strong>Command Palette</strong>
+                    <span>Global shortcut</span>
+                  </div>
+                  <label class="search settings-hotkey-row-control">
+                    <span>Binding</span>
+                    <input id="settings-hotkey-command-palette" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  </label>
+                </div>
+                <div class="settings-hotkey-row">
+                  <div class="settings-hotkey-row-copy">
+                    <strong>Open Daily Note</strong>
+                    <span>Optional global shortcut</span>
+                  </div>
+                  <label class="search settings-hotkey-row-control">
+                    <span>Binding</span>
+                    <input id="settings-hotkey-quick-note" type="text" placeholder="Not set" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  </label>
+                </div>
+                <div class="settings-hotkey-row">
+                  <div class="settings-hotkey-row-copy">
+                    <strong>Open Help</strong>
+                    <span>Global shortcut</span>
+                  </div>
+                  <label class="search settings-hotkey-row-control">
+                    <span>Binding</span>
+                    <input id="settings-hotkey-help" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  </label>
+                </div>
+                <div class="settings-hotkey-row">
+                  <div class="settings-hotkey-row-copy">
+                    <strong>Save Current Note</strong>
+                    <span>Global shortcut</span>
+                  </div>
+                  <label class="search settings-hotkey-row-control">
+                    <span>Binding</span>
+                    <input id="settings-hotkey-save-current-page" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  </label>
+                </div>
+                <div class="settings-hotkey-row">
+                  <div class="settings-hotkey-row-copy">
+                    <strong>Toggle Raw Mode</strong>
+                    <span>Global shortcut</span>
+                  </div>
+                  <label class="search settings-hotkey-row-control">
+                    <span>Binding</span>
+                    <input id="settings-hotkey-toggle-raw-mode" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  </label>
+                </div>
+                <div class="settings-hotkey-row">
+                  <div class="settings-hotkey-row-copy">
+                    <strong>Toggle Task Done</strong>
+                    <span>Editor-only shortcut</span>
+                  </div>
+                  <label class="search settings-hotkey-row-control">
+                    <span>Binding</span>
+                    <input id="settings-hotkey-toggle-task-done" type="text" placeholder="Press shortcut" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  </label>
+                </div>
+              </div>
             </div>
           </section>
 

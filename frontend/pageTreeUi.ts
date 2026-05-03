@@ -1,4 +1,4 @@
-import { normalizePageDraftPath, pageTitleFromPath } from "./commands";
+import { normalizePageDraftPath } from "./commands";
 import { clearNode } from "./dom";
 import {
   filterPagesByScope,
@@ -22,10 +22,11 @@ export interface PageTreeElements {
 
 export interface PageTreeActions {
   navigateToPage: (pagePath: string, replace: boolean) => void;
-  createPage: (pagePath: string) => Promise<void>;
-  renameFolder: (folderKey: string, nextLeafName: string) => Promise<void>;
+  requestCreatePage: (folderKey: string) => Promise<void>;
+  requestCreateSubfolder: (folderKey: string) => Promise<void>;
+  requestRenameFolder: (folderKey: string) => Promise<void>;
   deleteFolder: (folderKey: string) => Promise<void>;
-  renamePage: (pagePath: string, nextLeafName: string) => Promise<void>;
+  requestRenamePage: (pagePath: string) => Promise<void>;
   deletePage: (pagePath: string) => Promise<void>;
   movePageToFolder: (pagePath: string, folderKey: string) => Promise<void>;
   moveFolder: (folderKey: string, targetFolder: string) => Promise<void>;
@@ -114,37 +115,17 @@ export function renderPagesSection(state: PageTreeUiState, els: PageTreeElements
       actions.navigateToPage(pagePath, false);
     },
     function (folderKey) {
-      const name = window.prompt('New note in "' + folderKey + '"', "");
-      const normalizedName = normalizePageDraftPath(name || "");
-      if (!normalizedName) {
-        return;
-      }
-      const basePath = folderKey ? folderKey + "/" : "";
-      actions.createPage(basePath + normalizedName).catch(function (error) {
+      actions.requestCreatePage(folderKey).catch(function (error) {
         actions.setNoteStatus("Create page failed: " + actions.errorMessage(error));
       });
     },
     function (folderKey) {
-      const subfolder = normalizePageDraftPath(window.prompt('New subfolder in "' + folderKey + '"', "") || "");
-      if (!subfolder) {
-        return;
-      }
-      const initialNote = normalizePageDraftPath(window.prompt('Initial note inside "' + subfolder + '"', "index") || "");
-      if (!initialNote) {
-        return;
-      }
-      const basePath = folderKey ? folderKey + "/" : "";
-      actions.createPage(basePath + subfolder + "/" + initialNote).catch(function (error) {
+      actions.requestCreateSubfolder(folderKey).catch(function (error) {
         actions.setNoteStatus("Create folder failed: " + actions.errorMessage(error));
       });
     },
     function (folderKey) {
-      const currentName = pageTitleFromPath(folderKey);
-      const nextName = normalizePageDraftPath(window.prompt('Rename folder "' + currentName + '"', currentName) || "");
-      if (!nextName || nextName === currentName) {
-        return;
-      }
-      actions.renameFolder(folderKey, nextName).catch(function (error) {
+      actions.requestRenameFolder(folderKey).catch(function (error) {
         actions.setNoteStatus("Rename folder failed: " + actions.errorMessage(error));
       });
     },
@@ -154,12 +135,7 @@ export function renderPagesSection(state: PageTreeUiState, els: PageTreeElements
       });
     },
     function (pagePath) {
-      const currentName = pageTitleFromPath(pagePath);
-      const nextName = normalizePageDraftPath(window.prompt('Rename note "' + currentName + '"', currentName) || "");
-      if (!nextName || nextName === currentName) {
-        return;
-      }
-      actions.renamePage(pagePath, nextName).catch(function (error) {
+      actions.requestRenamePage(pagePath).catch(function (error) {
         actions.setNoteStatus("Rename note failed: " + actions.errorMessage(error));
       });
     },
@@ -274,12 +250,7 @@ export function openTreeContextMenu(
     });
     appendTreeContextMenuDivider(treeContextMenu);
     appendTreeContextMenuItem(treeContextMenu, "Rename…", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function () {
-      const currentName = pageTitleFromPath(target.path);
-      const nextName = normalizePageDraftPath(window.prompt('Rename note "' + currentName + '"', currentName) || "");
-      if (!nextName || nextName === currentName) {
-        return;
-      }
-      actions.renamePage(target.path, nextName).catch(function (error) {
+      actions.requestRenamePage(target.path).catch(function (error) {
         actions.setNoteStatus("Rename note failed: " + actions.errorMessage(error));
       });
     });
@@ -290,36 +261,18 @@ export function openTreeContextMenu(
     }, true);
   } else {
     appendTreeContextMenuItem(treeContextMenu, "New note", "M8 2.5v11M2.5 8h11", function () {
-      const name = window.prompt('New note in "' + target.name + '"', "");
-      const normalizedName = normalizePageDraftPath(name || "");
-      if (!normalizedName) {
-        return;
-      }
-      actions.createPage(target.path + "/" + normalizedName).catch(function (error) {
+      actions.requestCreatePage(target.path).catch(function (error) {
         actions.setNoteStatus("Create page failed: " + actions.errorMessage(error));
       });
     });
     appendTreeContextMenuItem(treeContextMenu, "New subfolder", "M8 2.5v11M2.5 8h11", function () {
-      const subfolder = normalizePageDraftPath(window.prompt('New subfolder in "' + target.name + '"', "") || "");
-      if (!subfolder) {
-        return;
-      }
-      const initialNote = normalizePageDraftPath(window.prompt('Initial note inside "' + subfolder + '"', "index") || "");
-      if (!initialNote) {
-        return;
-      }
-      actions.createPage(target.path + "/" + subfolder + "/" + initialNote).catch(function (error) {
+      actions.requestCreateSubfolder(target.path).catch(function (error) {
         actions.setNoteStatus("Create folder failed: " + actions.errorMessage(error));
       });
     });
     appendTreeContextMenuDivider(treeContextMenu);
     appendTreeContextMenuItem(treeContextMenu, "Rename…", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function () {
-      const currentName = pageTitleFromPath(target.path);
-      const nextName = normalizePageDraftPath(window.prompt('Rename folder "' + currentName + '"', currentName) || "");
-      if (!nextName || nextName === currentName) {
-        return;
-      }
-      actions.renameFolder(target.path, nextName).catch(function (error) {
+      actions.requestRenameFolder(target.path).catch(function (error) {
         actions.setNoteStatus("Rename folder failed: " + actions.errorMessage(error));
       });
     });

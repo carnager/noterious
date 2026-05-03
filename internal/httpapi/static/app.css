@@ -3349,6 +3349,60 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+.action-dialog-card {
+  width: min(460px, calc(100vw - 2rem));
+  gap: 0.8rem;
+  padding: 0.85rem 0.9rem 0.9rem;
+}
+
+.action-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.action-dialog-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.action-dialog-fields .search {
+  display: flex;
+  flex-direction: column;
+}
+
+.action-dialog-fields input {
+  width: 100%;
+}
+
+.action-dialog-status {
+  min-height: 1.1rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.action-dialog-status:not(:empty) {
+  color: var(--warn);
+}
+
+.action-dialog-card .section-head > button {
+  all: unset;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.12rem 0.22rem;
+  border-radius: 6px;
+}
+
+.action-dialog-card .section-head > button:hover,
+.action-dialog-card .section-head > button:focus-visible {
+  background: rgba(122, 162, 247, 0.08);
+  color: var(--ink);
+}
+
 .conflict-modal-card {
   width: min(1180px, calc(100vw - 2rem));
   max-height: calc(100vh - 4.2rem);
@@ -3558,6 +3612,72 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   gap: 0.7rem;
 }
 
+.settings-group-card .search {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.settings-group-card .search input,
+.settings-group-card .search select,
+.settings-group-card .search textarea {
+  width: 100%;
+}
+
+.settings-form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+}
+
+.settings-section-intro {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  max-width: 64ch;
+}
+
+.settings-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.82rem 0.88rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--overlay-soft) 82%, transparent);
+}
+
+.settings-subsection-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.14rem;
+}
+
+.settings-subsection-head strong {
+  font-size: 0.88rem;
+  line-height: 1.25;
+  color: var(--ink);
+}
+
+.settings-subsection-head span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.settings-button-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.settings-pair-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
 .settings-backup-card,
 .settings-runtime-card {
   display: flex;
@@ -3643,6 +3763,7 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 
 .settings-hotkey-input {
   cursor: pointer;
+  width: 100%;
 }
 
 .settings-hotkey-input[data-recording="true"] {
@@ -3656,10 +3777,50 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 }
 
 .settings-hotkey-meta {
-  margin: 0.38rem 0 0;
+  margin: 0.28rem 0 0;
   color: var(--muted);
   font-size: 0.74rem;
   line-height: 1.45;
+}
+
+.settings-hotkey-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.62rem;
+}
+
+.settings-hotkey-row {
+  display: grid;
+  grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: flex-start;
+  padding: 0.76rem 0.82rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--overlay-soft) 82%, transparent);
+}
+
+.settings-hotkey-row-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.14rem;
+  padding-top: 0.18rem;
+}
+
+.settings-hotkey-row-copy strong {
+  font-size: 0.85rem;
+  line-height: 1.25;
+  color: var(--ink);
+}
+
+.settings-hotkey-row-copy span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.settings-hotkey-row-control {
+  min-width: 0;
 }
 
 .settings-hotkey-meta[data-severity="warn"] {
@@ -3882,6 +4043,11 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   .settings-backup-grid {
     grid-template-columns: 1fr;
   }
+
+  .settings-pair-grid,
+  .settings-hotkey-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .modal-card.history-modal-card {
@@ -4038,6 +4204,10 @@ kbd {
   border: 1px solid var(--line);
   background: var(--overlay-soft);
   font-size: 0.84rem;
+}
+
+.settings-modal-card #settings-status:empty {
+  display: none;
 }
 
 .modal-fields {

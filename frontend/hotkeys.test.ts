@@ -83,7 +83,9 @@ describe("hotkeys", function () {
     expect(defaults.quickSwitcher).toBe("Mod+Shift+L");
     expect(defaults.globalSearch).toBe("Mod+Shift+F");
     expect(defaults.commandPalette).toBe("Mod+Shift+Y");
-    expect(defaults.toggleRawMode).toBe("Mod+Shift+E");
+    expect(defaults.quickNote).toBe("Mod+Shift+D");
+    expect(defaults.help).toBe("Mod+Shift+H");
+    expect(defaults.toggleRawMode).toBe("Mod+E");
   });
 
   it("reports duplicate bindings and likely browser collisions", function () {
@@ -92,9 +94,9 @@ describe("hotkeys", function () {
       globalSearch: "Mod+K",
       commandPalette: "Mod+Shift+Y",
       quickNote: "",
-      help: "?",
+      help: "Mod+Shift+H",
       saveCurrentPage: "Mod+S",
-      toggleRawMode: "Mod+Shift+E",
+      toggleRawMode: "Mod+E",
       toggleTaskDone: "Mod+Enter",
     }, windowsPlatform);
 
@@ -109,16 +111,19 @@ describe("hotkeys", function () {
       quickSwitcher: "Mod+Shift+L",
       globalSearch: "Mod+Alt+F",
       commandPalette: "Mod+Shift+P",
-      quickNote: "",
-      help: "?",
+      quickNote: "Mod+Shift+D",
+      help: "Mod+Shift+H",
       saveCurrentPage: "Mod+S",
-      toggleRawMode: "Mod+Shift+E",
+      toggleRawMode: "Mod+E",
       toggleTaskDone: "Mod+Enter",
     }, windowsPlatform);
 
     expect(hotkeyDefaultGuidance(defaults.quickSwitcher, windowsPlatform)).toBe("Default: Ctrl+Shift+L.");
     expect(hotkeyDefaultGuidance(defaults.globalSearch, windowsPlatform)).toBe("Built-in default: Ctrl+Shift+F.");
     expect(hotkeyDefaultGuidance(defaults.commandPalette, windowsPlatform)).toBe("Safer default: Ctrl+Shift+Y.");
+    expect(hotkeyDefaultGuidance(defaults.quickNote, windowsPlatform)).toBe("Default: Ctrl+Shift+D.");
+    expect(hotkeyDefaultGuidance(defaults.help, windowsPlatform)).toBe("Default: Ctrl+Shift+H.");
+    expect(hotkeyDefaultGuidance(defaults.toggleRawMode, windowsPlatform)).toBe("Default: Ctrl+E.");
   });
 
   it("recognizes which hotkeys would type text in an editor", function () {

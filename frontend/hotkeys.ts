@@ -63,14 +63,14 @@ const hotkeyDefinitionsByID: Record<HotkeyID, HotkeyDefinition> = {
     label: "Open Daily Note",
     scope: "global",
     optional: true,
-    defaultCandidates: [""],
+    defaultCandidates: ["Mod+Shift+D", ""],
   },
   help: {
     id: "help",
     label: "Open Help",
     scope: "global",
     optional: false,
-    defaultCandidates: ["?"],
+    defaultCandidates: ["Mod+Shift+H", "F1"],
   },
   saveCurrentPage: {
     id: "saveCurrentPage",
@@ -84,7 +84,7 @@ const hotkeyDefinitionsByID: Record<HotkeyID, HotkeyDefinition> = {
     label: "Toggle Raw Mode",
     scope: "global",
     optional: false,
-    defaultCandidates: ["Mod+Shift+E", "Mod+E"],
+    defaultCandidates: ["Mod+E", "Mod+Shift+E"],
   },
   toggleTaskDone: {
     id: "toggleTaskDone",

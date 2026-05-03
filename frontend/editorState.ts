@@ -22,6 +22,7 @@ export interface EditorControllerElements {
   documentsModalShell?: HTMLElement;
   conflictModalShell?: HTMLElement;
   helpModalShell?: HTMLElement;
+  actionDialogShell?: HTMLElement;
   settingsModalShell?: HTMLElement;
   pageHistoryModalShell?: HTMLElement;
   trashModalShell?: HTMLElement;
@@ -192,6 +193,7 @@ export function blockingOverlayOpen(elements: EditorControllerElements): boolean
     Boolean(elements.documentsModalShell && !elements.documentsModalShell.classList.contains("hidden")) ||
     Boolean(elements.conflictModalShell && !elements.conflictModalShell.classList.contains("hidden")) ||
     Boolean(elements.helpModalShell && !elements.helpModalShell.classList.contains("hidden")) ||
+    Boolean(elements.actionDialogShell && !elements.actionDialogShell.classList.contains("hidden")) ||
     Boolean(elements.settingsModalShell && !elements.settingsModalShell.classList.contains("hidden")) ||
     Boolean(elements.pageHistoryModalShell && !elements.pageHistoryModalShell.classList.contains("hidden")) ||
     Boolean(elements.trashModalShell && !elements.trashModalShell.classList.contains("hidden"))

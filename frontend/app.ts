@@ -425,6 +425,33 @@ interface TreeContextMenuState {
   top: number;
 }
 
+interface ActionDialogFieldSpec {
+  key: string;
+  label: string;
+  placeholder?: string;
+  value?: string;
+  autocapitalize?: string;
+  spellcheck?: boolean;
+}
+
+interface ActionDialogOptions {
+  eyebrow?: string;
+  title: string;
+  message?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+  fields?: ActionDialogFieldSpec[];
+  validate?: (values: Record<string, string>) => string;
+}
+
+interface ActionDialogSession {
+  options: ActionDialogOptions;
+  values: Record<string, string>;
+  status: string;
+  resolve: (value: boolean | Record<string, string> | null) => void;
+}
+
 (function () {
   let pwaRegistrationPromise: Promise<void> | null = null;
 
@@ -728,17 +755,29 @@ interface TreeContextMenuState {
     closeHelpModal: requiredElement<HTMLButtonElement>("close-help-modal"),
     helpShortcutCore: requiredElement<HTMLDivElement>("help-shortcuts-core"),
     helpShortcutEditor: requiredElement<HTMLDivElement>("help-shortcuts-editor"),
+    actionDialogShell: requiredElement<HTMLElement>("action-dialog-shell"),
+    closeActionDialog: requiredElement<HTMLButtonElement>("close-action-dialog"),
+    actionDialogEyebrow: requiredElement<HTMLElement>("action-dialog-eyebrow"),
+    actionDialogTitle: requiredElement<HTMLElement>("action-dialog-title"),
+    actionDialogMessage: requiredElement<HTMLElement>("action-dialog-message"),
+    actionDialogForm: requiredElement<HTMLFormElement>("action-dialog-form"),
+    actionDialogFields: requiredElement<HTMLDivElement>("action-dialog-fields"),
+    actionDialogStatus: requiredElement<HTMLElement>("action-dialog-status"),
+    actionDialogCancel: requiredElement<HTMLButtonElement>("action-dialog-cancel"),
+    actionDialogConfirm: requiredElement<HTMLButtonElement>("action-dialog-confirm"),
     settingsModalShell: requiredElement<HTMLElement>("settings-modal-shell"),
     closeSettingsModal: requiredElement<HTMLButtonElement>("close-settings-modal"),
     settingsEyebrow: requiredElement<HTMLElement>("settings-eyebrow"),
     settingsTitle: requiredElement<HTMLElement>("settings-title"),
     settingsNavAppearance: requiredElement<HTMLButtonElement>("settings-nav-appearance"),
+    settingsNavHotkeys: requiredElement<HTMLButtonElement>("settings-nav-hotkeys"),
     settingsNavTemplates: requiredElement<HTMLButtonElement>("settings-nav-templates"),
     settingsNavNotifications: requiredElement<HTMLButtonElement>("settings-nav-notifications"),
     settingsNavAI: requiredElement<HTMLButtonElement>("settings-nav-ai"),
     settingsNavVault: requiredElement<HTMLButtonElement>("settings-nav-vault"),
     settingsGroupServer: requiredElement<HTMLElement>("settings-group-server"),
     settingsGroupSession: requiredElement<HTMLElement>("settings-group-session"),
+    settingsGroupHotkeys: requiredElement<HTMLElement>("settings-group-hotkeys"),
     settingsGroupTemplates: requiredElement<HTMLElement>("settings-group-templates"),
     settingsGroupUserNotifications: requiredElement<HTMLElement>("settings-group-user-notifications"),
     settingsGroupAI: requiredElement<HTMLElement>("settings-group-ai"),
@@ -799,6 +838,8 @@ interface TreeContextMenuState {
     top: 0,
   };
 
+  let actionDialogSession: ActionDialogSession | null = null;
+
   function currentPickerTask(): TaskRecord | null {
     return taskPickerState.ref ? findCurrentTask(taskPickerState.ref) : null;
   }
@@ -832,7 +873,13 @@ interface TreeContextMenuState {
     if (!task) {
       return;
     }
-    if (!window.confirm('Delete task "' + (task.text || task.ref) + '"?')) {
+    const confirmed = await confirmAction({
+      title: "Delete Task",
+      message: 'Delete "' + (task.text || task.ref) + '"?',
+      confirmLabel: "Delete Task",
+      danger: true,
+    });
+    if (!confirmed) {
       return;
     }
     noteLocalPageChange(task.page || state.selectedPage || "");
@@ -3000,7 +3047,13 @@ interface TreeContextMenuState {
     if (!selectedTheme || selectedTheme.source !== "custom") {
       return;
     }
-    if (!window.confirm('Delete theme "' + selectedTheme.name + '"?')) {
+    const confirmed = await confirmAction({
+      title: "Delete Theme",
+      message: 'Delete theme "' + selectedTheme.name + '"?',
+      confirmLabel: "Delete Theme",
+      danger: true,
+    });
+    if (!confirmed) {
       return;
     }
     await fetchJSON<{ ok: boolean }>("/api/themes/" + encodeURIComponent(selectedTheme.id), {
@@ -3129,10 +3182,11 @@ interface TreeContextMenuState {
       scopePrefix: currentScopePrefix(),
     }, els, {
       navigateToPage: navigateToPage,
-      createPage: createPage,
-      renameFolder: renameFolder,
+      requestCreatePage: requestCreatePageInFolder,
+      requestCreateSubfolder: requestCreateSubfolderInFolder,
+      requestRenameFolder: requestRenameFolderInTree,
       deleteFolder: deleteFolder,
-      renamePage: renamePage,
+      requestRenamePage: requestRenamePageInTree,
       deletePage: deletePage,
       movePageToFolder: movePageToFolder,
       moveFolder: moveFolder,
@@ -3169,10 +3223,11 @@ interface TreeContextMenuState {
     treeContextMenuState.top = top;
     openTreeContextMenuUI(els.treeContextMenu, target, left, top, {
       navigateToPage: navigateToPage,
-      createPage: createPage,
-      renameFolder: renameFolder,
+      requestCreatePage: requestCreatePageInFolder,
+      requestCreateSubfolder: requestCreateSubfolderInFolder,
+      requestRenameFolder: requestRenameFolderInTree,
       deleteFolder: deleteFolder,
-      renamePage: renamePage,
+      requestRenamePage: requestRenamePageInTree,
       deletePage: deletePage,
       movePageToFolder: movePageToFolder,
       moveFolder: moveFolder,
@@ -3694,6 +3749,124 @@ interface TreeContextMenuState {
     });
   }
 
+  function renderActionDialog(): void {
+    const session = actionDialogSession;
+    if (!session) {
+      els.actionDialogShell.classList.add("hidden");
+      els.actionDialogEyebrow.textContent = "";
+      els.actionDialogTitle.textContent = "";
+      els.actionDialogMessage.textContent = "";
+      els.actionDialogFields.textContent = "";
+      els.actionDialogStatus.textContent = "";
+      els.actionDialogConfirm.classList.remove("danger-button");
+      els.actionDialogConfirm.textContent = "Confirm";
+      els.actionDialogCancel.textContent = "Cancel";
+      return;
+    }
+
+    const options = session.options;
+    els.actionDialogEyebrow.textContent = options.eyebrow || (options.danger ? "Confirm" : "Action");
+    els.actionDialogTitle.textContent = options.title;
+    els.actionDialogMessage.textContent = String(options.message || "");
+    els.actionDialogMessage.classList.toggle("hidden", !String(options.message || "").trim());
+    els.actionDialogConfirm.textContent = options.confirmLabel || "Confirm";
+    els.actionDialogCancel.textContent = options.cancelLabel || "Cancel";
+    els.actionDialogConfirm.classList.toggle("danger-button", Boolean(options.danger));
+    els.actionDialogStatus.textContent = session.status;
+    clearNode(els.actionDialogFields);
+
+    (Array.isArray(options.fields) ? options.fields : []).forEach(function (field) {
+      const row = document.createElement("label");
+      row.className = "search";
+
+      const label = document.createElement("span");
+      label.textContent = field.label;
+      row.appendChild(label);
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = session.values[field.key] || "";
+      input.placeholder = field.placeholder || "";
+      input.autocomplete = "off";
+      input.setAttribute("autocorrect", "off");
+      input.setAttribute("autocapitalize", field.autocapitalize || "none");
+      input.spellcheck = field.spellcheck === true;
+      input.setAttribute("data-action-dialog-field", field.key);
+      input.addEventListener("input", function () {
+        if (!actionDialogSession) {
+          return;
+        }
+        actionDialogSession.values[field.key] = input.value;
+        if (actionDialogSession.status) {
+          actionDialogSession.status = "";
+          els.actionDialogStatus.textContent = "";
+        }
+      });
+      row.appendChild(input);
+      els.actionDialogFields.appendChild(row);
+    });
+
+    els.actionDialogShell.classList.remove("hidden");
+  }
+
+  function dismissActionDialog(result: boolean | Record<string, string> | null): void {
+    const session = actionDialogSession;
+    actionDialogSession = null;
+    renderActionDialog();
+    if (session) {
+      session.resolve(result);
+    }
+    restoreNoteFocus();
+  }
+
+  function openActionDialog(options: ActionDialogOptions): Promise<boolean | Record<string, string> | null> {
+    if (actionDialogSession) {
+      actionDialogSession.resolve(null);
+      actionDialogSession = null;
+    }
+    rememberNoteFocus();
+    const values = (Array.isArray(options.fields) ? options.fields : []).reduce(function (acc, field) {
+      acc[field.key] = String(field.value || "");
+      return acc;
+    }, {} as Record<string, string>);
+    return new Promise(function (resolve) {
+      actionDialogSession = {
+        options: options,
+        values: values,
+        status: "",
+        resolve: resolve,
+      };
+      renderActionDialog();
+      window.requestAnimationFrame(function () {
+        const firstField = els.actionDialogFields.querySelector("input") as HTMLInputElement | null;
+        if (firstField) {
+          focusWithoutScroll(firstField);
+          firstField.select();
+          return;
+        }
+        focusWithoutScroll(els.actionDialogConfirm);
+      });
+    });
+  }
+
+  async function confirmAction(options: ActionDialogOptions): Promise<boolean> {
+    const result = await openActionDialog({
+      eyebrow: options.eyebrow || "Confirm",
+      title: options.title,
+      message: options.message || "",
+      confirmLabel: options.confirmLabel || "Confirm",
+      cancelLabel: options.cancelLabel || "Cancel",
+      danger: options.danger,
+      fields: [],
+    });
+    return result === true;
+  }
+
+  async function promptForActionInput(options: ActionDialogOptions): Promise<Record<string, string> | null> {
+    const result = await openActionDialog(options);
+    return result && typeof result === "object" ? result as Record<string, string> : null;
+  }
+
   function searchResultButtons(): HTMLButtonElement[] {
     return paletteModalButtons(els.globalSearchResults);
   }
@@ -4067,7 +4240,13 @@ interface TreeContextMenuState {
     if (!state.selectedPage) {
       return;
     }
-    if (!window.confirm("Permanently remove all saved revisions for " + state.selectedPage + "?")) {
+    const confirmed = await confirmAction({
+      title: "Purge Page History",
+      message: "Permanently remove all saved revisions for " + state.selectedPage + "?",
+      confirmLabel: "Purge History",
+      danger: true,
+    });
+    if (!confirmed) {
       return;
     }
     await fetchJSON<unknown>("/api/page-history/" + encodePath(state.selectedPage), {
@@ -4105,17 +4284,24 @@ interface TreeContextMenuState {
         });
       },
       onDelete: function (entry) {
-        if (!window.confirm('Permanently delete "' + entry.page + '" and its history?')) {
-          return;
-        }
-        fetchJSON<unknown>("/api/trash/pages/" + encodePath(entry.page), {
-          method: "DELETE",
-        }).then(function () {
-          state.trashPages = state.trashPages.filter(function (item) {
-            return item.page !== entry.page;
+        confirmAction({
+          title: "Delete Trashed Note",
+          message: 'Permanently delete "' + entry.page + '" and its history?',
+          confirmLabel: "Delete Permanently",
+          danger: true,
+        }).then(function (confirmed) {
+          if (!confirmed) {
+            return;
+          }
+          return fetchJSON<unknown>("/api/trash/pages/" + encodePath(entry.page), {
+            method: "DELETE",
+          }).then(function () {
+            state.trashPages = state.trashPages.filter(function (item) {
+              return item.page !== entry.page;
+            });
+            renderTrash();
+            setNoteStatus("Permanently deleted " + entry.page + ".");
           });
-          renderTrash();
-          setNoteStatus("Permanently deleted " + entry.page + ".");
         }).catch(function (error) {
           setNoteStatus("Permanent delete failed: " + errorMessage(error));
         });
@@ -4133,7 +4319,13 @@ interface TreeContextMenuState {
     if (!state.trashPages.length) {
       return;
     }
-    if (!window.confirm("Permanently delete all trashed pages and their history?")) {
+    const confirmed = await confirmAction({
+      title: "Empty Trash",
+      message: "Permanently delete all trashed pages and their history?",
+      confirmLabel: "Empty Trash",
+      danger: true,
+    });
+    if (!confirmed) {
       return;
     }
     await fetchJSON<unknown>("/api/trash/pages", {
@@ -4232,7 +4424,7 @@ interface TreeContextMenuState {
       }
       window.requestAnimationFrame(function () {
         if (state.settingsSection === "vault" && state.settingsLoaded) {
-          focusWithoutScroll(els.settingsVaultPath);
+          focusWithoutScroll(els.settingsUserTopLevelVaults);
           return;
         }
         if (state.settingsSection === "notifications") {
@@ -4245,6 +4437,10 @@ interface TreeContextMenuState {
         }
         if (state.settingsSection === "appearance") {
           focusWithoutScroll(els.settingsTheme);
+          return;
+        }
+        if (state.settingsSection === "hotkeys") {
+          focusWithoutScroll(els.settingsQuickSwitcher);
           return;
         }
         focusWithoutScroll(els.closeSettingsModal);
@@ -4630,6 +4826,141 @@ interface TreeContextMenuState {
     }
   }
 
+  async function requestCreatePageInFolder(folderKey: string): Promise<void> {
+    const targetLabel = folderKey || currentScopePrefix() || "vault root";
+    const values = await promptForActionInput({
+      eyebrow: "Notes",
+      title: "New Note",
+      message: 'Create a note in "' + targetLabel + '".',
+      confirmLabel: "Create Note",
+      fields: [{
+        key: "name",
+        label: "Note name or path",
+        placeholder: "meeting-notes",
+        value: "",
+        autocapitalize: "none",
+        spellcheck: false,
+      }],
+      validate: function (nextValues) {
+        return normalizePageDraftPath(nextValues.name || "") ? "" : "Enter a note name.";
+      },
+    });
+    if (!values) {
+      return;
+    }
+    const normalizedName = normalizePageDraftPath(values.name || "");
+    if (!normalizedName) {
+      return;
+    }
+    const basePath = folderKey ? folderKey + "/" : "";
+    await createPage(basePath + normalizedName);
+  }
+
+  async function requestCreateSubfolderInFolder(folderKey: string): Promise<void> {
+    const targetLabel = folderKey || currentScopePrefix() || "vault root";
+    const values = await promptForActionInput({
+      eyebrow: "Folders",
+      title: "New Folder",
+      message: 'Create a subfolder in "' + targetLabel + '" and add its first note.',
+      confirmLabel: "Create Folder",
+      fields: [
+        {
+          key: "folder",
+          label: "Folder name",
+          placeholder: "contacts",
+          value: "",
+          autocapitalize: "none",
+          spellcheck: false,
+        },
+        {
+          key: "note",
+          label: "Initial note",
+          placeholder: "index",
+          value: "index",
+          autocapitalize: "none",
+          spellcheck: false,
+        },
+      ],
+      validate: function (nextValues) {
+        if (!normalizePageDraftPath(nextValues.folder || "")) {
+          return "Enter a folder name.";
+        }
+        if (!normalizePageDraftPath(nextValues.note || "")) {
+          return "Enter an initial note name.";
+        }
+        return "";
+      },
+    });
+    if (!values) {
+      return;
+    }
+    const subfolder = normalizePageDraftPath(values.folder || "");
+    const initialNote = normalizePageDraftPath(values.note || "");
+    if (!subfolder || !initialNote) {
+      return;
+    }
+    const basePath = folderKey ? folderKey + "/" : "";
+    await createPage(basePath + subfolder + "/" + initialNote);
+  }
+
+  async function requestRenamePageInTree(pagePath: string): Promise<void> {
+    const currentName = pageTitleFromPath(pagePath);
+    const values = await promptForActionInput({
+      eyebrow: "Notes",
+      title: "Rename Note",
+      message: 'Rename "' + currentName + '". You can also move it by entering a nested path.',
+      confirmLabel: "Save Name",
+      fields: [{
+        key: "name",
+        label: "Note name or path",
+        value: currentName,
+        placeholder: currentName,
+        autocapitalize: "none",
+        spellcheck: false,
+      }],
+      validate: function (nextValues) {
+        return normalizePageDraftPath(nextValues.name || "") ? "" : "Enter a note name.";
+      },
+    });
+    if (!values) {
+      return;
+    }
+    const nextName = normalizePageDraftPath(values.name || "");
+    if (!nextName || nextName === currentName) {
+      return;
+    }
+    await renamePage(pagePath, nextName);
+  }
+
+  async function requestRenameFolderInTree(folderKey: string): Promise<void> {
+    const currentName = pageTitleFromPath(folderKey);
+    const values = await promptForActionInput({
+      eyebrow: "Folders",
+      title: "Rename Folder",
+      message: 'Rename "' + currentName + '". You can also move it by entering a nested path.',
+      confirmLabel: "Save Name",
+      fields: [{
+        key: "name",
+        label: "Folder name or path",
+        value: currentName,
+        placeholder: currentName,
+        autocapitalize: "none",
+        spellcheck: false,
+      }],
+      validate: function (nextValues) {
+        return normalizePageDraftPath(nextValues.name || "") ? "" : "Enter a folder name.";
+      },
+    });
+    if (!values) {
+      return;
+    }
+    const nextName = normalizePageDraftPath(values.name || "");
+    if (!nextName || nextName === currentName) {
+      return;
+    }
+    await renameFolder(folderKey, nextName);
+  }
+
   async function uploadDocument(file: File): Promise<DocumentRecord> {
     const formData = new FormData();
     formData.append("file", file);
@@ -4695,6 +5026,7 @@ interface TreeContextMenuState {
     return deletePageRequest(pagePath, state, {
       encodePath: encodePath,
       fetchJSON: fetchJSON,
+      confirmAction: confirmAction,
       loadPages: loadPages,
       currentHomePage: currentHomePage,
       clearHomePage: clearHomePage,
@@ -4708,6 +5040,7 @@ interface TreeContextMenuState {
     return deleteFolderRequest(folderKey, state, {
       encodePath: encodePath,
       fetchJSON: fetchJSON,
+      confirmAction: confirmAction,
       loadPages: loadPages,
       currentHomePage: currentHomePage,
       clearHomePage: clearHomePage,
@@ -5173,6 +5506,10 @@ interface TreeContextMenuState {
     });
     on(els.settingsNavAppearance, "click", function () {
       state.settingsSection = "appearance";
+      renderSettingsForm();
+    });
+    on(els.settingsNavHotkeys, "click", function () {
+      state.settingsSection = "hotkeys";
       renderSettingsForm();
     });
     on(els.settingsNavTemplates, "click", function () {
@@ -5818,6 +6155,32 @@ interface TreeContextMenuState {
     on(els.settingsBackupScript, "click", function () {
       downloadBackupScript();
     });
+    on(els.closeActionDialog, "click", function () {
+      dismissActionDialog(null);
+    });
+    on(els.actionDialogCancel, "click", function () {
+      dismissActionDialog(null);
+    });
+    on(els.actionDialogForm, "submit", function (event) {
+      event.preventDefault();
+      if (!actionDialogSession) {
+        return;
+      }
+      const session = actionDialogSession;
+      const fields = Array.isArray(session.options.fields) ? session.options.fields : [];
+      if (!fields.length) {
+        dismissActionDialog(true);
+        return;
+      }
+      const values = { ...session.values };
+      const validationError = session.options.validate ? session.options.validate(values) : "";
+      if (validationError) {
+        actionDialogSession.status = validationError;
+        els.actionDialogStatus.textContent = validationError;
+        return;
+      }
+      dismissActionDialog(values);
+    });
     on(els.settingsThemeUploadInput, "change", function () {
       const file = els.settingsThemeUploadInput.files && els.settingsThemeUploadInput.files[0]
         ? els.settingsThemeUploadInput.files[0]
@@ -5859,6 +6222,11 @@ interface TreeContextMenuState {
       if (event.target === els.trashModalShell) {
         closeTrashModal();
         restoreNoteFocus();
+      }
+    });
+    on(els.actionDialogShell, "click", function (event) {
+      if (event.target === els.actionDialogShell) {
+        dismissActionDialog(null);
       }
     });
     document.addEventListener("mousedown", function (event) {
@@ -5956,6 +6324,13 @@ interface TreeContextMenuState {
       if (event.key === "Escape" && els.helpModalShell && !els.helpModalShell.classList.contains("hidden")) {
         closeHelpModal();
         restoreNoteFocus();
+        return;
+      }
+      if (event.key === "Escape" && els.actionDialogShell && !els.actionDialogShell.classList.contains("hidden")) {
+        dismissActionDialog(null);
+        return;
+      }
+      if (els.actionDialogShell && !els.actionDialogShell.classList.contains("hidden")) {
         return;
       }
       if (event.key === "Escape" && els.settingsModalShell && !els.settingsModalShell.classList.contains("hidden")) {

@@ -10,6 +10,12 @@ export interface PageOperationsContext {
 export interface PageOperationsCallbacks {
   encodePath: (path: string) => string;
   fetchJSON: <T>(input: string, init?: RequestInit) => Promise<T>;
+  confirmAction: (options: {
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    danger?: boolean;
+  }) => Promise<boolean>;
   loadPages: () => Promise<void>;
   navigateToPage: (pagePath: string, replace: boolean) => void;
   clearPageSelection: () => void;
@@ -81,7 +87,7 @@ export async function createPage(
 export async function deletePage(
   pagePath: string,
   context: PageOperationsContext,
-  callbacks: Pick<PageOperationsCallbacks, "encodePath" | "fetchJSON" | "loadPages" | "currentHomePage" | "clearHomePage" | "clearPageSelection" | "navigateToPage" | "setNoteStatus">,
+  callbacks: Pick<PageOperationsCallbacks, "encodePath" | "fetchJSON" | "confirmAction" | "loadPages" | "currentHomePage" | "clearHomePage" | "clearPageSelection" | "navigateToPage" | "setNoteStatus">,
 ): Promise<void> {
   const normalized = normalizePageDraftPath(pagePath);
   if (!normalized) {
@@ -96,7 +102,13 @@ export async function deletePage(
     : null;
   const fallbackPath = fallbackPage ? normalizePageDraftPath(fallbackPage.path) : "";
 
-  if (!window.confirm('Move page "' + normalized + '" to trash?')) {
+  const confirmed = await callbacks.confirmAction({
+    title: "Move Note to Trash",
+    message: 'Move "' + normalized + '" to trash?',
+    confirmLabel: "Move to Trash",
+    danger: true,
+  });
+  if (!confirmed) {
     return;
   }
 
@@ -121,7 +133,7 @@ export async function deletePage(
 export async function deleteFolder(
   folderKey: string,
   context: PageOperationsContext,
-  callbacks: Pick<PageOperationsCallbacks, "encodePath" | "fetchJSON" | "loadPages" | "currentHomePage" | "clearHomePage" | "clearPageSelection">,
+  callbacks: Pick<PageOperationsCallbacks, "encodePath" | "fetchJSON" | "confirmAction" | "loadPages" | "currentHomePage" | "clearHomePage" | "clearPageSelection">,
 ): Promise<void> {
   const normalized = normalizePageDraftPath(folderKey);
   if (!normalized) {
@@ -131,7 +143,13 @@ export async function deleteFolder(
     const path = String(page.path || "");
     return path === normalized || path.startsWith(normalized + "/");
   }).length;
-  if (!window.confirm('Delete folder "' + normalized + '" and everything inside it?\n\n' + String(pageCount) + " note(s) will be removed.")) {
+  const confirmed = await callbacks.confirmAction({
+    title: "Delete Folder",
+    message: 'Delete "' + normalized + '" and everything inside it?\n\n' + String(pageCount) + " note(s) will be removed.",
+    confirmLabel: "Delete Folder",
+    danger: true,
+  });
+  if (!confirmed) {
     return;
   }
   await callbacks.fetchJSON<unknown>("/api/folders/" + callbacks.encodePath(normalized), {

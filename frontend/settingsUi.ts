@@ -3,7 +3,7 @@ import { analyzeHotkeys, detectHotkeyPlatform, hotkeyDefinitions, hotkeyDefaultG
 import type { AISettings, AppSettings as SettingsModel, FrontmatterKind, MetaResponse, NoteTemplate, NoteTemplateField, ThemeRecord } from "./types";
 import type { Hotkeys } from "./types";
 
-export type SettingsSection = "appearance" | "templates" | "notifications" | "ai" | "vault";
+export type SettingsSection = "appearance" | "hotkeys" | "templates" | "notifications" | "ai" | "vault";
 
 export interface SettingsUiState {
   settingsSection: SettingsSection;
@@ -24,12 +24,14 @@ export interface SettingsUiElements {
   settingsEyebrow: HTMLElement;
   settingsTitle: HTMLElement;
   settingsNavAppearance: HTMLButtonElement;
+  settingsNavHotkeys: HTMLButtonElement;
   settingsNavTemplates: HTMLButtonElement;
   settingsNavNotifications: HTMLButtonElement;
   settingsNavAI: HTMLButtonElement;
   settingsNavVault: HTMLButtonElement;
   settingsGroupServer: HTMLElement;
   settingsGroupSession: HTMLElement;
+  settingsGroupHotkeys: HTMLElement;
   settingsGroupTemplates: HTMLElement;
   settingsGroupUserNotifications: HTMLElement;
   settingsGroupAI: HTMLElement;
@@ -84,7 +86,7 @@ export function defaultSettingsSection(): SettingsSection {
 }
 
 export function availableSettingsSections(): SettingsSection[] {
-  return ["appearance", "notifications", "ai", "vault"];
+  return ["appearance", "hotkeys", "notifications", "ai", "vault"];
 }
 
 export function normalizeSettingsSection(state: SettingsUiState): void {
@@ -102,6 +104,7 @@ export function renderSettingsModal(state: SettingsUiState, els: SettingsUiEleme
   const activeSection = state.settingsSection;
   const navButtons: Array<{ button: HTMLButtonElement; section: SettingsSection }> = [
     { button: els.settingsNavAppearance, section: "appearance" },
+    { button: els.settingsNavHotkeys, section: "hotkeys" },
     { button: els.settingsNavTemplates, section: "templates" },
     { button: els.settingsNavNotifications, section: "notifications" },
     { button: els.settingsNavAI, section: "ai" },
@@ -116,6 +119,7 @@ export function renderSettingsModal(state: SettingsUiState, els: SettingsUiEleme
   });
 
   els.settingsGroupSession.classList.toggle("hidden", activeSection !== "appearance");
+  els.settingsGroupHotkeys.classList.toggle("hidden", activeSection !== "hotkeys");
   els.settingsGroupTemplates.classList.toggle("hidden", activeSection !== "templates");
   els.settingsGroupUserNotifications.classList.toggle("hidden", activeSection !== "notifications");
   els.settingsGroupAI.classList.toggle("hidden", activeSection !== "ai");
@@ -541,11 +545,12 @@ export function renderSettingsHotkeyHints(els: SettingsUiElements, hotkeys: Hotk
     const hint = ensureHotkeyHintNode(input);
     const entry = analysis[definition.id];
     const lines = [
-      definition.optional
-        ? "Optional. Press a shortcut to record it, or type it manually if the browser steals the combo."
-        : "Press a shortcut to record it, or type it manually if the browser steals the combo.",
       hotkeyDefaultGuidance(entry, platform),
     ];
+
+    if (definition.optional && !entry.binding) {
+      lines.unshift("Optional.");
+    }
 
     let severity = "";
     if (entry.blockedReason) {
@@ -568,7 +573,7 @@ export function renderSettingsHotkeyHints(els: SettingsUiElements, hotkeys: Hotk
     if (!hint) {
       return;
     }
-    hint.textContent = lines.join(" ");
+    hint.textContent = lines.filter(Boolean).join(" ");
     hint.dataset.severity = severity;
   });
 }

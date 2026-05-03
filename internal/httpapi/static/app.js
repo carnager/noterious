@@ -1900,14 +1900,14 @@
           label: "Open Daily Note",
           scope: "global",
           optional: true,
-          defaultCandidates: [""]
+          defaultCandidates: ["Mod+Shift+D", ""]
         },
         help: {
           id: "help",
           label: "Open Help",
           scope: "global",
           optional: false,
-          defaultCandidates: ["?"]
+          defaultCandidates: ["Mod+Shift+H", "F1"]
         },
         saveCurrentPage: {
           id: "saveCurrentPage",
@@ -1921,7 +1921,7 @@
           label: "Toggle Raw Mode",
           scope: "global",
           optional: false,
-          defaultCandidates: ["Mod+Shift+E", "Mod+E"]
+          defaultCandidates: ["Mod+E", "Mod+Shift+E"]
         },
         toggleTaskDone: {
           id: "toggleTaskDone",
@@ -2811,7 +2811,7 @@
   }
   function blockingOverlayOpen(elements) {
     return Boolean(
-      elements.taskModalShell && !elements.taskModalShell.classList.contains("hidden") || !elements.searchModalShell.classList.contains("hidden") || !elements.commandModalShell.classList.contains("hidden") || Boolean(elements.quickSwitcherModalShell && !elements.quickSwitcherModalShell.classList.contains("hidden")) || Boolean(elements.documentsModalShell && !elements.documentsModalShell.classList.contains("hidden")) || Boolean(elements.conflictModalShell && !elements.conflictModalShell.classList.contains("hidden")) || Boolean(elements.helpModalShell && !elements.helpModalShell.classList.contains("hidden")) || Boolean(elements.settingsModalShell && !elements.settingsModalShell.classList.contains("hidden")) || Boolean(elements.pageHistoryModalShell && !elements.pageHistoryModalShell.classList.contains("hidden")) || Boolean(elements.trashModalShell && !elements.trashModalShell.classList.contains("hidden"))
+      elements.taskModalShell && !elements.taskModalShell.classList.contains("hidden") || !elements.searchModalShell.classList.contains("hidden") || !elements.commandModalShell.classList.contains("hidden") || Boolean(elements.quickSwitcherModalShell && !elements.quickSwitcherModalShell.classList.contains("hidden")) || Boolean(elements.documentsModalShell && !elements.documentsModalShell.classList.contains("hidden")) || Boolean(elements.conflictModalShell && !elements.conflictModalShell.classList.contains("hidden")) || Boolean(elements.helpModalShell && !elements.helpModalShell.classList.contains("hidden")) || Boolean(elements.actionDialogShell && !elements.actionDialogShell.classList.contains("hidden")) || Boolean(elements.settingsModalShell && !elements.settingsModalShell.classList.contains("hidden")) || Boolean(elements.pageHistoryModalShell && !elements.pageHistoryModalShell.classList.contains("hidden")) || Boolean(elements.trashModalShell && !elements.trashModalShell.classList.contains("hidden"))
     );
   }
   function restoreEditorFocus(state, elements, selectedPage) {
@@ -4184,7 +4184,13 @@
     });
     const fallbackPage = currentIndex >= 0 ? context.pages[currentIndex - 1] || context.pages[currentIndex + 1] || null : null;
     const fallbackPath = fallbackPage ? normalizePageDraftPath(fallbackPage.path) : "";
-    if (!window.confirm('Move page "' + normalized + '" to trash?')) {
+    const confirmed = await callbacks.confirmAction({
+      title: "Move Note to Trash",
+      message: 'Move "' + normalized + '" to trash?',
+      confirmLabel: "Move to Trash",
+      danger: true
+    });
+    if (!confirmed) {
       return;
     }
     await callbacks.fetchJSON("/api/pages/" + callbacks.encodePath(normalized), {
@@ -4214,7 +4220,13 @@
       const path = String(page.path || "");
       return path === normalized || path.startsWith(normalized + "/");
     }).length;
-    if (!window.confirm('Delete folder "' + normalized + '" and everything inside it?\n\n' + String(pageCount) + " note(s) will be removed.")) {
+    const confirmed = await callbacks.confirmAction({
+      title: "Delete Folder",
+      message: 'Delete "' + normalized + '" and everything inside it?\n\n' + String(pageCount) + " note(s) will be removed.",
+      confirmLabel: "Delete Folder",
+      danger: true
+    });
+    if (!confirmed) {
       return;
     }
     await callbacks.fetchJSON("/api/folders/" + callbacks.encodePath(normalized), {
@@ -5426,37 +5438,17 @@
         actions.navigateToPage(pagePath, false);
       },
       function(folderKey) {
-        const name = window.prompt('New note in "' + folderKey + '"', "");
-        const normalizedName = normalizePageDraftPath(name || "");
-        if (!normalizedName) {
-          return;
-        }
-        const basePath = folderKey ? folderKey + "/" : "";
-        actions.createPage(basePath + normalizedName).catch(function(error) {
+        actions.requestCreatePage(folderKey).catch(function(error) {
           actions.setNoteStatus("Create page failed: " + actions.errorMessage(error));
         });
       },
       function(folderKey) {
-        const subfolder = normalizePageDraftPath(window.prompt('New subfolder in "' + folderKey + '"', "") || "");
-        if (!subfolder) {
-          return;
-        }
-        const initialNote = normalizePageDraftPath(window.prompt('Initial note inside "' + subfolder + '"', "index") || "");
-        if (!initialNote) {
-          return;
-        }
-        const basePath = folderKey ? folderKey + "/" : "";
-        actions.createPage(basePath + subfolder + "/" + initialNote).catch(function(error) {
+        actions.requestCreateSubfolder(folderKey).catch(function(error) {
           actions.setNoteStatus("Create folder failed: " + actions.errorMessage(error));
         });
       },
       function(folderKey) {
-        const currentName = pageTitleFromPath(folderKey);
-        const nextName = normalizePageDraftPath(window.prompt('Rename folder "' + currentName + '"', currentName) || "");
-        if (!nextName || nextName === currentName) {
-          return;
-        }
-        actions.renameFolder(folderKey, nextName).catch(function(error) {
+        actions.requestRenameFolder(folderKey).catch(function(error) {
           actions.setNoteStatus("Rename folder failed: " + actions.errorMessage(error));
         });
       },
@@ -5466,12 +5458,7 @@
         });
       },
       function(pagePath) {
-        const currentName = pageTitleFromPath(pagePath);
-        const nextName = normalizePageDraftPath(window.prompt('Rename note "' + currentName + '"', currentName) || "");
-        if (!nextName || nextName === currentName) {
-          return;
-        }
-        actions.renamePage(pagePath, nextName).catch(function(error) {
+        actions.requestRenamePage(pagePath).catch(function(error) {
           actions.setNoteStatus("Rename note failed: " + actions.errorMessage(error));
         });
       },
@@ -5565,12 +5552,7 @@
       });
       appendTreeContextMenuDivider(treeContextMenu);
       appendTreeContextMenuItem(treeContextMenu, "Rename\u2026", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function() {
-        const currentName = pageTitleFromPath(target.path);
-        const nextName = normalizePageDraftPath(window.prompt('Rename note "' + currentName + '"', currentName) || "");
-        if (!nextName || nextName === currentName) {
-          return;
-        }
-        actions.renamePage(target.path, nextName).catch(function(error) {
+        actions.requestRenamePage(target.path).catch(function(error) {
           actions.setNoteStatus("Rename note failed: " + actions.errorMessage(error));
         });
       });
@@ -5581,36 +5563,18 @@
       }, true);
     } else {
       appendTreeContextMenuItem(treeContextMenu, "New note", "M8 2.5v11M2.5 8h11", function() {
-        const name = window.prompt('New note in "' + target.name + '"', "");
-        const normalizedName = normalizePageDraftPath(name || "");
-        if (!normalizedName) {
-          return;
-        }
-        actions.createPage(target.path + "/" + normalizedName).catch(function(error) {
+        actions.requestCreatePage(target.path).catch(function(error) {
           actions.setNoteStatus("Create page failed: " + actions.errorMessage(error));
         });
       });
       appendTreeContextMenuItem(treeContextMenu, "New subfolder", "M8 2.5v11M2.5 8h11", function() {
-        const subfolder = normalizePageDraftPath(window.prompt('New subfolder in "' + target.name + '"', "") || "");
-        if (!subfolder) {
-          return;
-        }
-        const initialNote = normalizePageDraftPath(window.prompt('Initial note inside "' + subfolder + '"', "index") || "");
-        if (!initialNote) {
-          return;
-        }
-        actions.createPage(target.path + "/" + subfolder + "/" + initialNote).catch(function(error) {
+        actions.requestCreateSubfolder(target.path).catch(function(error) {
           actions.setNoteStatus("Create folder failed: " + actions.errorMessage(error));
         });
       });
       appendTreeContextMenuDivider(treeContextMenu);
       appendTreeContextMenuItem(treeContextMenu, "Rename\u2026", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function() {
-        const currentName = pageTitleFromPath(target.path);
-        const nextName = normalizePageDraftPath(window.prompt('Rename folder "' + currentName + '"', currentName) || "");
-        if (!nextName || nextName === currentName) {
-          return;
-        }
-        actions.renameFolder(target.path, nextName).catch(function(error) {
+        actions.requestRenameFolder(target.path).catch(function(error) {
           actions.setNoteStatus("Rename folder failed: " + actions.errorMessage(error));
         });
       });
@@ -6709,7 +6673,7 @@
     return "appearance";
   }
   function availableSettingsSections() {
-    return ["appearance", "notifications", "ai", "vault"];
+    return ["appearance", "hotkeys", "notifications", "ai", "vault"];
   }
   function normalizeSettingsSection(state) {
     if (!availableSettingsSections().includes(state.settingsSection)) {
@@ -6723,6 +6687,7 @@
     const activeSection = state.settingsSection;
     const navButtons = [
       { button: els.settingsNavAppearance, section: "appearance" },
+      { button: els.settingsNavHotkeys, section: "hotkeys" },
       { button: els.settingsNavTemplates, section: "templates" },
       { button: els.settingsNavNotifications, section: "notifications" },
       { button: els.settingsNavAI, section: "ai" },
@@ -6735,6 +6700,7 @@
       entry.button.setAttribute("aria-current", visible && activeSection === entry.section ? "page" : "false");
     });
     els.settingsGroupSession.classList.toggle("hidden", activeSection !== "appearance");
+    els.settingsGroupHotkeys.classList.toggle("hidden", activeSection !== "hotkeys");
     els.settingsGroupTemplates.classList.toggle("hidden", activeSection !== "templates");
     els.settingsGroupUserNotifications.classList.toggle("hidden", activeSection !== "notifications");
     els.settingsGroupAI.classList.toggle("hidden", activeSection !== "ai");
@@ -7102,9 +7068,11 @@
       const hint = ensureHotkeyHintNode(input);
       const entry = analysis[definition.id];
       const lines = [
-        definition.optional ? "Optional. Press a shortcut to record it, or type it manually if the browser steals the combo." : "Press a shortcut to record it, or type it manually if the browser steals the combo.",
         hotkeyDefaultGuidance(entry, platform)
       ];
+      if (definition.optional && !entry.binding) {
+        lines.unshift("Optional.");
+      }
       let severity = "";
       if (entry.blockedReason) {
         lines.push(entry.blockedReason);
@@ -7124,7 +7092,7 @@
       if (!hint) {
         return;
       }
-      hint.textContent = lines.join(" ");
+      hint.textContent = lines.filter(Boolean).join(" ");
       hint.dataset.severity = severity;
     });
   }
@@ -9965,17 +9933,29 @@
           closeHelpModal: requiredElement("close-help-modal"),
           helpShortcutCore: requiredElement("help-shortcuts-core"),
           helpShortcutEditor: requiredElement("help-shortcuts-editor"),
+          actionDialogShell: requiredElement("action-dialog-shell"),
+          closeActionDialog: requiredElement("close-action-dialog"),
+          actionDialogEyebrow: requiredElement("action-dialog-eyebrow"),
+          actionDialogTitle: requiredElement("action-dialog-title"),
+          actionDialogMessage: requiredElement("action-dialog-message"),
+          actionDialogForm: requiredElement("action-dialog-form"),
+          actionDialogFields: requiredElement("action-dialog-fields"),
+          actionDialogStatus: requiredElement("action-dialog-status"),
+          actionDialogCancel: requiredElement("action-dialog-cancel"),
+          actionDialogConfirm: requiredElement("action-dialog-confirm"),
           settingsModalShell: requiredElement("settings-modal-shell"),
           closeSettingsModal: requiredElement("close-settings-modal"),
           settingsEyebrow: requiredElement("settings-eyebrow"),
           settingsTitle: requiredElement("settings-title"),
           settingsNavAppearance: requiredElement("settings-nav-appearance"),
+          settingsNavHotkeys: requiredElement("settings-nav-hotkeys"),
           settingsNavTemplates: requiredElement("settings-nav-templates"),
           settingsNavNotifications: requiredElement("settings-nav-notifications"),
           settingsNavAI: requiredElement("settings-nav-ai"),
           settingsNavVault: requiredElement("settings-nav-vault"),
           settingsGroupServer: requiredElement("settings-group-server"),
           settingsGroupSession: requiredElement("settings-group-session"),
+          settingsGroupHotkeys: requiredElement("settings-group-hotkeys"),
           settingsGroupTemplates: requiredElement("settings-group-templates"),
           settingsGroupUserNotifications: requiredElement("settings-group-user-notifications"),
           settingsGroupAI: requiredElement("settings-group-ai"),
@@ -10033,6 +10013,7 @@
           left: 0,
           top: 0
         };
+        let actionDialogSession = null;
         function currentPickerTask() {
           return taskPickerState.ref ? findCurrentTask(taskPickerState.ref) : null;
         }
@@ -10063,7 +10044,13 @@
           if (!task) {
             return;
           }
-          if (!window.confirm('Delete task "' + (task.text || task.ref) + '"?')) {
+          const confirmed = await confirmAction({
+            title: "Delete Task",
+            message: 'Delete "' + (task.text || task.ref) + '"?',
+            confirmLabel: "Delete Task",
+            danger: true
+          });
+          if (!confirmed) {
             return;
           }
           noteLocalPageChange(task.page || state.selectedPage || "");
@@ -11984,7 +11971,13 @@
           if (!selectedTheme || selectedTheme.source !== "custom") {
             return;
           }
-          if (!window.confirm('Delete theme "' + selectedTheme.name + '"?')) {
+          const confirmed = await confirmAction({
+            title: "Delete Theme",
+            message: 'Delete theme "' + selectedTheme.name + '"?',
+            confirmLabel: "Delete Theme",
+            danger: true
+          });
+          if (!confirmed) {
             return;
           }
           await fetchJSON("/api/themes/" + encodeURIComponent(selectedTheme.id), {
@@ -12103,10 +12096,11 @@
             scopePrefix: currentScopePrefix()
           }, els, {
             navigateToPage,
-            createPage: createPage2,
-            renameFolder: renameFolder2,
+            requestCreatePage: requestCreatePageInFolder,
+            requestCreateSubfolder: requestCreateSubfolderInFolder,
+            requestRenameFolder: requestRenameFolderInTree,
             deleteFolder: deleteFolder2,
-            renamePage: renamePage2,
+            requestRenamePage: requestRenamePageInTree,
             deletePage: deletePage2,
             movePageToFolder: movePageToFolder2,
             moveFolder: moveFolder2,
@@ -12140,10 +12134,11 @@
           treeContextMenuState.top = top;
           openTreeContextMenu(els.treeContextMenu, target, left, top, {
             navigateToPage,
-            createPage: createPage2,
-            renameFolder: renameFolder2,
+            requestCreatePage: requestCreatePageInFolder,
+            requestCreateSubfolder: requestCreateSubfolderInFolder,
+            requestRenameFolder: requestRenameFolderInTree,
             deleteFolder: deleteFolder2,
-            renamePage: renamePage2,
+            requestRenamePage: requestRenamePageInTree,
             deletePage: deletePage2,
             movePageToFolder: movePageToFolder2,
             moveFolder: moveFolder2,
@@ -12601,6 +12596,114 @@
             }
           });
         }
+        function renderActionDialog() {
+          const session = actionDialogSession;
+          if (!session) {
+            els.actionDialogShell.classList.add("hidden");
+            els.actionDialogEyebrow.textContent = "";
+            els.actionDialogTitle.textContent = "";
+            els.actionDialogMessage.textContent = "";
+            els.actionDialogFields.textContent = "";
+            els.actionDialogStatus.textContent = "";
+            els.actionDialogConfirm.classList.remove("danger-button");
+            els.actionDialogConfirm.textContent = "Confirm";
+            els.actionDialogCancel.textContent = "Cancel";
+            return;
+          }
+          const options = session.options;
+          els.actionDialogEyebrow.textContent = options.eyebrow || (options.danger ? "Confirm" : "Action");
+          els.actionDialogTitle.textContent = options.title;
+          els.actionDialogMessage.textContent = String(options.message || "");
+          els.actionDialogMessage.classList.toggle("hidden", !String(options.message || "").trim());
+          els.actionDialogConfirm.textContent = options.confirmLabel || "Confirm";
+          els.actionDialogCancel.textContent = options.cancelLabel || "Cancel";
+          els.actionDialogConfirm.classList.toggle("danger-button", Boolean(options.danger));
+          els.actionDialogStatus.textContent = session.status;
+          clearNode(els.actionDialogFields);
+          (Array.isArray(options.fields) ? options.fields : []).forEach(function(field) {
+            const row = document.createElement("label");
+            row.className = "search";
+            const label = document.createElement("span");
+            label.textContent = field.label;
+            row.appendChild(label);
+            const input = document.createElement("input");
+            input.type = "text";
+            input.value = session.values[field.key] || "";
+            input.placeholder = field.placeholder || "";
+            input.autocomplete = "off";
+            input.setAttribute("autocorrect", "off");
+            input.setAttribute("autocapitalize", field.autocapitalize || "none");
+            input.spellcheck = field.spellcheck === true;
+            input.setAttribute("data-action-dialog-field", field.key);
+            input.addEventListener("input", function() {
+              if (!actionDialogSession) {
+                return;
+              }
+              actionDialogSession.values[field.key] = input.value;
+              if (actionDialogSession.status) {
+                actionDialogSession.status = "";
+                els.actionDialogStatus.textContent = "";
+              }
+            });
+            row.appendChild(input);
+            els.actionDialogFields.appendChild(row);
+          });
+          els.actionDialogShell.classList.remove("hidden");
+        }
+        function dismissActionDialog(result) {
+          const session = actionDialogSession;
+          actionDialogSession = null;
+          renderActionDialog();
+          if (session) {
+            session.resolve(result);
+          }
+          restoreNoteFocus();
+        }
+        function openActionDialog(options) {
+          if (actionDialogSession) {
+            actionDialogSession.resolve(null);
+            actionDialogSession = null;
+          }
+          rememberNoteFocus();
+          const values = (Array.isArray(options.fields) ? options.fields : []).reduce(function(acc, field) {
+            acc[field.key] = String(field.value || "");
+            return acc;
+          }, {});
+          return new Promise(function(resolve) {
+            actionDialogSession = {
+              options,
+              values,
+              status: "",
+              resolve
+            };
+            renderActionDialog();
+            window.requestAnimationFrame(function() {
+              const firstField = els.actionDialogFields.querySelector("input");
+              if (firstField) {
+                focusWithoutScroll(firstField);
+                firstField.select();
+                return;
+              }
+              focusWithoutScroll(els.actionDialogConfirm);
+            });
+          });
+        }
+        async function confirmAction(options) {
+          const result = await openActionDialog({
+            eyebrow: options.eyebrow || "Confirm",
+            title: options.title,
+            message: options.message || "",
+            confirmLabel: options.confirmLabel || "Confirm",
+            cancelLabel: options.cancelLabel || "Cancel",
+            danger: options.danger,
+            fields: []
+          });
+          return result === true;
+        }
+        async function promptForActionInput(options) {
+          const result = await openActionDialog(options);
+          return result && typeof result === "object" ? result : null;
+        }
         function searchResultButtons() {
           return paletteModalButtons(els.globalSearchResults);
         }
@@ -12923,7 +13026,13 @@
           if (!state.selectedPage) {
             return;
           }
-          if (!window.confirm("Permanently remove all saved revisions for " + state.selectedPage + "?")) {
+          const confirmed = await confirmAction({
+            title: "Purge Page History",
+            message: "Permanently remove all saved revisions for " + state.selectedPage + "?",
+            confirmLabel: "Purge History",
+            danger: true
+          });
+          if (!confirmed) {
             return;
           }
           await fetchJSON("/api/page-history/" + encodePath(state.selectedPage), {
@@ -12958,17 +13067,24 @@
               });
             },
             onDelete: function(entry) {
-              if (!window.confirm('Permanently delete "' + entry.page + '" and its history?')) {
-                return;
-              }
-              fetchJSON("/api/trash/pages/" + encodePath(entry.page), {
-                method: "DELETE"
-              }).then(function() {
-                state.trashPages = state.trashPages.filter(function(item) {
-                  return item.page !== entry.page;
+              confirmAction({
+                title: "Delete Trashed Note",
+                message: 'Permanently delete "' + entry.page + '" and its history?',
+                confirmLabel: "Delete Permanently",
+                danger: true
+              }).then(function(confirmed) {
+                if (!confirmed) {
+                  return;
+                }
+                return fetchJSON("/api/trash/pages/" + encodePath(entry.page), {
+                  method: "DELETE"
+                }).then(function() {
+                  state.trashPages = state.trashPages.filter(function(item) {
+                    return item.page !== entry.page;
+                  });
+                  renderTrash2();
+                  setNoteStatus("Permanently deleted " + entry.page + ".");
                 });
-                renderTrash2();
-                setNoteStatus("Permanently deleted " + entry.page + ".");
               }).catch(function(error) {
                 setNoteStatus("Permanent delete failed: " + errorMessage(error));
               });
@@ -12984,7 +13100,13 @@
           if (!state.trashPages.length) {
             return;
           }
-          if (!window.confirm("Permanently delete all trashed pages and their history?")) {
+          const confirmed = await confirmAction({
+            title: "Empty Trash",
+            message: "Permanently delete all trashed pages and their history?",
+            confirmLabel: "Empty Trash",
+            danger: true
+          });
+          if (!confirmed) {
             return;
           }
           await fetchJSON("/api/trash/pages", {
@@ -13071,7 +13193,7 @@
             }
             window.requestAnimationFrame(function() {
               if (state.settingsSection === "vault" && state.settingsLoaded) {
-                focusWithoutScroll(els.settingsVaultPath);
+                focusWithoutScroll(els.settingsUserTopLevelVaults);
                 return;
               }
               if (state.settingsSection === "notifications") {
@@ -13084,6 +13206,10 @@
               }
               if (state.settingsSection === "appearance") {
                 focusWithoutScroll(els.settingsTheme);
+                return;
+              }
+              if (state.settingsSection === "hotkeys") {
+                focusWithoutScroll(els.settingsQuickSwitcher);
                 return;
               }
               focusWithoutScroll(els.closeSettingsModal);
@@ -13443,6 +13569,137 @@
             throw error;
           }
         }
+        async function requestCreatePageInFolder(folderKey) {
+          const targetLabel = folderKey || currentScopePrefix() || "vault root";
+          const values = await promptForActionInput({
+            eyebrow: "Notes",
+            title: "New Note",
+            message: 'Create a note in "' + targetLabel + '".',
+            confirmLabel: "Create Note",
+            fields: [{
+              key: "name",
+              label: "Note name or path",
+              placeholder: "meeting-notes",
+              value: "",
+              autocapitalize: "none",
+              spellcheck: false
+            }],
+            validate: function(nextValues) {
+              return normalizePageDraftPath(nextValues.name || "") ? "" : "Enter a note name.";
+            }
+          });
+          if (!values) {
+            return;
+          }
+          const normalizedName = normalizePageDraftPath(values.name || "");
+          if (!normalizedName) {
+            return;
+          }
+          const basePath = folderKey ? folderKey + "/" : "";
+          await createPage2(basePath + normalizedName);
+        }
+        async function requestCreateSubfolderInFolder(folderKey) {
+          const targetLabel = folderKey || currentScopePrefix() || "vault root";
+          const values = await promptForActionInput({
+            eyebrow: "Folders",
+            title: "New Folder",
+            message: 'Create a subfolder in "' + targetLabel + '" and add its first note.',
+            confirmLabel: "Create Folder",
+            fields: [
+              {
+                key: "folder",
+                label: "Folder name",
+                placeholder: "contacts",
+                value: "",
+                autocapitalize: "none",
+                spellcheck: false
+              },
+              {
+                key: "note",
+                label: "Initial note",
+                placeholder: "index",
+                value: "index",
+                autocapitalize: "none",
+                spellcheck: false
+              }
+            ],
+            validate: function(nextValues) {
+              if (!normalizePageDraftPath(nextValues.folder || "")) {
+                return "Enter a folder name.";
+              }
+              if (!normalizePageDraftPath(nextValues.note || "")) {
+                return "Enter an initial note name.";
+              }
+              return "";
+            }
+          });
+          if (!values) {
+            return;
+          }
+          const subfolder = normalizePageDraftPath(values.folder || "");
+          const initialNote = normalizePageDraftPath(values.note || "");
+          if (!subfolder || !initialNote) {
+            return;
+          }
+          const basePath = folderKey ? folderKey + "/" : "";
+          await createPage2(basePath + subfolder + "/" + initialNote);
+        }
+        async function requestRenamePageInTree(pagePath) {
+          const currentName = pageTitleFromPath(pagePath);
+          const values = await promptForActionInput({
+            eyebrow: "Notes",
+            title: "Rename Note",
+            message: 'Rename "' + currentName + '". You can also move it by entering a nested path.',
+            confirmLabel: "Save Name",
+            fields: [{
+              key: "name",
+              label: "Note name or path",
+              value: currentName,
+              placeholder: currentName,
+              autocapitalize: "none",
+              spellcheck: false
+            }],
+            validate: function(nextValues) {
+              return normalizePageDraftPath(nextValues.name || "") ? "" : "Enter a note name.";
+            }
+          });
+          if (!values) {
+            return;
+          }
+          const nextName = normalizePageDraftPath(values.name || "");
+          if (!nextName || nextName === currentName) {
+            return;
+          }
+          await renamePage2(pagePath, nextName);
+        }
+        async function requestRenameFolderInTree(folderKey) {
+          const currentName = pageTitleFromPath(folderKey);
+          const values = await promptForActionInput({
+            eyebrow: "Folders",
+            title: "Rename Folder",
+            message: 'Rename "' + currentName + '". You can also move it by entering a nested path.',
+            confirmLabel: "Save Name",
+            fields: [{
+              key: "name",
+              label: "Folder name or path",
+              value: currentName,
+              placeholder: currentName,
+              autocapitalize: "none",
+              spellcheck: false
+            }],
+            validate: function(nextValues) {
+              return normalizePageDraftPath(nextValues.name || "") ? "" : "Enter a folder name.";
+            }
+          });
+          if (!values) {
+            return;
+          }
+          const nextName = normalizePageDraftPath(values.name || "");
+          if (!nextName || nextName === currentName) {
+            return;
+          }
+          await renameFolder2(folderKey, nextName);
+        }
         async function uploadDocument(file) {
           const formData = new FormData();
           formData.append("file", file);
@@ -13503,6 +13760,7 @@
           return deletePage(pagePath, state, {
             encodePath,
             fetchJSON,
+            confirmAction,
             loadPages,
             currentHomePage,
             clearHomePage,
@@ -13515,6 +13773,7 @@
           return deleteFolder(folderKey, state, {
             encodePath,
             fetchJSON,
+            confirmAction,
             loadPages,
             currentHomePage,
             clearHomePage,
@@ -13959,6 +14218,10 @@
           });
           on(els.settingsNavAppearance, "click", function() {
             state.settingsSection = "appearance";
+            renderSettingsForm2();
+          });
+          on(els.settingsNavHotkeys, "click", function() {
+            state.settingsSection = "hotkeys";
             renderSettingsForm2();
           });
           on(els.settingsNavTemplates, "click", function() {
@@ -14589,6 +14852,32 @@
           on(els.settingsBackupScript, "click", function() {
             downloadBackupScript();
           });
+          on(els.closeActionDialog, "click", function() {
+            dismissActionDialog(null);
+          });
+          on(els.actionDialogCancel, "click", function() {
+            dismissActionDialog(null);
+          });
+          on(els.actionDialogForm, "submit", function(event) {
+            event.preventDefault();
+            if (!actionDialogSession) {
+              return;
+            }
+            const session = actionDialogSession;
+            const fields = Array.isArray(session.options.fields) ? session.options.fields : [];
+            if (!fields.length) {
+              dismissActionDialog(true);
+              return;
+            }
+            const values = { ...session.values };
+            const validationError = session.options.validate ? session.options.validate(values) : "";
+            if (validationError) {
+              actionDialogSession.status = validationError;
+              els.actionDialogStatus.textContent = validationError;
+              return;
+            }
+            dismissActionDialog(values);
+          });
           on(els.settingsThemeUploadInput, "change", function() {
             const file = els.settingsThemeUploadInput.files && els.settingsThemeUploadInput.files[0] ? els.settingsThemeUploadInput.files[0] : null;
             if (!file) {
@@ -14628,6 +14917,11 @@
             if (event.target === els.trashModalShell) {
               closeTrashModal();
               restoreNoteFocus();
+            }
+          });
+          on(els.actionDialogShell, "click", function(event) {
+            if (event.target === els.actionDialogShell) {
+              dismissActionDialog(null);
             }
           });
           document.addEventListener("mousedown", function(event) {
@@ -14725,6 +15019,13 @@
             if (event.key === "Escape" && els.helpModalShell && !els.helpModalShell.classList.contains("hidden")) {
               closeHelpModal();
               restoreNoteFocus();
+              return;
+            }
+            if (event.key === "Escape" && els.actionDialogShell && !els.actionDialogShell.classList.contains("hidden")) {
+              dismissActionDialog(null);
+              return;
+            }
+            if (els.actionDialogShell && !els.actionDialogShell.classList.contains("hidden")) {
               return;
             }
             if (event.key === "Escape" && els.settingsModalShell && !els.settingsModalShell.classList.contains("hidden")) {
