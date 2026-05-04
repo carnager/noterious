@@ -4600,6 +4600,13 @@ kbd {
   gap: 0.35rem;
 }
 
+.task-picker-note {
+  margin-top: 0.45rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
 .modal-card .search span {
   margin-bottom: 0.18rem;
   font-size: 0.68rem;

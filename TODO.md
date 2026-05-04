@@ -57,10 +57,6 @@ missing product and reliability work still open in the current app.
       - reminder fired
       - query result refreshed
       This should stay generic (webhooks / simple hooks), not app-specific.
-- [ ] Make notification tap-target behavior easier to discover in the UI,
-      especially note `*_click` fields and task click targets.
-      The basic docs already exist; the missing part is product-level
-      discoverability in the app itself.
 
 ## Priority 6: Single-User Admin Polish
 

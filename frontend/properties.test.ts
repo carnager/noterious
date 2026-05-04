@@ -6,6 +6,7 @@ import {
   coercePropertyValue,
   inferFrontmatterKind,
   makePropertyDraft,
+  notificationTapTargetHint,
   propertyDraftValue,
   propertyScalarInputType,
   propertyScalarInputValue,
@@ -46,6 +47,7 @@ describe("property helpers", function () {
     expect(inferFrontmatterKind("2026-04-30 09:15", "notification")).toBe("notification");
     expect(inferFrontmatterKind("", "birthday_notification")).toBe("notification");
     expect(coercePropertyValue("notification", "2026-04-30 09:15", "notification")).toBe("2026-04-30 09:15");
+    expect(notificationTapTargetHint("birthday_notification")).toContain("birthday_notification_click");
   });
 
   it("normalizes tags when saving tag values", function () {

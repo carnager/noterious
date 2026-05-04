@@ -65,6 +65,21 @@ function isNotificationPropertyKey(key: string | null | undefined): boolean {
     /(^|[_-])(notify|notification|remind|reminder)([_-]|$)/i.test(normalized);
 }
 
+export function notificationTapTargetFieldName(key: string | null | undefined): string {
+  const normalized = String(key || "").trim();
+  if (!normalized) {
+    return "notification_click";
+  }
+  if (isNotificationClickKey(normalized)) {
+    return normalized;
+  }
+  return normalized + "_click";
+}
+
+export function notificationTapTargetHint(key: string | null | undefined): string {
+  return "Optional tap target: add " + notificationTapTargetFieldName(key) + " with a URL or app URI.";
+}
+
 export function inferFrontmatterKind(
   value: FrontmatterValue,
   key?: string,
@@ -647,6 +662,12 @@ function renderExistingPropertyValueEditor(row: PropertyRow, options: RenderPage
   });
 
   value.appendChild(input);
+  if (kind === "notification") {
+    const hint = document.createElement("div");
+    hint.className = "property-inline-hint";
+    hint.textContent = notificationTapTargetHint(row.key);
+    value.appendChild(hint);
+  }
   return value;
 }
 
@@ -803,6 +824,12 @@ function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | n
       setDraft({ ...draft, text: input.value });
     });
     value.appendChild(input);
+    if (draft.kind === "notification") {
+      const hint = document.createElement("div");
+      hint.className = "property-inline-hint";
+      hint.textContent = notificationTapTargetHint(draft.key);
+      value.appendChild(hint);
+    }
   }
 
   const actions = document.createElement("div");

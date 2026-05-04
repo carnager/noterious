@@ -989,6 +989,12 @@ export function renderTaskPicker(taskPickerState: TaskPickerState, els: InlineEd
 
   footer.appendChild(actions);
   target.appendChild(footer);
+  if (mode === "remind") {
+    const hint = document.createElement("div");
+    hint.className = "task-picker-note";
+    hint.textContent = "Optional tap target: add [click: myapp://open] on the task line.";
+    target.appendChild(hint);
+  }
   els.inlineTaskPicker.classList.remove("hidden");
   window.requestAnimationFrame(function () {
     positionInlineTaskPicker(taskPickerState, els);

@@ -3857,6 +3857,12 @@
     actions.appendChild(close);
     footer.appendChild(actions);
     target.appendChild(footer);
+    if (mode === "remind") {
+      const hint = document.createElement("div");
+      hint.className = "task-picker-note";
+      hint.textContent = "Optional tap target: add [click: myapp://open] on the task line.";
+      target.appendChild(hint);
+    }
     els.inlineTaskPicker.classList.remove("hidden");
     window.requestAnimationFrame(function() {
       positionInlineTaskPicker(taskPickerState, els);
@@ -5882,6 +5888,19 @@
     }
     return normalized === "notification" || normalized === "notify" || normalized === "remind" || normalized === "reminder" || /(^|[_-])(notify|notification|remind|reminder)([_-]|$)/i.test(normalized);
   }
+  function notificationTapTargetFieldName(key) {
+    const normalized = String(key || "").trim();
+    if (!normalized) {
+      return "notification_click";
+    }
+    if (isNotificationClickKey3(normalized)) {
+      return normalized;
+    }
+    return normalized + "_click";
+  }
+  function notificationTapTargetHint(key) {
+    return "Optional tap target: add " + notificationTapTargetFieldName(key) + " with a URL or app URI.";
+  }
   function inferFrontmatterKind(value, key, hintedKind) {
     if (Array.isArray(value)) {
       return hintedKind === "tags" || isTagPropertyKey(key) ? "tags" : "list";
@@ -6336,6 +6355,12 @@
       }
     });
     value.appendChild(input);
+    if (kind === "notification") {
+      const hint = document.createElement("div");
+      hint.className = "property-inline-hint";
+      hint.textContent = notificationTapTargetHint(row.key);
+      value.appendChild(hint);
+    }
     return value;
   }
   function renderPropertyEditorRow(container, row, options) {
@@ -6482,6 +6507,12 @@
         setDraft({ ...draft, text: input.value });
       });
       value.appendChild(input);
+      if (draft.kind === "notification") {
+        const hint = document.createElement("div");
+        hint.className = "property-inline-hint";
+        hint.textContent = notificationTapTargetHint(draft.key);
+        value.appendChild(hint);
+      }
     }
     const actions = document.createElement("div");
     actions.className = "property-row-actions";
