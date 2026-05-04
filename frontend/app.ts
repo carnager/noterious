@@ -4,6 +4,11 @@ import {
   buildBackupManifest,
 } from "./backupManifest";
 import {
+  parseBackupManifestJSON,
+  validateBackupManifest,
+  type BackupManifestValidationResult,
+} from "./backupValidation";
+import {
   backupScriptFilename,
   buildBackupScript,
 } from "./backupScript";
@@ -192,7 +197,8 @@ import {
 } from "./settingsUi";
 import { closeSlashMenu, documentCommandsForText, maybeOpenSlashMenu, moveSlashSelection, openSlashMenuWithCommands, queryIntentForText, wikilinkCommandsForContext } from "./slashMenu";
 import { hasUnsafeRemoteSyncUIState as hasUnsafeRemoteSyncUIStateHelper } from "./remoteSync";
-import { createPageConflictDraft, type PageConflictDraft, type PageConflictMode } from "./pageConflict";
+import { createPageConflictDialogDraft, createPageConflictDraft, type PageConflictDraft, type PageConflictMode } from "./pageConflict";
+import { matchExternalPageChange } from "./pageChangeEvents";
 import { planRemotePageSync } from "./remotePageSync";
 import {
   applyTheme,
@@ -363,6 +369,7 @@ interface AppState {
   aiSettingsLoaded: boolean;
   userSettingsLoaded: boolean;
   serverMeta: MetaResponse | null;
+  backupManifestValidation: BackupManifestValidationResult | null;
   aiSettings: AISettings;
   aiAPIKeyConfigured: boolean;
   aiClearKeyPending: boolean;
@@ -537,6 +544,7 @@ interface ActionDialogSession {
     aiSettingsLoaded: false,
     userSettingsLoaded: false,
     serverMeta: null,
+    backupManifestValidation: null,
     aiSettings: {
       enabled: false,
       provider: "openai-compatible",
@@ -795,7 +803,10 @@ interface ActionDialogSession {
     settingsBackupDatabase: requiredElement<HTMLElement>("settings-backup-database"),
     settingsBackupDownload: requiredElement<HTMLButtonElement>("settings-backup-download"),
     settingsBackupScript: requiredElement<HTMLButtonElement>("settings-backup-script"),
+    settingsBackupValidate: requiredElement<HTMLButtonElement>("settings-backup-validate"),
+    settingsBackupValidateInput: requiredElement<HTMLInputElement>("settings-backup-validate-input"),
     settingsBackupNote: requiredElement<HTMLElement>("settings-backup-note"),
+    settingsBackupValidation: requiredElement<HTMLDivElement>("settings-backup-validation"),
     settingsRuntimeListenAddr: requiredElement<HTMLElement>("settings-runtime-listen-addr"),
     settingsRuntimeServerTime: requiredElement<HTMLElement>("settings-runtime-server-time"),
     settingsRuntimeCurrentVault: requiredElement<HTMLElement>("settings-runtime-current-vault"),
@@ -1085,41 +1096,23 @@ interface ActionDialogSession {
   }
 
   function isSelectedExternalPageChange(eventName: string, payload: Record<string, unknown>): boolean {
-    if (eventName !== "page.changed" || !state.selectedPage) {
-      return false;
-    }
-    const eventPage = typeof payload.page === "string" ? payload.page : "";
-    const eventOrigin = typeof payload.originClientId === "string" ? payload.originClientId : "";
-    if (!eventPage || eventPage !== state.selectedPage) {
-      return false;
-    }
-    if (eventOrigin && eventOrigin === currentClientInstanceId()) {
-      consumeExpectedLocalPageChange(eventPage);
-      return false;
-    }
-    if (consumeExpectedLocalPageChange(eventPage)) {
-      return false;
-    }
-    return true;
+    return matchExternalPageChange({
+      eventName,
+      payload,
+      targetPage: state.selectedPage || "",
+      currentClientId: currentClientInstanceId(),
+      consumeExpectedLocalChange: consumeExpectedLocalPageChange,
+    });
   }
 
   function isCurrentConflictPageChange(eventName: string, payload: Record<string, unknown>): boolean {
-    if (eventName !== "page.changed" || !state.pageConflict) {
-      return false;
-    }
-    const eventPage = typeof payload.page === "string" ? payload.page : "";
-    const eventOrigin = typeof payload.originClientId === "string" ? payload.originClientId : "";
-    if (!eventPage || eventPage !== state.pageConflict.pagePath) {
-      return false;
-    }
-    if (eventOrigin && eventOrigin === currentClientInstanceId()) {
-      consumeExpectedLocalPageChange(eventPage);
-      return false;
-    }
-    if (consumeExpectedLocalPageChange(eventPage)) {
-      return false;
-    }
-    return true;
+    return matchExternalPageChange({
+      eventName,
+      payload,
+      targetPage: state.pageConflict ? state.pageConflict.pagePath : "",
+      currentClientId: currentClientInstanceId(),
+      consumeExpectedLocalChange: consumeExpectedLocalPageChange,
+    });
   }
 
   function applyLoadedPageDetailState(pagePath: string, loaded: LoadedPageDetail, nextMarkdown: string): boolean {
@@ -3166,6 +3159,7 @@ interface ActionDialogSession {
     try {
       const meta = await fetchJSON<MetaResponse>("/api/meta");
       state.serverMeta = meta;
+      refreshBackupManifestValidation();
       const runtimeVaultPath = meta.runtimeVault && meta.runtimeVault.vaultPath
         ? meta.runtimeVault.vaultPath
         : "(none)";
@@ -4137,23 +4131,24 @@ interface ActionDialogSession {
     mode: PageConflictMode,
     pagePath: string,
     loadedRemote: LoadedPageDetail,
-    resolutionMarkdown?: string,
-    statusMessage?: string
+    options?: {
+      localMarkdown?: string;
+      resolutionMarkdown?: string;
+      statusMessage?: string;
+    }
   ): void {
     const remoteMarkdown = loadedRemote.page.rawMarkdown || "";
-    const draft = createPageConflictDraft({
+    const draft = createPageConflictDialogDraft({
       mode,
       pagePath,
       baseMarkdown: state.originalMarkdown,
-      localMarkdown: state.currentMarkdown,
+      localMarkdown: typeof options?.localMarkdown === "string" ? options.localMarkdown : state.currentMarkdown,
       remoteMarkdown,
+      resolutionMarkdown: options?.resolutionMarkdown,
     });
-    if (typeof resolutionMarkdown === "string") {
-      draft.resolutionMarkdown = resolutionMarkdown;
-    }
     state.pageConflict = draft;
     state.pageConflictRemoteLoaded = loadedRemote;
-    state.pageConflictStatus = statusMessage || "";
+    state.pageConflictStatus = options?.statusMessage || "";
     setPageConflictOpen(true);
   }
 
@@ -4215,8 +4210,11 @@ interface ActionDialogSession {
             conflict.mode,
             conflict.pagePath,
             loadedRemote,
-            markdownToSave,
-            "The page changed again while you were resolving it. Review the latest remote version and save again."
+            {
+              localMarkdown: markdownToSave,
+              resolutionMarkdown: markdownToSave,
+              statusMessage: "The page changed again while you were resolving it. Review the latest remote version and save again.",
+            }
           );
           setNoteStatus("Conflict changed again on " + conflict.pagePath + ".");
           return;
@@ -4240,8 +4238,11 @@ interface ActionDialogSession {
       "save-conflict",
       pagePath,
       loadedRemote,
-      markdownToSave,
-      "Automatic merge found overlapping edits. Review both versions and save the final markdown you want to keep."
+      {
+        localMarkdown: markdownToSave,
+        resolutionMarkdown: markdownToSave,
+        statusMessage: "Automatic merge found overlapping edits. Review both versions and save the final markdown you want to keep.",
+      }
     );
   }
 
@@ -4814,6 +4815,34 @@ interface ActionDialogSession {
       "text/x-shellscript"
     );
     els.settingsStatus.textContent = "Backup script downloaded.";
+  }
+
+  function refreshBackupManifestValidation(): void {
+    if (!state.serverMeta || !state.backupManifestValidation) {
+      return;
+    }
+    state.backupManifestValidation = validateBackupManifest(
+      state.serverMeta,
+      state.backupManifestValidation.manifest,
+      state.backupManifestValidation.sourceLabel
+    );
+  }
+
+  async function validateBackupManifestFile(file: File | null): Promise<void> {
+    if (!file) {
+      return;
+    }
+    if (!state.serverMeta) {
+      els.settingsStatus.textContent = "Backup validation unavailable until server metadata loads.";
+      return;
+    }
+    const sourceLabel = String(file.name || "backup manifest").trim() || "backup manifest";
+    const manifest = parseBackupManifestJSON(await file.text());
+    state.backupManifestValidation = validateBackupManifest(state.serverMeta, manifest, sourceLabel);
+    renderSettingsForm();
+    els.settingsStatus.textContent = state.backupManifestValidation.matchesCurrentDeployment
+      ? "Backup manifest matches the current deployment."
+      : "Backup manifest loaded. Review the mismatched paths before restoring.";
   }
 
   function renderDocumentResults() {
@@ -6214,6 +6243,20 @@ interface ActionDialogSession {
     });
     on(els.settingsBackupScript, "click", function () {
       downloadBackupScript();
+    });
+    on(els.settingsBackupValidate, "click", function () {
+      els.settingsBackupValidateInput.value = "";
+      els.settingsBackupValidateInput.click();
+    });
+    on(els.settingsBackupValidateInput, "change", function () {
+      const file = els.settingsBackupValidateInput.files && els.settingsBackupValidateInput.files[0]
+        ? els.settingsBackupValidateInput.files[0]
+        : null;
+      validateBackupManifestFile(file).catch(function (error) {
+        els.settingsStatus.textContent = "Backup validation failed: " + errorMessage(error);
+      }).finally(function () {
+        els.settingsBackupValidateInput.value = "";
+      });
     });
     on(els.closeActionDialog, "click", function () {
       dismissActionDialog(null);

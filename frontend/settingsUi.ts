@@ -1,4 +1,5 @@
 import { clearNode } from "./dom";
+import type { BackupManifestValidationResult } from "./backupValidation";
 import { analyzeHotkeys, detectHotkeyPlatform, hotkeyDefinitions, hotkeyDefaultGuidance } from "./hotkeys";
 import type { AISettings, AppSettings as SettingsModel, FrontmatterKind, MetaResponse, NoteTemplate, NoteTemplateField, ThemeRecord } from "./types";
 import type { Hotkeys } from "./types";
@@ -15,6 +16,7 @@ export interface SettingsUiState {
   settingsTemplateDrafts: NoteTemplate[];
   settings: SettingsModel;
   serverMeta: MetaResponse | null;
+  backupManifestValidation: BackupManifestValidationResult | null;
   aiSettings: AISettings;
   aiAPIKeyConfigured: boolean;
   aiClearKeyPending: boolean;
@@ -43,7 +45,10 @@ export interface SettingsUiElements {
   settingsBackupDatabase: HTMLElement;
   settingsBackupDownload: HTMLButtonElement;
   settingsBackupScript: HTMLButtonElement;
+  settingsBackupValidate: HTMLButtonElement;
+  settingsBackupValidateInput: HTMLInputElement;
   settingsBackupNote: HTMLElement;
+  settingsBackupValidation: HTMLDivElement;
   settingsRuntimeListenAddr: HTMLElement;
   settingsRuntimeServerTime: HTMLElement;
   settingsRuntimeCurrentVault: HTMLElement;
@@ -126,6 +131,82 @@ export function renderSettingsModal(state: SettingsUiState, els: SettingsUiEleme
   els.settingsGroupServer.classList.toggle("hidden", activeSection !== "vault");
   els.saveSettings.classList.remove("hidden");
   els.saveSettings.textContent = "Save Settings";
+}
+
+function renderBackupManifestValidation(state: SettingsUiState, els: SettingsUiElements): void {
+  clearNode(els.settingsBackupValidation);
+  const result = state.backupManifestValidation;
+  if (!result || !state.serverMeta) {
+    els.settingsBackupValidation.classList.add("hidden");
+    return;
+  }
+
+  els.settingsBackupValidation.classList.remove("hidden");
+  els.settingsBackupValidation.classList.toggle("is-warning", !result.matchesCurrentDeployment);
+  els.settingsBackupValidation.classList.toggle("is-match", result.matchesCurrentDeployment);
+
+  const head = document.createElement("div");
+  head.className = "settings-backup-validation-head";
+  const title = document.createElement("strong");
+  title.textContent = result.matchesCurrentDeployment ? "Manifest Matches Current Deployment" : "Manifest Needs Review";
+  const source = document.createElement("span");
+  source.textContent = result.sourceLabel + " · " + result.manifest.generatedAt;
+  head.appendChild(title);
+  head.appendChild(source);
+  els.settingsBackupValidation.appendChild(head);
+
+  const summary = document.createElement("p");
+  summary.className = "settings-backup-validation-summary";
+  summary.textContent = result.summary;
+  els.settingsBackupValidation.appendChild(summary);
+
+  const checks = document.createElement("div");
+  checks.className = "settings-backup-validation-checks";
+  result.checks.forEach(function (check) {
+    const row = document.createElement("div");
+    row.className = "settings-backup-validation-row";
+    row.classList.toggle("is-warning", !check.matches);
+
+    const label = document.createElement("span");
+    label.className = "settings-backup-validation-label";
+    label.textContent = check.label;
+    row.appendChild(label);
+
+    const values = document.createElement("div");
+    values.className = "settings-backup-validation-values";
+
+    const manifestValue = document.createElement("div");
+    manifestValue.textContent = "Manifest: " + check.manifestValue;
+    values.appendChild(manifestValue);
+
+    const currentValue = document.createElement("div");
+    currentValue.textContent = "Current: " + check.currentValue;
+    values.appendChild(currentValue);
+
+    row.appendChild(values);
+
+    const status = document.createElement("span");
+    status.className = "settings-backup-validation-status";
+    status.textContent = check.matches ? "Match" : "Mismatch";
+    row.appendChild(status);
+
+    checks.appendChild(row);
+  });
+  els.settingsBackupValidation.appendChild(checks);
+
+  const stepsTitle = document.createElement("strong");
+  stepsTitle.className = "settings-backup-validation-steps-title";
+  stepsTitle.textContent = "Restore Order";
+  els.settingsBackupValidation.appendChild(stepsTitle);
+
+  const steps = document.createElement("ol");
+  steps.className = "settings-backup-validation-steps";
+  result.restoreSteps.forEach(function (step) {
+    const item = document.createElement("li");
+    item.textContent = step;
+    steps.appendChild(item);
+  });
+  els.settingsBackupValidation.appendChild(steps);
 }
 
 function templateFieldDefaultValue(field: NoteTemplateField): string {
@@ -383,6 +464,8 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
     els.settingsVaultPath,
     els.settingsNtfyInterval,
     els.settingsBackupDownload,
+    els.settingsBackupScript,
+    els.settingsBackupValidate,
   ];
   const aiFields: Array<HTMLInputElement | HTMLButtonElement> = [
     els.settingsAIEnabled,
@@ -442,9 +525,11 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
   els.settingsBackupDatabase.textContent = database || "(unknown)";
   els.settingsBackupDownload.disabled = !state.serverMeta;
   els.settingsBackupScript.disabled = !state.serverMeta;
+  els.settingsBackupValidate.disabled = !state.serverMeta;
   els.settingsBackupNote.textContent = database
     ? "Back up the vault root and the full data dir. Download the manifest for metadata, or the shell script for a ready-to-run archive command. The SQLite index can be rebuilt, but page history, trash, themes, auth state, and other server-managed files live under the data dir."
     : "Back up the vault root and the full data dir. The vault is not the whole deployment state.";
+  renderBackupManifestValidation(state, els);
   const currentVault = state.serverMeta && state.serverMeta.currentVault
     ? String(state.serverMeta.currentVault.vaultPath || "").trim()
     : "";

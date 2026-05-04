@@ -3743,6 +3743,101 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   margin: 0;
 }
 
+.settings-backup-validation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-top: 0.3rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-soft) 82%, transparent);
+}
+
+.settings-backup-validation.is-match {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+}
+
+.settings-backup-validation.is-warning {
+  border-color: color-mix(in srgb, var(--warn) 28%, var(--line));
+}
+
+.settings-backup-validation-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.45rem 0.8rem;
+}
+
+.settings-backup-validation-head strong {
+  font-size: 0.9rem;
+}
+
+.settings-backup-validation-head span,
+.settings-backup-validation-summary,
+.settings-backup-validation-values,
+.settings-backup-validation-steps {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.settings-backup-validation-summary {
+  margin: 0;
+  color: var(--ink);
+}
+
+.settings-backup-validation-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.settings-backup-validation-row {
+  display: grid;
+  grid-template-columns: minmax(0, 150px) minmax(0, 1fr) auto;
+  gap: 0.45rem 0.8rem;
+  align-items: start;
+  padding: 0.55rem 0.65rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.settings-backup-validation-row.is-warning {
+  border-color: color-mix(in srgb, var(--warn) 24%, var(--line));
+}
+
+.settings-backup-validation-label,
+.settings-backup-validation-status,
+.settings-backup-validation-steps-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.settings-backup-validation-status {
+  color: var(--ink);
+}
+
+.settings-backup-validation-values {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-backup-validation-steps-title {
+  color: var(--ink);
+}
+
+.settings-backup-validation-steps {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
 .settings-theme-actions {
   display: flex;
   gap: 0.5rem;

@@ -8,6 +8,10 @@ export interface PageConflictDraftInput {
   remoteMarkdown: string;
 }
 
+export interface PageConflictDialogDraftInput extends PageConflictDraftInput {
+  resolutionMarkdown?: string;
+}
+
 export interface PageConflictDraft {
   mode: PageConflictMode;
   pagePath: string;
@@ -79,4 +83,12 @@ export function createPageConflictDraft(input: PageConflictDraftInput): PageConf
     callout: "Finish or cancel the open property, table, or title edit first if you want to keep working locally. Reloading now will discard those transient edits.",
     editable: false,
   };
+}
+
+export function createPageConflictDialogDraft(input: PageConflictDialogDraftInput): PageConflictDraft {
+  const draft = createPageConflictDraft(input);
+  if (typeof input.resolutionMarkdown === "string") {
+    draft.resolutionMarkdown = normalizeMarkdown(input.resolutionMarkdown);
+  }
+  return draft;
 }

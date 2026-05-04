@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createPageConflictDraft } from "./pageConflict";
+import { createPageConflictDialogDraft, createPageConflictDraft } from "./pageConflict";
 
 describe("createPageConflictDraft", function () {
   it("builds an editable save-conflict draft seeded with local markdown", function () {
@@ -44,5 +44,19 @@ describe("createPageConflictDraft", function () {
     expect(draft.editable).toBe(false);
     expect(draft.title).toBe("Review Remote Change");
     expect(draft.callout).toContain("Reloading now will discard");
+  });
+
+  it("can preserve an explicit resolution markdown that differs from the local pane", function () {
+    const draft = createPageConflictDialogDraft({
+      mode: "remote-conflict",
+      pagePath: "notes/alpha",
+      baseMarkdown: "# Alpha\nbase\n",
+      localMarkdown: "# Alpha\nattempt two\n",
+      remoteMarkdown: "# Alpha\nremote\n",
+      resolutionMarkdown: "# Alpha\nattempt three\n",
+    });
+
+    expect(draft.localMarkdown).toBe("# Alpha\nattempt two\n");
+    expect(draft.resolutionMarkdown).toBe("# Alpha\nattempt three\n");
   });
 });

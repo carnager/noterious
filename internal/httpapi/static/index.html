@@ -680,8 +680,11 @@
               <div class="settings-backup-actions">
                 <button type="button" id="settings-backup-download">Download Backup Manifest</button>
                 <button type="button" id="settings-backup-script" class="ghost">Download Backup Script</button>
+                <button type="button" id="settings-backup-validate" class="ghost">Validate Backup Manifest</button>
+                <input id="settings-backup-validate-input" type="file" accept="application/json,.json" class="hidden">
               </div>
               <p class="settings-backup-note" id="settings-backup-note">The SQLite index is rebuildable from the vault, but history, trash, themes, and auth state live under the data dir.</p>
+              <div id="settings-backup-validation" class="settings-backup-validation hidden"></div>
             </div>
             <div class="settings-runtime-card">
               <div class="settings-backup-head">

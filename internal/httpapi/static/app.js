@@ -357,7 +357,7 @@
   }
   function buildBackupManifest(meta) {
     const runtimeVaultPath = safeString(meta.runtimeVault && meta.runtimeVault.vaultPath, "(unknown)");
-    const currentScopeVault = safeString(meta.currentVault && meta.currentVault.vaultPath);
+    const currentScopeVault2 = safeString(meta.currentVault && meta.currentVault.vaultPath);
     return {
       generatedAt: safeString(meta.serverTime, (/* @__PURE__ */ new Date()).toISOString()),
       app: {
@@ -368,7 +368,7 @@
         vaultRoot: runtimeVaultPath,
         dataDir: safeString(meta.dataDir, "(unknown)"),
         database: safeString(meta.database, "(unknown)"),
-        currentScopeVault: currentScopeVault && currentScopeVault !== runtimeVaultPath ? currentScopeVault : void 0
+        currentScopeVault: currentScopeVault2 && currentScopeVault2 !== runtimeVaultPath ? currentScopeVault2 : void 0
       },
       restartRequired: Boolean(meta.restartRequired),
       notes: [
@@ -388,8 +388,109 @@
     }
   });
 
+  // frontend/backupValidation.ts
+  function safeString2(value) {
+    return String(value || "").trim();
+  }
+  function requiredString(value, label) {
+    const normalized = safeString2(value);
+    if (!normalized) {
+      throw new Error("Backup manifest is missing " + label + ".");
+    }
+    return normalized;
+  }
+  function parseBackupManifestJSON(raw) {
+    let parsed;
+    try {
+      parsed = JSON.parse(String(raw || ""));
+    } catch {
+      throw new Error("Backup manifest is not valid JSON.");
+    }
+    const manifest = parsed;
+    if (!manifest || typeof manifest !== "object") {
+      throw new Error("Backup manifest must be a JSON object.");
+    }
+    return {
+      generatedAt: requiredString(manifest.generatedAt, "generatedAt"),
+      app: {
+        name: requiredString(manifest.app && manifest.app.name, "app.name"),
+        listenAddr: requiredString(manifest.app && manifest.app.listenAddr, "app.listenAddr")
+      },
+      paths: {
+        vaultRoot: requiredString(manifest.paths && manifest.paths.vaultRoot, "paths.vaultRoot"),
+        dataDir: requiredString(manifest.paths && manifest.paths.dataDir, "paths.dataDir"),
+        database: requiredString(manifest.paths && manifest.paths.database, "paths.database"),
+        currentScopeVault: safeString2(manifest.paths && manifest.paths.currentScopeVault) || void 0
+      },
+      restartRequired: Boolean(manifest.restartRequired),
+      notes: Array.isArray(manifest.notes) ? manifest.notes.map(function(entry) {
+        return safeString2(entry);
+      }).filter(Boolean) : []
+    };
+  }
+  function currentScopeVault(meta) {
+    return safeString2(meta.currentVault && meta.currentVault.vaultPath);
+  }
+  function validateBackupManifest(meta, manifest, sourceLabel) {
+    const checks = [
+      {
+        key: "vaultRoot",
+        label: "Vault Root",
+        manifestValue: safeString2(manifest.paths.vaultRoot),
+        currentValue: safeString2(meta.runtimeVault && meta.runtimeVault.vaultPath),
+        matches: safeString2(manifest.paths.vaultRoot) === safeString2(meta.runtimeVault && meta.runtimeVault.vaultPath)
+      },
+      {
+        key: "dataDir",
+        label: "Data Dir",
+        manifestValue: safeString2(manifest.paths.dataDir),
+        currentValue: safeString2(meta.dataDir),
+        matches: safeString2(manifest.paths.dataDir) === safeString2(meta.dataDir)
+      },
+      {
+        key: "database",
+        label: "Index DB",
+        manifestValue: safeString2(manifest.paths.database),
+        currentValue: safeString2(meta.database),
+        matches: safeString2(manifest.paths.database) === safeString2(meta.database)
+      }
+    ];
+    const manifestScope = safeString2(manifest.paths.currentScopeVault);
+    const liveScope = currentScopeVault(meta);
+    if (manifestScope || liveScope) {
+      checks.push({
+        key: "currentScopeVault",
+        label: "Current Scope Vault",
+        manifestValue: manifestScope || "(none)",
+        currentValue: liveScope || "(none)",
+        matches: manifestScope === liveScope
+      });
+    }
+    const matchesCurrentDeployment = checks.every(function(check) {
+      return check.matches;
+    });
+    return {
+      manifest,
+      sourceLabel,
+      matchesCurrentDeployment,
+      summary: matchesCurrentDeployment ? "Backup manifest matches the current deployment paths." : "Backup manifest paths differ from the current deployment. Double-check the restore target before proceeding.",
+      checks,
+      restoreSteps: [
+        "Stop the Noterious server before restoring any files.",
+        "Restore the full vault root from the backup set.",
+        "Restore the full data dir from the backup set.",
+        "Start the server again and verify the vault opens cleanly."
+      ]
+    };
+  }
+  var init_backupValidation = __esm({
+    "frontend/backupValidation.ts"() {
+      "use strict";
+    }
+  });
+
   // frontend/backupScript.ts
-  function safeString2(value, fallback = "") {
+  function safeString3(value, fallback = "") {
     const trimmed = String(value || "").trim();
     return trimmed || fallback;
   }
@@ -422,12 +523,12 @@
     return "# " + String(value || "").replace(/\s+/g, " ").trim();
   }
   function buildBackupScript(meta) {
-    const appName = safeString2(meta.name, "noterious");
-    const generatedAt = safeString2(meta.serverTime, (/* @__PURE__ */ new Date()).toISOString());
-    const runtimeVaultPath = safeString2(meta.runtimeVault && meta.runtimeVault.vaultPath, "/path/to/noterious-vault");
-    const dataDir = safeString2(meta.dataDir, "/path/to/noterious-data");
-    const database = safeString2(meta.database, dataDir ? dataDir.replace(/\/+$/g, "") + "/index.sqlite" : "/path/to/noterious-data/index.sqlite");
-    const currentScopeVault = safeString2(meta.currentVault && meta.currentVault.vaultPath);
+    const appName = safeString3(meta.name, "noterious");
+    const generatedAt = safeString3(meta.serverTime, (/* @__PURE__ */ new Date()).toISOString());
+    const runtimeVaultPath = safeString3(meta.runtimeVault && meta.runtimeVault.vaultPath, "/path/to/noterious-vault");
+    const dataDir = safeString3(meta.dataDir, "/path/to/noterious-data");
+    const database = safeString3(meta.database, dataDir ? dataDir.replace(/\/+$/g, "") + "/index.sqlite" : "/path/to/noterious-data/index.sqlite");
+    const currentScopeVault2 = safeString3(meta.currentVault && meta.currentVault.vaultPath);
     const lines = [
       "#!/usr/bin/env sh",
       "set -eu",
@@ -436,7 +537,7 @@
       comment("Usage: sh ./noterious-backup.sh [/path/to/backup-root]"),
       comment("This backs up the full deployment: runtime vault root + data dir."),
       comment("The SQLite index is rebuildable, but the rest of the data dir is not."),
-      currentScopeVault && currentScopeVault !== runtimeVaultPath ? comment("Current UI scope at generation time: " + currentScopeVault) : "",
+      currentScopeVault2 && currentScopeVault2 !== runtimeVaultPath ? comment("Current UI scope at generation time: " + currentScopeVault2) : "",
       "",
       "APP_NAME=" + shellQuote(appName),
       "VAULT_PATH=" + shellQuote(runtimeVaultPath),
@@ -475,7 +576,7 @@
     return lines.filter(Boolean).join("\n") + "\n";
   }
   function backupScriptFilename(meta) {
-    const isoTimestamp = safeString2(meta.serverTime, (/* @__PURE__ */ new Date()).toISOString()).replace(/[:]/g, "-");
+    const isoTimestamp = safeString3(meta.serverTime, (/* @__PURE__ */ new Date()).toISOString()).replace(/[:]/g, "-");
     return "noterious-backup-" + isoTimestamp + ".sh";
   }
   var init_backupScript = __esm({
@@ -6789,6 +6890,68 @@
     els.saveSettings.classList.remove("hidden");
     els.saveSettings.textContent = "Save Settings";
   }
+  function renderBackupManifestValidation(state, els) {
+    clearNode(els.settingsBackupValidation);
+    const result = state.backupManifestValidation;
+    if (!result || !state.serverMeta) {
+      els.settingsBackupValidation.classList.add("hidden");
+      return;
+    }
+    els.settingsBackupValidation.classList.remove("hidden");
+    els.settingsBackupValidation.classList.toggle("is-warning", !result.matchesCurrentDeployment);
+    els.settingsBackupValidation.classList.toggle("is-match", result.matchesCurrentDeployment);
+    const head = document.createElement("div");
+    head.className = "settings-backup-validation-head";
+    const title = document.createElement("strong");
+    title.textContent = result.matchesCurrentDeployment ? "Manifest Matches Current Deployment" : "Manifest Needs Review";
+    const source = document.createElement("span");
+    source.textContent = result.sourceLabel + " \xB7 " + result.manifest.generatedAt;
+    head.appendChild(title);
+    head.appendChild(source);
+    els.settingsBackupValidation.appendChild(head);
+    const summary = document.createElement("p");
+    summary.className = "settings-backup-validation-summary";
+    summary.textContent = result.summary;
+    els.settingsBackupValidation.appendChild(summary);
+    const checks = document.createElement("div");
+    checks.className = "settings-backup-validation-checks";
+    result.checks.forEach(function(check) {
+      const row = document.createElement("div");
+      row.className = "settings-backup-validation-row";
+      row.classList.toggle("is-warning", !check.matches);
+      const label = document.createElement("span");
+      label.className = "settings-backup-validation-label";
+      label.textContent = check.label;
+      row.appendChild(label);
+      const values = document.createElement("div");
+      values.className = "settings-backup-validation-values";
+      const manifestValue = document.createElement("div");
+      manifestValue.textContent = "Manifest: " + check.manifestValue;
+      values.appendChild(manifestValue);
+      const currentValue = document.createElement("div");
+      currentValue.textContent = "Current: " + check.currentValue;
+      values.appendChild(currentValue);
+      row.appendChild(values);
+      const status = document.createElement("span");
+      status.className = "settings-backup-validation-status";
+      status.textContent = check.matches ? "Match" : "Mismatch";
+      row.appendChild(status);
+      checks.appendChild(row);
+    });
+    els.settingsBackupValidation.appendChild(checks);
+    const stepsTitle = document.createElement("strong");
+    stepsTitle.className = "settings-backup-validation-steps-title";
+    stepsTitle.textContent = "Restore Order";
+    els.settingsBackupValidation.appendChild(stepsTitle);
+    const steps = document.createElement("ol");
+    steps.className = "settings-backup-validation-steps";
+    result.restoreSteps.forEach(function(step) {
+      const item = document.createElement("li");
+      item.textContent = step;
+      steps.appendChild(item);
+    });
+    els.settingsBackupValidation.appendChild(steps);
+  }
   function templateFieldDefaultValue2(field) {
     if (field.kind === "bool") {
       return Boolean(field.defaultValue) ? "true" : "false";
@@ -7011,7 +7174,9 @@
     const serverFields = [
       els.settingsVaultPath,
       els.settingsNtfyInterval,
-      els.settingsBackupDownload
+      els.settingsBackupDownload,
+      els.settingsBackupScript,
+      els.settingsBackupValidate
     ];
     const aiFields = [
       els.settingsAIEnabled,
@@ -7066,7 +7231,9 @@
     els.settingsBackupDatabase.textContent = database || "(unknown)";
     els.settingsBackupDownload.disabled = !state.serverMeta;
     els.settingsBackupScript.disabled = !state.serverMeta;
+    els.settingsBackupValidate.disabled = !state.serverMeta;
     els.settingsBackupNote.textContent = database ? "Back up the vault root and the full data dir. Download the manifest for metadata, or the shell script for a ready-to-run archive command. The SQLite index can be rebuilt, but page history, trash, themes, auth state, and other server-managed files live under the data dir." : "Back up the vault root and the full data dir. The vault is not the whole deployment state.";
+    renderBackupManifestValidation(state, els);
     const currentVault = state.serverMeta && state.serverMeta.currentVault ? String(state.serverMeta.currentVault.vaultPath || "").trim() : "";
     const serverTime = state.serverMeta ? String(state.serverMeta.serverTime || "").trim() : "";
     const vaultHealth = state.serverMeta && state.serverMeta.vaultHealth ? state.serverMeta.vaultHealth : null;
@@ -8042,8 +8209,40 @@
       editable: false
     };
   }
+  function createPageConflictDialogDraft(input) {
+    const draft = createPageConflictDraft(input);
+    if (typeof input.resolutionMarkdown === "string") {
+      draft.resolutionMarkdown = normalizeMarkdown(input.resolutionMarkdown);
+    }
+    return draft;
+  }
   var init_pageConflict = __esm({
     "frontend/pageConflict.ts"() {
+      "use strict";
+    }
+  });
+
+  // frontend/pageChangeEvents.ts
+  function matchExternalPageChange(input) {
+    if (input.eventName !== "page.changed" || !input.targetPage) {
+      return false;
+    }
+    const eventPage = typeof input.payload.page === "string" ? input.payload.page : "";
+    const eventOrigin = typeof input.payload.originClientId === "string" ? input.payload.originClientId : "";
+    if (!eventPage || eventPage !== input.targetPage) {
+      return false;
+    }
+    if (eventOrigin && eventOrigin === input.currentClientId) {
+      input.consumeExpectedLocalChange(eventPage);
+      return false;
+    }
+    if (input.consumeExpectedLocalChange(eventPage)) {
+      return false;
+    }
+    return true;
+  }
+  var init_pageChangeEvents = __esm({
+    "frontend/pageChangeEvents.ts"() {
       "use strict";
     }
   });
@@ -9725,6 +9924,7 @@
     "frontend/app.ts"() {
       init_commands();
       init_backupManifest();
+      init_backupValidation();
       init_backupScript();
       init_clientPreferences();
       init_details();
@@ -9755,6 +9955,7 @@
       init_slashMenu();
       init_remoteSync();
       init_pageConflict();
+      init_pageChangeEvents();
       init_remotePageSync();
       init_themes();
       (function() {
@@ -9833,6 +10034,7 @@
           aiSettingsLoaded: false,
           userSettingsLoaded: false,
           serverMeta: null,
+          backupManifestValidation: null,
           aiSettings: {
             enabled: false,
             provider: "openai-compatible",
@@ -10090,7 +10292,10 @@
           settingsBackupDatabase: requiredElement("settings-backup-database"),
           settingsBackupDownload: requiredElement("settings-backup-download"),
           settingsBackupScript: requiredElement("settings-backup-script"),
+          settingsBackupValidate: requiredElement("settings-backup-validate"),
+          settingsBackupValidateInput: requiredElement("settings-backup-validate-input"),
           settingsBackupNote: requiredElement("settings-backup-note"),
+          settingsBackupValidation: requiredElement("settings-backup-validation"),
           settingsRuntimeListenAddr: requiredElement("settings-runtime-listen-addr"),
           settingsRuntimeServerTime: requiredElement("settings-runtime-server-time"),
           settingsRuntimeCurrentVault: requiredElement("settings-runtime-current-vault"),
@@ -10347,40 +10552,22 @@
           }
         }
         function isSelectedExternalPageChange(eventName, payload) {
-          if (eventName !== "page.changed" || !state.selectedPage) {
-            return false;
-          }
-          const eventPage = typeof payload.page === "string" ? payload.page : "";
-          const eventOrigin = typeof payload.originClientId === "string" ? payload.originClientId : "";
-          if (!eventPage || eventPage !== state.selectedPage) {
-            return false;
-          }
-          if (eventOrigin && eventOrigin === currentClientInstanceId()) {
-            consumeExpectedLocalPageChange(eventPage);
-            return false;
-          }
-          if (consumeExpectedLocalPageChange(eventPage)) {
-            return false;
-          }
-          return true;
+          return matchExternalPageChange({
+            eventName,
+            payload,
+            targetPage: state.selectedPage || "",
+            currentClientId: currentClientInstanceId(),
+            consumeExpectedLocalChange: consumeExpectedLocalPageChange
+          });
         }
         function isCurrentConflictPageChange(eventName, payload) {
-          if (eventName !== "page.changed" || !state.pageConflict) {
-            return false;
-          }
-          const eventPage = typeof payload.page === "string" ? payload.page : "";
-          const eventOrigin = typeof payload.originClientId === "string" ? payload.originClientId : "";
-          if (!eventPage || eventPage !== state.pageConflict.pagePath) {
-            return false;
-          }
-          if (eventOrigin && eventOrigin === currentClientInstanceId()) {
-            consumeExpectedLocalPageChange(eventPage);
-            return false;
-          }
-          if (consumeExpectedLocalPageChange(eventPage)) {
-            return false;
-          }
-          return true;
+          return matchExternalPageChange({
+            eventName,
+            payload,
+            targetPage: state.pageConflict ? state.pageConflict.pagePath : "",
+            currentClientId: currentClientInstanceId(),
+            consumeExpectedLocalChange: consumeExpectedLocalPageChange
+          });
         }
         function applyLoadedPageDetailState(pagePath, loaded, nextMarkdown) {
           const page = loaded.page;
@@ -12201,6 +12388,7 @@
           try {
             const meta = await fetchJSON("/api/meta");
             state.serverMeta = meta;
+            refreshBackupManifestValidation();
             const runtimeVaultPath = meta.runtimeVault && meta.runtimeVault.vaultPath ? meta.runtimeVault.vaultPath : "(none)";
             const pills = [
               "Listening " + meta.listenAddr,
@@ -13054,21 +13242,19 @@
         async function loadLatestConflictDetail(pagePath) {
           return loadPageDetailData(pagePath, encodePath, "", null);
         }
-        function openPageConflictDialog(mode, pagePath, loadedRemote, resolutionMarkdown, statusMessage) {
+        function openPageConflictDialog(mode, pagePath, loadedRemote, options) {
           const remoteMarkdown = loadedRemote.page.rawMarkdown || "";
-          const draft = createPageConflictDraft({
+          const draft = createPageConflictDialogDraft({
             mode,
             pagePath,
             baseMarkdown: state.originalMarkdown,
-            localMarkdown: state.currentMarkdown,
-            remoteMarkdown
+            localMarkdown: typeof options?.localMarkdown === "string" ? options.localMarkdown : state.currentMarkdown,
+            remoteMarkdown,
+            resolutionMarkdown: options?.resolutionMarkdown
           });
-          if (typeof resolutionMarkdown === "string") {
-            draft.resolutionMarkdown = resolutionMarkdown;
-          }
           state.pageConflict = draft;
           state.pageConflictRemoteLoaded = loadedRemote;
-          state.pageConflictStatus = statusMessage || "";
+          state.pageConflictStatus = options?.statusMessage || "";
           setPageConflictOpen(true);
         }
         async function applyConflictRemoteVersion() {
@@ -13125,8 +13311,11 @@
                   conflict.mode,
                   conflict.pagePath,
                   loadedRemote,
-                  markdownToSave,
-                  "The page changed again while you were resolving it. Review the latest remote version and save again."
+                  {
+                    localMarkdown: markdownToSave,
+                    resolutionMarkdown: markdownToSave,
+                    statusMessage: "The page changed again while you were resolving it. Review the latest remote version and save again."
+                  }
                 );
                 setNoteStatus("Conflict changed again on " + conflict.pagePath + ".");
                 return;
@@ -13149,8 +13338,11 @@
             "save-conflict",
             pagePath,
             loadedRemote,
-            markdownToSave,
-            "Automatic merge found overlapping edits. Review both versions and save the final markdown you want to keep."
+            {
+              localMarkdown: markdownToSave,
+              resolutionMarkdown: markdownToSave,
+              statusMessage: "Automatic merge found overlapping edits. Review both versions and save the final markdown you want to keep."
+            }
           );
         }
         function selectedPageHistoryRevision2() {
@@ -13680,6 +13872,30 @@
             "text/x-shellscript"
           );
           els.settingsStatus.textContent = "Backup script downloaded.";
+        }
+        function refreshBackupManifestValidation() {
+          if (!state.serverMeta || !state.backupManifestValidation) {
+            return;
+          }
+          state.backupManifestValidation = validateBackupManifest(
+            state.serverMeta,
+            state.backupManifestValidation.manifest,
+            state.backupManifestValidation.sourceLabel
+          );
+        }
+        async function validateBackupManifestFile(file) {
+          if (!file) {
+            return;
+          }
+          if (!state.serverMeta) {
+            els.settingsStatus.textContent = "Backup validation unavailable until server metadata loads.";
+            return;
+          }
+          const sourceLabel = String(file.name || "backup manifest").trim() || "backup manifest";
+          const manifest = parseBackupManifestJSON(await file.text());
+          state.backupManifestValidation = validateBackupManifest(state.serverMeta, manifest, sourceLabel);
+          renderSettingsForm2();
+          els.settingsStatus.textContent = state.backupManifestValidation.matchesCurrentDeployment ? "Backup manifest matches the current deployment." : "Backup manifest loaded. Review the mismatched paths before restoring.";
         }
         function renderDocumentResults2() {
           renderDocumentsUploadHint();
@@ -15025,6 +15241,18 @@
           });
           on(els.settingsBackupScript, "click", function() {
             downloadBackupScript();
+          });
+          on(els.settingsBackupValidate, "click", function() {
+            els.settingsBackupValidateInput.value = "";
+            els.settingsBackupValidateInput.click();
+          });
+          on(els.settingsBackupValidateInput, "change", function() {
+            const file = els.settingsBackupValidateInput.files && els.settingsBackupValidateInput.files[0] ? els.settingsBackupValidateInput.files[0] : null;
+            validateBackupManifestFile(file).catch(function(error) {
+              els.settingsStatus.textContent = "Backup validation failed: " + errorMessage(error);
+            }).finally(function() {
+              els.settingsBackupValidateInput.value = "";
+            });
           });
           on(els.closeActionDialog, "click", function() {
             dismissActionDialog(null);
