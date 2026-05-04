@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parseFrontmatter } from "./markdown";
 import {
   allNoteTemplatesFromPages,
+  buildPropertyKindHintMetadataPatch,
   buildMarkdownFromTemplate,
   buildPagePathFromTemplate,
   createBlankNoteTemplate,
@@ -140,6 +141,9 @@ describe("note templates", function () {
     );
 
     expect(parseFrontmatter(markdown)).toEqual({
+      _type_date: ["geburtstag"],
+      _type_notification: ["birthday_notification"],
+      _type_tags: ["tags"],
       vorname: "Alina",
       nachname: "",
       geburtstag: "",
@@ -150,6 +154,35 @@ describe("note templates", function () {
     });
     expect(markdown).toContain("## Notes");
     expect(markdown).toContain("- call Alina");
+  });
+
+  it("builds normalized per-note type metadata and removes legacy aliases", function () {
+    expect(buildPropertyKindHintMetadataPatch({
+      geburtstag: "date",
+      birthday_notification: "notification",
+      tags: "tags",
+      title: "text",
+    })).toEqual({
+      set: {
+        _type_date: ["geburtstag"],
+        _type_notification: ["birthday_notification"],
+        _type_tags: ["tags"],
+      },
+      remove: [
+        "_type_tags",
+        "_template_tags",
+        "_type_list",
+        "_template_list",
+        "_type_bool",
+        "_template_bool",
+        "_type_date",
+        "_template_date",
+        "_type_datetime",
+        "_template_datetime",
+        "_type_notification",
+        "_template_notification",
+      ],
+    });
   });
 
   it("derives property kind hints from the referenced template when created notes only keep the marker", function () {
@@ -168,6 +201,23 @@ describe("note templates", function () {
       birthday_notification: "notification",
       phone_private: "text",
       email: "text",
+      tags: "tags",
+    });
+  });
+
+  it("derives property kind hints from per-note metadata", function () {
+    const hints = templatePropertyKindHints({
+      _type_date: ["geburtstag"],
+      _type_notification: ["birthday_notification"],
+      _type_tags: ["tags"],
+      geburtstag: "",
+      birthday_notification: "",
+      tags: [],
+    }, []);
+
+    expect(hints).toEqual({
+      geburtstag: "date",
+      birthday_notification: "notification",
       tags: "tags",
     });
   });

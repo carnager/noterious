@@ -989,6 +989,45 @@
   });
 
   // frontend/noteTemplates.ts
+  function propertyKindMetadataFromHints(hints) {
+    const result = {};
+    const entries = Object.entries(hints).map(function([key, kind]) {
+      return [String(key || "").trim(), kind];
+    }).filter(function([key, kind]) {
+      return Boolean(key) && kind !== "text";
+    });
+    kindMetadataDescriptors.forEach(function(descriptor) {
+      const values = entries.filter(function([, kind]) {
+        return kind === descriptor.kind;
+      }).map(function([key]) {
+        return key;
+      }).sort();
+      if (values.length) {
+        result[descriptor.key] = values;
+      }
+    });
+    return result;
+  }
+  function directPropertyKindHintsFromFrontmatter(frontmatter) {
+    const source = frontmatter || {};
+    const result = {};
+    kindMetadataDescriptors.forEach(function(descriptor) {
+      descriptor.aliases.forEach(function(alias) {
+        stringEntriesFromFrontmatterValue(source[alias]).forEach(function(fieldKey) {
+          result[fieldKey] = descriptor.kind;
+        });
+      });
+    });
+    return result;
+  }
+  function buildPropertyKindHintMetadataPatch(hints) {
+    return {
+      set: propertyKindMetadataFromHints(hints),
+      remove: kindMetadataDescriptors.flatMap(function(descriptor) {
+        return descriptor.aliases;
+      })
+    };
+  }
   function isNotificationClickKey(key) {
     const normalized = String(key || "").trim().toLowerCase();
     return normalized === "click" || normalized.endsWith("_click") || normalized.endsWith("-click");
@@ -1007,7 +1046,7 @@
     return normalizePageDraftPath(value).replace(/\/+$/g, "");
   }
   function isTemplateMetadataKey(key) {
-    return templateMetadataKeys.has(String(key || "").trim());
+    return internalMetadataKeys.has(String(key || "").trim()) || templateMetadataKeys.has(String(key || "").trim());
   }
   function uniqueTemplateID(seed, used, fallbackIndex) {
     const base = templateSlug(seed) || "template-" + String(fallbackIndex + 1);
@@ -1194,21 +1233,7 @@
     }).filter(Boolean);
   }
   function templateKindHintsFromFrontmatter(frontmatter) {
-    const source = frontmatter || {};
-    const result = {};
-    [
-      [templateTagsKey, "tags"],
-      [templateListKey, "list"],
-      [templateBoolKey, "bool"],
-      [templateDateKey, "date"],
-      [templateDateTimeKey, "datetime"],
-      [templateNotificationKey, "notification"]
-    ].forEach(function([key, kind]) {
-      stringEntriesFromFrontmatterValue(source[key]).forEach(function(fieldKey) {
-        result[fieldKey] = kind;
-      });
-    });
-    return result;
+    return directPropertyKindHintsFromFrontmatter(frontmatter);
   }
   function inferTemplateFieldKind(value, key, hintedKind) {
     if (Array.isArray(value)) {
@@ -1266,14 +1291,23 @@
   }
   function renderTemplateFrontmatterLines(pagePath, template) {
     const lines = [];
+    const kindHints = {};
     template.fields.forEach(function(field) {
       const key = String(field.key || "").trim();
       if (!key || isTemplateMetadataKey(key)) {
         return;
       }
+      if (field.kind !== "text") {
+        kindHints[key] = field.kind;
+      }
       renderFrontmatterEntry(lines, key, templateFieldDefaultValue(field, pagePath));
     });
-    return lines;
+    const metadata = propertyKindMetadataFromHints(kindHints);
+    const metadataLines = [];
+    Object.keys(metadata).forEach(function(key) {
+      renderFrontmatterEntry(metadataLines, key, metadata[key]);
+    });
+    return metadataLines.concat(lines);
   }
   function frontmatterValueHasContent(kind, value) {
     if (kind === "list" || kind === "tags") {
@@ -1442,7 +1476,7 @@
     }
     return keys.slice(0, maxItems).join(" \xB7 ") + " +" + String(keys.length - maxItems);
   }
-  var templateFolderName, templateMarkerKey, templateLabelKey, templateFolderKey, templateListKey, templateTagsKey, templateBoolKey, templateDateKey, templateDateTimeKey, templateNotificationKey, templateMetadataKeys;
+  var templateFolderName, templateMarkerKey, templateLabelKey, templateFolderKey, templateListKey, templateTagsKey, templateBoolKey, templateDateKey, templateDateTimeKey, templateNotificationKey, propertyListKey, propertyTagsKey, propertyBoolKey, propertyDateKey, propertyDateTimeKey, propertyNotificationKey, kindMetadataDescriptors, internalMetadataKeys, templateMetadataKeys;
   var init_noteTemplates = __esm({
     "frontend/noteTemplates.ts"() {
       "use strict";
@@ -1458,16 +1492,31 @@
       templateDateKey = "_template_date";
       templateDateTimeKey = "_template_datetime";
       templateNotificationKey = "_template_notification";
+      propertyListKey = "_type_list";
+      propertyTagsKey = "_type_tags";
+      propertyBoolKey = "_type_bool";
+      propertyDateKey = "_type_date";
+      propertyDateTimeKey = "_type_datetime";
+      propertyNotificationKey = "_type_notification";
+      kindMetadataDescriptors = [
+        { key: propertyTagsKey, kind: "tags", aliases: [propertyTagsKey, templateTagsKey] },
+        { key: propertyListKey, kind: "list", aliases: [propertyListKey, templateListKey] },
+        { key: propertyBoolKey, kind: "bool", aliases: [propertyBoolKey, templateBoolKey] },
+        { key: propertyDateKey, kind: "date", aliases: [propertyDateKey, templateDateKey] },
+        { key: propertyDateTimeKey, kind: "datetime", aliases: [propertyDateTimeKey, templateDateTimeKey] },
+        { key: propertyNotificationKey, kind: "notification", aliases: [propertyNotificationKey, templateNotificationKey] }
+      ];
+      internalMetadataKeys = new Set([
+        templateMarkerKey,
+        templateLabelKey,
+        templateFolderKey
+      ].concat(kindMetadataDescriptors.flatMap(function(descriptor) {
+        return descriptor.aliases;
+      })));
       templateMetadataKeys = /* @__PURE__ */ new Set([
         templateMarkerKey,
         templateLabelKey,
-        templateFolderKey,
-        templateListKey,
-        templateTagsKey,
-        templateBoolKey,
-        templateDateKey,
-        templateDateTimeKey,
-        templateNotificationKey
+        templateFolderKey
       ]);
     }
   });
@@ -11598,6 +11647,36 @@
           const hints = currentTemplatePropertyKindHints();
           return hints[normalizedKey];
         }
+        function explicitPropertyKindHintsForCurrentPage() {
+          const page = currentPageView2();
+          const frontmatter = page ? page.frontmatter : null;
+          const hints = currentTemplatePropertyKindHints();
+          const result = {};
+          Object.keys(frontmatter || {}).forEach(function(key) {
+            if (isTemplateMetadataKey(key)) {
+              return;
+            }
+            const kind = hints[key];
+            if (kind && kind !== "text") {
+              result[key] = kind;
+            }
+          });
+          return result;
+        }
+        function propertyKindMetadataPatch(nextKey, kind, originalKey) {
+          const hints = explicitPropertyKindHintsForCurrentPage();
+          const normalizedOriginalKey = String(originalKey || "").trim();
+          const normalizedNextKey = String(nextKey || "").trim();
+          if (normalizedOriginalKey) {
+            delete hints[normalizedOriginalKey];
+          }
+          if (normalizedNextKey && kind !== "text") {
+            hints[normalizedNextKey] = kind;
+          } else if (normalizedNextKey) {
+            delete hints[normalizedNextKey];
+          }
+          return buildPropertyKindHintMetadataPatch(hints);
+        }
         function clearPropertyDraft() {
           state.editingPropertyKey = "";
           state.propertyTypeMenuKey = "";
@@ -11633,11 +11712,22 @@
             return;
           }
           state.propertyTypeMenuKey = "";
+          const nextValue = coercePropertyValue(kind, row.rawValue, row.key);
+          state.editingPropertyKey = row.key;
+          state.propertyDraft = applyPropertyDraftKind(
+            makePropertyDraft(row.key, nextValue, row.key, row.kindHint),
+            kind
+          );
+          state.propertyDraftFocusTarget = "value";
+          renderPageProperties2();
+          const metadata = propertyKindMetadataPatch(row.key, kind, row.key);
           patchCurrentPageFrontmatter({
             frontmatter: {
               set: {
-                [row.key]: coercePropertyValue(kind, row.rawValue, row.key)
-              }
+                [row.key]: nextValue,
+                ...metadata.set
+              },
+              remove: metadata.remove
             }
           }).catch(function(error) {
             setNoteStatus("Property type change failed: " + error.message);
@@ -11671,9 +11761,11 @@
           if (!key) {
             return;
           }
+          const metadata = propertyKindMetadataPatch("", "text", key);
           await patchCurrentPageFrontmatter({
             frontmatter: {
-              remove: [key]
+              set: metadata.set,
+              remove: Array.from(new Set([key].concat(metadata.remove)))
             }
           });
         }
@@ -11704,10 +11796,18 @@
           const setPayload = {};
           setPayload[key] = value;
           const remove = state.editingPropertyKey && state.editingPropertyKey !== key && state.editingPropertyKey !== "__new__" ? [state.editingPropertyKey] : [];
+          const metadata = propertyKindMetadataPatch(
+            key,
+            state.propertyDraft ? state.propertyDraft.kind : "text",
+            state.editingPropertyKey && state.editingPropertyKey !== "__new__" ? state.editingPropertyKey : void 0
+          );
           await patchCurrentPageFrontmatter({
             frontmatter: {
-              set: setPayload,
-              remove
+              set: {
+                ...setPayload,
+                ...metadata.set
+              },
+              remove: Array.from(new Set(remove.concat(metadata.remove)))
             }
           });
         }

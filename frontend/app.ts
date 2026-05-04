@@ -161,6 +161,7 @@ import {
 } from "./properties";
 import {
   allNoteTemplatesFromPages,
+  buildPropertyKindHintMetadataPatch,
   buildMarkdownFromTemplate,
   buildPagePathFromTemplate,
   cloneNoteTemplates,
@@ -2581,6 +2582,42 @@ interface ActionDialogSession {
     return hints[normalizedKey];
   }
 
+  function explicitPropertyKindHintsForCurrentPage(): Record<string, FrontmatterKind> {
+    const page = currentPageView();
+    const frontmatter = page ? page.frontmatter : null;
+    const hints = currentTemplatePropertyKindHints();
+    const result: Record<string, FrontmatterKind> = {};
+
+    Object.keys(frontmatter || {}).forEach(function (key) {
+      if (isTemplateMetadataKey(key)) {
+        return;
+      }
+      const kind = hints[key];
+      if (kind && kind !== "text") {
+        result[key] = kind;
+      }
+    });
+
+    return result;
+  }
+
+  function propertyKindMetadataPatch(nextKey: string, kind: FrontmatterKind, originalKey?: string): { set: Record<string, FrontmatterValue>; remove: string[] } {
+    const hints = explicitPropertyKindHintsForCurrentPage();
+    const normalizedOriginalKey = String(originalKey || "").trim();
+    const normalizedNextKey = String(nextKey || "").trim();
+
+    if (normalizedOriginalKey) {
+      delete hints[normalizedOriginalKey];
+    }
+    if (normalizedNextKey && kind !== "text") {
+      hints[normalizedNextKey] = kind;
+    } else if (normalizedNextKey) {
+      delete hints[normalizedNextKey];
+    }
+
+    return buildPropertyKindHintMetadataPatch(hints);
+  }
+
   function clearPropertyDraft() {
     state.editingPropertyKey = "";
     state.propertyTypeMenuKey = "";
@@ -2631,11 +2668,22 @@ interface ActionDialogSession {
     }
 
     state.propertyTypeMenuKey = "";
+    const nextValue = coercePropertyValue(kind, row.rawValue, row.key);
+    state.editingPropertyKey = row.key;
+    state.propertyDraft = applyPropertyDraftKind(
+      makePropertyDraft(row.key, nextValue, row.key, row.kindHint),
+      kind
+    );
+    state.propertyDraftFocusTarget = "value";
+    renderPageProperties();
+    const metadata = propertyKindMetadataPatch(row.key, kind, row.key);
     patchCurrentPageFrontmatter({
       frontmatter: {
         set: {
-          [row.key]: coercePropertyValue(kind, row.rawValue, row.key),
+          [row.key]: nextValue,
+          ...metadata.set,
         },
+        remove: metadata.remove,
       },
     }).catch(function (error) {
       setNoteStatus("Property type change failed: " + error.message);
@@ -2675,9 +2723,11 @@ interface ActionDialogSession {
     if (!key) {
       return;
     }
+    const metadata = propertyKindMetadataPatch("", "text", key);
     await patchCurrentPageFrontmatter({
       frontmatter: {
-        remove: [key],
+        set: metadata.set,
+        remove: Array.from(new Set([key].concat(metadata.remove))),
       },
     });
   }
@@ -2719,11 +2769,19 @@ interface ActionDialogSession {
     const remove = state.editingPropertyKey && state.editingPropertyKey !== key && state.editingPropertyKey !== "__new__"
       ? [state.editingPropertyKey]
       : [];
+    const metadata = propertyKindMetadataPatch(
+      key,
+      state.propertyDraft ? state.propertyDraft.kind : "text",
+      state.editingPropertyKey && state.editingPropertyKey !== "__new__" ? state.editingPropertyKey : undefined
+    );
 
     await patchCurrentPageFrontmatter({
       frontmatter: {
-        set: setPayload,
-        remove: remove,
+        set: {
+          ...setPayload,
+          ...metadata.set,
+        },
+        remove: Array.from(new Set(remove.concat(metadata.remove))),
       },
     });
   }

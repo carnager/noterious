@@ -20,16 +20,85 @@ export const templateDateKey = "_template_date";
 export const templateDateTimeKey = "_template_datetime";
 export const templateNotificationKey = "_template_notification";
 
+const propertyListKey = "_type_list";
+const propertyTagsKey = "_type_tags";
+const propertyBoolKey = "_type_bool";
+const propertyDateKey = "_type_date";
+const propertyDateTimeKey = "_type_datetime";
+const propertyNotificationKey = "_type_notification";
+
+const kindMetadataDescriptors: Array<{ key: string; kind: FrontmatterKind; aliases: string[] }> = [
+  { key: propertyTagsKey, kind: "tags", aliases: [propertyTagsKey, templateTagsKey] },
+  { key: propertyListKey, kind: "list", aliases: [propertyListKey, templateListKey] },
+  { key: propertyBoolKey, kind: "bool", aliases: [propertyBoolKey, templateBoolKey] },
+  { key: propertyDateKey, kind: "date", aliases: [propertyDateKey, templateDateKey] },
+  { key: propertyDateTimeKey, kind: "datetime", aliases: [propertyDateTimeKey, templateDateTimeKey] },
+  { key: propertyNotificationKey, kind: "notification", aliases: [propertyNotificationKey, templateNotificationKey] },
+];
+
+const internalMetadataKeys = new Set<string>([
+  templateMarkerKey,
+  templateLabelKey,
+  templateFolderKey,
+].concat(kindMetadataDescriptors.flatMap(function (descriptor) {
+  return descriptor.aliases;
+})));
+
+function propertyKindMetadataFromHints(hints: Record<string, FrontmatterKind>): Record<string, FrontmatterValue> {
+  const result: Record<string, FrontmatterValue> = {};
+  const entries = Object.entries(hints)
+    .map(function ([key, kind]) {
+      return [String(key || "").trim(), kind] as [string, FrontmatterKind];
+    })
+    .filter(function ([key, kind]) {
+      return Boolean(key) && kind !== "text";
+    });
+
+  kindMetadataDescriptors.forEach(function (descriptor) {
+    const values = entries
+      .filter(function ([, kind]) {
+        return kind === descriptor.kind;
+      })
+      .map(function ([key]) {
+        return key;
+      })
+      .sort();
+    if (values.length) {
+      result[descriptor.key] = values;
+    }
+  });
+
+  return result;
+}
+
+function directPropertyKindHintsFromFrontmatter(frontmatter: FrontmatterMap | null | undefined): Record<string, FrontmatterKind> {
+  const source = frontmatter || {};
+  const result: Record<string, FrontmatterKind> = {};
+
+  kindMetadataDescriptors.forEach(function (descriptor) {
+    descriptor.aliases.forEach(function (alias) {
+      stringEntriesFromFrontmatterValue(source[alias]).forEach(function (fieldKey) {
+        result[fieldKey] = descriptor.kind;
+      });
+    });
+  });
+
+  return result;
+}
+
+export function buildPropertyKindHintMetadataPatch(hints: Record<string, FrontmatterKind>): { set: Record<string, FrontmatterValue>; remove: string[] } {
+  return {
+    set: propertyKindMetadataFromHints(hints),
+    remove: kindMetadataDescriptors.flatMap(function (descriptor) {
+      return descriptor.aliases;
+    }),
+  };
+}
+
 const templateMetadataKeys = new Set<string>([
   templateMarkerKey,
   templateLabelKey,
   templateFolderKey,
-  templateListKey,
-  templateTagsKey,
-  templateBoolKey,
-  templateDateKey,
-  templateDateTimeKey,
-  templateNotificationKey,
 ]);
 
 function isNotificationClickKey(key: string | null | undefined): boolean {
@@ -62,7 +131,7 @@ function normalizeTemplateFolder(value: string): string {
 }
 
 export function isTemplateMetadataKey(key: string): boolean {
-  return templateMetadataKeys.has(String(key || "").trim());
+  return internalMetadataKeys.has(String(key || "").trim()) || templateMetadataKeys.has(String(key || "").trim());
 }
 
 function uniqueTemplateID(seed: string, used: Set<string>, fallbackIndex: number): string {
@@ -292,23 +361,7 @@ function stringEntriesFromFrontmatterValue(value: FrontmatterValue | null | unde
 }
 
 function templateKindHintsFromFrontmatter(frontmatter: FrontmatterMap | null | undefined): Record<string, FrontmatterKind> {
-  const source = frontmatter || {};
-  const result: Record<string, FrontmatterKind> = {};
-
-  [
-    [templateTagsKey, "tags"],
-    [templateListKey, "list"],
-    [templateBoolKey, "bool"],
-    [templateDateKey, "date"],
-    [templateDateTimeKey, "datetime"],
-    [templateNotificationKey, "notification"],
-  ].forEach(function ([key, kind]) {
-    stringEntriesFromFrontmatterValue(source[key]).forEach(function (fieldKey) {
-      result[fieldKey] = kind as FrontmatterKind;
-    });
-  });
-
-  return result;
+  return directPropertyKindHintsFromFrontmatter(frontmatter);
 }
 
 function inferTemplateFieldKind(
@@ -379,17 +432,27 @@ function renderFrontmatterEntry(lines: string[], key: string, value: Frontmatter
 
 function renderTemplateFrontmatterLines(pagePath: string, template: NoteTemplate): string[] {
   const lines: string[] = [];
+  const kindHints: Record<string, FrontmatterKind> = {};
 
   template.fields.forEach(function (field) {
     const key = String(field.key || "").trim();
     if (!key || isTemplateMetadataKey(key)) {
       return;
     }
+    if (field.kind !== "text") {
+      kindHints[key] = field.kind;
+    }
 
     renderFrontmatterEntry(lines, key, templateFieldDefaultValue(field, pagePath));
   });
 
-  return lines;
+  const metadata = propertyKindMetadataFromHints(kindHints);
+  const metadataLines: string[] = [];
+  Object.keys(metadata).forEach(function (key) {
+    renderFrontmatterEntry(metadataLines, key, metadata[key]);
+  });
+
+  return metadataLines.concat(lines);
 }
 
 function frontmatterValueHasContent(kind: FrontmatterKind, value: FrontmatterValue | null | undefined): boolean {
