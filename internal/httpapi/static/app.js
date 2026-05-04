@@ -6086,7 +6086,86 @@
     }
   });
 
+  // frontend/propertySuggestions.ts
+  function supportsPropertyValueSuggestions(kind) {
+    return kind === "text" || kind === "list" || kind === "tags";
+  }
+  function collectPropertyValueSuggestions(pages, scopePrefix, selectedPage, key, kind) {
+    const normalizedKey = String(key || "").trim();
+    if (!normalizedKey || !supportsPropertyValueSuggestions(kind)) {
+      return [];
+    }
+    const counts = /* @__PURE__ */ new Map();
+    filterPagesByScope(pages, scopePrefix).forEach(function(page) {
+      if (!page || page.path === selectedPage || !page.frontmatter) {
+        return;
+      }
+      const rawValue = page.frontmatter[normalizedKey];
+      if (kind === "text") {
+        if (typeof rawValue !== "string") {
+          return;
+        }
+        const candidate = rawValue.trim();
+        if (!candidate) {
+          return;
+        }
+        counts.set(candidate, (counts.get(candidate) || 0) + 1);
+        return;
+      }
+      if (!Array.isArray(rawValue)) {
+        return;
+      }
+      rawValue.forEach(function(entry) {
+        const candidate = String(entry || "").trim();
+        if (!candidate) {
+          return;
+        }
+        counts.set(candidate, (counts.get(candidate) || 0) + 1);
+      });
+    });
+    return Array.from(counts.entries()).sort(function(left, right) {
+      const countDelta = right[1] - left[1];
+      if (countDelta !== 0) {
+        return countDelta;
+      }
+      return left[0].localeCompare(right[0]);
+    }).map(function(entry) {
+      return entry[0];
+    }).slice(0, 8);
+  }
+  var init_propertySuggestions = __esm({
+    "frontend/propertySuggestions.ts"() {
+      "use strict";
+      init_pageViews();
+    }
+  });
+
   // frontend/properties.ts
+  function supportsPropertyValueSuggestions2(kind) {
+    return kind === "text" || kind === "list" || kind === "tags";
+  }
+  function appendPropertyValueSuggestions(container, suggestions, onSelect) {
+    const items = (Array.isArray(suggestions) ? suggestions : []).filter(Boolean).slice(0, 6);
+    if (!items.length) {
+      return;
+    }
+    const shell = document.createElement("div");
+    shell.className = "property-value-suggestions";
+    items.forEach(function(suggestion) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "property-value-suggestion";
+      button.textContent = suggestion;
+      button.addEventListener("mousedown", function(event) {
+        event.preventDefault();
+      });
+      button.addEventListener("click", function() {
+        onSelect(suggestion);
+      });
+      shell.appendChild(button);
+    });
+    container.appendChild(shell);
+  }
   function isTagPropertyKey(key) {
     return String(key || "").trim().toLowerCase() === "tags";
   }
@@ -6490,6 +6569,7 @@
     const kind = inferFrontmatterKind(row.rawValue, row.key, row.kindHint);
     const value = document.createElement("div");
     value.className = "property-value property-inline-editor";
+    const suggestions = supportsPropertyValueSuggestions2(kind) ? options.propertyValueSuggestions(row.key, kind) : [];
     if (kind === "list" || kind === "tags") {
       const listValue = propertySequenceEntries(kind, row.rawValue);
       const chips = document.createElement("div");
@@ -6522,6 +6602,14 @@
         }
       });
       value.appendChild(addInput);
+      appendPropertyValueSuggestions(value, suggestions, function(suggestion) {
+        if (listValue.indexOf(suggestion) >= 0) {
+          return;
+        }
+        options.onSaveExistingProperty(row.key, coercePropertyValue(kind, listValue.concat([suggestion]), row.key)).catch(function(error) {
+          options.onSetNoteStatus("Property save failed: " + error.message);
+        });
+      });
       return value;
     }
     if (kind === "bool") {
@@ -6568,6 +6656,10 @@
       }
     });
     value.appendChild(input);
+    appendPropertyValueSuggestions(value, suggestions, function(suggestion) {
+      input.value = suggestion;
+      commit();
+    });
     if (kind === "notification") {
       const hint = document.createElement("div");
       hint.className = "property-inline-hint";
@@ -6637,6 +6729,8 @@
     if (!row) {
       value.classList.add("property-composer-value");
     }
+    const suggestionKey = String(draft.key || "").trim();
+    const suggestions = suggestionKey && supportsPropertyValueSuggestions2(draft.kind) ? options.propertyValueSuggestions(suggestionKey, draft.kind) : [];
     if (draft.kind === "list" || draft.kind === "tags") {
       const listValue = propertySequenceEntries(draft.kind, draft.list);
       const chips = document.createElement("div");
@@ -6679,6 +6773,17 @@
         }
       });
       value.appendChild(addInput);
+      appendPropertyValueSuggestions(value, suggestions, function(suggestion) {
+        if (listValue.indexOf(suggestion) >= 0) {
+          return;
+        }
+        setDraft({
+          ...draft,
+          text: "",
+          list: listValue.concat([suggestion])
+        });
+        options.onRefresh();
+      });
       if (!row) {
         const hint = document.createElement("div");
         hint.className = "property-inline-hint";
@@ -6720,6 +6825,12 @@
         setDraft({ ...draft, text: input.value });
       });
       value.appendChild(input);
+      appendPropertyValueSuggestions(value, suggestions, function(suggestion) {
+        input.value = suggestion;
+        setDraft({ ...draft, text: input.value });
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      });
       if (draft.kind === "notification") {
         const hint = document.createElement("div");
         hint.className = "property-inline-hint";
@@ -8471,7 +8582,7 @@
   // frontend/remoteSync.ts
   function hasUnsafeRemoteSyncUIState(state) {
     return Boolean(
-      state.propertyDraftOpen || state.taskPickerOpen || state.inlineTableEditorOpen || state.inlineTableEditorFocused || state.noteTitleFocused || state.noteTitleEditing
+      state.propertyDraftOpen || state.propertyTypeMenuOpen || state.propertyValueInputFocused || state.taskPickerOpen || state.inlineTableEditorOpen || state.inlineTableEditorFocused || state.noteTitleFocused || state.noteTitleEditing
     );
   }
   function buildRemoteSyncPlan(input) {
@@ -8680,6 +8791,64 @@
     }
   });
 
+  // frontend/pageEventStream.ts
+  function bindPageEventStream(input) {
+    input.source.onopen = function() {
+      input.setEventStatus("live", true);
+      input.addEventLine("sse.open", { ok: true }, false);
+    };
+    input.source.onerror = function() {
+      input.setEventStatus("reconnecting", false);
+      input.addEventLine("sse.error", { reconnecting: true }, true);
+    };
+    eventNames.forEach(function(eventName) {
+      input.source.addEventListener(eventName, function(event) {
+        let payload = {};
+        const messageEvent = event;
+        try {
+          payload = JSON.parse(messageEvent.data);
+        } catch (_error) {
+          payload = { raw: messageEvent.data };
+        }
+        input.addEventLine(eventName, payload, false);
+        const routed = routePageChangeEvent({
+          eventName,
+          payload,
+          selectedPage: input.selectedPage(),
+          conflictPage: input.conflictPage(),
+          currentClientId: input.currentClientId,
+          consumeExpectedLocalChange: input.consumeExpectedLocalChange
+        });
+        if (routed.action === "conflict-status") {
+          input.setConflictStatus("Remote changes are still arriving. Saving your resolution will recheck against the latest server version.");
+          input.renderConflictModal();
+          input.debounceRefresh();
+          return;
+        }
+        if (routed.action === "sync-selected") {
+          input.syncSelectedRemotePage(routed.pagePath);
+          return;
+        }
+        input.debounceRefresh();
+      });
+    });
+  }
+  var eventNames;
+  var init_pageEventStream = __esm({
+    "frontend/pageEventStream.ts"() {
+      "use strict";
+      init_pageChangeRouter();
+      eventNames = [
+        "page.changed",
+        "page.deleted",
+        "derived.changed",
+        "task.changed",
+        "query.changed",
+        "query-block.changed"
+      ];
+    }
+  });
+
   // frontend/remotePageSync.ts
   function planRemotePageSync(input) {
     const pagePath = String(input.pagePath || "");
@@ -8770,6 +8939,57 @@
     "frontend/remotePageChangeFlow.ts"() {
       "use strict";
       init_remotePageSync();
+    }
+  });
+
+  // frontend/pageSyncIntegration.ts
+  async function runSelectedPageRemoteSync(input) {
+    if (!input.pagePath || !input.shouldContinue()) {
+      return;
+    }
+    try {
+      const outcome = await syncRemotePageChange({
+        pagePath: input.pagePath,
+        baseMarkdown: input.baseMarkdown,
+        localMarkdown: input.localMarkdown,
+        unsafeUIState: input.unsafeUIState,
+        loadRemoteDetail: input.loadRemoteDetail,
+        shouldContinue: input.shouldContinue,
+        formatErrorMessage: input.formatErrorMessage
+      });
+      if (outcome.action === "stale") {
+        return;
+      }
+      if (outcome.action === "error") {
+        input.showRemoteChangeToast(input.pagePath);
+        input.setNoteStatus(outcome.status);
+        return;
+      }
+      if (outcome.action === "conflict") {
+        input.openConflict(
+          outcome.draft,
+          outcome.loaded,
+          outcome.status,
+          outcome.draft.mode === "unsafe-remote-review" ? "Remote change review needed for " + input.pagePath + "." : "Conflict review opened for " + input.pagePath + "."
+        );
+        return;
+      }
+      const templateFillActive = input.applyLoadedPageDetailState(input.pagePath, outcome.loaded, outcome.markdown);
+      input.restoreCurrentEditorViewport(
+        input.selectionStart,
+        input.selectionEnd,
+        input.scrollTop,
+        input.focusEditor && !templateFillActive
+      );
+      input.setNoteStatus(outcome.status);
+    } finally {
+      input.refreshCollections();
+    }
+  }
+  var init_pageSyncIntegration = __esm({
+    "frontend/pageSyncIntegration.ts"() {
+      "use strict";
+      init_remotePageChangeFlow();
     }
   });
 
@@ -10434,6 +10654,7 @@
       init_vaultScopes();
       init_pageTreeUi();
       init_settingsPersistence();
+      init_propertySuggestions();
       init_properties();
       init_noteTemplates();
       init_queryTree();
@@ -10444,8 +10665,8 @@
       init_remoteSync();
       init_pageConflict();
       init_pageConflictSaveFlow();
-      init_pageChangeRouter();
-      init_remotePageChangeFlow();
+      init_pageEventStream();
+      init_pageSyncIntegration();
       init_themes();
       (function() {
         let pwaRegistrationPromise = null;
@@ -11105,9 +11326,15 @@
             setMarkdownEditorSelection(state, els, clampedStart, clampedEnd);
           }
         }
+        function propertyValueInputHasFocus() {
+          const active = document.activeElement;
+          return active instanceof HTMLElement && els.pageProperties.contains(active) && active.matches("[data-property-value-input='true']");
+        }
         function hasUnsafeRemoteSyncUIState2() {
           return hasUnsafeRemoteSyncUIState({
             propertyDraftOpen: Boolean(state.propertyDraft),
+            propertyTypeMenuOpen: Boolean(state.propertyTypeMenuKey),
+            propertyValueInputFocused: propertyValueInputHasFocus(),
             taskPickerOpen: taskPickerState.mode === "due" || taskPickerState.mode === "remind",
             inlineTableEditorOpen: inlineTableEditorOpen2(),
             inlineTableEditorFocused: inlineTableEditorHasFocus2(),
@@ -11125,46 +11352,39 @@
           const selectionEnd = markdownEditorSelectionEnd(state, els);
           const scrollTop = markdownEditorScrollTop(state, els);
           const focusEditor = markdownEditorHasFocus(state, els);
-          try {
-            const outcome = await syncRemotePageChange({
-              pagePath,
-              baseMarkdown: state.originalMarkdown,
-              localMarkdown: state.currentMarkdown,
-              unsafeUIState: hasUnsafeRemoteSyncUIState2(),
-              loadRemoteDetail: function(targetPage) {
-                return loadPageDetailData(targetPage, encodePath, "", null);
-              },
-              shouldContinue: function() {
-                return state.remoteChangeSyncToken === syncToken && state.selectedPage === pagePath;
-              },
-              formatErrorMessage: errorMessage
-            });
-            if (outcome.action === "stale") {
-              return;
-            }
-            if (outcome.action === "error") {
-              showRemoteChangeToast(pagePath);
-              setNoteStatus(outcome.status);
-              return;
-            }
-            if (outcome.action === "conflict") {
-              state.pageConflict = outcome.draft;
-              state.pageConflictRemoteLoaded = outcome.loaded;
-              state.pageConflictStatus = outcome.status;
+          await runSelectedPageRemoteSync({
+            pagePath,
+            baseMarkdown: state.originalMarkdown,
+            localMarkdown: state.currentMarkdown,
+            unsafeUIState: hasUnsafeRemoteSyncUIState2(),
+            selectionStart,
+            selectionEnd,
+            scrollTop,
+            focusEditor,
+            loadRemoteDetail: function(targetPage) {
+              return loadPageDetailData(targetPage, encodePath, "", null);
+            },
+            shouldContinue: function() {
+              return state.remoteChangeSyncToken === syncToken && state.selectedPage === pagePath;
+            },
+            formatErrorMessage: errorMessage,
+            applyLoadedPageDetailState,
+            restoreCurrentEditorViewport,
+            showRemoteChangeToast,
+            openConflict: function(draft, loaded, status, noteStatus) {
+              state.pageConflict = draft;
+              state.pageConflictRemoteLoaded = loaded;
+              state.pageConflictStatus = status;
               setPageConflictOpen(true);
-              setNoteStatus(
-                outcome.draft.mode === "unsafe-remote-review" ? "Remote change review needed for " + pagePath + "." : "Conflict review opened for " + pagePath + "."
-              );
-              return;
+              setNoteStatus(noteStatus);
+            },
+            setNoteStatus,
+            refreshCollections: function() {
+              void loadPages();
+              void loadTasks();
+              void loadSavedQueryTree();
             }
-            const templateFillActive = applyLoadedPageDetailState(pagePath, outcome.loaded, outcome.markdown);
-            restoreCurrentEditorViewport(selectionStart, selectionEnd, scrollTop, focusEditor && !templateFillActive);
-            setNoteStatus(outcome.status);
-          } finally {
-            void loadPages();
-            void loadTasks();
-            void loadSavedQueryTree();
-          }
+          });
         }
         function clearAutosaveTimer() {
           if (!state.autosaveTimer) {
@@ -12553,6 +12773,7 @@
               });
             },
             onStartRenameProperty: startRenameProperty,
+            propertyValueSuggestions: scopedPropertyValueSuggestions,
             onSaveExistingProperty: saveExistingPropertyValue,
             onSetDraft: function(draft) {
               state.propertyDraft = draft;
@@ -14573,6 +14794,15 @@
             return normalizePageDraftPath(folder || "");
           }).filter(Boolean);
         }
+        function scopedPropertyValueSuggestions(key, kind) {
+          return collectPropertyValueSuggestions(
+            state.pages,
+            currentScopePrefix(),
+            state.selectedPage,
+            key,
+            kind
+          );
+        }
         function pathFieldState(input, options) {
           const assist = buildPathDialogAssist({
             kind: options.kind,
@@ -15105,55 +15335,29 @@
           }
           const source = new EventSource(scopedEventSourceURL("/api/events"));
           state.eventSource = source;
-          const markLive = function(label, live) {
-            els.eventStatus.textContent = label;
-            els.eventStatus.classList.toggle("live", live);
-          };
-          source.onopen = function() {
-            markLive("live", true);
-            addEventLine("sse.open", { ok: true }, false);
-          };
-          source.onerror = function() {
-            markLive("reconnecting", false);
-            addEventLine("sse.error", { reconnecting: true }, true);
-          };
-          [
-            "page.changed",
-            "page.deleted",
-            "derived.changed",
-            "task.changed",
-            "query.changed",
-            "query-block.changed"
-          ].forEach(function(eventName) {
-            source.addEventListener(eventName, function(event) {
-              let payload = {};
-              const messageEvent = event;
-              try {
-                payload = JSON.parse(messageEvent.data);
-              } catch (error) {
-                payload = { raw: messageEvent.data };
-              }
-              addEventLine(eventName, payload, false);
-              const routed = routePageChangeEvent({
-                eventName,
-                payload,
-                selectedPage: state.selectedPage || "",
-                conflictPage: state.pageConflict ? state.pageConflict.pagePath : "",
-                currentClientId: currentClientInstanceId(),
-                consumeExpectedLocalChange: consumeExpectedLocalPageChange
-              });
-              if (routed.action === "conflict-status") {
-                state.pageConflictStatus = "Remote changes are still arriving. Saving your resolution will recheck against the latest server version.";
-                renderPageConflictModal();
-                debounceRefresh();
-                return;
-              }
-              if (routed.action === "sync-selected") {
-                void syncSelectedRemotePage(routed.pagePath);
-                return;
-              }
-              debounceRefresh();
-            });
+          bindPageEventStream({
+            source,
+            currentClientId: currentClientInstanceId(),
+            selectedPage: function() {
+              return state.selectedPage || "";
+            },
+            conflictPage: function() {
+              return state.pageConflict ? state.pageConflict.pagePath : "";
+            },
+            consumeExpectedLocalChange: consumeExpectedLocalPageChange,
+            setEventStatus: function(label, live) {
+              els.eventStatus.textContent = label;
+              els.eventStatus.classList.toggle("live", live);
+            },
+            addEventLine,
+            syncSelectedRemotePage: function(selectedPage) {
+              void syncSelectedRemotePage(selectedPage);
+            },
+            setConflictStatus: function(status) {
+              state.pageConflictStatus = status;
+            },
+            renderConflictModal: renderPageConflictModal,
+            debounceRefresh
           });
         }
         function wireEvents() {

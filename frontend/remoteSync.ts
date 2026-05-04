@@ -2,6 +2,8 @@ import { mergeText, TextMergeConflictError } from "./textMerge";
 
 export interface RemoteSyncUIState {
   propertyDraftOpen: boolean;
+  propertyTypeMenuOpen: boolean;
+  propertyValueInputFocused: boolean;
   taskPickerOpen: boolean;
   inlineTableEditorOpen: boolean;
   inlineTableEditorFocused: boolean;
@@ -23,6 +25,8 @@ export type RemoteSyncPlan =
 export function hasUnsafeRemoteSyncUIState(state: RemoteSyncUIState): boolean {
   return Boolean(
     state.propertyDraftOpen ||
+    state.propertyTypeMenuOpen ||
+    state.propertyValueInputFocused ||
     state.taskPickerOpen ||
     state.inlineTableEditorOpen ||
     state.inlineTableEditorFocused ||

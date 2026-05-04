@@ -36,12 +36,44 @@ export interface RenderPagePropertiesOptions {
   onApplyKind(kind: FrontmatterKind, row: PropertyRow | null): void;
   onRemoveProperty(key: string): void;
   onStartRenameProperty(row: PropertyRow): void;
+  propertyValueSuggestions(key: string, kind: FrontmatterKind): string[];
   onSaveExistingProperty(key: string, value: FrontmatterValue): Promise<void>;
   onSetDraft(draft: PropertyDraft): void;
   onRefresh(): void;
   onSaveDraft(): Promise<void>;
   onCancelDraft(): void;
   onSetNoteStatus(message: string): void;
+}
+
+function supportsPropertyValueSuggestions(kind: FrontmatterKind): boolean {
+  return kind === "text" || kind === "list" || kind === "tags";
+}
+
+function appendPropertyValueSuggestions(
+  container: HTMLElement,
+  suggestions: string[],
+  onSelect: (value: string) => void,
+): void {
+  const items = (Array.isArray(suggestions) ? suggestions : []).filter(Boolean).slice(0, 6);
+  if (!items.length) {
+    return;
+  }
+  const shell = document.createElement("div");
+  shell.className = "property-value-suggestions";
+  items.forEach(function (suggestion) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "property-value-suggestion";
+    button.textContent = suggestion;
+    button.addEventListener("mousedown", function (event) {
+      event.preventDefault();
+    });
+    button.addEventListener("click", function () {
+      onSelect(suggestion);
+    });
+    shell.appendChild(button);
+  });
+  container.appendChild(shell);
 }
 
 function isTagPropertyKey(key: string | null | undefined): boolean {
@@ -575,6 +607,9 @@ function renderExistingPropertyValueEditor(row: PropertyRow, options: RenderPage
   const kind = inferFrontmatterKind(row.rawValue, row.key, row.kindHint);
   const value = document.createElement("div");
   value.className = "property-value property-inline-editor";
+  const suggestions = supportsPropertyValueSuggestions(kind)
+    ? options.propertyValueSuggestions(row.key, kind)
+    : [];
 
   if (kind === "list" || kind === "tags") {
     const listValue = propertySequenceEntries(kind, row.rawValue);
@@ -609,6 +644,14 @@ function renderExistingPropertyValueEditor(row: PropertyRow, options: RenderPage
       }
     });
     value.appendChild(addInput);
+    appendPropertyValueSuggestions(value, suggestions, function (suggestion) {
+      if (listValue.indexOf(suggestion) >= 0) {
+        return;
+      }
+      options.onSaveExistingProperty(row.key, coercePropertyValue(kind, listValue.concat([suggestion]), row.key)).catch(function (error: Error) {
+        options.onSetNoteStatus("Property save failed: " + error.message);
+      });
+    });
     return value;
   }
 
@@ -662,6 +705,10 @@ function renderExistingPropertyValueEditor(row: PropertyRow, options: RenderPage
   });
 
   value.appendChild(input);
+  appendPropertyValueSuggestions(value, suggestions, function (suggestion) {
+    input.value = suggestion;
+    commit();
+  });
   if (kind === "notification") {
     const hint = document.createElement("div");
     hint.className = "property-inline-hint";
@@ -738,6 +785,10 @@ function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | n
   if (!row) {
     value.classList.add("property-composer-value");
   }
+  const suggestionKey = String(draft.key || "").trim();
+  const suggestions = suggestionKey && supportsPropertyValueSuggestions(draft.kind)
+    ? options.propertyValueSuggestions(suggestionKey, draft.kind)
+    : [];
 
   if (draft.kind === "list" || draft.kind === "tags") {
     const listValue = propertySequenceEntries(draft.kind, draft.list);
@@ -782,6 +833,17 @@ function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | n
       }
     });
     value.appendChild(addInput);
+    appendPropertyValueSuggestions(value, suggestions, function (suggestion) {
+      if (listValue.indexOf(suggestion) >= 0) {
+        return;
+      }
+      setDraft({
+        ...draft,
+        text: "",
+        list: listValue.concat([suggestion]),
+      });
+      options.onRefresh();
+    });
 
     if (!row) {
       const hint = document.createElement("div");
@@ -824,6 +886,12 @@ function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | n
       setDraft({ ...draft, text: input.value });
     });
     value.appendChild(input);
+    appendPropertyValueSuggestions(value, suggestions, function (suggestion) {
+      input.value = suggestion;
+      setDraft({ ...draft, text: input.value });
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
     if (draft.kind === "notification") {
       const hint = document.createElement("div");
       hint.className = "property-inline-hint";

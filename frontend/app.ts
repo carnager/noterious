@@ -161,6 +161,7 @@ import {
   renderPagesSection,
 } from "./pageTreeUi";
 import { prepareSettingsSaveWithExtra } from "./settingsPersistence";
+import { collectPropertyValueSuggestions } from "./propertySuggestions";
 import {
   applyPropertyDraftKind,
   coercePropertyValue,
@@ -203,8 +204,8 @@ import { closeSlashMenu, documentCommandsForText, maybeOpenSlashMenu, moveSlashS
 import { hasUnsafeRemoteSyncUIState as hasUnsafeRemoteSyncUIStateHelper } from "./remoteSync";
 import { createPageConflictDialogDraft, createPageConflictDraft, type PageConflictDraft, type PageConflictMode } from "./pageConflict";
 import { savePageConflictResolutionFlow } from "./pageConflictSaveFlow";
-import { routePageChangeEvent } from "./pageChangeRouter";
-import { syncRemotePageChange } from "./remotePageChangeFlow";
+import { bindPageEventStream } from "./pageEventStream";
+import { runSelectedPageRemoteSync } from "./pageSyncIntegration";
 import {
   applyTheme,
   builtinThemeLibrary,
@@ -1180,9 +1181,18 @@ interface ActionDialogSession {
     }
   }
 
+  function propertyValueInputHasFocus(): boolean {
+    const active = document.activeElement;
+    return active instanceof HTMLElement &&
+      els.pageProperties.contains(active) &&
+      active.matches("[data-property-value-input='true']");
+  }
+
   function hasUnsafeRemoteSyncUIState(): boolean {
     return hasUnsafeRemoteSyncUIStateHelper({
       propertyDraftOpen: Boolean(state.propertyDraft),
+      propertyTypeMenuOpen: Boolean(state.propertyTypeMenuKey),
+      propertyValueInputFocused: propertyValueInputHasFocus(),
       taskPickerOpen: taskPickerState.mode === "due" || taskPickerState.mode === "remind",
       inlineTableEditorOpen: inlineTableEditorOpen(),
       inlineTableEditorFocused: inlineTableEditorHasFocus(),
@@ -1203,52 +1213,39 @@ interface ActionDialogSession {
     const scrollTop = markdownEditorScrollTop(state, els);
     const focusEditor = markdownEditorHasFocus(state, els);
 
-    try {
-      const outcome = await syncRemotePageChange({
-        pagePath,
-        baseMarkdown: state.originalMarkdown,
-        localMarkdown: state.currentMarkdown,
-        unsafeUIState: hasUnsafeRemoteSyncUIState(),
-        loadRemoteDetail: function (targetPage: string) {
-          return loadPageDetailData(targetPage, encodePath, "", null);
-        },
-        shouldContinue: function () {
-          return state.remoteChangeSyncToken === syncToken && state.selectedPage === pagePath;
-        },
-        formatErrorMessage: errorMessage,
-      });
-
-      if (outcome.action === "stale") {
-        return;
-      }
-
-      if (outcome.action === "error") {
-        showRemoteChangeToast(pagePath);
-        setNoteStatus(outcome.status);
-        return;
-      }
-
-      if (outcome.action === "conflict") {
-        state.pageConflict = outcome.draft;
-        state.pageConflictRemoteLoaded = outcome.loaded;
-        state.pageConflictStatus = outcome.status;
+    await runSelectedPageRemoteSync({
+      pagePath,
+      baseMarkdown: state.originalMarkdown,
+      localMarkdown: state.currentMarkdown,
+      unsafeUIState: hasUnsafeRemoteSyncUIState(),
+      selectionStart,
+      selectionEnd,
+      scrollTop,
+      focusEditor,
+      loadRemoteDetail: function (targetPage: string) {
+        return loadPageDetailData(targetPage, encodePath, "", null);
+      },
+      shouldContinue: function () {
+        return state.remoteChangeSyncToken === syncToken && state.selectedPage === pagePath;
+      },
+      formatErrorMessage: errorMessage,
+      applyLoadedPageDetailState: applyLoadedPageDetailState,
+      restoreCurrentEditorViewport: restoreCurrentEditorViewport,
+      showRemoteChangeToast: showRemoteChangeToast,
+      openConflict: function (draft, loaded, status, noteStatus) {
+        state.pageConflict = draft;
+        state.pageConflictRemoteLoaded = loaded;
+        state.pageConflictStatus = status;
         setPageConflictOpen(true);
-        setNoteStatus(
-          outcome.draft.mode === "unsafe-remote-review"
-            ? ("Remote change review needed for " + pagePath + ".")
-            : ("Conflict review opened for " + pagePath + ".")
-        );
-        return;
-      }
-
-      const templateFillActive = applyLoadedPageDetailState(pagePath, outcome.loaded, outcome.markdown);
-      restoreCurrentEditorViewport(selectionStart, selectionEnd, scrollTop, focusEditor && !templateFillActive);
-      setNoteStatus(outcome.status);
-    } finally {
-      void loadPages();
-      void loadTasks();
-      void loadSavedQueryTree();
-    }
+        setNoteStatus(noteStatus);
+      },
+      setNoteStatus: setNoteStatus,
+      refreshCollections: function () {
+        void loadPages();
+        void loadTasks();
+        void loadSavedQueryTree();
+      },
+    });
   }
 
   function clearAutosaveTimer() {
@@ -2818,6 +2815,7 @@ interface ActionDialogSession {
         });
       },
       onStartRenameProperty: startRenameProperty,
+      propertyValueSuggestions: scopedPropertyValueSuggestions,
       onSaveExistingProperty: saveExistingPropertyValue,
       onSetDraft: function (draft) {
         state.propertyDraft = draft;
@@ -5077,6 +5075,16 @@ interface ActionDialogSession {
     }).filter(Boolean);
   }
 
+  function scopedPropertyValueSuggestions(key: string, kind: FrontmatterKind): string[] {
+    return collectPropertyValueSuggestions(
+      state.pages,
+      currentScopePrefix(),
+      state.selectedPage,
+      key,
+      kind,
+    );
+  }
+
   function pathFieldState(input: string, options: {
     kind: "note" | "folder";
     action: "create" | "rename";
@@ -5646,59 +5654,29 @@ interface ActionDialogSession {
 
     const source = new EventSource(scopedEventSourceURL("/api/events"));
     state.eventSource = source;
-
-    const markLive = function (label: string, live: boolean): void {
-      els.eventStatus.textContent = label;
-      els.eventStatus.classList.toggle("live", live);
-    };
-
-    source.onopen = function () {
-      markLive("live", true);
-      addEventLine("sse.open", { ok: true }, false);
-    };
-
-    source.onerror = function () {
-      markLive("reconnecting", false);
-      addEventLine("sse.error", { reconnecting: true }, true);
-    };
-
-    [
-      "page.changed",
-      "page.deleted",
-      "derived.changed",
-      "task.changed",
-      "query.changed",
-      "query-block.changed",
-    ].forEach(function (eventName) {
-      source.addEventListener(eventName, function (event: Event) {
-        let payload: Record<string, unknown> = {};
-        const messageEvent = event as MessageEvent<string>;
-        try {
-          payload = JSON.parse(messageEvent.data);
-        } catch (error) {
-          payload = { raw: messageEvent.data };
-        }
-        addEventLine(eventName, payload, false);
-        const routed = routePageChangeEvent({
-          eventName,
-          payload,
-          selectedPage: state.selectedPage || "",
-          conflictPage: state.pageConflict ? state.pageConflict.pagePath : "",
-          currentClientId: currentClientInstanceId(),
-          consumeExpectedLocalChange: consumeExpectedLocalPageChange,
-        });
-        if (routed.action === "conflict-status") {
-          state.pageConflictStatus = "Remote changes are still arriving. Saving your resolution will recheck against the latest server version.";
-          renderPageConflictModal();
-          debounceRefresh();
-          return;
-        }
-        if (routed.action === "sync-selected") {
-          void syncSelectedRemotePage(routed.pagePath);
-          return;
-        }
-        debounceRefresh();
-      });
+    bindPageEventStream({
+      source,
+      currentClientId: currentClientInstanceId(),
+      selectedPage: function () {
+        return state.selectedPage || "";
+      },
+      conflictPage: function () {
+        return state.pageConflict ? state.pageConflict.pagePath : "";
+      },
+      consumeExpectedLocalChange: consumeExpectedLocalPageChange,
+      setEventStatus: function (label, live) {
+        els.eventStatus.textContent = label;
+        els.eventStatus.classList.toggle("live", live);
+      },
+      addEventLine: addEventLine,
+      syncSelectedRemotePage: function (selectedPage) {
+        void syncSelectedRemotePage(selectedPage);
+      },
+      setConflictStatus: function (status) {
+        state.pageConflictStatus = status;
+      },
+      renderConflictModal: renderPageConflictModal,
+      debounceRefresh: debounceRefresh,
     });
   }
 

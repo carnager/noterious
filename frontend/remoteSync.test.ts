@@ -6,6 +6,8 @@ describe("remote sync helpers", function () {
   it("flags transient non-markdown drafts as unsafe", function () {
     expect(hasUnsafeRemoteSyncUIState({
       propertyDraftOpen: false,
+      propertyTypeMenuOpen: false,
+      propertyValueInputFocused: false,
       taskPickerOpen: false,
       inlineTableEditorOpen: false,
       inlineTableEditorFocused: false,
@@ -15,6 +17,8 @@ describe("remote sync helpers", function () {
 
     expect(hasUnsafeRemoteSyncUIState({
       propertyDraftOpen: true,
+      propertyTypeMenuOpen: false,
+      propertyValueInputFocused: false,
       taskPickerOpen: false,
       inlineTableEditorOpen: false,
       inlineTableEditorFocused: false,
@@ -24,6 +28,30 @@ describe("remote sync helpers", function () {
 
     expect(hasUnsafeRemoteSyncUIState({
       propertyDraftOpen: false,
+      propertyTypeMenuOpen: true,
+      propertyValueInputFocused: false,
+      taskPickerOpen: false,
+      inlineTableEditorOpen: false,
+      inlineTableEditorFocused: false,
+      noteTitleFocused: false,
+      noteTitleEditing: false,
+    })).toBe(true);
+
+    expect(hasUnsafeRemoteSyncUIState({
+      propertyDraftOpen: false,
+      propertyTypeMenuOpen: false,
+      propertyValueInputFocused: true,
+      taskPickerOpen: false,
+      inlineTableEditorOpen: false,
+      inlineTableEditorFocused: false,
+      noteTitleFocused: false,
+      noteTitleEditing: false,
+    })).toBe(true);
+
+    expect(hasUnsafeRemoteSyncUIState({
+      propertyDraftOpen: false,
+      propertyTypeMenuOpen: false,
+      propertyValueInputFocused: false,
       taskPickerOpen: true,
       inlineTableEditorOpen: false,
       inlineTableEditorFocused: false,
@@ -33,6 +61,8 @@ describe("remote sync helpers", function () {
 
     expect(hasUnsafeRemoteSyncUIState({
       propertyDraftOpen: false,
+      propertyTypeMenuOpen: false,
+      propertyValueInputFocused: false,
       taskPickerOpen: false,
       inlineTableEditorOpen: false,
       inlineTableEditorFocused: false,
