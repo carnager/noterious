@@ -7,10 +7,11 @@ missing product and reliability work still open in the current app.
 
 ## Priority 1: Conflict Recovery
 
-- [ ] Add broader end-to-end coverage for multi-client editing.
-      Important cases:
+- [ ] Add browser-level integration coverage for multi-client editing.
+      Core merge/event planners are now covered, but the full app flow still
+      needs stronger coverage for:
       - live `page.changed` event -> fetch -> merge -> editor update
-      - overlapping edit conflicts
+      - overlapping edit conflict dialog lifecycle
       - remote changes while semantic editors are open
 - [ ] Keep hardening the conflict flow around structured editors and non-text UI
       state so the fallback remains conservative and never drops hidden draft
@@ -19,11 +20,9 @@ missing product and reliability work still open in the current app.
 ## Priority 2: Backup And Restore
 
 - [ ] Decide whether to add a real restore flow beyond the current docs,
-      manifest, and generated backup script helpers.
+      manifest, generated backup script, and manifest validation helpers.
 
-## Priority 3: Attachments And Assets
-
-## Priority 4: AI Query Copilot
+## Priority 3: AI Query Copilot
 
 - [ ] Add a per-client local LLM override for query generation.
       Product shape:
@@ -48,7 +47,7 @@ missing product and reliability work still open in the current app.
       - connectivity/CORS guidance for Ollama
       - clear indication that `localhost` means the client machine
 
-## Priority 5: Automation And Integrations
+## Priority 4: Automation And Integrations
 
 - [ ] Add generic outbound automation hooks.
       Candidate events:
@@ -58,7 +57,7 @@ missing product and reliability work still open in the current app.
       - query result refreshed
       This should stay generic (webhooks / simple hooks), not app-specific.
 
-## Priority 6: Single-User Admin Polish
+## Priority 5: Single-User Admin Polish
 
 - [ ] Improve operational docs for upgrades and operational recovery.
       Rebuild/generated-asset notes already exist, but the overall upgrade flow
@@ -86,6 +85,7 @@ missing product and reliability work still open in the current app.
 ## Current Stop Point
 
 - [ ] Next most useful slices:
-      - end-to-end merge/conflict coverage
+      - browser-level merge/conflict integration coverage
+      - decide whether restore should become a real product flow
       - local Ollama override for AI query generation
       - generic outbound automation hooks

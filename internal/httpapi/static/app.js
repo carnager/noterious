@@ -8326,6 +8326,62 @@
     }
   });
 
+  // frontend/pageConflictSaveFlow.ts
+  function defaultErrorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  async function savePageConflictResolutionFlow(input) {
+    const formatErrorMessage = input.formatErrorMessage || defaultErrorMessage;
+    try {
+      const payload = await input.saveResolvedMarkdown(
+        input.pagePath,
+        input.resolutionMarkdown,
+        input.remoteMarkdown
+      );
+      return {
+        action: "saved",
+        payload,
+        status: "Saved resolved version of " + input.pagePath + "."
+      };
+    } catch (error) {
+      if (error instanceof HTTPError && error.status === 409) {
+        try {
+          const loadedRemote = await input.loadLatestRemote(input.pagePath);
+          return {
+            action: "reopened",
+            loadedRemote,
+            draft: createPageConflictDialogDraft({
+              mode: input.mode,
+              pagePath: input.pagePath,
+              baseMarkdown: input.baseMarkdown,
+              localMarkdown: input.resolutionMarkdown,
+              remoteMarkdown: loadedRemote.page.rawMarkdown || "",
+              resolutionMarkdown: input.resolutionMarkdown
+            }),
+            status: "The page changed again while you were resolving it. Review the latest remote version and save again.",
+            noteStatus: "Conflict changed again on " + input.pagePath + "."
+          };
+        } catch (reloadError) {
+          return {
+            action: "reload-error",
+            status: "The page changed again, and the latest remote version could not be loaded: " + formatErrorMessage(reloadError)
+          };
+        }
+      }
+      return {
+        action: "save-error",
+        status: "Save failed: " + formatErrorMessage(error)
+      };
+    }
+  }
+  var init_pageConflictSaveFlow = __esm({
+    "frontend/pageConflictSaveFlow.ts"() {
+      "use strict";
+      init_http();
+      init_pageConflict();
+    }
+  });
+
   // frontend/pageChangeEvents.ts
   function matchExternalPageChange(input) {
     if (input.eventName !== "page.changed" || !input.targetPage) {
@@ -8348,6 +8404,43 @@
   var init_pageChangeEvents = __esm({
     "frontend/pageChangeEvents.ts"() {
       "use strict";
+    }
+  });
+
+  // frontend/pageChangeRouter.ts
+  function routePageChangeEvent(input) {
+    const conflictPage = String(input.conflictPage || "");
+    const selectedPage = String(input.selectedPage || "");
+    if (conflictPage && matchExternalPageChange({
+      eventName: input.eventName,
+      payload: input.payload,
+      targetPage: conflictPage,
+      currentClientId: input.currentClientId,
+      consumeExpectedLocalChange: input.consumeExpectedLocalChange
+    })) {
+      return {
+        action: "conflict-status",
+        pagePath: conflictPage
+      };
+    }
+    if (selectedPage && selectedPage !== conflictPage && matchExternalPageChange({
+      eventName: input.eventName,
+      payload: input.payload,
+      targetPage: selectedPage,
+      currentClientId: input.currentClientId,
+      consumeExpectedLocalChange: input.consumeExpectedLocalChange
+    })) {
+      return {
+        action: "sync-selected",
+        pagePath: selectedPage
+      };
+    }
+    return { action: "refresh" };
+  }
+  var init_pageChangeRouter = __esm({
+    "frontend/pageChangeRouter.ts"() {
+      "use strict";
+      init_pageChangeEvents();
     }
   });
 
@@ -8387,6 +8480,60 @@
       "use strict";
       init_pageConflict();
       init_remoteSync();
+    }
+  });
+
+  // frontend/remotePageChangeFlow.ts
+  function defaultErrorMessage2(error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  async function syncRemotePageChange(input) {
+    const pagePath = String(input.pagePath || "");
+    if (!pagePath) {
+      return { action: "stale" };
+    }
+    try {
+      const loaded = await input.loadRemoteDetail(pagePath);
+      if (input.shouldContinue && !input.shouldContinue()) {
+        return { action: "stale" };
+      }
+      const outcome = planRemotePageSync({
+        pagePath,
+        baseMarkdown: input.baseMarkdown,
+        localMarkdown: input.localMarkdown,
+        loadedRemote: loaded,
+        unsafeUIState: input.unsafeUIState
+      });
+      if (outcome.action === "conflict") {
+        return {
+          action: "conflict",
+          pagePath,
+          loaded,
+          draft: outcome.draft,
+          status: outcome.status
+        };
+      }
+      return {
+        action: "apply",
+        pagePath,
+        loaded,
+        markdown: outcome.markdown,
+        mergedLocalEdits: outcome.mergedLocalEdits,
+        status: outcome.status
+      };
+    } catch (error) {
+      const formatErrorMessage = input.formatErrorMessage || defaultErrorMessage2;
+      return {
+        action: "error",
+        pagePath,
+        status: "Remote refresh failed: " + formatErrorMessage(error)
+      };
+    }
+  }
+  var init_remotePageChangeFlow = __esm({
+    "frontend/remotePageChangeFlow.ts"() {
+      "use strict";
+      init_remotePageSync();
     }
   });
 
@@ -10059,8 +10206,9 @@
       init_slashMenu();
       init_remoteSync();
       init_pageConflict();
-      init_pageChangeEvents();
-      init_remotePageSync();
+      init_pageConflictSaveFlow();
+      init_pageChangeRouter();
+      init_remotePageChangeFlow();
       init_themes();
       (function() {
         let pwaRegistrationPromise = null;
@@ -10662,24 +10810,6 @@
             refreshCurrentDetail(true);
           }
         }
-        function isSelectedExternalPageChange(eventName, payload) {
-          return matchExternalPageChange({
-            eventName,
-            payload,
-            targetPage: state.selectedPage || "",
-            currentClientId: currentClientInstanceId(),
-            consumeExpectedLocalChange: consumeExpectedLocalPageChange
-          });
-        }
-        function isCurrentConflictPageChange(eventName, payload) {
-          return matchExternalPageChange({
-            eventName,
-            payload,
-            targetPage: state.pageConflict ? state.pageConflict.pagePath : "",
-            currentClientId: currentClientInstanceId(),
-            consumeExpectedLocalChange: consumeExpectedLocalPageChange
-          });
-        }
         function applyLoadedPageDetailState(pagePath, loaded, nextMarkdown) {
           const page = loaded.page;
           const derived = loaded.derived;
@@ -10746,28 +10876,35 @@
           }
           state.remoteChangeSyncToken += 1;
           const syncToken = state.remoteChangeSyncToken;
+          const selectionStart = markdownEditorSelectionStart(state, els);
+          const selectionEnd = markdownEditorSelectionEnd(state, els);
+          const scrollTop = markdownEditorScrollTop(state, els);
+          const focusEditor = markdownEditorHasFocus(state, els);
           try {
-            const loaded = await loadPageDetailData(pagePath, encodePath, "", null);
-            if (state.remoteChangeSyncToken !== syncToken || state.selectedPage !== pagePath) {
+            const outcome = await syncRemotePageChange({
+              pagePath,
+              baseMarkdown: state.originalMarkdown,
+              localMarkdown: state.currentMarkdown,
+              unsafeUIState: hasUnsafeRemoteSyncUIState2(),
+              loadRemoteDetail: function(targetPage) {
+                return loadPageDetailData(targetPage, encodePath, "", null);
+              },
+              shouldContinue: function() {
+                return state.remoteChangeSyncToken === syncToken && state.selectedPage === pagePath;
+              },
+              formatErrorMessage: errorMessage
+            });
+            if (outcome.action === "stale") {
               return;
             }
-            const remoteMarkdown = loaded.page.rawMarkdown || "";
-            const baseMarkdown = state.originalMarkdown;
-            const localMarkdown = state.currentMarkdown;
-            const selectionStart = markdownEditorSelectionStart(state, els);
-            const selectionEnd = markdownEditorSelectionEnd(state, els);
-            const scrollTop = markdownEditorScrollTop(state, els);
-            const focusEditor = markdownEditorHasFocus(state, els);
-            const outcome = planRemotePageSync({
-              pagePath,
-              baseMarkdown,
-              localMarkdown,
-              loadedRemote: loaded,
-              unsafeUIState: hasUnsafeRemoteSyncUIState2()
-            });
+            if (outcome.action === "error") {
+              showRemoteChangeToast(pagePath);
+              setNoteStatus(outcome.status);
+              return;
+            }
             if (outcome.action === "conflict") {
               state.pageConflict = outcome.draft;
-              state.pageConflictRemoteLoaded = loaded;
+              state.pageConflictRemoteLoaded = outcome.loaded;
               state.pageConflictStatus = outcome.status;
               setPageConflictOpen(true);
               setNoteStatus(
@@ -10775,13 +10912,9 @@
               );
               return;
             }
-            const templateFillActive = applyLoadedPageDetailState(pagePath, loaded, outcome.markdown);
+            const templateFillActive = applyLoadedPageDetailState(pagePath, outcome.loaded, outcome.markdown);
             restoreCurrentEditorViewport(selectionStart, selectionEnd, scrollTop, focusEditor && !templateFillActive);
             setNoteStatus(outcome.status);
-          } catch (error) {
-            showRemoteChangeToast(pagePath);
-            setNoteStatus("Remote refresh failed: " + errorMessage(error));
-            return;
           } finally {
             void loadPages();
             void loadTasks();
@@ -13400,9 +13533,21 @@
           setPageConflictResolution(markdownToSave);
           state.pageConflictStatus = "Saving resolved markdown\u2026";
           renderPageConflictModal();
-          try {
-            noteLocalPageChange(conflict.pagePath);
-            const payload = await savePageMarkdown(conflict.pagePath, markdownToSave, conflict.remoteMarkdown, encodePath);
+          noteLocalPageChange(conflict.pagePath);
+          const outcome = await savePageConflictResolutionFlow({
+            mode: conflict.mode,
+            pagePath: conflict.pagePath,
+            baseMarkdown: conflict.baseMarkdown,
+            remoteMarkdown: conflict.remoteMarkdown,
+            resolutionMarkdown: markdownToSave,
+            saveResolvedMarkdown: function(pagePath, nextMarkdown, baseMarkdown) {
+              return savePageMarkdown(pagePath, nextMarkdown, baseMarkdown, encodePath);
+            },
+            loadLatestRemote: loadLatestConflictDetail,
+            formatErrorMessage: errorMessage
+          });
+          if (outcome.action === "saved") {
+            const payload = outcome.payload;
             state.currentPage = payload;
             state.currentMarkdown = payload.rawMarkdown || markdownToSave;
             state.originalMarkdown = payload.rawMarkdown || markdownToSave;
@@ -13415,35 +13560,22 @@
               await loadPageDetail(conflict.pagePath, true, false);
             }
             restoreNoteFocus();
-            setNoteStatus("Saved resolved version of " + conflict.pagePath + ".");
-          } catch (error) {
-            if (error instanceof HTTPError && error.status === 409) {
-              try {
-                const loadedRemote = await loadLatestConflictDetail(conflict.pagePath);
-                if (state.selectedPage !== conflict.pagePath) {
-                  return;
-                }
-                openPageConflictDialog(
-                  conflict.mode,
-                  conflict.pagePath,
-                  loadedRemote,
-                  {
-                    localMarkdown: markdownToSave,
-                    resolutionMarkdown: markdownToSave,
-                    statusMessage: "The page changed again while you were resolving it. Review the latest remote version and save again."
-                  }
-                );
-                setNoteStatus("Conflict changed again on " + conflict.pagePath + ".");
-                return;
-              } catch (reloadError) {
-                state.pageConflictStatus = "The page changed again, and the latest remote version could not be loaded: " + errorMessage(reloadError);
-                renderPageConflictModal();
-                return;
-              }
-            }
-            state.pageConflictStatus = "Save failed: " + errorMessage(error);
-            renderPageConflictModal();
+            setNoteStatus(outcome.status);
+            return;
           }
+          if (outcome.action === "reopened") {
+            if (state.selectedPage !== conflict.pagePath) {
+              return;
+            }
+            state.pageConflict = outcome.draft;
+            state.pageConflictRemoteLoaded = outcome.loadedRemote;
+            state.pageConflictStatus = outcome.status;
+            renderPageConflictModal();
+            setNoteStatus(outcome.noteStatus);
+            return;
+          }
+          state.pageConflictStatus = outcome.status;
+          renderPageConflictModal();
         }
         async function openSaveConflictResolution(pagePath, markdownToSave) {
           const loadedRemote = await loadLatestConflictDetail(pagePath);
@@ -14594,14 +14726,22 @@
                 payload = { raw: messageEvent.data };
               }
               addEventLine(eventName, payload, false);
-              if (isCurrentConflictPageChange(eventName, payload)) {
+              const routed = routePageChangeEvent({
+                eventName,
+                payload,
+                selectedPage: state.selectedPage || "",
+                conflictPage: state.pageConflict ? state.pageConflict.pagePath : "",
+                currentClientId: currentClientInstanceId(),
+                consumeExpectedLocalChange: consumeExpectedLocalPageChange
+              });
+              if (routed.action === "conflict-status") {
                 state.pageConflictStatus = "Remote changes are still arriving. Saving your resolution will recheck against the latest server version.";
                 renderPageConflictModal();
                 debounceRefresh();
                 return;
               }
-              if (isSelectedExternalPageChange(eventName, payload)) {
-                void syncSelectedRemotePage(String(payload.page || state.selectedPage || ""));
+              if (routed.action === "sync-selected") {
+                void syncSelectedRemotePage(routed.pagePath);
                 return;
               }
               debounceRefresh();
