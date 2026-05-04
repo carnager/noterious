@@ -42,6 +42,10 @@ func NewService(rootPath string) (*Service, error) {
 	return &Service{rootPath: filepath.Clean(rootPath)}, nil
 }
 
+func (s *Service) RootPath() string {
+	return s.rootPath
+}
+
 func (s *Service) List(_ context.Context, query string) ([]Document, error) {
 	target := strings.ToLower(strings.TrimSpace(query))
 	documents := make([]Document, 0)

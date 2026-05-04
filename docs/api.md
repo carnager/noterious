@@ -139,6 +139,21 @@ Example:
 
 `POST /api/themes` accepts `multipart/form-data` with one file field named `file`.
 
+## Documents
+
+- `GET /api/documents`
+- `POST /api/documents`
+- `GET /api/documents/download`
+
+`GET /api/documents` supports:
+
+- `q=<search text>` for filename/path filtering
+- `withUsage=1` to include `usageKnown`, `referenceCount`, and `referencedBy`
+  based on live markdown references in the current request scope
+
+The usage metadata is what the web UI uses to surface unused uploads in the
+document picker.
+
 Rules:
 
 - the upload must be a JSON theme file

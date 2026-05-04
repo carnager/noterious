@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildDocumentSections,
   documentUploadHint,
   documentUploadTargetLabel,
   inlineDocumentURL,
@@ -11,7 +12,7 @@ import {
 import type { DocumentRecord } from "./types";
 import type { ServerDocumentSettings } from "./types";
 
-function document(path: string, contentType = "application/pdf"): DocumentRecord {
+function document(path: string, contentType = "application/pdf", overrides: Partial<DocumentRecord> = {}): DocumentRecord {
   return {
     id: path,
     path,
@@ -20,6 +21,7 @@ function document(path: string, contentType = "application/pdf"): DocumentRecord
     size: 1024,
     createdAt: "2026-04-24T00:00:00Z",
     downloadURL: "/api/documents/download?path=" + encodeURIComponent(path),
+    ...overrides,
   };
 }
 
@@ -81,5 +83,23 @@ describe("document helpers", function () {
   it("explains upload behavior when no note is open", function () {
     expect(documentUploadHint("", false, documentSettings("same-folder"))).toContain("Open a note");
     expect(documentUploadHint("", false, documentSettings("same-folder"))).toContain("configured attachment location");
+  });
+
+  it("surfaces unused uploads ahead of recent documents when usage is known", function () {
+    const sections = buildDocumentSections({
+      inputValue: "",
+      documents: [
+        document("notes/_files/unused.pdf", "application/pdf", { usageKnown: true, referenceCount: 0 }),
+        document("notes/spec.pdf", "application/pdf", { usageKnown: true, referenceCount: 2 }),
+      ],
+      onSelectDocument: function () {},
+    });
+
+    expect(sections.map(function (section) {
+      return section.title;
+    })).toEqual(["Unused Uploads", "Recent Documents"]);
+    expect(sections[0]?.items[0]?.title).toBe("unused.pdf");
+    expect(sections[0]?.items[0]?.meta).toContain("Unused");
+    expect(sections[1]?.items[0]?.meta).toContain("Used in 2 notes");
   });
 });

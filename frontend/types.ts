@@ -469,6 +469,9 @@ export interface DocumentRecord {
   size: number;
   createdAt: string;
   downloadURL: string;
+  usageKnown?: boolean;
+  referenceCount?: number;
+  referencedBy?: string[];
 }
 
 export interface DocumentListResponse {

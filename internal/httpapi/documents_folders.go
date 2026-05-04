@@ -11,13 +11,16 @@ import (
 )
 
 type documentResponse struct {
-	ID          string `json:"id"`
-	Path        string `json:"path"`
-	Name        string `json:"name"`
-	ContentType string `json:"contentType"`
-	Size        int64  `json:"size"`
-	CreatedAt   string `json:"createdAt"`
-	DownloadURL string `json:"downloadURL"`
+	ID             string   `json:"id"`
+	Path           string   `json:"path"`
+	Name           string   `json:"name"`
+	ContentType    string   `json:"contentType"`
+	Size           int64    `json:"size"`
+	CreatedAt      string   `json:"createdAt"`
+	DownloadURL    string   `json:"downloadURL"`
+	UsageKnown     bool     `json:"usageKnown,omitempty"`
+	ReferenceCount int      `json:"referenceCount"`
+	ReferencedBy   []string `json:"referencedBy,omitempty"`
 }
 
 type documentsResponse struct {
@@ -119,8 +122,20 @@ func handleDocumentsRequest(w http.ResponseWriter, r *http.Request, deps Depende
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		usage := map[string]documents.Usage(nil)
+		if wantsDocumentUsage(r) {
+			documentPaths := make([]string, 0, len(items))
+			for _, item := range items {
+				documentPaths = append(documentPaths, item.Path)
+			}
+			usage, err = documents.CollectUsage(r.Context(), currentVault(r.Context(), deps), documentPaths)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
 		writeJSON(w, http.StatusOK, documentsResponse{
-			Documents: mapDocuments(items, documentService),
+			Documents: mapDocuments(items, documentService, usage),
 			Count:     len(items),
 			Query:     strings.TrimSpace(r.URL.Query().Get("q")),
 		})
@@ -162,7 +177,7 @@ func handleDocumentsRequest(w http.ResponseWriter, r *http.Request, deps Depende
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, http.StatusCreated, mapDocument(document, documentService))
+	writeJSON(w, http.StatusCreated, mapDocument(document, documentService, documents.Usage{}, false))
 }
 
 func handleFolderRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
@@ -317,22 +332,31 @@ func handleDocumentDownloadRequest(w http.ResponseWriter, r *http.Request, deps 
 	http.ServeFile(w, r, filePath)
 }
 
-func mapDocument(document documents.Document, service *documents.Service) documentResponse {
+func mapDocument(document documents.Document, service *documents.Service, usage documents.Usage, usageKnown bool) documentResponse {
 	return documentResponse{
-		ID:          document.ID,
-		Path:        document.Path,
-		Name:        document.Name,
-		ContentType: document.ContentType,
-		Size:        document.Size,
-		CreatedAt:   document.CreatedAt,
-		DownloadURL: service.DownloadURL(document),
+		ID:             document.ID,
+		Path:           document.Path,
+		Name:           document.Name,
+		ContentType:    document.ContentType,
+		Size:           document.Size,
+		CreatedAt:      document.CreatedAt,
+		DownloadURL:    service.DownloadURL(document),
+		UsageKnown:     usageKnown,
+		ReferenceCount: usage.ReferenceCount,
+		ReferencedBy:   usage.ReferencedBy,
 	}
 }
 
-func mapDocuments(items []documents.Document, service *documents.Service) []documentResponse {
+func mapDocuments(items []documents.Document, service *documents.Service, usage map[string]documents.Usage) []documentResponse {
 	mapped := make([]documentResponse, 0, len(items))
+	usageKnown := usage != nil
 	for _, document := range items {
-		mapped = append(mapped, mapDocument(document, service))
+		mapped = append(mapped, mapDocument(document, service, usage[document.Path], usageKnown))
 	}
 	return mapped
+}
+
+func wantsDocumentUsage(r *http.Request) bool {
+	value := strings.TrimSpace(r.URL.Query().Get("withUsage"))
+	return value == "1" || strings.EqualFold(value, "true")
 }

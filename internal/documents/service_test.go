@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/carnager/noterious/internal/vault"
 )
 
 func TestCreateListAndGetDocument(t *testing.T) {
@@ -111,5 +113,56 @@ func TestCreateRejectsInvalidNoteSubfolderPlacement(t *testing.T) {
 	_, err = service.Create(context.Background(), "notes/alpha", UploadPlacementNoteSubfolder, "../outside", "nested.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
 	if err == nil || !strings.Contains(err.Error(), "document upload subfolder") {
 		t.Fatalf("Create() error = %v", err)
+	}
+}
+
+func TestCollectUsageCountsDocumentReferences(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(rootDir, "index.md"), []byte(`# Home
+
+[Spec](Docs/spec.pdf)
+![Cat](Assets/cat.png)
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(index) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(rootDir, "notes"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(notes) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rootDir, "notes", "today.md"), []byte(`# Today
+
+[Spec again](../Docs/spec.pdf)
+
+~~~md
+[Ignored](../Docs/spec.pdf)
+~~~
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(today) error = %v", err)
+	}
+
+	usage, err := CollectUsage(context.Background(), vault.NewService(rootDir), []string{
+		"Docs/spec.pdf",
+		"Assets/cat.png",
+		"unused.pdf",
+	})
+	if err != nil {
+		t.Fatalf("CollectUsage() error = %v", err)
+	}
+
+	if usage["Docs/spec.pdf"].ReferenceCount != 2 {
+		t.Fatalf("spec reference count = %d", usage["Docs/spec.pdf"].ReferenceCount)
+	}
+	if got := usage["Docs/spec.pdf"].ReferencedBy; len(got) != 2 || got[0] != "index" || got[1] != "notes/today" {
+		t.Fatalf("spec referencedBy = %#v", got)
+	}
+	if usage["Assets/cat.png"].ReferenceCount != 1 {
+		t.Fatalf("cat reference count = %d", usage["Assets/cat.png"].ReferenceCount)
+	}
+	if got := usage["Assets/cat.png"].ReferencedBy; len(got) != 1 || got[0] != "index" {
+		t.Fatalf("cat referencedBy = %#v", got)
+	}
+	if usage["unused.pdf"].ReferenceCount != 0 || len(usage["unused.pdf"].ReferencedBy) != 0 {
+		t.Fatalf("unused usage = %#v", usage["unused.pdf"])
 	}
 }

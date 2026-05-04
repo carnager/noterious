@@ -717,25 +717,69 @@
     }
     return (name === target ? 4e3 : 0) + (name.startsWith(target) ? 2800 : 0) + (name.indexOf(target) >= 0 ? 1200 : 0) + (document2.createdAt ? (Date.parse(document2.createdAt) || 0) / 1e12 : 0);
   }
+  function usageMeta(document2) {
+    if (!document2.usageKnown) {
+      return "";
+    }
+    const count = Number(document2.referenceCount || 0);
+    return count > 0 ? "Used in " + String(count) + " note" + (count === 1 ? "" : "s") : "Unused";
+  }
+  function documentMeta(document2) {
+    return [
+      document2.path,
+      document2.contentType,
+      document2.size ? Math.round(document2.size / 102.4) / 10 + " KB" : "",
+      usageMeta(document2)
+    ].filter(Boolean).join(" \xB7 ");
+  }
+  function paletteItemForDocument(document2, onSelectDocument) {
+    return {
+      title: document2.name,
+      meta: documentMeta(document2),
+      onSelect: function() {
+        onSelectDocument(document2);
+      }
+    };
+  }
   function buildDocumentSections(options) {
     const query = String(options.inputValue || "").trim();
-    const items = options.documents.filter(function(document2) {
+    const filtered = options.documents.filter(function(document2) {
       return matchesDocument(document2, query);
     }).sort(function(left, right) {
       return scoreDocument(right, query) - scoreDocument(left, query);
-    }).slice(0, query ? 30 : 20).map(function(document2) {
-      return {
-        title: document2.name,
-        meta: [document2.path, document2.contentType, document2.size ? Math.round(document2.size / 102.4) / 10 + " KB" : ""].filter(Boolean).join(" \xB7 "),
-        onSelect: function() {
-          options.onSelectDocument(document2);
-        }
-      };
     });
-    return [{
-      title: query ? "Matching Documents" : "Recent Documents",
-      items
-    }];
+    if (query) {
+      return [{
+        title: "Matching Documents",
+        items: filtered.slice(0, 30).map(function(document2) {
+          return paletteItemForDocument(document2, options.onSelectDocument);
+        })
+      }];
+    }
+    const unused = filtered.filter(function(document2) {
+      return document2.usageKnown && Number(document2.referenceCount || 0) === 0;
+    });
+    const recentUsed = filtered.filter(function(document2) {
+      return !document2.usageKnown || Number(document2.referenceCount || 0) > 0;
+    });
+    const sections = [];
+    if (unused.length) {
+      sections.push({
+        title: "Unused Uploads",
+        items: unused.slice(0, 12).map(function(document2) {
+          return paletteItemForDocument(document2, options.onSelectDocument);
+        })
+      });
+    }
+    if (recentUsed.length || !sections.length) {
+      sections.push({
+        title: "Recent Documents",
+        items: recentUsed.slice(0, 20).map(function(document2) {
+          return paletteItemForDocument(document2, options.onSelectDocument);
+        })
+      });
+    }
+    return sections;
   }
   function renderDocumentsResults(options) {
     return renderPaletteSections(options.container, buildDocumentSections(options), "No matching documents.");
@@ -13962,7 +14006,13 @@
             els.documentsResults.textContent = "Loading\u2026";
           }
           try {
-            const payload = await fetchJSON("/api/documents" + (query ? "?q=" + encodeURIComponent(query) : ""));
+            const params = new URLSearchParams();
+            if (query) {
+              params.set("q", query);
+            } else {
+              params.set("withUsage", "1");
+            }
+            const payload = await fetchJSON("/api/documents" + (params.size ? "?" + params.toString() : ""));
             state.documents = Array.isArray(payload.documents) ? payload.documents : [];
             renderDocumentResults2();
           } catch (error) {

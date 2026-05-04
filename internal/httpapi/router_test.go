@@ -557,6 +557,67 @@ func TestDocumentsAPIRespectsUploadPlacementSettings(t *testing.T) {
 	}
 }
 
+func TestDocumentsAPIUsageMarksUnusedUploads(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+	if err := os.MkdirAll(filepath.Join(vaultDir, "Docs"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(Docs) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "index.md"), []byte(`# Home
+
+[Spec](Docs/spec.pdf)
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(index) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "Docs", "spec.pdf"), []byte("%PDF-1.4 fake"), 0o644); err != nil {
+		t.Fatalf("WriteFile(spec) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "unused.pdf"), []byte("%PDF-1.4 fake"), 0o644); err != nil {
+		t.Fatalf("WriteFile(unused) error = %v", err)
+	}
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/documents?withUsage=1", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET /api/documents?withUsage=1 status = %d body=%s", response.Code, response.Body.String())
+	}
+
+	type documentUsage struct {
+		Path           string   `json:"path"`
+		UsageKnown     bool     `json:"usageKnown"`
+		ReferenceCount int      `json:"referenceCount"`
+		ReferencedBy   []string `json:"referencedBy"`
+	}
+	var payload struct {
+		Documents []documentUsage `json:"documents"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("Decode(payload) error = %v", err)
+	}
+
+	var specUsage, unusedUsage documentUsage
+	for _, document := range payload.Documents {
+		switch document.Path {
+		case "Docs/spec.pdf":
+			specUsage = document
+		case "unused.pdf":
+			unusedUsage = document
+		}
+	}
+	if !specUsage.UsageKnown || specUsage.ReferenceCount != 1 || len(specUsage.ReferencedBy) != 1 || specUsage.ReferencedBy[0] != "index" {
+		t.Fatalf("spec usage = %#v", specUsage)
+	}
+	if !unusedUsage.UsageKnown || unusedUsage.ReferenceCount != 0 || len(unusedUsage.ReferencedBy) != 0 {
+		t.Fatalf("unused usage = %#v", unusedUsage)
+	}
+}
+
 func TestGetPageReturnsNotFoundForMissingPage(t *testing.T) {
 	t.Parallel()
 

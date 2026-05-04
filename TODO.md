@@ -23,7 +23,6 @@ missing product and reliability work still open in the current app.
 
 ## Priority 3: Attachments And Assets
 
-- [ ] Surface orphaned files or unused uploads.
 - [ ] Decide whether task click targets should get bracket syntax parity with
       reminders (`[click: ...]` vs `click:: ...`).
 
@@ -95,5 +94,5 @@ missing product and reliability work still open in the current app.
 
 - [ ] Next most useful slices:
       - end-to-end merge/conflict coverage
-      - orphaned upload surfacing
       - local Ollama override for AI query generation
+      - task click syntax parity

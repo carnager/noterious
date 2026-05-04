@@ -177,30 +177,79 @@ function scoreDocument(document: DocumentRecord, query: string): number {
   );
 }
 
+function usageMeta(document: DocumentRecord): string {
+  if (!document.usageKnown) {
+    return "";
+  }
+  const count = Number(document.referenceCount || 0);
+  return count > 0
+    ? ("Used in " + String(count) + " note" + (count === 1 ? "" : "s"))
+    : "Unused";
+}
+
+function documentMeta(document: DocumentRecord): string {
+  return [
+    document.path,
+    document.contentType,
+    document.size ? (Math.round(document.size / 102.4) / 10) + " KB" : "",
+    usageMeta(document),
+  ].filter(Boolean).join(" · ");
+}
+
+function paletteItemForDocument(document: DocumentRecord, onSelectDocument: (document: DocumentRecord) => void): PaletteItem {
+  return {
+    title: document.name,
+    meta: documentMeta(document),
+    onSelect: function () {
+      onSelectDocument(document);
+    },
+  };
+}
+
 export function buildDocumentSections(options: Omit<RenderDocumentsOptions, "container">): PaletteSection[] {
   const query = String(options.inputValue || "").trim();
-  const items = options.documents
+  const filtered = options.documents
     .filter(function (document) {
       return matchesDocument(document, query);
     })
     .sort(function (left, right) {
       return scoreDocument(right, query) - scoreDocument(left, query);
-    })
-    .slice(0, query ? 30 : 20)
-    .map(function (document): PaletteItem {
-      return {
-        title: document.name,
-        meta: [document.path, document.contentType, document.size ? (Math.round(document.size / 102.4) / 10) + " KB" : ""].filter(Boolean).join(" · "),
-        onSelect: function () {
-          options.onSelectDocument(document);
-        },
-      };
     });
 
-  return [{
-    title: query ? "Matching Documents" : "Recent Documents",
-    items,
-  }];
+  if (query) {
+    return [{
+      title: "Matching Documents",
+      items: filtered.slice(0, 30).map(function (document) {
+        return paletteItemForDocument(document, options.onSelectDocument);
+      }),
+    }];
+  }
+
+  const unused = filtered.filter(function (document) {
+    return document.usageKnown && Number(document.referenceCount || 0) === 0;
+  });
+  const recentUsed = filtered.filter(function (document) {
+    return !document.usageKnown || Number(document.referenceCount || 0) > 0;
+  });
+
+  const sections: PaletteSection[] = [];
+  if (unused.length) {
+    sections.push({
+      title: "Unused Uploads",
+      items: unused.slice(0, 12).map(function (document) {
+        return paletteItemForDocument(document, options.onSelectDocument);
+      }),
+    });
+  }
+  if (recentUsed.length || !sections.length) {
+    sections.push({
+      title: "Recent Documents",
+      items: recentUsed.slice(0, 20).map(function (document) {
+        return paletteItemForDocument(document, options.onSelectDocument);
+      }),
+    });
+  }
+  return sections;
 }
 
 export function renderDocumentsResults(options: RenderDocumentsOptions): number {

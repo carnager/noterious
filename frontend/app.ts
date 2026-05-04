@@ -4883,7 +4883,13 @@ interface ActionDialogSession {
       els.documentsResults.textContent = "Loading…";
     }
     try {
-      const payload = await fetchJSON<DocumentListResponse>("/api/documents" + (query ? ("?q=" + encodeURIComponent(query)) : ""));
+      const params = new URLSearchParams();
+      if (query) {
+        params.set("q", query);
+      } else {
+        params.set("withUsage", "1");
+      }
+      const payload = await fetchJSON<DocumentListResponse>("/api/documents" + (params.size ? ("?" + params.toString()) : ""));
       state.documents = Array.isArray(payload.documents) ? payload.documents : [];
       renderDocumentResults();
     } catch (error) {
