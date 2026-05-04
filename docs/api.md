@@ -38,8 +38,15 @@ requires a valid session cookie and otherwise returns `401`.
 - `vaultHealth`: `healthy`, `reason`, and `message`
 - `dataDir`
 - `database`
+- `indexStatus`
 - `serverTime`
+- `watchInterval`
+- `watcherEnabled`
+- `watcherState`: last poll, last success, last error, and last changed/deleted counts
+- `notificationInterval`
+- `notificationEnabled`
 - `restartRequired`
+- `restartRequiredReasons`
 
 This separation matters: the configured runtime root and the current request scope are not always the same thing.
 
@@ -77,6 +84,7 @@ The response includes:
 - `settings`
 - `appliedVault`
 - `restartRequired`
+- `restartRequiredReasons`
 
 `/api/user/settings` is for account-scoped settings currently stored on the server, such as:
 

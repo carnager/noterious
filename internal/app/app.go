@@ -140,6 +140,7 @@ func New(cfg config.Config) (*App, error) {
 		AI:            aiService,
 		Events:        eventBroker,
 		Auth:          authService,
+		WatcherState:  configuredVaultWatcher.Snapshot,
 		OnPageChanged: configuredVaultWatcher.Acknowledge,
 	})
 	router = withHTTPLogging(router)

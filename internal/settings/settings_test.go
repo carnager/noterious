@@ -46,6 +46,9 @@ func TestStorePersistsAndMarksRestartRequiredForRuntimeSettings(t *testing.T) {
 	if !updated.RestartRequired {
 		t.Fatalf("updated snapshot should require restart after vault path change")
 	}
+	if len(updated.RestartRequiredReasons) != 2 {
+		t.Fatalf("updated snapshot restart reasons = %#v, want 2 reasons", updated.RestartRequiredReasons)
+	}
 
 	reloaded, err := NewStore(cfg.DataDir, DefaultSettingsFromConfig(cfg))
 	if err != nil {
@@ -67,6 +70,50 @@ func TestStorePersistsAndMarksRestartRequiredForRuntimeSettings(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "\"preferences\"") {
 		t.Fatalf("settings file unexpectedly contains client preferences: %s", string(raw))
+	}
+}
+
+func TestStoreReportsSpecificRestartReasons(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	cfg := config.Config{
+		DataDir:   filepath.Join(rootDir, "data"),
+		VaultPath: filepath.Join(rootDir, "vault-a"),
+	}
+
+	store, err := NewStore(cfg.DataDir, DefaultSettingsFromConfig(cfg))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+
+	updated, err := store.Update(AppSettings{
+		Vault: Vault{
+			VaultPath: filepath.Join(rootDir, "vault-b"),
+		},
+		Notifications: Notifications{
+			NtfyInterval: "2m",
+		},
+		Documents: Documents{
+			UploadPlacement: "same-folder",
+			UploadSubfolder: "_files",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if !updated.RestartRequired {
+		t.Fatalf("updated snapshot should require restart")
+	}
+	if len(updated.RestartRequiredReasons) != 2 {
+		t.Fatalf("RestartRequiredReasons = %#v, want 2 entries", updated.RestartRequiredReasons)
+	}
+	if !strings.Contains(updated.RestartRequiredReasons[0], "Vault path") && !strings.Contains(updated.RestartRequiredReasons[1], "Vault path") {
+		t.Fatalf("RestartRequiredReasons = %#v, want vault path reason", updated.RestartRequiredReasons)
+	}
+	if !strings.Contains(updated.RestartRequiredReasons[0], "Notification polling interval") && !strings.Contains(updated.RestartRequiredReasons[1], "Notification polling interval") {
+		t.Fatalf("RestartRequiredReasons = %#v, want notification polling interval reason", updated.RestartRequiredReasons)
 	}
 }
 

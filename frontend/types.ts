@@ -197,6 +197,16 @@ export interface VaultHealth {
   message?: string;
 }
 
+export interface IndexStatus {
+  dbPresent: boolean;
+  indexedPageCount: number;
+  indexedTaskCount: number;
+  latestIndexedAt?: string;
+  latestVaultModAt?: string;
+  fresh: boolean;
+  summary: string;
+}
+
 export interface VaultRecord {
   id: number;
   key: string;
@@ -214,9 +224,25 @@ export interface MetaResponse {
   vaultHealth: VaultHealth;
   dataDir: string;
   database: string;
+  indexStatus: IndexStatus;
   serverTime: string;
   serverFirst: boolean;
+  watchInterval?: string;
+  watcherEnabled?: boolean;
+  watcherState?: WatcherRuntimeState;
+  notificationInterval?: string;
+  notificationEnabled?: boolean;
   restartRequired?: boolean;
+  restartRequiredReasons?: string[];
+}
+
+export interface WatcherRuntimeState {
+  lastPollAt?: string;
+  lastSuccessAt?: string;
+  lastError?: string;
+  lastChangedCount: number;
+  lastDeletedCount: number;
+  knownPageCount: number;
 }
 
 export interface AuthenticatedUser {
@@ -394,6 +420,7 @@ export interface SettingsResponse {
   settings: ServerSettings;
   appliedVault: VaultSettings;
   restartRequired: boolean;
+  restartRequiredReasons?: string[];
 }
 
 export interface UserSettingsResponse {

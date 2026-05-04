@@ -2570,6 +2570,219 @@
     }
   });
 
+  // frontend/pathAssist.ts
+  function normalizePath2(path) {
+    return normalizePageDraftPath(path || "");
+  }
+  function pathSet(paths) {
+    return new Set((Array.isArray(paths) ? paths : []).map(function(path) {
+      return normalizePath2(path).toLowerCase();
+    }).filter(Boolean));
+  }
+  function joinPath(parent, child) {
+    const normalizedParent = normalizePath2(parent);
+    const normalizedChild = normalizePath2(child);
+    if (!normalizedParent) {
+      return normalizedChild;
+    }
+    if (!normalizedChild) {
+      return normalizedParent;
+    }
+    return normalizedParent + "/" + normalizedChild;
+  }
+  function parentFolder(path) {
+    const normalized = normalizePath2(path);
+    const slash = normalized.lastIndexOf("/");
+    return slash >= 0 ? normalized.slice(0, slash) : "";
+  }
+  function applyScopePrefix(path, scopePrefix) {
+    const normalizedPath = normalizePath2(path);
+    const normalizedScope = normalizePath2(scopePrefix);
+    if (!normalizedPath) {
+      return "";
+    }
+    if (!normalizedScope || normalizedPath === normalizedScope || normalizedPath.startsWith(normalizedScope + "/")) {
+      return normalizedPath;
+    }
+    return normalizedScope + "/" + normalizedPath;
+  }
+  function pathWithinScope(path, scopePrefix) {
+    const normalizedPath = normalizePath2(path);
+    const normalizedScope = normalizePath2(scopePrefix);
+    if (!normalizedPath) {
+      return false;
+    }
+    if (!normalizedScope) {
+      return true;
+    }
+    return normalizedPath === normalizedScope || normalizedPath.startsWith(normalizedScope + "/");
+  }
+  function displayPathWithinScope(path, scopePrefix) {
+    const normalizedPath = normalizePath2(path);
+    const normalizedScope = normalizePath2(scopePrefix);
+    if (!normalizedPath || !normalizedScope) {
+      return normalizedPath;
+    }
+    if (normalizedPath === normalizedScope) {
+      return "";
+    }
+    if (normalizedPath.startsWith(normalizedScope + "/")) {
+      return normalizedPath.slice(normalizedScope.length + 1);
+    }
+    return normalizedPath;
+  }
+  function samePath(left, right) {
+    return normalizePath2(left).toLowerCase() === normalizePath2(right).toLowerCase();
+  }
+  function folderDepth(path) {
+    const normalized = normalizePath2(path);
+    if (!normalized) {
+      return 0;
+    }
+    return normalized.split("/").length;
+  }
+  function sortedUniqueFolders(folders) {
+    return Array.from(new Set((Array.isArray(folders) ? folders : []).map(normalizePath2).filter(Boolean))).sort(function(left, right) {
+      const depthDelta = folderDepth(left) - folderDepth(right);
+      if (depthDelta !== 0) {
+        return depthDelta;
+      }
+      return left.localeCompare(right);
+    });
+  }
+  function filterFoldersForScope(folders, scopePrefix) {
+    return sortedUniqueFolders(folders).filter(function(folder) {
+      return pathWithinScope(folder, scopePrefix);
+    });
+  }
+  function buildCreateSuggestions(baseFolder, scopePrefix, folders) {
+    const canonicalBase = applyScopePrefix(baseFolder, scopePrefix);
+    return filterFoldersForScope(folders, scopePrefix).filter(function(folder) {
+      if (canonicalBase) {
+        return folder.startsWith(canonicalBase + "/");
+      }
+      return true;
+    }).map(function(folder) {
+      const relative = canonicalBase ? folder.slice(canonicalBase.length + 1) : displayPathWithinScope(folder, scopePrefix);
+      return {
+        value: relative ? relative + "/" : "",
+        label: relative ? relative + "/" : "",
+        meta: canonicalBase ? folder : ""
+      };
+    }).filter(function(suggestion) {
+      return Boolean(suggestion.value);
+    });
+  }
+  function buildRenameSuggestions(kind, sourcePath, scopePrefix, folders) {
+    const sourceLeaf = pageTitleFromPath(sourcePath);
+    const normalizedScope = normalizePath2(scopePrefix);
+    const scopedFolders = filterFoldersForScope(folders, scopePrefix);
+    const rootCandidate = normalizedScope || "";
+    const candidates = [rootCandidate].concat(scopedFolders).filter(function(folder, index, list) {
+      if (kind === "folder") {
+        const normalizedFolder = normalizePath2(folder);
+        const normalizedSource = normalizePath2(sourcePath);
+        if (normalizedFolder && (samePath(normalizedFolder, normalizedSource) || normalizedFolder.startsWith(normalizedSource + "/"))) {
+          return false;
+        }
+      }
+      return list.findIndex(function(candidate) {
+        return samePath(candidate, folder);
+      }) === index;
+    });
+    return candidates.map(function(folder) {
+      const value = folder ? folder + "/" + sourceLeaf : sourceLeaf;
+      const labelPrefix = normalizedScope ? displayPathWithinScope(folder, normalizedScope) : folder;
+      return {
+        value,
+        label: labelPrefix ? labelPrefix + "/" + sourceLeaf : sourceLeaf,
+        meta: normalizedScope ? folder ? folder === normalizedScope ? "Scope root" : "Within current scope" : "Vault root" : folder ? folder : "Vault root"
+      };
+    }).filter(function(suggestion) {
+      return !samePath(suggestion.value, sourcePath);
+    });
+  }
+  function filterSuggestions(input, suggestions) {
+    const query = normalizePath2(input).toLowerCase();
+    const source = Array.isArray(suggestions) ? suggestions : [];
+    const filtered = source.filter(function(suggestion) {
+      if (!query) {
+        return true;
+      }
+      return suggestion.value.toLowerCase().indexOf(query) >= 0 || suggestion.label.toLowerCase().indexOf(query) >= 0;
+    });
+    if (filtered.length === 0 && query.indexOf("/") >= 0) {
+      const folderPrefix = query.slice(0, query.lastIndexOf("/") + 1);
+      return source.filter(function(suggestion) {
+        return suggestion.value.toLowerCase().indexOf(folderPrefix) >= 0 || suggestion.label.toLowerCase().indexOf(folderPrefix) >= 0;
+      }).slice(0, 6);
+    }
+    return filtered.slice(0, 6);
+  }
+  function buildPathDialogAssist(options) {
+    const kind = options.kind;
+    const action = options.action;
+    const normalizedInput = normalizePath2(options.input);
+    const normalizedScope = normalizePath2(options.scopePrefix || "");
+    const normalizedSource = normalizePath2(options.sourcePath || "");
+    const normalizedBaseFolder = normalizePath2(options.baseFolder || "");
+    const pages = pathSet(options.pages);
+    const folderList = sortedUniqueFolders(options.folders);
+    const folders = pathSet(folderList);
+    const emptyError = kind === "note" ? "Enter a note name." : "Enter a folder name.";
+    let targetPath = "";
+    if (normalizedInput) {
+      if (action === "create") {
+        targetPath = applyScopePrefix(joinPath(normalizedBaseFolder, normalizedInput), normalizedScope);
+      } else if (normalizedInput.indexOf("/") >= 0) {
+        targetPath = normalizedInput;
+      } else {
+        targetPath = joinPath(parentFolder(normalizedSource), normalizedInput);
+      }
+    }
+    let error = "";
+    if (!normalizedInput) {
+      error = emptyError;
+    } else if (action === "rename" && normalizedSource && samePath(targetPath, normalizedSource)) {
+      error = "No change yet.";
+    } else if (kind === "folder" && action === "rename" && normalizedSource && targetPath.startsWith(normalizedSource + "/")) {
+      error = "A folder cannot be moved into itself.";
+    } else if (pages.has(targetPath.toLowerCase()) && !(action === "rename" && kind === "note" && samePath(targetPath, normalizedSource))) {
+      error = 'A note already exists at "' + targetPath + '".';
+    } else if (folders.has(targetPath.toLowerCase()) && !(action === "rename" && kind === "folder" && samePath(targetPath, normalizedSource))) {
+      error = 'A folder already exists at "' + targetPath + '".';
+    }
+    let helper = "";
+    let helperTone = "neutral";
+    if (!error && targetPath) {
+      const movingToNewParent = action === "rename" && parentFolder(targetPath) !== parentFolder(normalizedSource);
+      if (action === "create") {
+        helper = "Will create " + kind + ' at "' + targetPath + '".';
+      } else {
+        helper = movingToNewParent ? "Will move " + kind + ' to "' + targetPath + '".' : "Will rename " + kind + ' to "' + targetPath + '".';
+        if (normalizedScope && targetPath.indexOf("/") >= 0 && !pathWithinScope(targetPath, normalizedScope)) {
+          helper += " This will move it out of the current scope.";
+          helperTone = "warn";
+        }
+      }
+    }
+    const suggestionPool = action === "create" ? buildCreateSuggestions(normalizedBaseFolder, normalizedScope, folderList) : buildRenameSuggestions(kind, normalizedSource, normalizedScope, folderList);
+    return {
+      normalizedInput,
+      targetPath,
+      error,
+      helper,
+      helperTone,
+      suggestions: filterSuggestions(normalizedInput, suggestionPool)
+    };
+  }
+  var init_pathAssist = __esm({
+    "frontend/pathAssist.ts"() {
+      "use strict";
+      init_commands();
+    }
+  });
+
   // frontend/datetime.ts
   function normalizeDateTimeDisplayFormat(value) {
     switch (String(value || "").trim().toLowerCase()) {
@@ -4543,25 +4756,25 @@
     if (!sourceFolder || !nextLeaf) {
       return;
     }
-    let parentFolder;
+    let parentFolder2;
     let folderName;
     if (nextLeaf.indexOf("/") >= 0) {
       const lastSlash = nextLeaf.lastIndexOf("/");
-      parentFolder = nextLeaf.slice(0, lastSlash);
+      parentFolder2 = nextLeaf.slice(0, lastSlash);
       folderName = nextLeaf.slice(lastSlash + 1);
     } else {
       const slash = sourceFolder.lastIndexOf("/");
-      parentFolder = slash >= 0 ? sourceFolder.slice(0, slash) : "";
+      parentFolder2 = slash >= 0 ? sourceFolder.slice(0, slash) : "";
       folderName = nextLeaf;
     }
-    const destinationFolder = parentFolder ? parentFolder + "/" + folderName : folderName;
+    const destinationFolder = parentFolder2 ? parentFolder2 + "/" + folderName : folderName;
     if (destinationFolder === sourceFolder || destinationFolder.startsWith(sourceFolder + "/")) {
       return;
     }
     const payload = await callbacks.fetchJSON("/api/folders/" + callbacks.encodePath(sourceFolder) + "/move", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetFolder: parentFolder, name: folderName })
+      body: JSON.stringify({ targetFolder: parentFolder2, name: folderName })
     });
     const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
     const movedSelectedPage = context.selectedPage ? remapPathPrefix(context.selectedPage, sourceFolder, movedFolder) : "";
@@ -4941,7 +5154,7 @@
     }
     return normalizedPath === normalizedScopePrefix || normalizedPath.startsWith(normalizedScopePrefix + "/");
   }
-  function displayPathWithinScope(path, scopePrefix) {
+  function displayPathWithinScope2(path, scopePrefix) {
     const normalizedPath = String(path || "").trim().replace(/^\/+|\/+$/g, "");
     const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
     if (!normalizedPath || !normalizedScopePrefix) {
@@ -5052,7 +5265,7 @@
     if (!normalizedCanonicalPath) {
       return;
     }
-    const displayPath = displayPathWithinScope(normalizedCanonicalPath, scopePrefix);
+    const displayPath = displayPathWithinScope2(normalizedCanonicalPath, scopePrefix);
     const segments = displayPath ? displayPath.split("/") : [];
     const canonicalSegments = normalizedCanonicalPath.split("/").filter(Boolean);
     const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
@@ -5076,7 +5289,7 @@
     });
     pages.forEach(function(page) {
       const canonicalPath = String(page.path || "");
-      const displayPath = displayPathWithinScope(canonicalPath, normalizedScopePrefix);
+      const displayPath = displayPathWithinScope2(canonicalPath, normalizedScopePrefix);
       const segments = displayPath ? displayPath.split("/") : [];
       const canonicalSegments = canonicalPath.split("/").filter(Boolean);
       const offset = normalizedScopePrefix && canonicalPath.startsWith(normalizedScopePrefix + "/") ? scopeParts.length : 0;
@@ -5215,7 +5428,7 @@
     if (pageSearchQuery) {
       const expanded = {};
       pages.forEach(function(page) {
-        const displayPath = displayPathWithinScope(String(page.path || ""), normalizedScopePrefix);
+        const displayPath = displayPathWithinScope2(String(page.path || ""), normalizedScopePrefix);
         const parts = displayPath ? displayPath.split("/") : [];
         const canonicalParts = String(page.path || "").split("/").filter(Boolean);
         const offset = normalizedScopePrefix && String(page.path || "").startsWith(normalizedScopePrefix + "/") ? normalizedScopePrefix.split("/").length : 0;
@@ -7344,7 +7557,30 @@
     els.settingsRuntimeListenAddr.textContent = state.serverMeta ? String(state.serverMeta.listenAddr || "").trim() || "(unknown)" : "(unknown)";
     els.settingsRuntimeServerTime.textContent = serverTime || "(unknown)";
     els.settingsRuntimeCurrentVault.textContent = currentVault || runtimeVaultPath || "(vault root)";
+    els.settingsRuntimeWatcher.textContent = !state.serverMeta ? "(unknown)" : state.serverMeta.watcherEnabled ? "Enabled (" + String(state.serverMeta.watchInterval || "").trim() + ")" : "Disabled";
+    const watcherState = state.serverMeta ? state.serverMeta.watcherState : null;
+    els.settingsRuntimeWatcherDetails.textContent = !watcherState ? "(no runtime state reported)" : [
+      watcherState.lastPollAt ? "Last poll " + watcherState.lastPollAt : "",
+      watcherState.lastSuccessAt ? "last success " + watcherState.lastSuccessAt : "",
+      "known pages " + String(watcherState.knownPageCount || 0),
+      "last batch " + String(watcherState.lastChangedCount || 0) + " changed / " + String(watcherState.lastDeletedCount || 0) + " deleted",
+      watcherState.lastError ? "last error: " + watcherState.lastError : ""
+    ].filter(Boolean).join(" \xB7 ");
+    els.settingsRuntimeNotifications.textContent = !state.serverMeta ? "(unknown)" : state.serverMeta.notificationEnabled ? "Enabled (" + String(state.serverMeta.notificationInterval || "").trim() + ")" : "Disabled";
+    const indexStatus = state.serverMeta ? state.serverMeta.indexStatus : null;
+    els.settingsRuntimeIndex.textContent = !indexStatus ? "(unknown)" : [
+      String(indexStatus.summary || "").trim() || "Unknown",
+      "(" + String(indexStatus.indexedPageCount || 0) + " pages, " + String(indexStatus.indexedTaskCount || 0) + " tasks)"
+    ].join(" ");
     els.settingsRuntimeRestartRequired.textContent = state.serverMeta && state.serverMeta.restartRequired ? "Yes" : "No";
+    clearNode(els.settingsRuntimeRestartReasons);
+    const restartReasons = state.serverMeta && Array.isArray(state.serverMeta.restartRequiredReasons) ? state.serverMeta.restartRequiredReasons : [];
+    els.settingsRuntimeRestartReasons.classList.toggle("hidden", restartReasons.length === 0);
+    restartReasons.forEach(function(reason) {
+      const item = document.createElement("li");
+      item.textContent = String(reason || "").trim();
+      els.settingsRuntimeRestartReasons.appendChild(item);
+    });
     els.settingsRuntimeHealth.textContent = !state.serverMeta ? "(unknown)" : vaultHealth && vaultHealth.healthy ? "Healthy" : String(vaultHealth && vaultHealth.message ? vaultHealth.message : "Unavailable");
     els.settingsUserNtfyTopicUrl.value = state.settings.userNotifications.ntfyTopicUrl || "";
     els.settingsUserNtfyToken.value = state.settings.userNotifications.ntfyToken || "";
@@ -8235,7 +8471,7 @@
   // frontend/remoteSync.ts
   function hasUnsafeRemoteSyncUIState(state) {
     return Boolean(
-      state.propertyDraftOpen || state.inlineTableEditorOpen || state.inlineTableEditorFocused || state.noteTitleFocused
+      state.propertyDraftOpen || state.taskPickerOpen || state.inlineTableEditorOpen || state.inlineTableEditorFocused || state.noteTitleFocused || state.noteTitleEditing
     );
   }
   function buildRemoteSyncPlan(input) {
@@ -10179,6 +10415,7 @@
       init_backupScript();
       init_clientPreferences();
       init_details();
+      init_pathAssist();
       init_datetime();
       init_dom();
       init_editorState();
@@ -10286,6 +10523,7 @@
             vaultPath: "./vault"
           },
           settingsRestartRequired: false,
+          settingsRestartRequiredReasons: [],
           settingsLoaded: false,
           aiSettingsLoaded: false,
           userSettingsLoaded: false,
@@ -10558,7 +10796,12 @@
           settingsRuntimeListenAddr: requiredElement("settings-runtime-listen-addr"),
           settingsRuntimeServerTime: requiredElement("settings-runtime-server-time"),
           settingsRuntimeCurrentVault: requiredElement("settings-runtime-current-vault"),
+          settingsRuntimeWatcher: requiredElement("settings-runtime-watcher"),
+          settingsRuntimeWatcherDetails: requiredElement("settings-runtime-watcher-details"),
+          settingsRuntimeNotifications: requiredElement("settings-runtime-notifications"),
+          settingsRuntimeIndex: requiredElement("settings-runtime-index"),
           settingsRuntimeRestartRequired: requiredElement("settings-runtime-restart-required"),
+          settingsRuntimeRestartReasons: requiredElement("settings-runtime-restart-reasons"),
           settingsRuntimeHealth: requiredElement("settings-runtime-health"),
           settingsUserNtfyTopicUrl: requiredElement("settings-user-ntfy-topic-url"),
           settingsUserNtfyToken: requiredElement("settings-user-ntfy-token"),
@@ -10865,9 +11108,11 @@
         function hasUnsafeRemoteSyncUIState2() {
           return hasUnsafeRemoteSyncUIState({
             propertyDraftOpen: Boolean(state.propertyDraft),
+            taskPickerOpen: taskPickerState.mode === "due" || taskPickerState.mode === "remind",
             inlineTableEditorOpen: inlineTableEditorOpen2(),
             inlineTableEditorFocused: inlineTableEditorHasFocus2(),
-            noteTitleFocused: document.activeElement === els.noteHeading
+            noteTitleFocused: document.activeElement === els.noteHeading,
+            noteTitleEditing: state.renamingPageTitle
           });
         }
         async function syncSelectedRemotePage(pagePath) {
@@ -11814,15 +12059,15 @@
             return;
           }
           const slash = currentPath.lastIndexOf("/");
-          const parentFolder = slash >= 0 ? currentPath.slice(0, slash) : "";
-          const targetPath = normalizedDraftPath.indexOf("/") >= 0 ? normalizedDraftPath : parentFolder ? parentFolder + "/" + normalizedDraftPath : normalizedDraftPath;
+          const parentFolder2 = slash >= 0 ? currentPath.slice(0, slash) : "";
+          const targetPath = normalizedDraftPath.indexOf("/") >= 0 ? normalizedDraftPath : parentFolder2 ? parentFolder2 + "/" + normalizedDraftPath : normalizedDraftPath;
           if (targetPath === currentPath) {
             setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
             return;
           }
           const targetLeaf = pageTitleFromPath(targetPath);
           const targetParent = targetPath.lastIndexOf("/") >= 0 ? targetPath.slice(0, targetPath.lastIndexOf("/")) : "";
-          const movedFolders = targetParent !== parentFolder;
+          const movedFolders = targetParent !== parentFolder2;
           state.renamingPageTitle = true;
           try {
             if (hasUnsavedPageChanges()) {
@@ -12443,6 +12688,9 @@
           };
           state.appliedVault = snapshot.appliedVault;
           state.settingsRestartRequired = snapshot.restartRequired;
+          state.settingsRestartRequiredReasons = Array.isArray(snapshot.restartRequiredReasons) ? snapshot.restartRequiredReasons.map(function(reason) {
+            return String(reason || "").trim();
+          }).filter(Boolean) : [];
           state.settingsLoaded = true;
           renderHomeButton();
           renderHelpShortcuts2();
@@ -13220,9 +13468,11 @@
             els.actionDialogConfirm.classList.remove("danger-button");
             els.actionDialogConfirm.textContent = "Confirm";
             els.actionDialogCancel.textContent = "Cancel";
+            els.actionDialogConfirm.disabled = false;
             return;
           }
-          const options = session.options;
+          const activeSession = session;
+          const options = activeSession.options;
           els.actionDialogEyebrow.textContent = options.eyebrow || (options.danger ? "Confirm" : "Action");
           els.actionDialogTitle.textContent = options.title;
           els.actionDialogMessage.textContent = String(options.message || "");
@@ -13230,8 +13480,24 @@
           els.actionDialogConfirm.textContent = options.confirmLabel || "Confirm";
           els.actionDialogCancel.textContent = options.cancelLabel || "Cancel";
           els.actionDialogConfirm.classList.toggle("danger-button", Boolean(options.danger));
-          els.actionDialogStatus.textContent = session.status;
+          els.actionDialogStatus.textContent = activeSession.status;
           clearNode(els.actionDialogFields);
+          const currentFieldStates = {};
+          const fieldRenderers = [];
+          function updateActionDialogValidity() {
+            const validationError = options.validate ? options.validate(activeSession.values) : "";
+            const hasInlineFieldFeedback = Object.values(currentFieldStates).some(function(fieldState) {
+              return Boolean(fieldState.error || fieldState.helper);
+            });
+            els.actionDialogConfirm.disabled = Boolean(validationError);
+            if (activeSession.status) {
+              els.actionDialogStatus.textContent = activeSession.status;
+            } else if (validationError && !hasInlineFieldFeedback) {
+              els.actionDialogStatus.textContent = validationError;
+            } else {
+              els.actionDialogStatus.textContent = "";
+            }
+          }
           (Array.isArray(options.fields) ? options.fields : []).forEach(function(field) {
             const row = document.createElement("label");
             row.className = "search";
@@ -13240,13 +13506,68 @@
             row.appendChild(label);
             const input = document.createElement("input");
             input.type = "text";
-            input.value = session.values[field.key] || "";
+            input.value = activeSession.values[field.key] || "";
             input.placeholder = field.placeholder || "";
             input.autocomplete = "off";
             input.setAttribute("autocorrect", "off");
             input.setAttribute("autocapitalize", field.autocapitalize || "none");
             input.spellcheck = field.spellcheck === true;
             input.setAttribute("data-action-dialog-field", field.key);
+            row.appendChild(input);
+            const help = document.createElement("p");
+            help.className = "action-dialog-field-help hidden";
+            row.appendChild(help);
+            const suggestions = document.createElement("div");
+            suggestions.className = "action-dialog-suggestions hidden";
+            row.appendChild(suggestions);
+            const renderFieldState = function() {
+              const fieldState = typeof field.describe === "function" ? field.describe(activeSession.values[field.key] || "", activeSession.values) : {};
+              currentFieldStates[field.key] = fieldState;
+              const message = fieldState.error || fieldState.helper || "";
+              help.textContent = message;
+              help.className = "action-dialog-field-help";
+              help.classList.toggle("hidden", !message);
+              help.classList.toggle("warn", Boolean(fieldState.error || fieldState.helperTone === "warn"));
+              clearNode(suggestions);
+              const suggestionItems = Array.isArray(fieldState.suggestions) ? fieldState.suggestions : [];
+              suggestionItems.forEach(function(suggestion) {
+                const item = document.createElement("div");
+                item.className = "action-dialog-suggestion-item";
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "action-dialog-suggestion";
+                button.textContent = suggestion.label;
+                if (suggestion.meta) {
+                  button.title = suggestion.meta;
+                }
+                button.addEventListener("click", function() {
+                  if (!actionDialogSession) {
+                    return;
+                  }
+                  actionDialogSession.values[field.key] = suggestion.value;
+                  input.value = suggestion.value;
+                  if (actionDialogSession.status) {
+                    actionDialogSession.status = "";
+                  }
+                  fieldRenderers.forEach(function(renderer) {
+                    renderer();
+                  });
+                  updateActionDialogValidity();
+                  focusWithoutScroll(input);
+                  input.setSelectionRange(input.value.length, input.value.length);
+                });
+                item.appendChild(button);
+                if (suggestion.meta) {
+                  const meta = document.createElement("span");
+                  meta.className = "action-dialog-suggestion-meta";
+                  meta.textContent = suggestion.meta;
+                  item.appendChild(meta);
+                }
+                suggestions.appendChild(item);
+              });
+              suggestions.classList.toggle("hidden", suggestionItems.length === 0);
+            };
+            fieldRenderers.push(renderFieldState);
             input.addEventListener("input", function() {
               if (!actionDialogSession) {
                 return;
@@ -13254,12 +13575,18 @@
               actionDialogSession.values[field.key] = input.value;
               if (actionDialogSession.status) {
                 actionDialogSession.status = "";
-                els.actionDialogStatus.textContent = "";
               }
+              fieldRenderers.forEach(function(renderer) {
+                renderer();
+              });
+              updateActionDialogValidity();
             });
-            row.appendChild(input);
             els.actionDialogFields.appendChild(row);
           });
+          fieldRenderers.forEach(function(renderer) {
+            renderer();
+          });
+          updateActionDialogValidity();
           els.actionDialogShell.classList.remove("hidden");
         }
         function dismissActionDialog(result) {
@@ -13986,7 +14313,7 @@
             }
             closeSettingsModal();
             restoreNoteFocus();
-            setNoteStatus(settingsSnapshot.restartRequired ? "Settings saved. Restart required to apply runtime changes." : "Settings saved.");
+            setNoteStatus(settingsSnapshot.restartRequired ? "Settings saved. Restart required to apply runtime changes." + (state.settingsRestartRequiredReasons.length ? " " + state.settingsRestartRequiredReasons.join(" ") : "") : "Settings saved.");
           } catch (error) {
             els.settingsStatus.textContent = "Settings save failed: " + errorMessage(error);
           }
@@ -14236,6 +14563,46 @@
             throw error;
           }
         }
+        function currentPagePathInventory() {
+          return state.pages.map(function(page) {
+            return normalizePageDraftPath(page.path || "");
+          }).filter(Boolean);
+        }
+        function currentFolderPathInventory() {
+          return state.folders.map(function(folder) {
+            return normalizePageDraftPath(folder || "");
+          }).filter(Boolean);
+        }
+        function pathFieldState(input, options) {
+          const assist = buildPathDialogAssist({
+            kind: options.kind,
+            action: options.action,
+            input,
+            sourcePath: options.sourcePath,
+            baseFolder: options.baseFolder,
+            scopePrefix: currentScopePrefix(),
+            pages: currentPagePathInventory(),
+            folders: currentFolderPathInventory()
+          });
+          return {
+            error: assist.error || "",
+            helper: assist.error ? "" : assist.helper,
+            helperTone: assist.helperTone,
+            suggestions: assist.suggestions
+          };
+        }
+        function pathFieldValidation(input, options) {
+          return buildPathDialogAssist({
+            kind: options.kind,
+            action: options.action,
+            input,
+            sourcePath: options.sourcePath,
+            baseFolder: options.baseFolder,
+            scopePrefix: currentScopePrefix(),
+            pages: currentPagePathInventory(),
+            folders: currentFolderPathInventory()
+          }).error;
+        }
         async function requestCreatePageInFolder(folderKey) {
           const targetLabel = folderKey || currentScopePrefix() || "vault root";
           const values = await promptForActionInput({
@@ -14249,10 +14616,21 @@
               placeholder: "meeting-notes",
               value: "",
               autocapitalize: "none",
-              spellcheck: false
+              spellcheck: false,
+              describe: function(value) {
+                return pathFieldState(value, {
+                  kind: "note",
+                  action: "create",
+                  baseFolder: folderKey
+                });
+              }
             }],
             validate: function(nextValues) {
-              return normalizePageDraftPath(nextValues.name || "") ? "" : "Enter a note name.";
+              return pathFieldValidation(nextValues.name || "", {
+                kind: "note",
+                action: "create",
+                baseFolder: folderKey
+              });
             }
           });
           if (!values) {
@@ -14278,13 +14656,21 @@
               placeholder: "contacts",
               value: "",
               autocapitalize: "none",
-              spellcheck: false
+              spellcheck: false,
+              describe: function(value) {
+                return pathFieldState(value, {
+                  kind: "folder",
+                  action: "create",
+                  baseFolder: folderKey
+                });
+              }
             }],
             validate: function(nextValues) {
-              if (!normalizePageDraftPath(nextValues.folder || "")) {
-                return "Enter a folder name.";
-              }
-              return "";
+              return pathFieldValidation(nextValues.folder || "", {
+                kind: "folder",
+                action: "create",
+                baseFolder: folderKey
+              });
             }
           });
           if (!values) {
@@ -14310,10 +14696,21 @@
               value: currentName,
               placeholder: currentName,
               autocapitalize: "none",
-              spellcheck: false
+              spellcheck: false,
+              describe: function(value) {
+                return pathFieldState(value, {
+                  kind: "note",
+                  action: "rename",
+                  sourcePath: pagePath
+                });
+              }
             }],
             validate: function(nextValues) {
-              return normalizePageDraftPath(nextValues.name || "") ? "" : "Enter a note name.";
+              return pathFieldValidation(nextValues.name || "", {
+                kind: "note",
+                action: "rename",
+                sourcePath: pagePath
+              });
             }
           });
           if (!values) {
@@ -14338,10 +14735,21 @@
               value: currentName,
               placeholder: currentName,
               autocapitalize: "none",
-              spellcheck: false
+              spellcheck: false,
+              describe: function(value) {
+                return pathFieldState(value, {
+                  kind: "folder",
+                  action: "rename",
+                  sourcePath: folderKey
+                });
+              }
             }],
             validate: function(nextValues) {
-              return normalizePageDraftPath(nextValues.name || "") ? "" : "Enter a folder name.";
+              return pathFieldValidation(nextValues.name || "", {
+                kind: "folder",
+                action: "rename",
+                sourcePath: folderKey
+              });
             }
           });
           if (!values) {

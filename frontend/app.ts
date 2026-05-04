@@ -30,6 +30,10 @@ import {
   toggleTaskDone as toggleTaskDoneRequest,
 } from "./details";
 import {
+  buildPathDialogAssist,
+  type PathDialogSuggestion,
+} from "./pathAssist";
+import {
   formatDateTimeValue,
   formatTimeValue,
   setDateTimeDisplayFormat,
@@ -366,6 +370,7 @@ interface AppState {
   settings: SettingsModel;
   appliedVault: VaultSettings;
   settingsRestartRequired: boolean;
+  settingsRestartRequiredReasons: string[];
   settingsLoaded: boolean;
   aiSettingsLoaded: boolean;
   userSettingsLoaded: boolean;
@@ -444,6 +449,16 @@ interface ActionDialogFieldSpec {
   value?: string;
   autocapitalize?: string;
   spellcheck?: boolean;
+  describe?: (value: string, values: Record<string, string>) => ActionDialogFieldState;
+}
+
+interface ActionDialogFieldSuggestion extends PathDialogSuggestion {}
+
+interface ActionDialogFieldState {
+  error?: string;
+  helper?: string;
+  helperTone?: "neutral" | "warn";
+  suggestions?: ActionDialogFieldSuggestion[];
 }
 
 interface ActionDialogOptions {
@@ -545,6 +560,7 @@ interface ActionDialogSession {
       vaultPath: "./vault",
     },
     settingsRestartRequired: false,
+    settingsRestartRequiredReasons: [],
     settingsLoaded: false,
     aiSettingsLoaded: false,
     userSettingsLoaded: false,
@@ -818,7 +834,12 @@ interface ActionDialogSession {
     settingsRuntimeListenAddr: requiredElement<HTMLElement>("settings-runtime-listen-addr"),
     settingsRuntimeServerTime: requiredElement<HTMLElement>("settings-runtime-server-time"),
     settingsRuntimeCurrentVault: requiredElement<HTMLElement>("settings-runtime-current-vault"),
+    settingsRuntimeWatcher: requiredElement<HTMLElement>("settings-runtime-watcher"),
+    settingsRuntimeWatcherDetails: requiredElement<HTMLElement>("settings-runtime-watcher-details"),
+    settingsRuntimeNotifications: requiredElement<HTMLElement>("settings-runtime-notifications"),
+    settingsRuntimeIndex: requiredElement<HTMLElement>("settings-runtime-index"),
     settingsRuntimeRestartRequired: requiredElement<HTMLElement>("settings-runtime-restart-required"),
+    settingsRuntimeRestartReasons: requiredElement<HTMLElement>("settings-runtime-restart-reasons"),
     settingsRuntimeHealth: requiredElement<HTMLElement>("settings-runtime-health"),
     settingsUserNtfyTopicUrl: requiredElement<HTMLInputElement>("settings-user-ntfy-topic-url"),
     settingsUserNtfyToken: requiredElement<HTMLInputElement>("settings-user-ntfy-token"),
@@ -1162,9 +1183,11 @@ interface ActionDialogSession {
   function hasUnsafeRemoteSyncUIState(): boolean {
     return hasUnsafeRemoteSyncUIStateHelper({
       propertyDraftOpen: Boolean(state.propertyDraft),
+      taskPickerOpen: taskPickerState.mode === "due" || taskPickerState.mode === "remind",
       inlineTableEditorOpen: inlineTableEditorOpen(),
       inlineTableEditorFocused: inlineTableEditorHasFocus(),
       noteTitleFocused: document.activeElement === els.noteHeading,
+      noteTitleEditing: state.renamingPageTitle,
     });
   }
 
@@ -2946,6 +2969,11 @@ interface ActionDialogSession {
     };
     state.appliedVault = snapshot.appliedVault;
     state.settingsRestartRequired = snapshot.restartRequired;
+    state.settingsRestartRequiredReasons = Array.isArray(snapshot.restartRequiredReasons)
+      ? snapshot.restartRequiredReasons.map(function (reason) {
+          return String(reason || "").trim();
+        }).filter(Boolean)
+      : [];
     state.settingsLoaded = true;
     renderHomeButton();
     renderHelpShortcuts();
@@ -3813,10 +3841,12 @@ interface ActionDialogSession {
       els.actionDialogConfirm.classList.remove("danger-button");
       els.actionDialogConfirm.textContent = "Confirm";
       els.actionDialogCancel.textContent = "Cancel";
+      els.actionDialogConfirm.disabled = false;
       return;
     }
 
-    const options = session.options;
+    const activeSession = session;
+    const options = activeSession.options;
     els.actionDialogEyebrow.textContent = options.eyebrow || (options.danger ? "Confirm" : "Action");
     els.actionDialogTitle.textContent = options.title;
     els.actionDialogMessage.textContent = String(options.message || "");
@@ -3824,8 +3854,26 @@ interface ActionDialogSession {
     els.actionDialogConfirm.textContent = options.confirmLabel || "Confirm";
     els.actionDialogCancel.textContent = options.cancelLabel || "Cancel";
     els.actionDialogConfirm.classList.toggle("danger-button", Boolean(options.danger));
-    els.actionDialogStatus.textContent = session.status;
+    els.actionDialogStatus.textContent = activeSession.status;
     clearNode(els.actionDialogFields);
+
+    const currentFieldStates: Record<string, ActionDialogFieldState> = {};
+    const fieldRenderers: Array<() => void> = [];
+
+    function updateActionDialogValidity(): void {
+      const validationError = options.validate ? options.validate(activeSession.values) : "";
+      const hasInlineFieldFeedback = Object.values(currentFieldStates).some(function (fieldState) {
+        return Boolean(fieldState.error || fieldState.helper);
+      });
+      els.actionDialogConfirm.disabled = Boolean(validationError);
+      if (activeSession.status) {
+        els.actionDialogStatus.textContent = activeSession.status;
+      } else if (validationError && !hasInlineFieldFeedback) {
+        els.actionDialogStatus.textContent = validationError;
+      } else {
+        els.actionDialogStatus.textContent = "";
+      }
+    }
 
     (Array.isArray(options.fields) ? options.fields : []).forEach(function (field) {
       const row = document.createElement("label");
@@ -3837,13 +3885,76 @@ interface ActionDialogSession {
 
       const input = document.createElement("input");
       input.type = "text";
-      input.value = session.values[field.key] || "";
+      input.value = activeSession.values[field.key] || "";
       input.placeholder = field.placeholder || "";
       input.autocomplete = "off";
       input.setAttribute("autocorrect", "off");
       input.setAttribute("autocapitalize", field.autocapitalize || "none");
       input.spellcheck = field.spellcheck === true;
       input.setAttribute("data-action-dialog-field", field.key);
+      row.appendChild(input);
+
+      const help = document.createElement("p");
+      help.className = "action-dialog-field-help hidden";
+      row.appendChild(help);
+
+      const suggestions = document.createElement("div");
+      suggestions.className = "action-dialog-suggestions hidden";
+      row.appendChild(suggestions);
+
+      const renderFieldState = function () {
+        const fieldState = typeof field.describe === "function"
+          ? field.describe(activeSession.values[field.key] || "", activeSession.values)
+          : {};
+        currentFieldStates[field.key] = fieldState;
+        const message = fieldState.error || fieldState.helper || "";
+        help.textContent = message;
+        help.className = "action-dialog-field-help";
+        help.classList.toggle("hidden", !message);
+        help.classList.toggle("warn", Boolean(fieldState.error || fieldState.helperTone === "warn"));
+        clearNode(suggestions);
+        const suggestionItems = Array.isArray(fieldState.suggestions) ? fieldState.suggestions : [];
+        suggestionItems.forEach(function (suggestion) {
+          const item = document.createElement("div");
+          item.className = "action-dialog-suggestion-item";
+
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "action-dialog-suggestion";
+          button.textContent = suggestion.label;
+          if (suggestion.meta) {
+            button.title = suggestion.meta;
+          }
+          button.addEventListener("click", function () {
+            if (!actionDialogSession) {
+              return;
+            }
+            actionDialogSession.values[field.key] = suggestion.value;
+            input.value = suggestion.value;
+            if (actionDialogSession.status) {
+              actionDialogSession.status = "";
+            }
+            fieldRenderers.forEach(function (renderer) {
+              renderer();
+            });
+            updateActionDialogValidity();
+            focusWithoutScroll(input);
+            input.setSelectionRange(input.value.length, input.value.length);
+          });
+          item.appendChild(button);
+
+          if (suggestion.meta) {
+            const meta = document.createElement("span");
+            meta.className = "action-dialog-suggestion-meta";
+            meta.textContent = suggestion.meta;
+            item.appendChild(meta);
+          }
+          suggestions.appendChild(item);
+        });
+        suggestions.classList.toggle("hidden", suggestionItems.length === 0);
+      };
+      fieldRenderers.push(renderFieldState);
+
       input.addEventListener("input", function () {
         if (!actionDialogSession) {
           return;
@@ -3851,13 +3962,19 @@ interface ActionDialogSession {
         actionDialogSession.values[field.key] = input.value;
         if (actionDialogSession.status) {
           actionDialogSession.status = "";
-          els.actionDialogStatus.textContent = "";
         }
+        fieldRenderers.forEach(function (renderer) {
+          renderer();
+        });
+        updateActionDialogValidity();
       });
-      row.appendChild(input);
       els.actionDialogFields.appendChild(row);
     });
 
+    fieldRenderers.forEach(function (renderer) {
+      renderer();
+    });
+    updateActionDialogValidity();
     els.actionDialogShell.classList.remove("hidden");
   }
 
@@ -4673,7 +4790,10 @@ interface ActionDialogSession {
       closeSettingsModal();
       restoreNoteFocus();
       setNoteStatus(settingsSnapshot.restartRequired
-        ? "Settings saved. Restart required to apply runtime changes."
+        ? ("Settings saved. Restart required to apply runtime changes."
+          + (state.settingsRestartRequiredReasons.length
+            ? " " + state.settingsRestartRequiredReasons.join(" ")
+            : ""))
         : "Settings saved.");
     } catch (error) {
       els.settingsStatus.textContent = "Settings save failed: " + errorMessage(error);
@@ -4945,6 +5065,60 @@ interface ActionDialogSession {
     }
   }
 
+  function currentPagePathInventory(): string[] {
+    return state.pages.map(function (page) {
+      return normalizePageDraftPath(page.path || "");
+    }).filter(Boolean);
+  }
+
+  function currentFolderPathInventory(): string[] {
+    return state.folders.map(function (folder) {
+      return normalizePageDraftPath(folder || "");
+    }).filter(Boolean);
+  }
+
+  function pathFieldState(input: string, options: {
+    kind: "note" | "folder";
+    action: "create" | "rename";
+    sourcePath?: string;
+    baseFolder?: string;
+  }): ActionDialogFieldState {
+    const assist = buildPathDialogAssist({
+      kind: options.kind,
+      action: options.action,
+      input: input,
+      sourcePath: options.sourcePath,
+      baseFolder: options.baseFolder,
+      scopePrefix: currentScopePrefix(),
+      pages: currentPagePathInventory(),
+      folders: currentFolderPathInventory(),
+    });
+    return {
+      error: assist.error || "",
+      helper: assist.error ? "" : assist.helper,
+      helperTone: assist.helperTone,
+      suggestions: assist.suggestions,
+    };
+  }
+
+  function pathFieldValidation(input: string, options: {
+    kind: "note" | "folder";
+    action: "create" | "rename";
+    sourcePath?: string;
+    baseFolder?: string;
+  }): string {
+    return buildPathDialogAssist({
+      kind: options.kind,
+      action: options.action,
+      input: input,
+      sourcePath: options.sourcePath,
+      baseFolder: options.baseFolder,
+      scopePrefix: currentScopePrefix(),
+      pages: currentPagePathInventory(),
+      folders: currentFolderPathInventory(),
+    }).error;
+  }
+
   async function requestCreatePageInFolder(folderKey: string): Promise<void> {
     const targetLabel = folderKey || currentScopePrefix() || "vault root";
     const values = await promptForActionInput({
@@ -4959,9 +5133,20 @@ interface ActionDialogSession {
         value: "",
         autocapitalize: "none",
         spellcheck: false,
+        describe: function (value) {
+          return pathFieldState(value, {
+            kind: "note",
+            action: "create",
+            baseFolder: folderKey,
+          });
+        },
       }],
       validate: function (nextValues) {
-        return normalizePageDraftPath(nextValues.name || "") ? "" : "Enter a note name.";
+        return pathFieldValidation(nextValues.name || "", {
+          kind: "note",
+          action: "create",
+          baseFolder: folderKey,
+        });
       },
     });
     if (!values) {
@@ -4989,12 +5174,20 @@ interface ActionDialogSession {
         value: "",
         autocapitalize: "none",
         spellcheck: false,
+        describe: function (value) {
+          return pathFieldState(value, {
+            kind: "folder",
+            action: "create",
+            baseFolder: folderKey,
+          });
+        },
       }],
       validate: function (nextValues) {
-        if (!normalizePageDraftPath(nextValues.folder || "")) {
-          return "Enter a folder name.";
-        }
-        return "";
+        return pathFieldValidation(nextValues.folder || "", {
+          kind: "folder",
+          action: "create",
+          baseFolder: folderKey,
+        });
       },
     });
     if (!values) {
@@ -5022,9 +5215,20 @@ interface ActionDialogSession {
         placeholder: currentName,
         autocapitalize: "none",
         spellcheck: false,
+        describe: function (value) {
+          return pathFieldState(value, {
+            kind: "note",
+            action: "rename",
+            sourcePath: pagePath,
+          });
+        },
       }],
       validate: function (nextValues) {
-        return normalizePageDraftPath(nextValues.name || "") ? "" : "Enter a note name.";
+        return pathFieldValidation(nextValues.name || "", {
+          kind: "note",
+          action: "rename",
+          sourcePath: pagePath,
+        });
       },
     });
     if (!values) {
@@ -5051,9 +5255,20 @@ interface ActionDialogSession {
         placeholder: currentName,
         autocapitalize: "none",
         spellcheck: false,
+        describe: function (value) {
+          return pathFieldState(value, {
+            kind: "folder",
+            action: "rename",
+            sourcePath: folderKey,
+          });
+        },
       }],
       validate: function (nextValues) {
-        return normalizePageDraftPath(nextValues.name || "") ? "" : "Enter a folder name.";
+        return pathFieldValidation(nextValues.name || "", {
+          kind: "folder",
+          action: "rename",
+          sourcePath: folderKey,
+        });
       },
     });
     if (!values) {

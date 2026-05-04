@@ -25,6 +25,15 @@ type watcherOriginEntry struct {
 	expiresAt time.Time
 }
 
+type watcherRuntimeState struct {
+	lastPollAt       time.Time
+	lastSuccessAt    time.Time
+	lastError        string
+	lastChangedCount int
+	lastDeletedCount int
+	knownPageCount   int
+}
+
 type VaultWatcher struct {
 	vaultRecord vault.Vault
 	vault       *vault.Service
@@ -35,6 +44,7 @@ type VaultWatcher struct {
 	mu      sync.Mutex
 	known   map[string]time.Time
 	origins map[string]watcherOriginEntry
+	runtime watcherRuntimeState
 }
 
 func NewVaultWatcher(ctx context.Context, currentVault vault.Vault, vaultService *vault.Service, indexService *index.Service, queryService *query.Service, eventBroker *httpapi.EventBroker) (*VaultWatcher, error) {
@@ -57,7 +67,58 @@ func NewVaultWatcher(ctx context.Context, currentVault vault.Vault, vaultService
 		events:      eventBroker,
 		known:       known,
 		origins:     make(map[string]watcherOriginEntry),
+		runtime: watcherRuntimeState{
+			knownPageCount: len(known),
+		},
 	}, nil
+}
+
+func (w *VaultWatcher) Snapshot() httpapi.WatcherRuntimeState {
+	if w == nil {
+		return httpapi.WatcherRuntimeState{}
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return httpapi.WatcherRuntimeState{
+		LastPollAt:       formatWatcherTime(w.runtime.lastPollAt),
+		LastSuccessAt:    formatWatcherTime(w.runtime.lastSuccessAt),
+		LastError:        w.runtime.lastError,
+		LastChangedCount: w.runtime.lastChangedCount,
+		LastDeletedCount: w.runtime.lastDeletedCount,
+		KnownPageCount:   w.runtime.knownPageCount,
+	}
+}
+
+func formatWatcherTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
+}
+
+func (w *VaultWatcher) recordPollFailure(polledAt time.Time, err error) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.runtime.lastPollAt = polledAt.UTC()
+	w.runtime.lastError = err.Error()
+	w.runtime.knownPageCount = len(w.known)
+}
+
+func (w *VaultWatcher) recordPollSuccess(polledAt time.Time, changedCount, deletedCount, knownPageCount int) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.runtime.lastPollAt = polledAt.UTC()
+	w.runtime.lastSuccessAt = polledAt.UTC()
+	w.runtime.lastError = ""
+	w.runtime.lastChangedCount = changedCount
+	w.runtime.lastDeletedCount = deletedCount
+	w.runtime.knownPageCount = knownPageCount
 }
 
 func (w *VaultWatcher) Run(ctx context.Context, interval time.Duration) {
@@ -93,6 +154,7 @@ func (w *VaultWatcher) Acknowledge(ctx context.Context, pagePath string) {
 			w.mu.Lock()
 			delete(w.known, pagePath)
 			delete(w.origins, pagePath)
+			w.runtime.knownPageCount = len(w.known)
 			w.mu.Unlock()
 		}
 		return
@@ -109,6 +171,7 @@ func (w *VaultWatcher) Acknowledge(ctx context.Context, pagePath string) {
 	} else {
 		delete(w.origins, pageFile.Path)
 	}
+	w.runtime.knownPageCount = len(w.known)
 	w.mu.Unlock()
 }
 
@@ -137,10 +200,12 @@ func (w *VaultWatcher) Poll(ctx context.Context) error {
 	if w == nil {
 		return nil
 	}
+	polledAt := time.Now().UTC()
 	ctx = withWatcherVault(ctx, w.vaultRecord)
 
 	pageFiles, err := w.vault.ScanMarkdownPages(ctx)
 	if err != nil {
+		w.recordPollFailure(polledAt, err)
 		return err
 	}
 
@@ -234,6 +299,7 @@ func (w *VaultWatcher) Poll(ctx context.Context) error {
 	w.mu.Lock()
 	w.known = current
 	w.mu.Unlock()
+	w.recordPollSuccess(polledAt, len(changed), len(deleted), len(current))
 
 	return nil
 }

@@ -6,16 +6,38 @@ describe("remote sync helpers", function () {
   it("flags transient non-markdown drafts as unsafe", function () {
     expect(hasUnsafeRemoteSyncUIState({
       propertyDraftOpen: false,
+      taskPickerOpen: false,
       inlineTableEditorOpen: false,
       inlineTableEditorFocused: false,
       noteTitleFocused: false,
+      noteTitleEditing: false,
     })).toBe(false);
 
     expect(hasUnsafeRemoteSyncUIState({
       propertyDraftOpen: true,
+      taskPickerOpen: false,
       inlineTableEditorOpen: false,
       inlineTableEditorFocused: false,
       noteTitleFocused: false,
+      noteTitleEditing: false,
+    })).toBe(true);
+
+    expect(hasUnsafeRemoteSyncUIState({
+      propertyDraftOpen: false,
+      taskPickerOpen: true,
+      inlineTableEditorOpen: false,
+      inlineTableEditorFocused: false,
+      noteTitleFocused: false,
+      noteTitleEditing: false,
+    })).toBe(true);
+
+    expect(hasUnsafeRemoteSyncUIState({
+      propertyDraftOpen: false,
+      taskPickerOpen: false,
+      inlineTableEditorOpen: false,
+      inlineTableEditorFocused: false,
+      noteTitleFocused: false,
+      noteTitleEditing: true,
     })).toBe(true);
   });
 

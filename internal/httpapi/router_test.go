@@ -146,6 +146,8 @@ func TestSettingsAPIStoresRuntimeSettingsOnly(t *testing.T) {
 		ListenAddr: ":8080",
 		VaultPath:  vaultDir,
 		DataDir:    dataDir,
+		WatchInterval: 2 * time.Second,
+		NtfyInterval:  time.Minute,
 	}
 	settingsStore, err := settings.NewStore(dataDir, settings.DefaultSettingsFromConfig(cfg))
 	if err != nil {
@@ -154,6 +156,15 @@ func TestSettingsAPIStoresRuntimeSettingsOnly(t *testing.T) {
 	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
 		Config:   cfg,
 		Settings: settingsStore,
+		WatcherState: func() WatcherRuntimeState {
+			return WatcherRuntimeState{
+				LastPollAt:       "2026-05-05T00:10:00Z",
+				LastSuccessAt:    "2026-05-05T00:10:00Z",
+				LastChangedCount: 1,
+				LastDeletedCount: 0,
+				KnownPageCount:   1,
+			}
+		},
 	})
 
 	getRequest := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
@@ -194,11 +205,69 @@ func TestSettingsAPIStoresRuntimeSettingsOnly(t *testing.T) {
 	if !updated.RestartRequired {
 		t.Fatalf("updated settings should require restart after vault path change")
 	}
+	if len(updated.RestartRequiredReasons) != 2 {
+		t.Fatalf("updated restart reasons = %#v, want 2 entries", updated.RestartRequiredReasons)
+	}
 	if updated.AppliedVault.VaultPath != vaultDir {
 		t.Fatalf("applied vault path = %q want %q", updated.AppliedVault.VaultPath, vaultDir)
 	}
 	if updated.Settings.Notifications.NtfyInterval != "2m" {
 		t.Fatalf("notifications = %#v", updated.Settings.Notifications)
+	}
+
+	metaRequest := httptest.NewRequest(http.MethodGet, "/api/meta", nil)
+	metaResponse := httptest.NewRecorder()
+	router.ServeHTTP(metaResponse, metaRequest)
+	if metaResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/meta status = %d want %d body=%s", metaResponse.Code, http.StatusOK, metaResponse.Body.String())
+	}
+	var metaPayload struct {
+		WatchInterval          string   `json:"watchInterval"`
+		WatcherEnabled         bool     `json:"watcherEnabled"`
+		WatcherState           struct {
+			LastPollAt       string `json:"lastPollAt"`
+			LastSuccessAt    string `json:"lastSuccessAt"`
+			LastChangedCount int    `json:"lastChangedCount"`
+			LastDeletedCount int    `json:"lastDeletedCount"`
+			KnownPageCount   int    `json:"knownPageCount"`
+		} `json:"watcherState"`
+		NotificationInterval   string   `json:"notificationInterval"`
+		NotificationEnabled    bool     `json:"notificationEnabled"`
+		IndexStatus            struct {
+			IndexedPageCount int    `json:"indexedPageCount"`
+			IndexedTaskCount int    `json:"indexedTaskCount"`
+			Fresh            bool   `json:"fresh"`
+			Summary          string `json:"summary"`
+		} `json:"indexStatus"`
+		RestartRequired        bool     `json:"restartRequired"`
+		RestartRequiredReasons []string `json:"restartRequiredReasons"`
+	}
+	if err := json.NewDecoder(metaResponse.Body).Decode(&metaPayload); err != nil {
+		t.Fatalf("Decode(meta payload) error = %v", err)
+	}
+	if metaPayload.WatchInterval != "2s" || !metaPayload.WatcherEnabled {
+		t.Fatalf("meta watcher payload = %#v, want enabled watcher with interval", metaPayload)
+	}
+	if metaPayload.WatcherState.LastPollAt == "" || metaPayload.WatcherState.LastSuccessAt == "" {
+		t.Fatalf("meta watcher state timestamps = %#v", metaPayload.WatcherState)
+	}
+	if metaPayload.WatcherState.LastChangedCount != 1 || metaPayload.WatcherState.LastDeletedCount != 0 || metaPayload.WatcherState.KnownPageCount != 1 {
+		t.Fatalf("meta watcher state = %#v", metaPayload.WatcherState)
+	}
+	if metaPayload.NotificationInterval != "1m0s" || metaPayload.NotificationEnabled {
+		t.Fatalf("meta notification payload = %#v, want disabled notifier with configured interval", metaPayload)
+	}
+	if metaPayload.IndexStatus.IndexedPageCount != 1 || metaPayload.IndexStatus.IndexedTaskCount != 0 || !metaPayload.IndexStatus.Fresh {
+		t.Fatalf("meta index status = %#v, want fresh single-page index", metaPayload.IndexStatus)
+	}
+	if metaPayload.IndexStatus.Summary == "" {
+		t.Fatalf("meta index summary = empty")
+	}
+	if !metaPayload.RestartRequired {
+		t.Fatalf("meta restartRequired = false, want true")
+	}
+	if len(metaPayload.RestartRequiredReasons) != 2 {
+		t.Fatalf("meta restart reasons = %#v, want 2 entries", metaPayload.RestartRequiredReasons)
 	}
 }
 

@@ -232,7 +232,9 @@ The settings modal also shows the resolved runtime backup paths and can:
   restoring
 
 See [docs/backups.md](/home/carnager/Code/noterious/docs/backups.md:1) for the
-full backup and restore guidance.
+full backup and restore guidance, and
+[docs/operations.md](/home/carnager/Code/noterious/docs/operations.md:1) for
+upgrade/restart/recovery guidance.
 
 ## Development
 
@@ -256,6 +258,8 @@ The UI is served through Go `embed`, so after rebuilding the frontend you must r
 - [docs/query-language.md](/home/carnager/Code/noterious/docs/query-language.md:1) for embedded query syntax
 - [docs/architecture.md](/home/carnager/Code/noterious/docs/architecture.md:1) for runtime/storage structure
 - [docs/backups.md](/home/carnager/Code/noterious/docs/backups.md:1) for deployment backup/restore guidance
+- [docs/operations.md](/home/carnager/Code/noterious/docs/operations.md:1) for upgrade/restart/recovery guidance
+- [docs/release-checklist.md](/home/carnager/Code/noterious/docs/release-checklist.md:1) for maintainer release steps
 - [docs/templates.md](/home/carnager/Code/noterious/docs/templates.md:1) for vault-native note templates
 - [docs/themes.md](/home/carnager/Code/noterious/docs/themes.md:1) for custom theme authoring
 

@@ -55,7 +55,12 @@ export interface SettingsUiElements {
   settingsRuntimeListenAddr: HTMLElement;
   settingsRuntimeServerTime: HTMLElement;
   settingsRuntimeCurrentVault: HTMLElement;
+  settingsRuntimeWatcher: HTMLElement;
+  settingsRuntimeWatcherDetails: HTMLElement;
+  settingsRuntimeNotifications: HTMLElement;
+  settingsRuntimeIndex: HTMLElement;
   settingsRuntimeRestartRequired: HTMLElement;
+  settingsRuntimeRestartReasons: HTMLElement;
   settingsRuntimeHealth: HTMLElement;
   settingsUserNtfyTopicUrl: HTMLInputElement;
   settingsUserNtfyToken: HTMLInputElement;
@@ -551,7 +556,44 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
     : "(unknown)";
   els.settingsRuntimeServerTime.textContent = serverTime || "(unknown)";
   els.settingsRuntimeCurrentVault.textContent = currentVault || runtimeVaultPath || "(vault root)";
+  els.settingsRuntimeWatcher.textContent = !state.serverMeta
+    ? "(unknown)"
+    : state.serverMeta.watcherEnabled
+      ? "Enabled (" + String(state.serverMeta.watchInterval || "").trim() + ")"
+      : "Disabled";
+  const watcherState = state.serverMeta ? state.serverMeta.watcherState : null;
+  els.settingsRuntimeWatcherDetails.textContent = !watcherState
+    ? "(no runtime state reported)"
+    : [
+        watcherState.lastPollAt ? ("Last poll " + watcherState.lastPollAt) : "",
+        watcherState.lastSuccessAt ? ("last success " + watcherState.lastSuccessAt) : "",
+        ("known pages " + String(watcherState.knownPageCount || 0)),
+        ("last batch " + String(watcherState.lastChangedCount || 0) + " changed / " + String(watcherState.lastDeletedCount || 0) + " deleted"),
+        watcherState.lastError ? ("last error: " + watcherState.lastError) : "",
+      ].filter(Boolean).join(" · ");
+  els.settingsRuntimeNotifications.textContent = !state.serverMeta
+    ? "(unknown)"
+    : state.serverMeta.notificationEnabled
+      ? "Enabled (" + String(state.serverMeta.notificationInterval || "").trim() + ")"
+      : "Disabled";
+  const indexStatus = state.serverMeta ? state.serverMeta.indexStatus : null;
+  els.settingsRuntimeIndex.textContent = !indexStatus
+    ? "(unknown)"
+    : [
+        String(indexStatus.summary || "").trim() || "Unknown",
+        "(" + String(indexStatus.indexedPageCount || 0) + " pages, " + String(indexStatus.indexedTaskCount || 0) + " tasks)",
+      ].join(" ");
   els.settingsRuntimeRestartRequired.textContent = state.serverMeta && state.serverMeta.restartRequired ? "Yes" : "No";
+  clearNode(els.settingsRuntimeRestartReasons);
+  const restartReasons = state.serverMeta && Array.isArray(state.serverMeta.restartRequiredReasons)
+    ? state.serverMeta.restartRequiredReasons
+    : [];
+  els.settingsRuntimeRestartReasons.classList.toggle("hidden", restartReasons.length === 0);
+  restartReasons.forEach(function (reason) {
+    const item = document.createElement("li");
+    item.textContent = String(reason || "").trim();
+    els.settingsRuntimeRestartReasons.appendChild(item);
+  });
   els.settingsRuntimeHealth.textContent = !state.serverMeta
     ? "(unknown)"
     : vaultHealth && vaultHealth.healthy

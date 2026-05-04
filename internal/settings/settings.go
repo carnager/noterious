@@ -33,9 +33,10 @@ type AppSettings struct {
 }
 
 type Snapshot struct {
-	Settings        AppSettings `json:"settings"`
-	AppliedVault    Vault       `json:"appliedVault"`
-	RestartRequired bool        `json:"restartRequired"`
+	Settings               AppSettings `json:"settings"`
+	AppliedVault           Vault       `json:"appliedVault"`
+	RestartRequired        bool        `json:"restartRequired"`
+	RestartRequiredReasons []string    `json:"restartRequiredReasons,omitempty"`
 }
 
 type Store struct {
@@ -218,14 +219,18 @@ func snapshotForApplied(settings AppSettings, applied Vault, appliedNotification
 	effectiveApplied := Vault{
 		VaultPath: strings.TrimSpace(applied.VaultPath),
 	}
-	restartRequired := !strings.EqualFold(strings.TrimSpace(settings.Vault.VaultPath), strings.TrimSpace(applied.VaultPath))
-	if !restartRequired {
-		restartRequired = strings.TrimSpace(settings.Notifications.NtfyInterval) != strings.TrimSpace(appliedNotifications.NtfyInterval)
+	restartRequiredReasons := make([]string, 0, 2)
+	if !strings.EqualFold(strings.TrimSpace(settings.Vault.VaultPath), strings.TrimSpace(applied.VaultPath)) {
+		restartRequiredReasons = append(restartRequiredReasons, "Vault path differs from the running server configuration.")
+	}
+	if strings.TrimSpace(settings.Notifications.NtfyInterval) != strings.TrimSpace(appliedNotifications.NtfyInterval) {
+		restartRequiredReasons = append(restartRequiredReasons, "Notification polling interval differs from the running server configuration.")
 	}
 	return Snapshot{
-		Settings:        settings,
-		AppliedVault:    effectiveApplied,
-		RestartRequired: restartRequired,
+		Settings:               settings,
+		AppliedVault:           effectiveApplied,
+		RestartRequired:        len(restartRequiredReasons) > 0,
+		RestartRequiredReasons: restartRequiredReasons,
 	}
 }
 

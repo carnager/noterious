@@ -74,6 +74,16 @@ func TestVaultWatcherPollReindexesExternalEdit(t *testing.T) {
 	if err := watcher.Poll(context.Background()); err != nil {
 		t.Fatalf("Poll() error = %v", err)
 	}
+	snapshot := watcher.Snapshot()
+	if snapshot.LastPollAt == "" || snapshot.LastSuccessAt == "" {
+		t.Fatalf("watcher snapshot timestamps = %#v", snapshot)
+	}
+	if snapshot.LastChangedCount != 1 || snapshot.LastDeletedCount != 0 || snapshot.KnownPageCount != 2 {
+		t.Fatalf("watcher snapshot counts = %#v", snapshot)
+	}
+	if snapshot.LastError != "" {
+		t.Fatalf("watcher snapshot error = %#v", snapshot)
+	}
 
 	updatedTask, err := indexService.GetTask(context.Background(), "daily/today:3")
 	if err != nil {

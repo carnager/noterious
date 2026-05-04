@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -34,7 +35,17 @@ type Dependencies struct {
 	Query         *query.Service
 	Events        *EventBroker
 	Auth          *auth.Service
+	WatcherState  func() WatcherRuntimeState
 	OnPageChanged func(ctx context.Context, pagePath string)
+}
+
+type WatcherRuntimeState struct {
+	LastPollAt       string `json:"lastPollAt,omitempty"`
+	LastSuccessAt    string `json:"lastSuccessAt,omitempty"`
+	LastError        string `json:"lastError,omitempty"`
+	LastChangedCount int    `json:"lastChangedCount"`
+	LastDeletedCount int    `json:"lastDeletedCount"`
+	KnownPageCount   int    `json:"knownPageCount"`
 }
 
 func acknowledgePageChanges(ctx context.Context, deps Dependencies, pagePaths ...string) {
@@ -61,16 +72,158 @@ type okStatusResponse struct {
 }
 
 type metaResponse struct {
-	Name            string         `json:"name"`
-	ListenAddr      string         `json:"listenAddr"`
-	RuntimeVault    settings.Vault `json:"runtimeVault"`
-	CurrentVault    *vault.Vault   `json:"currentVault,omitempty"`
-	VaultHealth     any            `json:"vaultHealth"`
-	DataDir         string         `json:"dataDir"`
-	Database        string         `json:"database"`
-	ServerTime      string         `json:"serverTime"`
-	ServerFirst     bool           `json:"serverFirst"`
-	RestartRequired bool           `json:"restartRequired"`
+	Name                  string         `json:"name"`
+	ListenAddr            string         `json:"listenAddr"`
+	RuntimeVault          settings.Vault `json:"runtimeVault"`
+	CurrentVault          *vault.Vault   `json:"currentVault,omitempty"`
+	VaultHealth           any            `json:"vaultHealth"`
+	DataDir               string         `json:"dataDir"`
+	Database              string         `json:"database"`
+	IndexStatus           indexStatus    `json:"indexStatus"`
+	ServerTime            string         `json:"serverTime"`
+	ServerFirst           bool           `json:"serverFirst"`
+	WatchInterval         string         `json:"watchInterval"`
+	WatcherEnabled        bool           `json:"watcherEnabled"`
+	WatcherState          *WatcherRuntimeState `json:"watcherState,omitempty"`
+	NotificationInterval  string         `json:"notificationInterval"`
+	NotificationEnabled   bool           `json:"notificationEnabled"`
+	RestartRequired       bool           `json:"restartRequired"`
+	RestartRequiredReasons []string      `json:"restartRequiredReasons,omitempty"`
+}
+
+type indexStatus struct {
+	DBPresent         bool   `json:"dbPresent"`
+	IndexedPageCount  int    `json:"indexedPageCount"`
+	IndexedTaskCount  int    `json:"indexedTaskCount"`
+	LatestIndexedAt   string `json:"latestIndexedAt,omitempty"`
+	LatestVaultModAt  string `json:"latestVaultModAt,omitempty"`
+	Fresh             bool   `json:"fresh"`
+	Summary           string `json:"summary"`
+}
+
+func buildIndexStatus(ctx context.Context, deps Dependencies) indexStatus {
+	status := indexStatus{
+		Summary: "Unavailable",
+	}
+	if deps.Index == nil {
+		return status
+	}
+
+	dbPath := strings.TrimSpace(deps.Index.DatabasePath())
+	if dbPath != "" {
+		if _, err := os.Stat(dbPath); err == nil {
+			status.DBPresent = true
+		}
+	}
+
+	pages, err := deps.Index.ListPages(ctx)
+	if err == nil {
+		status.IndexedPageCount = len(pages)
+		status.LatestIndexedAt = latestIndexedTimestamp(pages)
+	}
+
+	tasks, err := deps.Index.ListTasks(ctx)
+	if err == nil {
+		status.IndexedTaskCount = len(tasks)
+	}
+
+	vaultService := currentVault(ctx, deps)
+	pageFiles, err := vaultService.ScanMarkdownPages(ctx)
+	if err != nil {
+		status.Summary = "Vault scan unavailable"
+		return status
+	}
+	status.LatestVaultModAt = latestVaultTimestamp(pageFiles)
+
+	status.Fresh = indexLooksFresh(pageFiles, pages)
+	switch {
+	case len(pageFiles) == 0 && status.IndexedPageCount == 0:
+		status.Summary = "Fresh (empty vault)"
+	case status.Fresh:
+		status.Summary = "Fresh"
+	default:
+		status.Summary = "Stale"
+	}
+	return status
+}
+
+func latestIndexedTimestamp(pages []index.PageSummary) string {
+	latest := time.Time{}
+	for _, page := range pages {
+		timestamp := strings.TrimSpace(page.UpdatedAt)
+		if timestamp == "" {
+			continue
+		}
+		parsed, err := time.Parse(time.RFC3339, timestamp)
+		if err != nil {
+			continue
+		}
+		if parsed.After(latest) {
+			latest = parsed
+		}
+	}
+	if latest.IsZero() {
+		return ""
+	}
+	return latest.UTC().Format(time.RFC3339)
+}
+
+func latestVaultTimestamp(pageFiles []vault.PageFile) string {
+	latest := time.Time{}
+	for _, pageFile := range pageFiles {
+		if pageFile.ModTime.After(latest) {
+			latest = pageFile.ModTime
+		}
+	}
+	if latest.IsZero() {
+		return ""
+	}
+	return latest.UTC().Format(time.RFC3339)
+}
+
+func indexLooksFresh(pageFiles []vault.PageFile, pages []index.PageSummary) bool {
+	if len(pageFiles) != len(pages) {
+		return false
+	}
+	if len(pageFiles) == 0 {
+		return true
+	}
+
+	pageFilePaths := make([]string, 0, len(pageFiles))
+	for _, pageFile := range pageFiles {
+		pageFilePaths = append(pageFilePaths, pageFile.Path)
+	}
+	sort.Strings(pageFilePaths)
+
+	indexPaths := make([]string, 0, len(pages))
+	for _, page := range pages {
+		indexPaths = append(indexPaths, page.Path)
+	}
+	sort.Strings(indexPaths)
+
+	for index := range pageFilePaths {
+		if pageFilePaths[index] != indexPaths[index] {
+			return false
+		}
+	}
+
+	latestVault := latestVaultTimestamp(pageFiles)
+	latestIndexed := latestIndexedTimestamp(pages)
+	if latestVault == "" && latestIndexed == "" {
+		return true
+	}
+	if latestVault == "" || latestIndexed == "" {
+		return false
+	}
+	latestVaultTime, err := time.Parse(time.RFC3339, latestVault)
+	if err != nil {
+		return false
+	}
+	latestIndexedTime, err := time.Parse(time.RFC3339, latestIndexed)
+	if err != nil {
+		return false
+	}
+	return !latestVaultTime.After(latestIndexedTime)
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -93,26 +246,41 @@ func NewRouter(deps Dependencies) http.Handler {
 		activeVaultRecord := currentVaultRecord(r.Context(), deps)
 		var currentVaultPayload *vault.Vault
 		restartRequired := false
+		restartRequiredReasons := []string(nil)
 		if deps.Settings != nil {
 			snapshot := deps.Settings.Snapshot()
 			runtimeVault = snapshot.AppliedVault
 			restartRequired = snapshot.RestartRequired
+			restartRequiredReasons = snapshot.RestartRequiredReasons
 		}
 		if activeVaultRecord.VaultPath != "" {
 			currentVaultPayload = &activeVaultRecord
 		}
 		vaultHealth := currentVault(r.Context(), deps).Health()
+		indexStatus := buildIndexStatus(r.Context(), deps)
+		var watcherState *WatcherRuntimeState
+		if deps.WatcherState != nil {
+			state := deps.WatcherState()
+			watcherState = &state
+		}
 		writeJSON(w, http.StatusOK, metaResponse{
-			Name:            "noterious",
-			ListenAddr:      deps.Config.ListenAddr,
-			RuntimeVault:    runtimeVault,
-			CurrentVault:    currentVaultPayload,
-			VaultHealth:     vaultHealth,
-			DataDir:         deps.Config.DataDir,
-			Database:        deps.Index.DatabasePath(),
-			ServerTime:      time.Now().UTC().Format(time.RFC3339),
-			ServerFirst:     true,
-			RestartRequired: restartRequired,
+			Name:                  "noterious",
+			ListenAddr:            deps.Config.ListenAddr,
+			RuntimeVault:          runtimeVault,
+			CurrentVault:          currentVaultPayload,
+			VaultHealth:           vaultHealth,
+			DataDir:               deps.Config.DataDir,
+			Database:              deps.Index.DatabasePath(),
+			IndexStatus:           indexStatus,
+			ServerTime:            time.Now().UTC().Format(time.RFC3339),
+			ServerFirst:           true,
+			WatchInterval:         deps.Config.WatchInterval.String(),
+			WatcherEnabled:        deps.Config.WatchInterval > 0,
+			WatcherState:          watcherState,
+			NotificationInterval:  deps.Config.NtfyInterval.String(),
+			NotificationEnabled:   deps.Config.NtfyInterval > 0 && deps.Index != nil && deps.Auth != nil,
+			RestartRequired:       restartRequired,
+			RestartRequiredReasons: restartRequiredReasons,
 		})
 	})
 
