@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { filterPagesByScope, filterPagesByTag, filterTasks, summarizeTagsForPages, type TaskPanelFilters } from "./pageViews";
+import { filterFoldersByScope, filterPagesByScope, filterPagesByTag, filterTasks, summarizeTagsForPages, type TaskPanelFilters } from "./pageViews";
 import type { PageSummary, TaskRecord } from "./types";
 
 function makeFilters(overrides?: Partial<TaskPanelFilters>): TaskPanelFilters {
@@ -83,6 +83,17 @@ describe("tag panel helpers", function () {
     })).toEqual([
       "Work/contacts/alina",
       "Work/notes/index",
+    ]);
+  });
+
+  it("filters folders to the active scope prefix", function () {
+    expect(filterFoldersByScope([
+      "Work/contacts",
+      "Work/notes/archive",
+      "Personal/home",
+    ], "Work")).toEqual([
+      "Work/contacts",
+      "Work/notes/archive",
     ]);
   });
 });

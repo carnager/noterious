@@ -211,6 +211,7 @@ import type {
   AppScreen,
   AuthSessionResponse,
   AuthenticatedUser,
+  FolderListResponse,
   BacklinkRecord,
   DocumentListResponse,
   DocumentRecord,
@@ -321,6 +322,7 @@ interface AppState {
   selectedPage: string;
   selectedSavedQuery: string;
   pages: PageSummary[];
+  folders: string[];
   documents: DocumentRecord[];
   tasks: TaskRecord[];
   queryTree: SavedQueryTreeFolder[];
@@ -480,6 +482,7 @@ interface ActionDialogSession {
     selectedPage: "",
     selectedSavedQuery: "",
     pages: [],
+    folders: [],
     documents: [],
     tasks: [],
     queryTree: [],
@@ -3150,14 +3153,20 @@ interface ActionDialogSession {
     }
 
     try {
-      const payload = await fetchJSON<PageListResponse>("/api/pages" + (params.toString() ? "?" + params.toString() : ""));
-      state.pages = payload.pages || [];
+      const [pagePayload, folderPayload] = await Promise.all([
+        fetchJSON<PageListResponse>("/api/pages" + (params.toString() ? "?" + params.toString() : "")),
+        fetchJSON<FolderListResponse>("/api/folders"),
+      ]);
+      state.pages = pagePayload.pages || [];
+      state.folders = folderPayload.folders || [];
       if (state.pageTagFilter && !visiblePagesForRail().length) {
         state.pageTagFilter = "";
       }
       renderPages();
       renderPageTags();
     } catch (error) {
+      state.pages = [];
+      state.folders = [];
       renderEmpty(els.pageList, errorMessage(error));
       els.pageList.classList.add("no-scroll");
     }
@@ -3178,6 +3187,7 @@ interface ActionDialogSession {
     renderPagesSection({
       selectedPage: state.selectedPage,
       pages: visiblePagesForRail(),
+      folders: state.folders,
       expandedPageFolders: state.expandedPageFolders,
       scopePrefix: currentScopePrefix(),
     }, els, {
@@ -4805,6 +4815,19 @@ interface ActionDialogSession {
     }, initialMarkdown ? { rawMarkdown: initialMarkdown } : undefined);
   }
 
+  async function createFolder(folderPath: string): Promise<void> {
+    const scopedFolderPath = applyCurrentScopePrefix(folderPath);
+    if (!scopedFolderPath) {
+      return;
+    }
+    await fetchJSON<{ folder: string }>("/api/folders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folder: scopedFolderPath }),
+    });
+    await loadPages();
+  }
+
   async function createPageFromTemplate(pagePath: string, template: NoteTemplate): Promise<void> {
     const targetPath = buildPagePathFromTemplate(template, pagePath);
     if (!targetPath) {
@@ -4861,32 +4884,19 @@ interface ActionDialogSession {
     const values = await promptForActionInput({
       eyebrow: "Folders",
       title: "New Folder",
-      message: 'Create a subfolder in "' + targetLabel + '" and add its first note.',
+      message: 'Create a folder in "' + targetLabel + '".',
       confirmLabel: "Create Folder",
-      fields: [
-        {
-          key: "folder",
-          label: "Folder name",
-          placeholder: "contacts",
-          value: "",
-          autocapitalize: "none",
-          spellcheck: false,
-        },
-        {
-          key: "note",
-          label: "Initial note",
-          placeholder: "index",
-          value: "index",
-          autocapitalize: "none",
-          spellcheck: false,
-        },
-      ],
+      fields: [{
+        key: "folder",
+        label: "Folder name",
+        placeholder: "contacts",
+        value: "",
+        autocapitalize: "none",
+        spellcheck: false,
+      }],
       validate: function (nextValues) {
         if (!normalizePageDraftPath(nextValues.folder || "")) {
           return "Enter a folder name.";
-        }
-        if (!normalizePageDraftPath(nextValues.note || "")) {
-          return "Enter an initial note name.";
         }
         return "";
       },
@@ -4895,12 +4905,11 @@ interface ActionDialogSession {
       return;
     }
     const subfolder = normalizePageDraftPath(values.folder || "");
-    const initialNote = normalizePageDraftPath(values.note || "");
-    if (!subfolder || !initialNote) {
+    if (!subfolder) {
       return;
     }
     const basePath = folderKey ? folderKey + "/" : "";
-    await createPage(basePath + subfolder + "/" + initialNote);
+    await createFolder(basePath + subfolder);
   }
 
   async function requestRenamePageInTree(pagePath: string): Promise<void> {

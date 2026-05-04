@@ -38,12 +38,27 @@ type deletedFolderResponse struct {
 	Folder string `json:"folder"`
 }
 
+type foldersResponse struct {
+	Folders []string `json:"folders"`
+	Count   int      `json:"count"`
+}
+
+type createdFolderResponse struct {
+	Folder string `json:"folder"`
+}
+
 func mountDocumentAndFolderEndpoints(mux *http.ServeMux, deps Dependencies) {
 	mux.HandleFunc("GET /api/documents", func(w http.ResponseWriter, r *http.Request) {
 		handleDocumentsRequest(w, r, deps)
 	})
 	mux.HandleFunc("POST /api/documents", func(w http.ResponseWriter, r *http.Request) {
 		handleDocumentsRequest(w, r, deps)
+	})
+	mux.HandleFunc("GET /api/folders", func(w http.ResponseWriter, r *http.Request) {
+		handleFolderListRequest(w, r, deps)
+	})
+	mux.HandleFunc("POST /api/folders", func(w http.ResponseWriter, r *http.Request) {
+		handleFolderCreateRequest(w, r, deps)
 	})
 	mux.HandleFunc("POST /api/folders/", func(w http.ResponseWriter, r *http.Request) {
 		handleFolderMoveRequest(w, r, deps)
@@ -54,6 +69,41 @@ func mountDocumentAndFolderEndpoints(mux *http.ServeMux, deps Dependencies) {
 	mux.HandleFunc("GET /api/documents/download", func(w http.ResponseWriter, r *http.Request) {
 		handleDocumentDownloadRequest(w, r, deps)
 	})
+}
+
+func handleFolderListRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
+	vaultService := currentVault(r.Context(), deps)
+	folders, err := vaultService.ListFolders(r.Context())
+	if err != nil {
+		http.Error(w, "failed to list folders", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, foldersResponse{
+		Folders: folders,
+		Count:   len(folders),
+	})
+}
+
+func handleFolderCreateRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
+	vaultService := currentVault(r.Context(), deps)
+	var request struct {
+		Folder string `json:"folder"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	folderPath := strings.Trim(strings.TrimSpace(request.Folder), "/")
+	folderPath = path.Clean(folderPath)
+	if folderPath == "." || folderPath == "" || strings.HasPrefix(folderPath, "../") {
+		http.Error(w, "invalid folder path", http.StatusBadRequest)
+		return
+	}
+	if err := vaultService.CreateFolder(folderPath); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusCreated, createdFolderResponse{Folder: folderPath})
 }
 
 func handleDocumentsRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {

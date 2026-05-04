@@ -401,6 +401,11 @@ export interface PageListResponse {
   tag?: string;
 }
 
+export interface FolderListResponse {
+  folders: string[];
+  count: number;
+}
+
 export interface TaskListResponse {
   tasks: TaskRecord[];
   count: number;

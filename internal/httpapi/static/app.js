@@ -4737,6 +4737,11 @@
       return pageWithinScope(String(page.path || ""), scopePrefix);
     });
   }
+  function filterFoldersByScope(folders, scopePrefix) {
+    return (Array.isArray(folders) ? folders : []).filter(function(folder) {
+      return pageWithinScope(String(folder || ""), scopePrefix);
+    });
+  }
   function formatReminderLabel(value) {
     const text = String(value || "").trim();
     if (!text) {
@@ -4819,10 +4824,33 @@
       expandedPageFolders[key] = true;
     }
   }
-  function buildPageTree(pages, scopePrefix) {
+  function ensureFolderPath(root, canonicalPath, scopePrefix) {
+    const normalizedCanonicalPath = String(canonicalPath || "").trim().replace(/^\/+|\/+$/g, "");
+    if (!normalizedCanonicalPath) {
+      return;
+    }
+    const displayPath = displayPathWithinScope(normalizedCanonicalPath, scopePrefix);
+    const segments = displayPath ? displayPath.split("/") : [];
+    const canonicalSegments = normalizedCanonicalPath.split("/").filter(Boolean);
+    const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
+    const scopeParts = normalizedScopePrefix ? normalizedScopePrefix.split("/") : [];
+    const offset = normalizedScopePrefix && normalizedCanonicalPath.startsWith(normalizedScopePrefix + "/") ? scopeParts.length : 0;
+    let cursor = root;
+    segments.forEach(function(segment, index) {
+      const canonicalKey = canonicalSegments.slice(0, offset + index + 1).join("/");
+      if (!cursor.folders[segment]) {
+        cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [] };
+      }
+      cursor = cursor.folders[segment];
+    });
+  }
+  function buildPageTree(pages, folders, scopePrefix) {
     const root = { folders: {}, pages: [] };
     const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
     const scopeParts = normalizedScopePrefix ? normalizedScopePrefix.split("/") : [];
+    folders.forEach(function(folderPath) {
+      ensureFolderPath(root, folderPath, normalizedScopePrefix);
+    });
     pages.forEach(function(page) {
       const canonicalPath = String(page.path || "");
       const displayPath = displayPathWithinScope(canonicalPath, normalizedScopePrefix);
@@ -4956,10 +4984,11 @@
     });
     return group;
   }
-  function renderPagesTree(container, pages, selectedPage, expandedPageFolders, pageSearchQuery, scopePrefix, rootFolderPath, rootLabelText, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder) {
+  function renderPagesTree(container, pages, folders, selectedPage, expandedPageFolders, pageSearchQuery, scopePrefix, rootFolderPath, rootLabelText, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder) {
     clearNode(container);
     const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
     const normalizedRootFolderPath = String(rootFolderPath || "").trim().replace(/^\/+|\/+$/g, "");
+    const visibleFolders = pageSearchQuery ? [] : folders;
     if (pageSearchQuery) {
       const expanded = {};
       pages.forEach(function(page) {
@@ -4999,8 +5028,8 @@
     const createRootFolder = document.createElement("button");
     createRootFolder.type = "button";
     createRootFolder.className = "page-tree-action";
-    createRootFolder.title = "New root folder";
-    createRootFolder.setAttribute("aria-label", "New root folder");
+    createRootFolder.title = "New folder";
+    createRootFolder.setAttribute("aria-label", "New folder");
     createRootFolder.textContent = "\u229E";
     createRootFolder.addEventListener("click", function(event) {
       event.preventDefault();
@@ -5067,7 +5096,7 @@
       element.addEventListener("drop", handleRootDrop);
     });
     container.appendChild(rootRow);
-    if (!pages.length) {
+    if (!pages.length && !visibleFolders.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
       empty.textContent = pageSearchQuery ? "No indexed pages match the current search." : "No notes yet. Use + to create the first note.";
@@ -5109,7 +5138,7 @@
       }
       onMoveFolder(payload.path, "");
     };
-    container.appendChild(renderPageTreeNode(buildPageTree(pages, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
+    container.appendChild(renderPageTreeNode(buildPageTree(pages, visibleFolders, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
   }
   function filterTasks(tasks, filters, currentPagePath) {
     if (!tasks || !tasks.length) {
@@ -5403,6 +5432,7 @@
         path: page.path
       };
     });
+    const folders = filterFoldersByScope(state.folders, scopePrefix);
     const expandedPageFolders = {};
     Object.keys(state.expandedPageFolders).forEach(function(key) {
       if (!state.expandedPageFolders[key]) {
@@ -5413,6 +5443,7 @@
     return {
       selectedPage,
       pages,
+      folders,
       expandedPageFolders
     };
   }
@@ -5424,6 +5455,7 @@
     renderPagesTree(
       els.pageList,
       displayState.pages,
+      displayState.folders,
       displayState.selectedPage,
       displayState.expandedPageFolders,
       els.pageSearch.value.trim(),
@@ -5567,7 +5599,7 @@
           actions.setNoteStatus("Create page failed: " + actions.errorMessage(error));
         });
       });
-      appendTreeContextMenuItem(treeContextMenu, "New subfolder", "M8 2.5v11M2.5 8h11", function() {
+      appendTreeContextMenuItem(treeContextMenu, "New folder", "M8 2.5v11M2.5 8h11", function() {
         actions.requestCreateSubfolder(target.path).catch(function(error) {
           actions.setNoteStatus("Create folder failed: " + actions.errorMessage(error));
         });
@@ -9659,6 +9691,7 @@
           selectedPage: "",
           selectedSavedQuery: "",
           pages: [],
+          folders: [],
           documents: [],
           tasks: [],
           queryTree: [],
@@ -12066,14 +12099,20 @@
             params.set("q", query);
           }
           try {
-            const payload = await fetchJSON("/api/pages" + (params.toString() ? "?" + params.toString() : ""));
-            state.pages = payload.pages || [];
+            const [pagePayload, folderPayload] = await Promise.all([
+              fetchJSON("/api/pages" + (params.toString() ? "?" + params.toString() : "")),
+              fetchJSON("/api/folders")
+            ]);
+            state.pages = pagePayload.pages || [];
+            state.folders = folderPayload.folders || [];
             if (state.pageTagFilter && !visiblePagesForRail().length) {
               state.pageTagFilter = "";
             }
             renderPages();
             renderPageTags2();
           } catch (error) {
+            state.pages = [];
+            state.folders = [];
             renderEmpty(els.pageList, errorMessage(error));
             els.pageList.classList.add("no-scroll");
           }
@@ -12092,6 +12131,7 @@
           renderPagesSection({
             selectedPage: state.selectedPage,
             pages: visiblePagesForRail(),
+            folders: state.folders,
             expandedPageFolders: state.expandedPageFolders,
             scopePrefix: currentScopePrefix()
           }, els, {
@@ -13549,6 +13589,18 @@
             navigateToPage
           }, initialMarkdown ? { rawMarkdown: initialMarkdown } : void 0);
         }
+        async function createFolder(folderPath) {
+          const scopedFolderPath = applyCurrentScopePrefix(folderPath);
+          if (!scopedFolderPath) {
+            return;
+          }
+          await fetchJSON("/api/folders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ folder: scopedFolderPath })
+          });
+          await loadPages();
+        }
         async function createPageFromTemplate(pagePath, template) {
           const targetPath = buildPagePathFromTemplate(template, pagePath);
           if (!targetPath) {
@@ -13603,32 +13655,19 @@
           const values = await promptForActionInput({
             eyebrow: "Folders",
             title: "New Folder",
-            message: 'Create a subfolder in "' + targetLabel + '" and add its first note.',
+            message: 'Create a folder in "' + targetLabel + '".',
             confirmLabel: "Create Folder",
-            fields: [
-              {
-                key: "folder",
-                label: "Folder name",
-                placeholder: "contacts",
-                value: "",
-                autocapitalize: "none",
-                spellcheck: false
-              },
-              {
-                key: "note",
-                label: "Initial note",
-                placeholder: "index",
-                value: "index",
-                autocapitalize: "none",
-                spellcheck: false
-              }
-            ],
+            fields: [{
+              key: "folder",
+              label: "Folder name",
+              placeholder: "contacts",
+              value: "",
+              autocapitalize: "none",
+              spellcheck: false
+            }],
             validate: function(nextValues) {
               if (!normalizePageDraftPath(nextValues.folder || "")) {
                 return "Enter a folder name.";
-              }
-              if (!normalizePageDraftPath(nextValues.note || "")) {
-                return "Enter an initial note name.";
               }
               return "";
             }
@@ -13637,12 +13676,11 @@
             return;
           }
           const subfolder = normalizePageDraftPath(values.folder || "");
-          const initialNote = normalizePageDraftPath(values.note || "");
-          if (!subfolder || !initialNote) {
+          if (!subfolder) {
             return;
           }
           const basePath = folderKey ? folderKey + "/" : "";
-          await createPage2(basePath + subfolder + "/" + initialNote);
+          await createFolder(basePath + subfolder);
         }
         async function requestRenamePageInTree(pagePath) {
           const currentName = pageTitleFromPath(pagePath);

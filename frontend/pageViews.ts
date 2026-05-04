@@ -62,6 +62,12 @@ export function filterPagesByScope(pages: PageSummary[], scopePrefix: string): P
   });
 }
 
+export function filterFoldersByScope(folders: string[], scopePrefix: string): string[] {
+  return (Array.isArray(folders) ? folders : []).filter(function (folder) {
+    return pageWithinScope(String(folder || ""), scopePrefix);
+  });
+}
+
 function formatReminderLabel(value: string): string {
   const text = String(value || "").trim();
   if (!text) {
@@ -151,10 +157,38 @@ export function ensureExpandedPageAncestors(path: string, expandedPageFolders: R
   }
 }
 
-function buildPageTree(pages: PageSummary[], scopePrefix: string): PageTreeRoot {
+function ensureFolderPath(root: PageTreeRoot, canonicalPath: string, scopePrefix: string): void {
+  const normalizedCanonicalPath = String(canonicalPath || "").trim().replace(/^\/+|\/+$/g, "");
+  if (!normalizedCanonicalPath) {
+    return;
+  }
+  const displayPath = displayPathWithinScope(normalizedCanonicalPath, scopePrefix);
+  const segments = displayPath ? displayPath.split("/") : [];
+  const canonicalSegments = normalizedCanonicalPath.split("/").filter(Boolean);
+  const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
+  const scopeParts = normalizedScopePrefix ? normalizedScopePrefix.split("/") : [];
+  const offset = normalizedScopePrefix && normalizedCanonicalPath.startsWith(normalizedScopePrefix + "/")
+    ? scopeParts.length
+    : 0;
+
+  let cursor: PageTreeRoot | PageTreeFolder = root;
+  segments.forEach(function (segment, index) {
+    const canonicalKey = canonicalSegments.slice(0, offset + index + 1).join("/");
+    if (!cursor.folders[segment]) {
+      cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [] };
+    }
+    cursor = cursor.folders[segment];
+  });
+}
+
+function buildPageTree(pages: PageSummary[], folders: string[], scopePrefix: string): PageTreeRoot {
   const root: PageTreeRoot = { folders: {}, pages: [] };
   const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
   const scopeParts = normalizedScopePrefix ? normalizedScopePrefix.split("/") : [];
+
+  folders.forEach(function (folderPath) {
+    ensureFolderPath(root, folderPath, normalizedScopePrefix);
+  });
 
   pages.forEach(function (page) {
     const canonicalPath = String(page.path || "");
@@ -345,6 +379,7 @@ function renderPageTreeNode(
 export function renderPagesTree(
   container: HTMLDivElement,
   pages: PageSummary[],
+  folders: string[],
   selectedPage: string,
   expandedPageFolders: Record<string, boolean>,
   pageSearchQuery: string,
@@ -366,6 +401,7 @@ export function renderPagesTree(
   clearNode(container);
   const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
   const normalizedRootFolderPath = String(rootFolderPath || "").trim().replace(/^\/+|\/+$/g, "");
+  const visibleFolders = pageSearchQuery ? [] : folders;
 
   if (pageSearchQuery) {
     const expanded: Record<string, boolean> = {};
@@ -413,8 +449,8 @@ export function renderPagesTree(
   const createRootFolder = document.createElement("button");
   createRootFolder.type = "button";
   createRootFolder.className = "page-tree-action";
-  createRootFolder.title = "New root folder";
-  createRootFolder.setAttribute("aria-label", "New root folder");
+  createRootFolder.title = "New folder";
+  createRootFolder.setAttribute("aria-label", "New folder");
   createRootFolder.textContent = "⊞";
   createRootFolder.addEventListener("click", function (event) {
     event.preventDefault();
@@ -483,7 +519,7 @@ export function renderPagesTree(
   });
   container.appendChild(rootRow);
 
-  if (!pages.length) {
+  if (!pages.length && !visibleFolders.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
     empty.textContent = pageSearchQuery
@@ -529,7 +565,7 @@ export function renderPagesTree(
     onMoveFolder(payload.path, "");
   };
 
-  container.appendChild(renderPageTreeNode(buildPageTree(pages, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
+  container.appendChild(renderPageTreeNode(buildPageTree(pages, visibleFolders, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
 }
 
 export interface TaskPanelFilters {

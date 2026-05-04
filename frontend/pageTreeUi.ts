@@ -1,6 +1,7 @@
 import { normalizePageDraftPath } from "./commands";
 import { clearNode } from "./dom";
 import {
+  filterFoldersByScope,
   filterPagesByScope,
   renderPagesTree,
   type PageTreeMenuTarget,
@@ -10,6 +11,7 @@ import type { PageSummary } from "./types";
 export interface PageTreeUiState {
   selectedPage: string;
   pages: PageSummary[];
+  folders: string[];
   expandedPageFolders: Record<string, boolean>;
   scopePrefix?: string;
 }
@@ -40,6 +42,7 @@ export interface PageTreeActions {
 export interface PageTreeDisplayState {
   selectedPage: string;
   pages: PageSummary[];
+  folders: string[];
   expandedPageFolders: Record<string, boolean>;
 }
 
@@ -78,6 +81,7 @@ export function pageTreeDisplayStateForScope(state: PageTreeUiState): PageTreeDi
       path: page.path,
     };
   });
+  const folders = filterFoldersByScope(state.folders, scopePrefix);
   const expandedPageFolders: Record<string, boolean> = {};
   Object.keys(state.expandedPageFolders).forEach(function (key) {
     if (!state.expandedPageFolders[key]) {
@@ -88,6 +92,7 @@ export function pageTreeDisplayStateForScope(state: PageTreeUiState): PageTreeDi
   return {
     selectedPage: selectedPage,
     pages: pages,
+    folders: folders,
     expandedPageFolders: expandedPageFolders,
   };
 }
@@ -101,6 +106,7 @@ export function renderPagesSection(state: PageTreeUiState, els: PageTreeElements
   renderPagesTree(
     els.pageList,
     displayState.pages,
+    displayState.folders,
     displayState.selectedPage,
     displayState.expandedPageFolders,
     els.pageSearch.value.trim(),
@@ -265,7 +271,7 @@ export function openTreeContextMenu(
         actions.setNoteStatus("Create page failed: " + actions.errorMessage(error));
       });
     });
-    appendTreeContextMenuItem(treeContextMenu, "New subfolder", "M8 2.5v11M2.5 8h11", function () {
+    appendTreeContextMenuItem(treeContextMenu, "New folder", "M8 2.5v11M2.5 8h11", function () {
       actions.requestCreateSubfolder(target.path).catch(function (error) {
         actions.setNoteStatus("Create folder failed: " + actions.errorMessage(error));
       });

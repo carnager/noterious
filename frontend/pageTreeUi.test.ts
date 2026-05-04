@@ -28,6 +28,7 @@ describe("page tree display state", function () {
         page("work/contacts/rasmus"),
         page("work/contacts/alina"),
       ],
+      folders: [],
       expandedPageFolders: {
         work: false,
         "work/contacts": false,
@@ -46,6 +47,7 @@ describe("page tree display state", function () {
         page("Work/contacts/rasmus"),
         page("Work/notes/index"),
       ],
+      folders: ["Work/contacts", "Work/notes"],
       expandedPageFolders: {
         Work: true,
         "Work/contacts": true,
@@ -58,6 +60,7 @@ describe("page tree display state", function () {
     expect(displayState.pages.map(function (entry) {
       return entry.path;
     })).toEqual(["Work/contacts/rasmus", "Work/notes/index"]);
+    expect(displayState.folders).toEqual(["Work/contacts", "Work/notes"]);
     expect(displayState.expandedPageFolders).toEqual({
       Work: true,
       "Work/contacts": true,
@@ -73,6 +76,7 @@ describe("page tree display state", function () {
         page("Work/contacts/rasmus"),
         page("Personal/home"),
       ],
+      folders: ["Work/contacts", "Personal/projects"],
       expandedPageFolders: {},
       scopePrefix: "Work",
     };
@@ -81,9 +85,23 @@ describe("page tree display state", function () {
     expect(displayState.pages.map(function (entry) {
       return entry.path;
     })).toEqual(["Work/contacts/rasmus"]);
+    expect(displayState.folders).toEqual(["Work/contacts"]);
   });
 
   it("handles repeated top-level names without collapsing them into the scope root", function () {
     expect(displayPathWithinScope("Contacts/Contacts/alpha", "Contacts")).toBe("Contacts/alpha");
+  });
+
+  it("keeps empty folders in the scoped display state", function () {
+    const state: PageTreeUiState = {
+      selectedPage: "",
+      pages: [],
+      folders: ["Work/contacts", "Work/empty", "Personal/home"],
+      expandedPageFolders: {},
+      scopePrefix: "Work",
+    };
+
+    const displayState = pageTreeDisplayStateForScope(state);
+    expect(displayState.folders).toEqual(["Work/contacts", "Work/empty"]);
   });
 });

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -79,6 +80,45 @@ type PageFile struct {
 	Path     string
 	FullPath string
 	ModTime  time.Time
+}
+
+func (s *Service) ListFolders(ctx context.Context) ([]string, error) {
+	folders := make([]string, 0)
+
+	if err := os.MkdirAll(s.rootPath, 0o755); err != nil {
+		return nil, fmt.Errorf("create vault root %q: %w", s.rootPath, err)
+	}
+
+	err := filepath.WalkDir(s.rootPath, func(fullPath string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		if fullPath == s.rootPath {
+			return nil
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") {
+			return filepath.SkipDir
+		}
+		relPath, err := filepath.Rel(s.rootPath, fullPath)
+		if err != nil {
+			return fmt.Errorf("compute relative folder path for %q: %w", fullPath, err)
+		}
+		folders = append(folders, normalizePagePath(filepath.ToSlash(relPath)))
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan folders in vault %q: %w", s.rootPath, err)
+	}
+
+	slices.Sort(folders)
+	return folders, nil
 }
 
 func (s *Service) ScanMarkdownPages(ctx context.Context) ([]PageFile, error) {
@@ -187,6 +227,19 @@ func (s *Service) DeleteFolder(folderPath string) error {
 	fullPath := filepath.Join(s.rootPath, filepath.FromSlash(normalized))
 	if err := os.RemoveAll(fullPath); err != nil {
 		return fmt.Errorf("delete folder %q: %w", normalized, err)
+	}
+	return nil
+}
+
+func (s *Service) CreateFolder(folderPath string) error {
+	normalized := normalizePagePath(folderPath)
+	if normalized == "" || normalized == "." || strings.HasPrefix(normalized, "../") || normalized == ".." {
+		return fmt.Errorf("invalid folder path %q", folderPath)
+	}
+
+	fullPath := filepath.Join(s.rootPath, filepath.FromSlash(normalized))
+	if err := os.MkdirAll(fullPath, 0o755); err != nil {
+		return fmt.Errorf("create folder %q: %w", normalized, err)
 	}
 	return nil
 }

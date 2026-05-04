@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -2987,6 +2988,53 @@ func TestDeleteFolderMovesNestedPagesToTrashAndRebuildsIndex(t *testing.T) {
 	}
 	if !strings.Contains(trashRecorder.Body.String(), "\"notes/team/alpha\"") || !strings.Contains(trashRecorder.Body.String(), "\"notes/team/beta\"") {
 		t.Fatalf("trash body = %s, want both deleted folder pages", trashRecorder.Body.String())
+	}
+}
+
+func TestCreateAndListFoldersIncludesEmptyFolders(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes", "team"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/folders", strings.NewReader(`{"folder":"notes/archive"}`))
+	createRequest.Header.Set("Content-Type", "application/json")
+	createRecorder := httptest.NewRecorder()
+	router.ServeHTTP(createRecorder, createRequest)
+	if createRecorder.Code != http.StatusCreated {
+		t.Fatalf("POST /api/folders status = %d, body = %s", createRecorder.Code, createRecorder.Body.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(vaultDir, "notes", "archive")); err != nil {
+		t.Fatalf("Stat() error = %v", err)
+	}
+
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/folders", nil)
+	listRecorder := httptest.NewRecorder()
+	router.ServeHTTP(listRecorder, listRequest)
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("GET /api/folders status = %d, body = %s", listRecorder.Code, listRecorder.Body.String())
+	}
+
+	var payload struct {
+		Count   int      `json:"count"`
+		Folders []string `json:"folders"`
+	}
+	if err := json.NewDecoder(listRecorder.Body).Decode(&payload); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if payload.Count != 3 {
+		t.Fatalf("count = %d, want 3", payload.Count)
+	}
+	if !slices.Equal(payload.Folders, []string{"notes", "notes/archive", "notes/team"}) {
+		t.Fatalf("folders = %#v", payload.Folders)
 	}
 }
 
