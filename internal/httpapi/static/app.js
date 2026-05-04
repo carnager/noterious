@@ -8048,6 +8048,45 @@
     }
   });
 
+  // frontend/remotePageSync.ts
+  function planRemotePageSync(input) {
+    const pagePath = String(input.pagePath || "");
+    const remoteMarkdown = input.loadedRemote.page.rawMarkdown || "";
+    const plan = buildRemoteSyncPlan({
+      baseMarkdown: input.baseMarkdown,
+      localMarkdown: input.localMarkdown,
+      remoteMarkdown,
+      unsafeUIState: input.unsafeUIState
+    });
+    if (plan.action === "apply") {
+      return {
+        action: "apply",
+        markdown: plan.markdown,
+        mergedLocalEdits: plan.mergedLocalEdits,
+        status: plan.mergedLocalEdits ? "Merged remote edits into " + pagePath + "." : "Updated " + pagePath + " from remote changes."
+      };
+    }
+    const mode = plan.reason === "unsafe-ui-state" ? "unsafe-remote-review" : "remote-conflict";
+    return {
+      action: "conflict",
+      draft: createPageConflictDraft({
+        mode,
+        pagePath,
+        baseMarkdown: input.baseMarkdown,
+        localMarkdown: input.localMarkdown,
+        remoteMarkdown
+      }),
+      status: plan.reason === "unsafe-ui-state" ? "Remote changes are ready to review, but Noterious paused automatic merge because a structured editor is still open." : "Automatic merge found overlapping local and remote edits. Review both versions and save the final markdown you want to keep."
+    };
+  }
+  var init_remotePageSync = __esm({
+    "frontend/remotePageSync.ts"() {
+      "use strict";
+      init_pageConflict();
+      init_remoteSync();
+    }
+  });
+
   // frontend/themes.ts
   function builtinThemeLibrary() {
     return builtinThemes.map(cloneThemeRecord);
@@ -9716,6 +9755,7 @@
       init_slashMenu();
       init_remoteSync();
       init_pageConflict();
+      init_remotePageSync();
       init_themes();
       (function() {
         let pwaRegistrationPromise = null;
@@ -10420,30 +10460,26 @@
             const selectionEnd = markdownEditorSelectionEnd(state, els);
             const scrollTop = markdownEditorScrollTop(state, els);
             const focusEditor = markdownEditorHasFocus(state, els);
-            const plan = buildRemoteSyncPlan({
+            const outcome = planRemotePageSync({
+              pagePath,
               baseMarkdown,
               localMarkdown,
-              remoteMarkdown,
+              loadedRemote: loaded,
               unsafeUIState: hasUnsafeRemoteSyncUIState2()
             });
-            if (plan.action === "warn") {
-              openPageConflictDialog(
-                plan.reason === "unsafe-ui-state" ? "unsafe-remote-review" : "remote-conflict",
-                pagePath,
-                loaded,
-                localMarkdown,
-                plan.reason === "unsafe-ui-state" ? "Remote changes are ready to review, but Noterious paused automatic merge because a structured editor is still open." : "Automatic merge found overlapping local and remote edits. Review both versions and save the final markdown you want to keep."
-              );
+            if (outcome.action === "conflict") {
+              state.pageConflict = outcome.draft;
+              state.pageConflictRemoteLoaded = loaded;
+              state.pageConflictStatus = outcome.status;
+              setPageConflictOpen(true);
               setNoteStatus(
-                plan.reason === "unsafe-ui-state" ? "Remote change review needed for " + pagePath + "." : "Conflict review opened for " + pagePath + "."
+                outcome.draft.mode === "unsafe-remote-review" ? "Remote change review needed for " + pagePath + "." : "Conflict review opened for " + pagePath + "."
               );
               return;
             }
-            const templateFillActive = applyLoadedPageDetailState(pagePath, loaded, plan.markdown);
+            const templateFillActive = applyLoadedPageDetailState(pagePath, loaded, outcome.markdown);
             restoreCurrentEditorViewport(selectionStart, selectionEnd, scrollTop, focusEditor && !templateFillActive);
-            setNoteStatus(
-              plan.mergedLocalEdits ? "Merged remote edits into " + pagePath + "." : "Updated " + pagePath + " from remote changes."
-            );
+            setNoteStatus(outcome.status);
           } catch (error) {
             showRemoteChangeToast(pagePath);
             setNoteStatus("Remote refresh failed: " + errorMessage(error));

@@ -191,8 +191,9 @@ import {
   renderSettingsHotkeyHints as renderSettingsHotkeyHintsUI,
 } from "./settingsUi";
 import { closeSlashMenu, documentCommandsForText, maybeOpenSlashMenu, moveSlashSelection, openSlashMenuWithCommands, queryIntentForText, wikilinkCommandsForContext } from "./slashMenu";
-import { buildRemoteSyncPlan, hasUnsafeRemoteSyncUIState as hasUnsafeRemoteSyncUIStateHelper } from "./remoteSync";
+import { hasUnsafeRemoteSyncUIState as hasUnsafeRemoteSyncUIStateHelper } from "./remoteSync";
 import { createPageConflictDraft, type PageConflictDraft, type PageConflictMode } from "./pageConflict";
+import { planRemotePageSync } from "./remotePageSync";
 import {
   applyTheme,
   builtinThemeLibrary,
@@ -1207,37 +1208,29 @@ interface ActionDialogSession {
       const selectionEnd = markdownEditorSelectionEnd(state, els);
       const scrollTop = markdownEditorScrollTop(state, els);
       const focusEditor = markdownEditorHasFocus(state, els);
-      const plan = buildRemoteSyncPlan({
+      const outcome = planRemotePageSync({
+        pagePath,
         baseMarkdown,
         localMarkdown,
-        remoteMarkdown,
+        loadedRemote: loaded,
         unsafeUIState: hasUnsafeRemoteSyncUIState(),
       });
-      if (plan.action === "warn") {
-        openPageConflictDialog(
-          plan.reason === "unsafe-ui-state" ? "unsafe-remote-review" : "remote-conflict",
-          pagePath,
-          loaded,
-          localMarkdown,
-          plan.reason === "unsafe-ui-state"
-            ? "Remote changes are ready to review, but Noterious paused automatic merge because a structured editor is still open."
-            : "Automatic merge found overlapping local and remote edits. Review both versions and save the final markdown you want to keep."
-        );
+      if (outcome.action === "conflict") {
+        state.pageConflict = outcome.draft;
+        state.pageConflictRemoteLoaded = loaded;
+        state.pageConflictStatus = outcome.status;
+        setPageConflictOpen(true);
         setNoteStatus(
-          plan.reason === "unsafe-ui-state"
+          outcome.draft.mode === "unsafe-remote-review"
             ? ("Remote change review needed for " + pagePath + ".")
             : ("Conflict review opened for " + pagePath + ".")
         );
         return;
       }
 
-      const templateFillActive = applyLoadedPageDetailState(pagePath, loaded, plan.markdown);
+      const templateFillActive = applyLoadedPageDetailState(pagePath, loaded, outcome.markdown);
       restoreCurrentEditorViewport(selectionStart, selectionEnd, scrollTop, focusEditor && !templateFillActive);
-      setNoteStatus(
-        plan.mergedLocalEdits
-          ? ("Merged remote edits into " + pagePath + ".")
-          : ("Updated " + pagePath + " from remote changes.")
-      );
+      setNoteStatus(outcome.status);
     } catch (error) {
       showRemoteChangeToast(pagePath);
       setNoteStatus("Remote refresh failed: " + errorMessage(error));
