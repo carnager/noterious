@@ -11,7 +11,7 @@ Noterious is a server-first markdown notebook. Your notes stay as markdown files
 - keeps markdown files as the source of truth
 - serves a web UI for browsing, editing, tasks, backlinks, and embedded queries
 - includes an optional server-managed AI copilot for drafting Noterious queries, including inline `/query ...` generation
-- supports drag-and-drop and `/file` uploads, including inline image embeds for uploaded image assets
+- supports drag-and-drop and `/file` uploads, including inline image embeds for uploaded image assets and configurable upload placement
 - builds a disposable SQLite index for fast search and query execution
 - supports vault-native note templates under `_templates/`
 - automatically merges non-overlapping concurrent page edits from multiple clients and falls back to explicit conflicts for overlapping changes
@@ -224,9 +224,12 @@ server-managed state such as history, trash, custom themes, auth state, and
 the SQLite index. The index is rebuildable, but the rest of the data-dir state
 is not.
 
-The settings modal also shows the resolved runtime backup paths and can
-download a backup manifest JSON plus a generated shell backup script for the
-current deployment.
+The settings modal also shows the resolved runtime backup paths and can:
+
+- download a backup manifest JSON
+- download a generated shell backup script for the current deployment
+- validate a backup manifest against the current deployment paths before
+  restoring
 
 See [docs/backups.md](/home/carnager/Code/noterious/docs/backups.md:1) for the
 full backup and restore guidance.

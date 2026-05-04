@@ -600,18 +600,41 @@
     }
     return parts.slice(0, -1).join("/");
   }
-  function documentUploadDirectory(currentPagePath) {
-    return pageDirectory(currentPagePath);
+  function normalizedDocumentSettings(settings) {
+    const placement = String(settings && settings.uploadPlacement || "").trim();
+    const subfolder = normalizePath(String(settings && settings.uploadSubfolder || "")).replace(/^\/+|\/+$/g, "");
+    return {
+      uploadPlacement: placement === "vault-root" || placement === "note-subfolder" ? placement : "same-folder",
+      uploadSubfolder: subfolder || "_files"
+    };
   }
-  function documentUploadTargetLabel(currentPagePath) {
-    const directory = documentUploadDirectory(currentPagePath);
+  function documentUploadDirectory(currentPagePath, settings) {
+    const pageDir = pageDirectory(currentPagePath);
+    const documentSettings = normalizedDocumentSettings(settings);
+    if (documentSettings.uploadPlacement === "vault-root") {
+      return "";
+    }
+    if (documentSettings.uploadPlacement === "note-subfolder") {
+      return pageDir ? pageDir + "/" + documentSettings.uploadSubfolder : documentSettings.uploadSubfolder;
+    }
+    return pageDir;
+  }
+  function documentUploadTargetLabel(currentPagePath, settings) {
+    const directory = documentUploadDirectory(currentPagePath, settings);
     return directory ? directory + "/" : "vault root";
   }
-  function documentUploadHint(currentPagePath, noteOpen) {
+  function documentUploadHint(currentPagePath, noteOpen, settings) {
     if (!noteOpen) {
-      return "Open a note to upload new files into its folder. Without a note, selecting a document opens the file instead of inserting a link.";
+      return "Open a note to upload new files into the configured attachment location. Without a note, selecting a document opens the file instead of inserting a link.";
     }
-    const directory = documentUploadDirectory(currentPagePath);
+    const documentSettings = normalizedDocumentSettings(settings);
+    const directory = documentUploadDirectory(currentPagePath, documentSettings);
+    if (documentSettings.uploadPlacement === "vault-root") {
+      return "New uploads for this note go to the vault root.";
+    }
+    if (documentSettings.uploadPlacement === "note-subfolder") {
+      return "New uploads for this note go to the configured subfolder: " + directory + "/.";
+    }
     return directory ? "New uploads for this note go to the same folder: " + directory + "/." : "New uploads for this note go to the vault root.";
   }
   function relativeDocumentPath(currentPagePath, documentPath) {
@@ -7174,6 +7197,8 @@
     const serverFields = [
       els.settingsVaultPath,
       els.settingsNtfyInterval,
+      els.settingsDocumentsPlacement,
+      els.settingsDocumentsSubfolder,
       els.settingsBackupDownload,
       els.settingsBackupScript,
       els.settingsBackupValidate
@@ -7223,6 +7248,10 @@
     els.saveSettings.disabled = false;
     els.settingsVaultPath.value = state.settings.vault.vaultPath || "";
     els.settingsNtfyInterval.value = state.settings.notifications.ntfyInterval || "1m";
+    els.settingsDocumentsPlacement.value = state.settings.documents.uploadPlacement || "same-folder";
+    els.settingsDocumentsSubfolder.value = state.settings.documents.uploadSubfolder || "_files";
+    els.settingsDocumentsSubfolderField.classList.toggle("hidden", els.settingsDocumentsPlacement.value !== "note-subfolder");
+    els.settingsDocumentsSubfolder.disabled = els.settingsDocumentsPlacement.value !== "note-subfolder";
     const runtimeVaultPath = state.serverMeta && state.serverMeta.runtimeVault ? String(state.serverMeta.runtimeVault.vaultPath || "").trim() : "";
     const dataDir = state.serverMeta ? String(state.serverMeta.dataDir || "").trim() : "";
     const database = state.serverMeta ? String(state.serverMeta.database || "").trim() : "";
@@ -7614,7 +7643,7 @@
       {
         id: "file",
         title: "Upload file",
-        description: "Open the file picker and upload into the current note's folder.",
+        description: "Open the file picker and upload into the configured attachment location.",
         keywords: "upload attachment document image media asset",
         hint: "/file",
         apply: function(lineText) {
@@ -10021,6 +10050,10 @@
             notifications: {
               ntfyInterval: "1m"
             },
+            documents: {
+              uploadPlacement: "same-folder",
+              uploadSubfolder: "_files"
+            },
             userNotifications: {
               ntfyTopicUrl: "",
               ntfyToken: ""
@@ -10287,6 +10320,9 @@
           saveSettings: requiredElement("save-settings"),
           settingsVaultPath: requiredElement("settings-vault-path"),
           settingsNtfyInterval: requiredElement("settings-ntfy-interval"),
+          settingsDocumentsPlacement: requiredElement("settings-documents-placement"),
+          settingsDocumentsSubfolder: requiredElement("settings-documents-subfolder"),
+          settingsDocumentsSubfolderField: requiredElement("settings-documents-subfolder-field"),
           settingsBackupVaultPath: requiredElement("settings-backup-vault-path"),
           settingsBackupDataDir: requiredElement("settings-backup-data-dir"),
           settingsBackupDatabase: requiredElement("settings-backup-database"),
@@ -12193,6 +12229,10 @@
         function setSettingsSnapshot(snapshot) {
           state.settings.vault = snapshot.settings.vault;
           state.settings.notifications = snapshot.settings.notifications;
+          state.settings.documents = snapshot.settings.documents || {
+            uploadPlacement: "same-folder",
+            uploadSubfolder: "_files"
+          };
           state.appliedVault = snapshot.appliedVault;
           state.settingsRestartRequired = snapshot.restartRequired;
           state.settingsLoaded = true;
@@ -13144,7 +13184,8 @@
         function renderDocumentsUploadHint() {
           els.documentsUploadHint.textContent = documentUploadHint(
             state.selectedPage || "",
-            Boolean(state.selectedPage && state.currentPage)
+            Boolean(state.selectedPage && state.currentPage),
+            state.settings.documents
           );
         }
         function renderPageConflictModal() {
@@ -13593,6 +13634,11 @@
           }
           setSettingsOpen(false);
         }
+        function syncSettingsDocumentPlacementField() {
+          const usesSubfolder = String(els.settingsDocumentsPlacement.value || "").trim() === "note-subfolder";
+          els.settingsDocumentsSubfolderField.classList.toggle("hidden", !usesSubfolder);
+          els.settingsDocumentsSubfolder.disabled = !usesSubfolder;
+        }
         function collectServerSettingsForm() {
           return {
             vault: {
@@ -13600,6 +13646,10 @@
             },
             notifications: {
               ntfyInterval: String(els.settingsNtfyInterval.value || "1m").trim()
+            },
+            documents: {
+              uploadPlacement: String(els.settingsDocumentsPlacement.value || "same-folder").trim(),
+              uploadSubfolder: String(els.settingsDocumentsSubfolder.value || "_files").trim()
             }
           };
         }
@@ -14116,7 +14166,7 @@
             return;
           }
           const documents = [];
-          const uploadTarget = documentUploadTargetLabel(state.selectedPage);
+          const uploadTarget = documentUploadTargetLabel(state.selectedPage, state.settings.documents);
           setNoteStatus(
             "Uploading " + String(fileList.length) + " document" + (fileList.length === 1 ? "" : "s") + " to " + uploadTarget + "\u2026"
           );
@@ -14636,6 +14686,9 @@
               els.settingsAIAPIKey.value = "";
             }
             renderSettingsForm2();
+          });
+          on(els.settingsDocumentsPlacement, "change", function() {
+            syncSettingsDocumentPlacementField();
           });
           on(els.settingsTemplateAdd, "click", function() {
             const nextIndex = state.settingsTemplateDrafts.length + 1;

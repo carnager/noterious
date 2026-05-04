@@ -657,6 +657,24 @@
                 <input id="settings-ntfy-interval" type="text" placeholder="1m" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
               </label>
               </div>
+              <div class="settings-subsection">
+                <div class="settings-subsection-head">
+                  <strong>Attachment Uploads</strong>
+                  <span>Choose where uploaded files land when you drag files into a note or use <code>/file</code>.</span>
+                </div>
+                <label class="search modal-field-wide">
+                  <span>Upload Placement</span>
+                  <select id="settings-documents-placement">
+                    <option value="same-folder">Same folder as note</option>
+                    <option value="note-subfolder">Subfolder inside note folder</option>
+                    <option value="vault-root">Vault root</option>
+                  </select>
+                </label>
+                <label class="search modal-field-wide hidden" id="settings-documents-subfolder-field">
+                  <span>Subfolder Name</span>
+                  <input id="settings-documents-subfolder" type="text" placeholder="_files" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                </label>
+              </div>
             </div>
             <div class="settings-backup-card">
               <div class="settings-backup-head">

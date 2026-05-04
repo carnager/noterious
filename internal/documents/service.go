@@ -29,6 +29,12 @@ type Service struct {
 	rootPath string
 }
 
+const (
+	UploadPlacementSameFolder    = "same-folder"
+	UploadPlacementVaultRoot     = "vault-root"
+	UploadPlacementNoteSubfolder = "note-subfolder"
+)
+
 func NewService(rootPath string) (*Service, error) {
 	if err := os.MkdirAll(rootPath, 0o755); err != nil {
 		return nil, fmt.Errorf("create vault root %q: %w", rootPath, err)
@@ -98,7 +104,7 @@ func (s *Service) Get(documentPath string) (Document, string, error) {
 	return documentFromPath(normalized, info), fullPath, nil
 }
 
-func (s *Service) Create(_ context.Context, pagePath string, name string, contentType string, input io.Reader) (Document, error) {
+func (s *Service) Create(_ context.Context, pagePath string, uploadPlacement string, uploadSubfolder string, name string, contentType string, input io.Reader) (Document, error) {
 	baseName := sanitizeDocumentName(name)
 	if baseName == "" {
 		return Document{}, fmt.Errorf("document name is required")
@@ -112,7 +118,7 @@ func (s *Service) Create(_ context.Context, pagePath string, name string, conten
 		return Document{}, fmt.Errorf("document is empty")
 	}
 
-	dirPath, err := documentDirForPage(pagePath)
+	dirPath, err := documentDirForUpload(pagePath, uploadPlacement, uploadSubfolder)
 	if err != nil {
 		return Document{}, err
 	}
@@ -181,6 +187,45 @@ func documentDirForPage(pagePath string) (string, error) {
 		return "", nil
 	}
 	return dir, nil
+}
+
+func documentDirForUpload(pagePath string, uploadPlacement string, uploadSubfolder string) (string, error) {
+	switch strings.TrimSpace(uploadPlacement) {
+	case "", UploadPlacementSameFolder:
+		return documentDirForPage(pagePath)
+	case UploadPlacementVaultRoot:
+		return "", nil
+	case UploadPlacementNoteSubfolder:
+		subfolder := normalizeUploadSubfolder(uploadSubfolder)
+		if subfolder == "" {
+			return "", fmt.Errorf("document upload subfolder is required")
+		}
+		if subfolder == "." || subfolder == ".." || strings.HasPrefix(subfolder, "../") {
+			return "", fmt.Errorf("document upload subfolder must stay inside the vault")
+		}
+		dir, err := documentDirForPage(pagePath)
+		if err != nil {
+			return "", err
+		}
+		if dir == "" {
+			return subfolder, nil
+		}
+		return joinDocumentPath(dir, subfolder), nil
+	default:
+		return "", fmt.Errorf("unsupported document upload placement %q", uploadPlacement)
+	}
+}
+
+func normalizeUploadSubfolder(value string) string {
+	cleaned := strings.Trim(strings.TrimSpace(strings.ReplaceAll(value, "\\", "/")), "/")
+	if cleaned == "" {
+		return ""
+	}
+	cleaned = path.Clean(cleaned)
+	if cleaned == "." {
+		return ""
+	}
+	return strings.TrimPrefix(cleaned, "/")
 }
 
 func documentFromPath(documentPath string, info os.FileInfo) Document {

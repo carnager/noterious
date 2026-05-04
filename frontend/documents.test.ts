@@ -9,6 +9,7 @@ import {
   resolveDocumentPath,
 } from "./documents";
 import type { DocumentRecord } from "./types";
+import type { ServerDocumentSettings } from "./types";
 
 function document(path: string, contentType = "application/pdf"): DocumentRecord {
   return {
@@ -19,6 +20,13 @@ function document(path: string, contentType = "application/pdf"): DocumentRecord
     size: 1024,
     createdAt: "2026-04-24T00:00:00Z",
     downloadURL: "/api/documents/download?path=" + encodeURIComponent(path),
+  };
+}
+
+function documentSettings(uploadPlacement: ServerDocumentSettings["uploadPlacement"], uploadSubfolder = "_files"): ServerDocumentSettings {
+  return {
+    uploadPlacement,
+    uploadSubfolder,
   };
 }
 
@@ -48,16 +56,30 @@ describe("document helpers", function () {
   });
 
   it("describes where uploads for the current note will be stored", function () {
-    expect(documentUploadTargetLabel("Meetings/Teamsitzungen/index")).toBe("Meetings/Teamsitzungen/");
-    expect(documentUploadTargetLabel("Inbox")).toBe("vault root");
-    expect(documentUploadHint("Meetings/Teamsitzungen/index", true)).toBe(
+    expect(documentUploadTargetLabel("Meetings/Teamsitzungen/index", documentSettings("same-folder"))).toBe("Meetings/Teamsitzungen/");
+    expect(documentUploadTargetLabel("Inbox", documentSettings("same-folder"))).toBe("vault root");
+    expect(documentUploadHint("Meetings/Teamsitzungen/index", true, documentSettings("same-folder"))).toBe(
       "New uploads for this note go to the same folder: Meetings/Teamsitzungen/."
     );
-    expect(documentUploadHint("Inbox", true)).toBe("New uploads for this note go to the vault root.");
+    expect(documentUploadHint("Inbox", true, documentSettings("same-folder"))).toBe("New uploads for this note go to the vault root.");
+  });
+
+  it("describes configurable upload placements", function () {
+    expect(documentUploadTargetLabel("Meetings/Teamsitzungen/index", documentSettings("vault-root"))).toBe("vault root");
+    expect(documentUploadHint("Meetings/Teamsitzungen/index", true, documentSettings("vault-root"))).toBe(
+      "New uploads for this note go to the vault root."
+    );
+    expect(documentUploadTargetLabel("Meetings/Teamsitzungen/index", documentSettings("note-subfolder", "_assets"))).toBe(
+      "Meetings/Teamsitzungen/_assets/"
+    );
+    expect(documentUploadTargetLabel("Inbox", documentSettings("note-subfolder", "_assets"))).toBe("_assets/");
+    expect(documentUploadHint("Meetings/Teamsitzungen/index", true, documentSettings("note-subfolder", "_assets"))).toBe(
+      "New uploads for this note go to the configured subfolder: Meetings/Teamsitzungen/_assets/."
+    );
   });
 
   it("explains upload behavior when no note is open", function () {
-    expect(documentUploadHint("", false)).toContain("Open a note");
-    expect(documentUploadHint("", false)).toContain("opens the file");
+    expect(documentUploadHint("", false, documentSettings("same-folder"))).toContain("Open a note");
+    expect(documentUploadHint("", false, documentSettings("same-folder"))).toContain("configured attachment location");
   });
 });

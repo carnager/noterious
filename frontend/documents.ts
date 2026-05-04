@@ -1,5 +1,5 @@
 import { renderPaletteSections, type PaletteItem, type PaletteSection } from "./palette";
-import type { DocumentRecord } from "./types";
+import type { DocumentRecord, ServerDocumentSettings } from "./types";
 
 export interface RenderDocumentsOptions {
   container: HTMLElement;
@@ -29,20 +29,50 @@ function pageDirectory(pagePath: string): string {
   return parts.slice(0, -1).join("/");
 }
 
-export function documentUploadDirectory(currentPagePath: string): string {
-  return pageDirectory(currentPagePath);
+function normalizedDocumentSettings(settings?: Partial<ServerDocumentSettings> | null): ServerDocumentSettings {
+  const placement = String(settings && settings.uploadPlacement || "").trim();
+  const subfolder = normalizePath(String(settings && settings.uploadSubfolder || "")).replace(/^\/+|\/+$/g, "");
+  return {
+    uploadPlacement: placement === "vault-root" || placement === "note-subfolder"
+      ? placement
+      : "same-folder",
+    uploadSubfolder: subfolder || "_files",
+  };
 }
 
-export function documentUploadTargetLabel(currentPagePath: string): string {
-  const directory = documentUploadDirectory(currentPagePath);
+export function documentUploadDirectory(currentPagePath: string, settings?: Partial<ServerDocumentSettings> | null): string {
+  const pageDir = pageDirectory(currentPagePath);
+  const documentSettings = normalizedDocumentSettings(settings);
+  if (documentSettings.uploadPlacement === "vault-root") {
+    return "";
+  }
+  if (documentSettings.uploadPlacement === "note-subfolder") {
+    return pageDir ? (pageDir + "/" + documentSettings.uploadSubfolder) : documentSettings.uploadSubfolder;
+  }
+  return pageDir;
+}
+
+export function documentUploadTargetLabel(currentPagePath: string, settings?: Partial<ServerDocumentSettings> | null): string {
+  const directory = documentUploadDirectory(currentPagePath, settings);
   return directory ? (directory + "/") : "vault root";
 }
 
-export function documentUploadHint(currentPagePath: string, noteOpen: boolean): string {
+export function documentUploadHint(
+  currentPagePath: string,
+  noteOpen: boolean,
+  settings?: Partial<ServerDocumentSettings> | null
+): string {
   if (!noteOpen) {
-    return "Open a note to upload new files into its folder. Without a note, selecting a document opens the file instead of inserting a link.";
+    return "Open a note to upload new files into the configured attachment location. Without a note, selecting a document opens the file instead of inserting a link.";
   }
-  const directory = documentUploadDirectory(currentPagePath);
+  const documentSettings = normalizedDocumentSettings(settings);
+  const directory = documentUploadDirectory(currentPagePath, documentSettings);
+  if (documentSettings.uploadPlacement === "vault-root") {
+    return "New uploads for this note go to the vault root.";
+  }
+  if (documentSettings.uploadPlacement === "note-subfolder") {
+    return "New uploads for this note go to the configured subfolder: " + directory + "/.";
+  }
   return directory
     ? ("New uploads for this note go to the same folder: " + directory + "/.")
     : "New uploads for this note go to the vault root.";

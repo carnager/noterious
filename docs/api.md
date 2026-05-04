@@ -70,6 +70,7 @@ also hiding real external changes.
 
 - vault root path and home page
 - ntfy polling interval
+- attachment upload placement (`same-folder`, `vault-root`, or `note-subfolder`)
 
 The response includes:
 

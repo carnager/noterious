@@ -40,6 +40,9 @@ export interface SettingsUiElements {
   saveSettings: HTMLButtonElement;
   settingsVaultPath: HTMLInputElement;
   settingsNtfyInterval: HTMLInputElement;
+  settingsDocumentsPlacement: HTMLSelectElement;
+  settingsDocumentsSubfolder: HTMLInputElement;
+  settingsDocumentsSubfolderField: HTMLElement;
   settingsBackupVaultPath: HTMLElement;
   settingsBackupDataDir: HTMLElement;
   settingsBackupDatabase: HTMLElement;
@@ -463,6 +466,8 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
   const serverFields: Array<HTMLInputElement | HTMLSelectElement | HTMLButtonElement> = [
     els.settingsVaultPath,
     els.settingsNtfyInterval,
+    els.settingsDocumentsPlacement,
+    els.settingsDocumentsSubfolder,
     els.settingsBackupDownload,
     els.settingsBackupScript,
     els.settingsBackupValidate,
@@ -515,6 +520,10 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
   els.saveSettings.disabled = false;
   els.settingsVaultPath.value = state.settings.vault.vaultPath || "";
   els.settingsNtfyInterval.value = state.settings.notifications.ntfyInterval || "1m";
+  els.settingsDocumentsPlacement.value = state.settings.documents.uploadPlacement || "same-folder";
+  els.settingsDocumentsSubfolder.value = state.settings.documents.uploadSubfolder || "_files";
+  els.settingsDocumentsSubfolderField.classList.toggle("hidden", els.settingsDocumentsPlacement.value !== "note-subfolder");
+  els.settingsDocumentsSubfolder.disabled = els.settingsDocumentsPlacement.value !== "note-subfolder";
   const runtimeVaultPath = state.serverMeta && state.serverMeta.runtimeVault
     ? String(state.serverMeta.runtimeVault.vaultPath || "").trim()
     : "";

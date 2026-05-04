@@ -339,6 +339,11 @@ export interface ServerNotificationSettings {
   ntfyInterval: string;
 }
 
+export interface ServerDocumentSettings {
+  uploadPlacement: "same-folder" | "vault-root" | "note-subfolder";
+  uploadSubfolder: string;
+}
+
 export interface UserNotificationSettings {
   ntfyTopicUrl: string;
   ntfyToken: string;
@@ -351,6 +356,7 @@ export interface UserSettings {
 export interface ServerSettings {
   vault: VaultSettings;
   notifications: ServerNotificationSettings;
+  documents: ServerDocumentSettings;
 }
 
 export interface AISettings {

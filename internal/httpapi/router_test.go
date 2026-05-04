@@ -483,6 +483,80 @@ func TestDocumentsAPIUploadsListsAndDownloads(t *testing.T) {
 	}
 }
 
+func TestDocumentsAPIRespectsUploadPlacementSettings(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+	if err := os.MkdirAll(vaultDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	cfg := config.Config{
+		ListenAddr: ":8080",
+		VaultPath:  vaultDir,
+		DataDir:    dataDir,
+	}
+	settingsStore, err := settings.NewStore(dataDir, settings.DefaultSettingsFromConfig(cfg))
+	if err != nil {
+		t.Fatalf("settings.NewStore() error = %v", err)
+	}
+	if _, err := settingsStore.Update(settings.AppSettings{
+		Vault: settings.Vault{
+			VaultPath: vaultDir,
+		},
+		Notifications: settings.Notifications{
+			NtfyInterval: "1m",
+		},
+		Documents: settings.Documents{
+			UploadPlacement: documents.UploadPlacementNoteSubfolder,
+			UploadSubfolder: "_files",
+		},
+	}); err != nil {
+		t.Fatalf("settings.Update() error = %v", err)
+	}
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Config:   cfg,
+		Settings: settingsStore,
+	})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "Meeting Notes.pdf")
+	if err != nil {
+		t.Fatalf("CreateFormFile() error = %v", err)
+	}
+	if _, err := io.WriteString(part, "%PDF-1.4 fake"); err != nil {
+		t.Fatalf("WriteString() error = %v", err)
+	}
+	if err := writer.WriteField("page", "notes/alpha"); err != nil {
+		t.Fatalf("WriteField() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	uploadRequest := httptest.NewRequest(http.MethodPost, "/api/documents", &body)
+	uploadRequest.Header.Set("Content-Type", writer.FormDataContentType())
+	uploadResponse := httptest.NewRecorder()
+	router.ServeHTTP(uploadResponse, uploadRequest)
+	if uploadResponse.Code != http.StatusCreated {
+		t.Fatalf("POST /api/documents status = %d body=%s", uploadResponse.Code, uploadResponse.Body.String())
+	}
+
+	var uploaded struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(uploadResponse.Body).Decode(&uploaded); err != nil {
+		t.Fatalf("Decode(upload) error = %v", err)
+	}
+	if uploaded.Path != "notes/_files/meeting-notes.pdf" {
+		t.Fatalf("uploaded path = %q", uploaded.Path)
+	}
+}
+
 func TestGetPageReturnsNotFoundForMissingPage(t *testing.T) {
 	t.Parallel()
 

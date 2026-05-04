@@ -274,7 +274,7 @@ function slashCommandCatalog(): SlashCommand[] {
     {
       id: "file",
       title: "Upload file",
-      description: "Open the file picker and upload into the current note's folder.",
+      description: "Open the file picker and upload into the configured attachment location.",
       keywords: "upload attachment document image media asset",
       hint: "/file",
       apply: function (lineText: string) {

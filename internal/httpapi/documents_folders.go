@@ -137,7 +137,27 @@ func handleDocumentsRequest(w http.ResponseWriter, r *http.Request, deps Depende
 	}
 	defer file.Close()
 
-	document, err := documentService.Create(r.Context(), r.FormValue("page"), header.Filename, header.Header.Get("Content-Type"), file)
+	uploadPlacement := documents.UploadPlacementSameFolder
+	uploadSubfolder := "_files"
+	if deps.Settings != nil {
+		current := deps.Settings.Settings()
+		if strings.TrimSpace(current.Documents.UploadPlacement) != "" {
+			uploadPlacement = strings.TrimSpace(current.Documents.UploadPlacement)
+		}
+		if strings.TrimSpace(current.Documents.UploadSubfolder) != "" {
+			uploadSubfolder = strings.TrimSpace(current.Documents.UploadSubfolder)
+		}
+	}
+
+	document, err := documentService.Create(
+		r.Context(),
+		r.FormValue("page"),
+		uploadPlacement,
+		uploadSubfolder,
+		header.Filename,
+		header.Header.Get("Content-Type"),
+		file,
+	)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

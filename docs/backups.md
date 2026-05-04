@@ -16,7 +16,7 @@ The vault root contains your durable note content:
 - markdown pages
 - frontmatter
 - inline task metadata
-- uploaded files/documents stored alongside notes
+- uploaded files/documents stored according to the configured attachment placement policy
 
 ### Data Dir
 
@@ -58,9 +58,15 @@ The Settings screen also exposes the resolved runtime paths and can download:
 - a small backup manifest JSON
 - a generated shell backup script for creating `vault.tar.gz` and
   `data-dir.tar.gz`
+- validate a backup manifest against the current deployment paths
 
 Neither of those files is the backup itself. They are operational helpers
 around the real backup paths.
+
+The manifest validator is meant as a pre-restore sanity check. It compares the
+manifest's recorded vault root, data dir, index DB, and current scope vault
+against the live deployment so obvious target mismatches are visible before you
+restore anything.
 
 ## Restore Strategy
 

@@ -531,6 +531,10 @@ interface ActionDialogSession {
       notifications: {
         ntfyInterval: "1m",
       },
+      documents: {
+        uploadPlacement: "same-folder",
+        uploadSubfolder: "_files",
+      },
       userNotifications: {
         ntfyTopicUrl: "",
         ntfyToken: "",
@@ -798,6 +802,9 @@ interface ActionDialogSession {
     saveSettings: requiredElement<HTMLButtonElement>("save-settings"),
     settingsVaultPath: requiredElement<HTMLInputElement>("settings-vault-path"),
     settingsNtfyInterval: requiredElement<HTMLInputElement>("settings-ntfy-interval"),
+    settingsDocumentsPlacement: requiredElement<HTMLSelectElement>("settings-documents-placement"),
+    settingsDocumentsSubfolder: requiredElement<HTMLInputElement>("settings-documents-subfolder"),
+    settingsDocumentsSubfolderField: requiredElement<HTMLElement>("settings-documents-subfolder-field"),
     settingsBackupVaultPath: requiredElement<HTMLElement>("settings-backup-vault-path"),
     settingsBackupDataDir: requiredElement<HTMLElement>("settings-backup-data-dir"),
     settingsBackupDatabase: requiredElement<HTMLElement>("settings-backup-database"),
@@ -2947,6 +2954,10 @@ interface ActionDialogSession {
   function setSettingsSnapshot(snapshot: SettingsResponse): void {
     state.settings.vault = snapshot.settings.vault;
     state.settings.notifications = snapshot.settings.notifications;
+    state.settings.documents = snapshot.settings.documents || {
+      uploadPlacement: "same-folder",
+      uploadSubfolder: "_files",
+    };
     state.appliedVault = snapshot.appliedVault;
     state.settingsRestartRequired = snapshot.restartRequired;
     state.settingsLoaded = true;
@@ -4020,7 +4031,8 @@ interface ActionDialogSession {
   function renderDocumentsUploadHint(): void {
     els.documentsUploadHint.textContent = documentUploadHint(
       state.selectedPage || "",
-      Boolean(state.selectedPage && state.currentPage)
+      Boolean(state.selectedPage && state.currentPage),
+      state.settings.documents
     );
   }
 
@@ -4520,6 +4532,12 @@ interface ActionDialogSession {
     setSettingsOpen(false);
   }
 
+  function syncSettingsDocumentPlacementField(): void {
+    const usesSubfolder = String(els.settingsDocumentsPlacement.value || "").trim() === "note-subfolder";
+    els.settingsDocumentsSubfolderField.classList.toggle("hidden", !usesSubfolder);
+    els.settingsDocumentsSubfolder.disabled = !usesSubfolder;
+  }
+
   function collectServerSettingsForm(): ServerSettings {
     return {
       vault: {
@@ -4527,6 +4545,10 @@ interface ActionDialogSession {
       },
       notifications: {
         ntfyInterval: String(els.settingsNtfyInterval.value || "1m").trim(),
+      },
+      documents: {
+        uploadPlacement: String(els.settingsDocumentsPlacement.value || "same-folder").trim() as ServerSettings["documents"]["uploadPlacement"],
+        uploadSubfolder: String(els.settingsDocumentsSubfolder.value || "_files").trim(),
       },
     };
   }
@@ -5078,7 +5100,7 @@ interface ActionDialogSession {
     }
 
     const documents: DocumentRecord[] = [];
-    const uploadTarget = documentUploadTargetLabel(state.selectedPage);
+    const uploadTarget = documentUploadTargetLabel(state.selectedPage, state.settings.documents);
     setNoteStatus(
       "Uploading " + String(fileList.length) + " document" + (fileList.length === 1 ? "" : "s") + " to " + uploadTarget + "…"
     );
@@ -5623,6 +5645,9 @@ interface ActionDialogSession {
         els.settingsAIAPIKey.value = "";
       }
       renderSettingsForm();
+    });
+    on(els.settingsDocumentsPlacement, "change", function () {
+      syncSettingsDocumentPlacementField();
     });
     on(els.settingsTemplateAdd, "click", function () {
       const nextIndex = state.settingsTemplateDrafts.length + 1;

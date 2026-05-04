@@ -35,6 +35,10 @@ func TestStorePersistsAndMarksRestartRequiredForRuntimeSettings(t *testing.T) {
 		Notifications: Notifications{
 			NtfyInterval: "2m",
 		},
+		Documents: Documents{
+			UploadPlacement: "note-subfolder",
+			UploadSubfolder: "_uploads",
+		},
 	})
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
@@ -54,11 +58,75 @@ func TestStorePersistsAndMarksRestartRequiredForRuntimeSettings(t *testing.T) {
 	if snapshot.Settings.Notifications.NtfyInterval != "2m" {
 		t.Fatalf("notification settings not persisted: %#v", snapshot.Settings.Notifications)
 	}
+	if snapshot.Settings.Documents.UploadPlacement != "note-subfolder" || snapshot.Settings.Documents.UploadSubfolder != "_uploads" {
+		t.Fatalf("document settings not persisted: %#v", snapshot.Settings.Documents)
+	}
 	raw, err := os.ReadFile(store.Path())
 	if err != nil {
 		t.Fatalf("ReadFile(settings) error = %v", err)
 	}
 	if strings.Contains(string(raw), "\"preferences\"") {
 		t.Fatalf("settings file unexpectedly contains client preferences: %s", string(raw))
+	}
+}
+
+func TestStoreRejectsInvalidDocumentUploadPlacement(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	cfg := config.Config{
+		DataDir:   filepath.Join(rootDir, "data"),
+		VaultPath: filepath.Join(rootDir, "vault-a"),
+	}
+
+	store, err := NewStore(cfg.DataDir, DefaultSettingsFromConfig(cfg))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+
+	_, err = store.Update(AppSettings{
+		Vault: Vault{
+			VaultPath: filepath.Join(rootDir, "vault-a"),
+		},
+		Notifications: Notifications{
+			NtfyInterval: "1m",
+		},
+		Documents: Documents{
+			UploadPlacement: "mystery-mode",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "document upload placement") {
+		t.Fatalf("Update() error = %v, want document upload placement validation", err)
+	}
+}
+
+func TestStoreRejectsInvalidDocumentUploadSubfolder(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	cfg := config.Config{
+		DataDir:   filepath.Join(rootDir, "data"),
+		VaultPath: filepath.Join(rootDir, "vault-a"),
+	}
+
+	store, err := NewStore(cfg.DataDir, DefaultSettingsFromConfig(cfg))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+
+	_, err = store.Update(AppSettings{
+		Vault: Vault{
+			VaultPath: filepath.Join(rootDir, "vault-a"),
+		},
+		Notifications: Notifications{
+			NtfyInterval: "1m",
+		},
+		Documents: Documents{
+			UploadPlacement: "note-subfolder",
+			UploadSubfolder: "../outside",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "document upload subfolder") {
+		t.Fatalf("Update() error = %v, want document upload subfolder validation", err)
 	}
 }

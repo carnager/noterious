@@ -18,21 +18,11 @@ missing product and reliability work still open in the current app.
 
 ## Priority 2: Backup And Restore
 
-- [ ] Add a restore validation aid.
-      Minimum useful scope:
-      - validate that a backup set matches the current deployment paths
-      - flag obvious vault/data-dir mismatches before restore
 - [ ] Decide whether to add a real restore flow beyond the current docs,
       manifest, and generated backup script helpers.
 
 ## Priority 3: Attachments And Assets
 
-- [ ] Turn attachment placement into an explicit product decision.
-      Uploads currently work and are stored near the note path, but there is no
-      user-facing policy around:
-      - same folder as note
-      - per-folder asset subfolder
-      - fixed attachment folder
 - [ ] Surface orphaned files or unused uploads.
 - [ ] Decide whether task click targets should get bracket syntax parity with
       reminders (`[click: ...]` vs `click:: ...`).
@@ -105,5 +95,5 @@ missing product and reliability work still open in the current app.
 
 - [ ] Next most useful slices:
       - end-to-end merge/conflict coverage
-      - restore validation flow
+      - orphaned upload surfacing
       - local Ollama override for AI query generation

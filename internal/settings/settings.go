@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,6 +17,11 @@ type Notifications struct {
 	NtfyInterval string `json:"ntfyInterval"`
 }
 
+type Documents struct {
+	UploadPlacement string `json:"uploadPlacement"`
+	UploadSubfolder string `json:"uploadSubfolder,omitempty"`
+}
+
 type Vault struct {
 	VaultPath string `json:"vaultPath"`
 }
@@ -23,6 +29,7 @@ type Vault struct {
 type AppSettings struct {
 	Vault         Vault         `json:"vault"`
 	Notifications Notifications `json:"notifications"`
+	Documents     Documents     `json:"documents"`
 }
 
 type Snapshot struct {
@@ -47,6 +54,10 @@ func DefaultSettingsFromConfig(cfg config.Config) AppSettings {
 		},
 		Notifications: Notifications{
 			NtfyInterval: strings.TrimSpace(cfg.NtfyInterval.String()),
+		},
+		Documents: Documents{
+			UploadPlacement: "same-folder",
+			UploadSubfolder: "_files",
 		},
 	}
 }
@@ -151,6 +162,14 @@ func normalizeSettings(input AppSettings, defaults AppSettings) AppSettings {
 		normalized.Notifications.NtfyInterval = defaults.Notifications.NtfyInterval
 	}
 	normalized.Notifications.NtfyInterval = strings.TrimSpace(normalized.Notifications.NtfyInterval)
+	if strings.TrimSpace(normalized.Documents.UploadPlacement) == "" {
+		normalized.Documents.UploadPlacement = defaults.Documents.UploadPlacement
+	}
+	normalized.Documents.UploadPlacement = strings.TrimSpace(normalized.Documents.UploadPlacement)
+	if strings.TrimSpace(normalized.Documents.UploadSubfolder) == "" {
+		normalized.Documents.UploadSubfolder = defaults.Documents.UploadSubfolder
+	}
+	normalized.Documents.UploadSubfolder = normalizeUploadSubfolder(normalized.Documents.UploadSubfolder)
 
 	return normalized
 }
@@ -162,7 +181,33 @@ func validateSettings(settings AppSettings) error {
 	if _, err := time.ParseDuration(strings.TrimSpace(settings.Notifications.NtfyInterval)); err != nil {
 		return fmt.Errorf("ntfy interval must be a valid duration")
 	}
+	switch strings.TrimSpace(settings.Documents.UploadPlacement) {
+	case "same-folder", "vault-root", "note-subfolder":
+	default:
+		return fmt.Errorf("document upload placement must be same-folder, vault-root, or note-subfolder")
+	}
+	if strings.TrimSpace(settings.Documents.UploadPlacement) == "note-subfolder" {
+		subfolder := normalizeUploadSubfolder(settings.Documents.UploadSubfolder)
+		if subfolder == "" {
+			return fmt.Errorf("document upload subfolder must not be empty")
+		}
+		if subfolder == "." || subfolder == ".." || strings.HasPrefix(subfolder, "../") {
+			return fmt.Errorf("document upload subfolder must be a relative path inside the vault")
+		}
+	}
 	return nil
+}
+
+func normalizeUploadSubfolder(value string) string {
+	cleaned := strings.Trim(strings.TrimSpace(value), "/")
+	if cleaned == "" {
+		return ""
+	}
+	cleaned = path.Clean(strings.ReplaceAll(cleaned, "\\", "/"))
+	if cleaned == "." {
+		return ""
+	}
+	return strings.TrimPrefix(cleaned, "/")
 }
 
 func snapshotFor(settings AppSettings, applied Vault) Snapshot {
