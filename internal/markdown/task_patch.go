@@ -128,12 +128,12 @@ func patchTaskLine(line string, patch TaskPatch) (string, string, bool, error) {
 	}
 
 	rewrittenBody := strings.TrimSpace(baseText)
-	for _, key := range []string{"due", "remind", "who", "click"} {
+	for _, key := range []string{"due", "remind", "click", "who"} {
 		if value, ok := fields[key]; ok && strings.TrimSpace(value) != "" {
 			if rewrittenBody != "" {
 				rewrittenBody += " "
 			}
-			if key == "due" || key == "remind" {
+			if key == "due" || key == "remind" || key == "click" {
 				rewrittenBody += "[" + key + ": " + value + "]"
 				continue
 			}

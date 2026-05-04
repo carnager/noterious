@@ -23,9 +23,6 @@ missing product and reliability work still open in the current app.
 
 ## Priority 3: Attachments And Assets
 
-- [ ] Decide whether task click targets should get bracket syntax parity with
-      reminders (`[click: ...]` vs `click:: ...`).
-
 ## Priority 4: AI Query Copilot
 
 - [ ] Add a per-client local LLM override for query generation.
@@ -95,4 +92,4 @@ missing product and reliability work still open in the current app.
 - [ ] Next most useful slices:
       - end-to-end merge/conflict coverage
       - local Ollama override for AI query generation
-      - task click syntax parity
+      - generic outbound automation hooks

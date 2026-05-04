@@ -22,11 +22,11 @@ func TestApplyTaskPatchUpdatesKnownFields(t *testing.T) {
 		t.Fatalf("ApplyTaskPatch() error = %v", err)
 	}
 
-	expected := "# Title\n\n- [x] Follow up [due: 2026-05-02] who:: [\"Ralf\", \"Mina\"] click:: myapp://follow-up\n"
+	expected := "# Title\n\n- [x] Follow up [due: 2026-05-02] [click: myapp://follow-up] who:: [\"Ralf\", \"Mina\"]\n"
 	if updated != expected {
 		t.Fatalf("updated markdown = %q, want %q", updated, expected)
 	}
-	if !task.Done || task.Text != "Follow up [due: 2026-05-02] who:: [\"Ralf\", \"Mina\"] click:: myapp://follow-up" {
+	if !task.Done || task.Text != "Follow up [due: 2026-05-02] [click: myapp://follow-up] who:: [\"Ralf\", \"Mina\"]" {
 		t.Fatalf("updated task = %#v", task)
 	}
 }
@@ -42,11 +42,11 @@ func TestApplyTaskPatchSetsAndClearsClickField(t *testing.T) {
 		t.Fatalf("ApplyTaskPatch(set click) error = %v", err)
 	}
 
-	expected := "# Title\n\n- [ ] Follow up click:: noteriousshopping://shopping?list=weekly\n"
+	expected := "# Title\n\n- [ ] Follow up [click: noteriousshopping://shopping?list=weekly]\n"
 	if updated != expected {
 		t.Fatalf("updated markdown = %q, want %q", updated, expected)
 	}
-	if task.Text != "Follow up click:: noteriousshopping://shopping?list=weekly" {
+	if task.Text != "Follow up [click: noteriousshopping://shopping?list=weekly]" {
 		t.Fatalf("updated task = %#v", task)
 	}
 

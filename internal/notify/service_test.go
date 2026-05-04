@@ -83,7 +83,7 @@ func TestPollSendsAndDeduplicatesReminderNotifications(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(vaultDir, "daily"), 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	raw := "# Today\n\n- [ ] Follow up with team due:: 2026-04-24 remind:: 09:30 who:: [Ralf] click:: noteriousshopping://shopping?list=weekly\n"
+	raw := "# Today\n\n- [ ] Follow up with team due:: 2026-04-24 remind:: 09:30 who:: [Ralf] [click: noteriousshopping://shopping?list=weekly]\n"
 	pageFile := filepath.Join(vaultDir, "daily", "today.md")
 	if err := os.WriteFile(pageFile, []byte(raw), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)

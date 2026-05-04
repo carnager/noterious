@@ -145,7 +145,7 @@ Noterious supports reminders in two places:
 - task reminders via `[remind: YYYY-MM-DD HH:MM]`
 - note frontmatter fields such as `notification`, `notify`, `remind`, `reminder`, or `*_notification`
 
-For note frontmatter, `notification` is the dedicated datetime-like field kind in the UI. Optional sibling `*_click` fields are forwarded to ntfy as tap targets, so a notification can open a URL or app-specific URI when clicked. Task reminders can also carry an optional `click:: ...` target.
+For note frontmatter, `notification` is the dedicated datetime-like field kind in the UI. Optional sibling `*_click` fields are forwarded to ntfy as tap targets, so a notification can open a URL or app-specific URI when clicked. Task reminders can also carry an optional `[click: ...]` target.
 
 Example:
 
@@ -159,7 +159,7 @@ notification_click: noteriousshopping://shopping
 Task example:
 
 ```md
-- [ ] Buy groceries [remind: 2026-05-01 17:30] click:: noteriousshopping://shopping
+- [ ] Buy groceries [remind: 2026-05-01 17:30] [click: noteriousshopping://shopping]
 ```
 
 ## AI Query Copilot
