@@ -14,6 +14,7 @@ export interface PageTreeUiState {
   folders: string[];
   expandedPageFolders: Record<string, boolean>;
   scopePrefix?: string;
+  pruneFoldersToVisiblePages?: boolean;
 }
 
 export interface PageTreeElements {
@@ -57,6 +58,21 @@ function normalizeScopePrefix(scopePrefix: string): string {
   return normalizePageDraftPath(scopePrefix || "");
 }
 
+function folderAncestorsForPages(pages: PageSummary[]): Set<string> {
+  const keep = new Set<string>();
+  (Array.isArray(pages) ? pages : []).forEach(function (page) {
+    const normalizedPath = normalizePageDraftPath(page.path || "");
+    if (!normalizedPath) {
+      return;
+    }
+    const parts = normalizedPath.split("/");
+    for (let index = 0; index < parts.length - 1; index += 1) {
+      keep.add(parts.slice(0, index + 1).join("/"));
+    }
+  });
+  return keep;
+}
+
 export function displayPathWithinScope(path: string, scopePrefix: string): string {
   const normalizedPath = normalizePageDraftPath(path || "");
   const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
@@ -81,7 +97,13 @@ export function pageTreeDisplayStateForScope(state: PageTreeUiState): PageTreeDi
       path: page.path,
     };
   });
-  const folders = filterFoldersByScope(state.folders, scopePrefix);
+  let folders = filterFoldersByScope(state.folders, scopePrefix);
+  if (state.pruneFoldersToVisiblePages) {
+    const keptFolders = folderAncestorsForPages(pages);
+    folders = folders.filter(function (folder) {
+      return keptFolders.has(normalizePageDraftPath(folder || ""));
+    });
+  }
   const expandedPageFolders: Record<string, boolean> = {};
   Object.keys(state.expandedPageFolders).forEach(function (key) {
     if (!state.expandedPageFolders[key]) {

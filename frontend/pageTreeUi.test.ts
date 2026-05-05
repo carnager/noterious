@@ -104,4 +104,20 @@ describe("page tree display state", function () {
     const displayState = pageTreeDisplayStateForScope(state);
     expect(displayState.folders).toEqual(["Work/contacts", "Work/empty"]);
   });
+
+  it("hides folders that do not contain visible pages when pruning is enabled", function () {
+    const state: PageTreeUiState = {
+      selectedPage: "",
+      pages: [
+        page("Work/contacts/alina"),
+      ],
+      folders: ["Work/contacts", "Work/empty", "Work/projects/archive"],
+      expandedPageFolders: {},
+      scopePrefix: "Work",
+      pruneFoldersToVisiblePages: true,
+    };
+
+    const displayState = pageTreeDisplayStateForScope(state);
+    expect(displayState.folders).toEqual(["Work/contacts"]);
+  });
 });

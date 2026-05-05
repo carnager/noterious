@@ -5799,6 +5799,20 @@
   function normalizeScopePrefix3(scopePrefix) {
     return normalizePageDraftPath(scopePrefix || "");
   }
+  function folderAncestorsForPages(pages) {
+    const keep = /* @__PURE__ */ new Set();
+    (Array.isArray(pages) ? pages : []).forEach(function(page) {
+      const normalizedPath = normalizePageDraftPath(page.path || "");
+      if (!normalizedPath) {
+        return;
+      }
+      const parts = normalizedPath.split("/");
+      for (let index = 0; index < parts.length - 1; index += 1) {
+        keep.add(parts.slice(0, index + 1).join("/"));
+      }
+    });
+    return keep;
+  }
   function pageTreeDisplayStateForScope(state) {
     const scopePrefix = normalizeScopePrefix3(state.scopePrefix || "");
     const selectedPage = state.selectedPage;
@@ -5808,7 +5822,13 @@
         path: page.path
       };
     });
-    const folders = filterFoldersByScope(state.folders, scopePrefix);
+    let folders = filterFoldersByScope(state.folders, scopePrefix);
+    if (state.pruneFoldersToVisiblePages) {
+      const keptFolders = folderAncestorsForPages(pages);
+      folders = folders.filter(function(folder) {
+        return keptFolders.has(normalizePageDraftPath(folder || ""));
+      });
+    }
     const expandedPageFolders = {};
     Object.keys(state.expandedPageFolders).forEach(function(key) {
       if (!state.expandedPageFolders[key]) {
@@ -13323,7 +13343,8 @@
             pages: visiblePagesForRail(),
             folders: state.folders,
             expandedPageFolders: state.expandedPageFolders,
-            scopePrefix: currentScopePrefix()
+            scopePrefix: currentScopePrefix(),
+            pruneFoldersToVisiblePages: Boolean(state.pageTagFilter)
           }, els, {
             navigateToPage,
             requestCreatePage: requestCreatePageInFolder,

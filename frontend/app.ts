@@ -3317,6 +3317,7 @@ interface ActionDialogSession {
       folders: state.folders,
       expandedPageFolders: state.expandedPageFolders,
       scopePrefix: currentScopePrefix(),
+      pruneFoldersToVisiblePages: Boolean(state.pageTagFilter),
     }, els, {
       navigateToPage: navigateToPage,
       requestCreatePage: requestCreatePageInFolder,
