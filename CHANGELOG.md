@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.22] - 2026-05-05
+
+### Added
+- A built-in readonly Help page now opens inside the normal note view and documents markdown, properties, queries, slash commands, and shortcuts.
+- Attachment uploads are now configurable (`same-folder`, `vault-root`, or `note-subfolder`), and the Documents picker can surface unused uploads.
+- Settings can now validate backup manifests and show richer runtime state, including watcher/notification status, restart reasons, and recent watcher activity.
+- Frontmatter property editors now offer scope-local value autocomplete based on the same property key.
+
+### Changed
+- The old dedicated Queries workbench has been removed; inline query blocks and `/query ...` are now the supported query-authoring flow.
+- Notes now persist explicit per-note `_type_*` metadata for property kinds, so empty date/datetime/notification/tag/list fields stay typed.
+- Note and folder create/rename dialogs now use keyboardable autocomplete popups with live path feedback instead of pill-based suggestions.
+- Task reminder click targets now normalize to `[click: ...]`, while legacy `click:: ...` syntax continues to parse.
+
+### Fixed
+- Empty folders now remain visible in the page tree, and creating a folder no longer forces creation of an initial note.
+- Remote page sync and conflict handling are now more conservative around inline property editors, task/date pickers, title rename, and other semantic UI state.
+- Renaming a note to a name that matches an existing folder now works correctly.
+
 ## [v0.1.21] - 2026-05-03
 
 ### Added
