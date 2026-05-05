@@ -59,3 +59,67 @@ export function collectPropertyValueSuggestions(
     })
     .slice(0, 8);
 }
+
+export function filterPropertyValueSuggestions(
+  suggestions: string[],
+  query: string,
+  excludedValues: string[] = [],
+): string[] {
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  const excluded = new Set((Array.isArray(excludedValues) ? excludedValues : []).map(function (value) {
+    return String(value || "").trim().toLowerCase();
+  }).filter(Boolean));
+
+  const candidates = new Map<string, string>();
+  (Array.isArray(suggestions) ? suggestions : []).forEach(function (value) {
+    const text = String(value || "").trim();
+    if (!text) {
+      return;
+    }
+    const normalized = text.toLowerCase();
+    if (excluded.has(normalized) || candidates.has(normalized)) {
+      return;
+    }
+    candidates.set(normalized, text);
+  });
+
+  const ranked = Array.from(candidates.values()).filter(function (value) {
+    if (!normalizedQuery) {
+      return true;
+    }
+    return value.toLowerCase().indexOf(normalizedQuery) >= 0;
+  }).sort(function (left, right) {
+    const leftValue = left.toLowerCase();
+    const rightValue = right.toLowerCase();
+    const leftStarts = normalizedQuery ? leftValue.startsWith(normalizedQuery) : false;
+    const rightStarts = normalizedQuery ? rightValue.startsWith(normalizedQuery) : false;
+    if (leftStarts !== rightStarts) {
+      return leftStarts ? -1 : 1;
+    }
+    const leftExact = normalizedQuery ? leftValue === normalizedQuery : false;
+    const rightExact = normalizedQuery ? rightValue === normalizedQuery : false;
+    if (leftExact !== rightExact) {
+      return leftExact ? 1 : -1;
+    }
+    const lengthDelta = left.length - right.length;
+    if (lengthDelta !== 0) {
+      return lengthDelta;
+    }
+    return left.localeCompare(right);
+  });
+
+  if (normalizedQuery && ranked.length === 1 && ranked[0].toLowerCase() === normalizedQuery) {
+    return [];
+  }
+  return ranked.slice(0, 6);
+}
+
+export function movePropertySuggestionIndex(current: number, delta: number, length: number): number {
+  if (length <= 0) {
+    return -1;
+  }
+  if (current < 0) {
+    return delta > 0 ? 0 : length - 1;
+  }
+  return Math.max(0, Math.min(length - 1, current + delta));
+}

@@ -1853,34 +1853,17 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   line-height: 1.35;
 }
 
-.property-value-suggestions {
-  display: none;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-top: 0.3rem;
+.property-inline-editor {
+  position: relative;
 }
 
-.property-inline-editor:focus-within .property-value-suggestions {
-  display: flex;
-}
-
-.property-value-suggestion {
-  appearance: none;
-  border: 1px solid var(--line);
-  background: var(--sidebar-soft);
-  color: var(--ink);
-  border-radius: 999px;
-  padding: 0.18rem 0.56rem;
-  font: inherit;
-  font-size: 0.72rem;
-  cursor: pointer;
-  max-width: 100%;
-}
-
-.property-value-suggestion:hover,
-.property-value-suggestion:focus-visible {
-  border-color: var(--accent);
-  background: var(--panel);
+.property-autocomplete-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.28rem);
+  z-index: 18;
+  width: min(320px, 100%);
+  max-width: min(360px, calc(100vw - 2rem));
 }
 
 .property-type-menu {
@@ -3404,6 +3387,11 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 
 .action-dialog-fields input {
   width: 100%;
+}
+
+.action-dialog-autocomplete {
+  width: min(360px, calc(100vw - 2rem));
+  z-index: 28;
 }
 
 .action-dialog-field-help {

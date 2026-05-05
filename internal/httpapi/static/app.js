@@ -6133,6 +6133,61 @@
       return entry[0];
     }).slice(0, 8);
   }
+  function filterPropertyValueSuggestions(suggestions, query, excludedValues = []) {
+    const normalizedQuery = String(query || "").trim().toLowerCase();
+    const excluded = new Set((Array.isArray(excludedValues) ? excludedValues : []).map(function(value) {
+      return String(value || "").trim().toLowerCase();
+    }).filter(Boolean));
+    const candidates = /* @__PURE__ */ new Map();
+    (Array.isArray(suggestions) ? suggestions : []).forEach(function(value) {
+      const text = String(value || "").trim();
+      if (!text) {
+        return;
+      }
+      const normalized = text.toLowerCase();
+      if (excluded.has(normalized) || candidates.has(normalized)) {
+        return;
+      }
+      candidates.set(normalized, text);
+    });
+    const ranked = Array.from(candidates.values()).filter(function(value) {
+      if (!normalizedQuery) {
+        return true;
+      }
+      return value.toLowerCase().indexOf(normalizedQuery) >= 0;
+    }).sort(function(left, right) {
+      const leftValue = left.toLowerCase();
+      const rightValue = right.toLowerCase();
+      const leftStarts = normalizedQuery ? leftValue.startsWith(normalizedQuery) : false;
+      const rightStarts = normalizedQuery ? rightValue.startsWith(normalizedQuery) : false;
+      if (leftStarts !== rightStarts) {
+        return leftStarts ? -1 : 1;
+      }
+      const leftExact = normalizedQuery ? leftValue === normalizedQuery : false;
+      const rightExact = normalizedQuery ? rightValue === normalizedQuery : false;
+      if (leftExact !== rightExact) {
+        return leftExact ? 1 : -1;
+      }
+      const lengthDelta = left.length - right.length;
+      if (lengthDelta !== 0) {
+        return lengthDelta;
+      }
+      return left.localeCompare(right);
+    });
+    if (normalizedQuery && ranked.length === 1 && ranked[0].toLowerCase() === normalizedQuery) {
+      return [];
+    }
+    return ranked.slice(0, 6);
+  }
+  function movePropertySuggestionIndex(current, delta, length) {
+    if (length <= 0) {
+      return -1;
+    }
+    if (current < 0) {
+      return delta > 0 ? 0 : length - 1;
+    }
+    return Math.max(0, Math.min(length - 1, current + delta));
+  }
   var init_propertySuggestions = __esm({
     "frontend/propertySuggestions.ts"() {
       "use strict";
@@ -6144,27 +6199,129 @@
   function supportsPropertyValueSuggestions2(kind) {
     return kind === "text" || kind === "list" || kind === "tags";
   }
-  function appendPropertyValueSuggestions(container, suggestions, onSelect) {
-    const items = (Array.isArray(suggestions) ? suggestions : []).filter(Boolean).slice(0, 6);
-    if (!items.length) {
+  function bindPropertyAutocomplete(input, container, suggestions, options) {
+    const source = (Array.isArray(suggestions) ? suggestions : []).filter(Boolean);
+    if (!source.length) {
       return;
     }
-    const shell = document.createElement("div");
-    shell.className = "property-value-suggestions";
-    items.forEach(function(suggestion) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "property-value-suggestion";
-      button.textContent = suggestion;
-      button.addEventListener("mousedown", function(event) {
+    const menu = document.createElement("div");
+    menu.className = "property-autocomplete-menu slash-menu hidden";
+    const results = document.createElement("div");
+    results.className = "slash-menu-results";
+    menu.appendChild(results);
+    container.appendChild(menu);
+    let visibleSuggestions = [];
+    let selectedIndex = -1;
+    const close = function() {
+      visibleSuggestions = [];
+      selectedIndex = -1;
+      menu.classList.add("hidden");
+      menu.style.visibility = "";
+      clearNode(results);
+    };
+    const render = function() {
+      if (document.activeElement !== input) {
+        close();
+        return;
+      }
+      visibleSuggestions = filterPropertyValueSuggestions(
+        source,
+        input.value,
+        typeof options.getExcludedValues === "function" ? options.getExcludedValues() : []
+      );
+      if (!visibleSuggestions.length) {
+        close();
+        return;
+      }
+      if (selectedIndex < 0 || selectedIndex >= visibleSuggestions.length) {
+        selectedIndex = 0;
+      }
+      clearNode(results);
+      visibleSuggestions.forEach(function(suggestion, index) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.tabIndex = -1;
+        button.className = "search-result-item slash-menu-item" + (index === selectedIndex ? " active" : "");
+        button.addEventListener("mousedown", function(event) {
+          event.preventDefault();
+        });
+        button.addEventListener("click", function() {
+          close();
+          options.onAccept(suggestion);
+        });
+        const title = document.createElement("strong");
+        title.textContent = suggestion;
+        button.appendChild(title);
+        results.appendChild(button);
+      });
+      const rect = input.getBoundingClientRect();
+      const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+      const viewportHeight = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+      const preferredWidth = Math.max(220, Math.round(rect.width));
+      menu.style.width = preferredWidth + "px";
+      menu.style.visibility = "hidden";
+      menu.classList.remove("hidden");
+      const menuWidth = menu.offsetWidth || preferredWidth;
+      const menuHeight = menu.offsetHeight || 0;
+      const horizontalPadding = 12;
+      const verticalPadding = 12;
+      const clampedLeft = Math.max(
+        horizontalPadding,
+        Math.min(rect.left, viewportWidth - menuWidth - horizontalPadding)
+      );
+      let positionedTop = rect.bottom + 4;
+      if (positionedTop + menuHeight > viewportHeight - verticalPadding) {
+        positionedTop = Math.max(verticalPadding, rect.top - menuHeight - 4);
+      }
+      positionedTop = Math.max(
+        verticalPadding,
+        Math.min(positionedTop, viewportHeight - menuHeight - verticalPadding)
+      );
+      menu.style.left = clampedLeft + "px";
+      menu.style.top = positionedTop + "px";
+      menu.style.visibility = "";
+    };
+    const moveSelection2 = function(delta) {
+      selectedIndex = movePropertySuggestionIndex(selectedIndex, delta, visibleSuggestions.length);
+      render();
+      const active = results.querySelector(".slash-menu-item.active");
+      if (active) {
+        active.scrollIntoView({ block: "nearest" });
+      }
+    };
+    input.addEventListener("focus", render);
+    input.addEventListener("input", render);
+    input.addEventListener("blur", close);
+    input.addEventListener("keydown", function(event) {
+      if (menu.classList.contains("hidden")) {
+        return;
+      }
+      if (event.key === "ArrowDown") {
         event.preventDefault();
-      });
-      button.addEventListener("click", function() {
-        onSelect(suggestion);
-      });
-      shell.appendChild(button);
-    });
-    container.appendChild(shell);
+        event.stopPropagation();
+        moveSelection2(1);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        event.stopPropagation();
+        moveSelection2(-1);
+        return;
+      }
+      if ((event.key === "Enter" || event.key === "Tab") && selectedIndex >= 0 && selectedIndex < visibleSuggestions.length) {
+        event.preventDefault();
+        event.stopPropagation();
+        const selected = visibleSuggestions[selectedIndex];
+        close();
+        options.onAccept(selected);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+      }
+    }, true);
   }
   function isTagPropertyKey(key) {
     return String(key || "").trim().toLowerCase() === "tags";
@@ -6602,13 +6759,15 @@
         }
       });
       value.appendChild(addInput);
-      appendPropertyValueSuggestions(value, suggestions, function(suggestion) {
-        if (listValue.indexOf(suggestion) >= 0) {
-          return;
+      bindPropertyAutocomplete(addInput, value, suggestions, {
+        getExcludedValues: function() {
+          return listValue;
+        },
+        onAccept: function(suggestion) {
+          addInput.value = suggestion;
+          addInput.focus();
+          addInput.setSelectionRange(addInput.value.length, addInput.value.length);
         }
-        options.onSaveExistingProperty(row.key, coercePropertyValue(kind, listValue.concat([suggestion]), row.key)).catch(function(error) {
-          options.onSetNoteStatus("Property save failed: " + error.message);
-        });
       });
       return value;
     }
@@ -6656,9 +6815,12 @@
       }
     });
     value.appendChild(input);
-    appendPropertyValueSuggestions(value, suggestions, function(suggestion) {
-      input.value = suggestion;
-      commit();
+    bindPropertyAutocomplete(input, value, suggestions, {
+      onAccept: function(suggestion) {
+        input.value = suggestion;
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
     });
     if (kind === "notification") {
       const hint = document.createElement("div");
@@ -6773,16 +6935,16 @@
         }
       });
       value.appendChild(addInput);
-      appendPropertyValueSuggestions(value, suggestions, function(suggestion) {
-        if (listValue.indexOf(suggestion) >= 0) {
-          return;
+      bindPropertyAutocomplete(addInput, value, suggestions, {
+        getExcludedValues: function() {
+          return listValue;
+        },
+        onAccept: function(suggestion) {
+          addInput.value = suggestion;
+          setDraft({ ...draft, text: addInput.value });
+          addInput.focus();
+          addInput.setSelectionRange(addInput.value.length, addInput.value.length);
         }
-        setDraft({
-          ...draft,
-          text: "",
-          list: listValue.concat([suggestion])
-        });
-        options.onRefresh();
       });
       if (!row) {
         const hint = document.createElement("div");
@@ -6825,11 +6987,13 @@
         setDraft({ ...draft, text: input.value });
       });
       value.appendChild(input);
-      appendPropertyValueSuggestions(value, suggestions, function(suggestion) {
-        input.value = suggestion;
-        setDraft({ ...draft, text: input.value });
-        input.focus();
-        input.setSelectionRange(input.value.length, input.value.length);
+      bindPropertyAutocomplete(input, value, suggestions, {
+        onAccept: function(suggestion) {
+          input.value = suggestion;
+          setDraft({ ...draft, text: input.value });
+          input.focus();
+          input.setSelectionRange(input.value.length, input.value.length);
+        }
       });
       if (draft.kind === "notification") {
         const hint = document.createElement("div");
@@ -6990,6 +7154,7 @@
       init_dom();
       init_datetime();
       init_noteTemplates();
+      init_propertySuggestions();
     }
   });
 
@@ -7679,8 +7844,9 @@
     ].filter(Boolean).join(" \xB7 ");
     els.settingsRuntimeNotifications.textContent = !state.serverMeta ? "(unknown)" : state.serverMeta.notificationEnabled ? "Enabled (" + String(state.serverMeta.notificationInterval || "").trim() + ")" : "Disabled";
     const indexStatus = state.serverMeta ? state.serverMeta.indexStatus : null;
+    const indexSummary = !indexStatus ? "(unknown)" : String(indexStatus.summary || "").trim() === "Stale" ? "Indexed snapshot" : String(indexStatus.summary || "").trim() || "Unknown";
     els.settingsRuntimeIndex.textContent = !indexStatus ? "(unknown)" : [
-      String(indexStatus.summary || "").trim() || "Unknown",
+      indexSummary,
       "(" + String(indexStatus.indexedPageCount || 0) + " pages, " + String(indexStatus.indexedTaskCount || 0) + " tasks)"
     ].join(" ");
     els.settingsRuntimeRestartRequired.textContent = state.serverMeta && state.serverMeta.restartRequired ? "Yes" : "No";
@@ -13738,9 +13904,37 @@
             const help = document.createElement("p");
             help.className = "action-dialog-field-help hidden";
             row.appendChild(help);
-            const suggestions = document.createElement("div");
-            suggestions.className = "action-dialog-suggestions hidden";
-            row.appendChild(suggestions);
+            const suggestionMenu = document.createElement("div");
+            suggestionMenu.className = "action-dialog-autocomplete slash-menu hidden";
+            const suggestionResults = document.createElement("div");
+            suggestionResults.className = "slash-menu-results";
+            suggestionMenu.appendChild(suggestionResults);
+            row.appendChild(suggestionMenu);
+            let visibleSuggestions = [];
+            let selectedSuggestionIndex = -1;
+            const closeSuggestionMenu = function() {
+              visibleSuggestions = [];
+              selectedSuggestionIndex = -1;
+              suggestionMenu.classList.add("hidden");
+              suggestionMenu.style.visibility = "";
+              clearNode(suggestionResults);
+            };
+            const applySuggestion = function(suggestion) {
+              if (!actionDialogSession) {
+                return;
+              }
+              actionDialogSession.values[field.key] = suggestion.value;
+              input.value = suggestion.value;
+              if (actionDialogSession.status) {
+                actionDialogSession.status = "";
+              }
+              fieldRenderers.forEach(function(renderer) {
+                renderer();
+              });
+              updateActionDialogValidity();
+              focusWithoutScroll(input);
+              input.setSelectionRange(input.value.length, input.value.length);
+            };
             const renderFieldState = function() {
               const fieldState = typeof field.describe === "function" ? field.describe(activeSession.values[field.key] || "", activeSession.values) : {};
               currentFieldStates[field.key] = fieldState;
@@ -13749,46 +13943,87 @@
               help.className = "action-dialog-field-help";
               help.classList.toggle("hidden", !message);
               help.classList.toggle("warn", Boolean(fieldState.error || fieldState.helperTone === "warn"));
-              clearNode(suggestions);
-              const suggestionItems = Array.isArray(fieldState.suggestions) ? fieldState.suggestions : [];
-              suggestionItems.forEach(function(suggestion) {
-                const item = document.createElement("div");
-                item.className = "action-dialog-suggestion-item";
+              visibleSuggestions = Array.isArray(fieldState.suggestions) ? fieldState.suggestions.slice() : [];
+              if (document.activeElement !== input || !visibleSuggestions.length) {
+                closeSuggestionMenu();
+                return;
+              }
+              if (selectedSuggestionIndex < 0 || selectedSuggestionIndex >= visibleSuggestions.length) {
+                selectedSuggestionIndex = 0;
+              }
+              clearNode(suggestionResults);
+              visibleSuggestions.forEach(function(suggestion, index) {
                 const button = document.createElement("button");
                 button.type = "button";
-                button.className = "action-dialog-suggestion";
-                button.textContent = suggestion.label;
-                if (suggestion.meta) {
-                  button.title = suggestion.meta;
-                }
-                button.addEventListener("click", function() {
-                  if (!actionDialogSession) {
-                    return;
-                  }
-                  actionDialogSession.values[field.key] = suggestion.value;
-                  input.value = suggestion.value;
-                  if (actionDialogSession.status) {
-                    actionDialogSession.status = "";
-                  }
-                  fieldRenderers.forEach(function(renderer) {
-                    renderer();
-                  });
-                  updateActionDialogValidity();
-                  focusWithoutScroll(input);
-                  input.setSelectionRange(input.value.length, input.value.length);
+                button.tabIndex = -1;
+                button.className = "search-result-item slash-menu-item" + (index === selectedSuggestionIndex ? " active" : "");
+                button.addEventListener("mousedown", function(event) {
+                  event.preventDefault();
                 });
-                item.appendChild(button);
+                button.addEventListener("click", function() {
+                  closeSuggestionMenu();
+                  applySuggestion(suggestion);
+                });
+                const head = document.createElement("div");
+                head.className = "search-result-head";
+                const title = document.createElement("strong");
+                title.textContent = suggestion.label || suggestion.value;
+                head.appendChild(title);
                 if (suggestion.meta) {
                   const meta = document.createElement("span");
-                  meta.className = "action-dialog-suggestion-meta";
+                  meta.className = "search-result-hint";
                   meta.textContent = suggestion.meta;
-                  item.appendChild(meta);
+                  head.appendChild(meta);
                 }
-                suggestions.appendChild(item);
+                button.appendChild(head);
+                suggestionResults.appendChild(button);
               });
-              suggestions.classList.toggle("hidden", suggestionItems.length === 0);
+              const rect = input.getBoundingClientRect();
+              const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+              const viewportHeight = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+              const preferredWidth = Math.max(220, Math.round(rect.width));
+              suggestionMenu.style.width = preferredWidth + "px";
+              suggestionMenu.style.visibility = "hidden";
+              suggestionMenu.classList.remove("hidden");
+              const menuWidth = suggestionMenu.offsetWidth || preferredWidth;
+              const menuHeight = suggestionMenu.offsetHeight || 0;
+              const horizontalPadding = 12;
+              const verticalPadding = 12;
+              const clampedLeft = Math.max(
+                horizontalPadding,
+                Math.min(rect.left, viewportWidth - menuWidth - horizontalPadding)
+              );
+              let positionedTop = rect.bottom + 4;
+              if (positionedTop + menuHeight > viewportHeight - verticalPadding) {
+                positionedTop = Math.max(verticalPadding, rect.top - menuHeight - 4);
+              }
+              positionedTop = Math.max(
+                verticalPadding,
+                Math.min(positionedTop, viewportHeight - menuHeight - verticalPadding)
+              );
+              suggestionMenu.style.left = clampedLeft + "px";
+              suggestionMenu.style.top = positionedTop + "px";
+              suggestionMenu.style.visibility = "";
             };
             fieldRenderers.push(renderFieldState);
+            const moveSuggestionSelection = function(delta) {
+              if (!visibleSuggestions.length) {
+                return;
+              }
+              if (selectedSuggestionIndex < 0) {
+                selectedSuggestionIndex = delta > 0 ? 0 : visibleSuggestions.length - 1;
+              } else {
+                selectedSuggestionIndex = Math.max(0, Math.min(visibleSuggestions.length - 1, selectedSuggestionIndex + delta));
+              }
+              renderFieldState();
+              const active = suggestionResults.querySelector(".slash-menu-item.active");
+              if (active) {
+                active.scrollIntoView({ block: "nearest" });
+              }
+            };
+            input.addEventListener("focus", function() {
+              renderFieldState();
+            });
             input.addEventListener("input", function() {
               if (!actionDialogSession) {
                 return;
@@ -13802,6 +14037,39 @@
               });
               updateActionDialogValidity();
             });
+            input.addEventListener("blur", function() {
+              closeSuggestionMenu();
+            });
+            input.addEventListener("keydown", function(event) {
+              if (suggestionMenu.classList.contains("hidden")) {
+                return;
+              }
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                event.stopPropagation();
+                moveSuggestionSelection(1);
+                return;
+              }
+              if (event.key === "ArrowUp") {
+                event.preventDefault();
+                event.stopPropagation();
+                moveSuggestionSelection(-1);
+                return;
+              }
+              if ((event.key === "Enter" || event.key === "Tab") && selectedSuggestionIndex >= 0 && selectedSuggestionIndex < visibleSuggestions.length) {
+                event.preventDefault();
+                event.stopPropagation();
+                const suggestion = visibleSuggestions[selectedSuggestionIndex];
+                closeSuggestionMenu();
+                applySuggestion(suggestion);
+                return;
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                closeSuggestionMenu();
+              }
+            }, true);
             els.actionDialogFields.appendChild(row);
           });
           fieldRenderers.forEach(function(renderer) {

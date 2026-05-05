@@ -3896,9 +3896,40 @@ interface ActionDialogSession {
       help.className = "action-dialog-field-help hidden";
       row.appendChild(help);
 
-      const suggestions = document.createElement("div");
-      suggestions.className = "action-dialog-suggestions hidden";
-      row.appendChild(suggestions);
+      const suggestionMenu = document.createElement("div");
+      suggestionMenu.className = "action-dialog-autocomplete slash-menu hidden";
+      const suggestionResults = document.createElement("div");
+      suggestionResults.className = "slash-menu-results";
+      suggestionMenu.appendChild(suggestionResults);
+      row.appendChild(suggestionMenu);
+
+      let visibleSuggestions: ActionDialogFieldSuggestion[] = [];
+      let selectedSuggestionIndex = -1;
+
+      const closeSuggestionMenu = function () {
+        visibleSuggestions = [];
+        selectedSuggestionIndex = -1;
+        suggestionMenu.classList.add("hidden");
+        suggestionMenu.style.visibility = "";
+        clearNode(suggestionResults);
+      };
+
+      const applySuggestion = function (suggestion: ActionDialogFieldSuggestion) {
+        if (!actionDialogSession) {
+          return;
+        }
+        actionDialogSession.values[field.key] = suggestion.value;
+        input.value = suggestion.value;
+        if (actionDialogSession.status) {
+          actionDialogSession.status = "";
+        }
+        fieldRenderers.forEach(function (renderer) {
+          renderer();
+        });
+        updateActionDialogValidity();
+        focusWithoutScroll(input);
+        input.setSelectionRange(input.value.length, input.value.length);
+      };
 
       const renderFieldState = function () {
         const fieldState = typeof field.describe === "function"
@@ -3910,49 +3941,93 @@ interface ActionDialogSession {
         help.className = "action-dialog-field-help";
         help.classList.toggle("hidden", !message);
         help.classList.toggle("warn", Boolean(fieldState.error || fieldState.helperTone === "warn"));
-        clearNode(suggestions);
-        const suggestionItems = Array.isArray(fieldState.suggestions) ? fieldState.suggestions : [];
-        suggestionItems.forEach(function (suggestion) {
-          const item = document.createElement("div");
-          item.className = "action-dialog-suggestion-item";
-
+        visibleSuggestions = Array.isArray(fieldState.suggestions) ? fieldState.suggestions.slice() : [];
+        if (document.activeElement !== input || !visibleSuggestions.length) {
+          closeSuggestionMenu();
+          return;
+        }
+        if (selectedSuggestionIndex < 0 || selectedSuggestionIndex >= visibleSuggestions.length) {
+          selectedSuggestionIndex = 0;
+        }
+        clearNode(suggestionResults);
+        visibleSuggestions.forEach(function (suggestion, index) {
           const button = document.createElement("button");
           button.type = "button";
-          button.className = "action-dialog-suggestion";
-          button.textContent = suggestion.label;
-          if (suggestion.meta) {
-            button.title = suggestion.meta;
-          }
-          button.addEventListener("click", function () {
-            if (!actionDialogSession) {
-              return;
-            }
-            actionDialogSession.values[field.key] = suggestion.value;
-            input.value = suggestion.value;
-            if (actionDialogSession.status) {
-              actionDialogSession.status = "";
-            }
-            fieldRenderers.forEach(function (renderer) {
-              renderer();
-            });
-            updateActionDialogValidity();
-            focusWithoutScroll(input);
-            input.setSelectionRange(input.value.length, input.value.length);
+          button.tabIndex = -1;
+          button.className = "search-result-item slash-menu-item" + (index === selectedSuggestionIndex ? " active" : "");
+          button.addEventListener("mousedown", function (event) {
+            event.preventDefault();
           });
-          item.appendChild(button);
+          button.addEventListener("click", function () {
+            closeSuggestionMenu();
+            applySuggestion(suggestion);
+          });
+
+          const head = document.createElement("div");
+          head.className = "search-result-head";
+
+          const title = document.createElement("strong");
+          title.textContent = suggestion.label || suggestion.value;
+          head.appendChild(title);
 
           if (suggestion.meta) {
             const meta = document.createElement("span");
-            meta.className = "action-dialog-suggestion-meta";
+            meta.className = "search-result-hint";
             meta.textContent = suggestion.meta;
-            item.appendChild(meta);
+            head.appendChild(meta);
           }
-          suggestions.appendChild(item);
+          button.appendChild(head);
+          suggestionResults.appendChild(button);
         });
-        suggestions.classList.toggle("hidden", suggestionItems.length === 0);
+
+        const rect = input.getBoundingClientRect();
+        const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+        const viewportHeight = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+        const preferredWidth = Math.max(220, Math.round(rect.width));
+        suggestionMenu.style.width = preferredWidth + "px";
+        suggestionMenu.style.visibility = "hidden";
+        suggestionMenu.classList.remove("hidden");
+        const menuWidth = suggestionMenu.offsetWidth || preferredWidth;
+        const menuHeight = suggestionMenu.offsetHeight || 0;
+        const horizontalPadding = 12;
+        const verticalPadding = 12;
+        const clampedLeft = Math.max(
+          horizontalPadding,
+          Math.min(rect.left, viewportWidth - menuWidth - horizontalPadding)
+        );
+        let positionedTop = rect.bottom + 4;
+        if (positionedTop + menuHeight > viewportHeight - verticalPadding) {
+          positionedTop = Math.max(verticalPadding, rect.top - menuHeight - 4);
+        }
+        positionedTop = Math.max(
+          verticalPadding,
+          Math.min(positionedTop, viewportHeight - menuHeight - verticalPadding)
+        );
+        suggestionMenu.style.left = clampedLeft + "px";
+        suggestionMenu.style.top = positionedTop + "px";
+        suggestionMenu.style.visibility = "";
       };
       fieldRenderers.push(renderFieldState);
 
+      const moveSuggestionSelection = function (delta: number) {
+        if (!visibleSuggestions.length) {
+          return;
+        }
+        if (selectedSuggestionIndex < 0) {
+          selectedSuggestionIndex = delta > 0 ? 0 : visibleSuggestions.length - 1;
+        } else {
+          selectedSuggestionIndex = Math.max(0, Math.min(visibleSuggestions.length - 1, selectedSuggestionIndex + delta));
+        }
+        renderFieldState();
+        const active = suggestionResults.querySelector<HTMLElement>(".slash-menu-item.active");
+        if (active) {
+          active.scrollIntoView({ block: "nearest" });
+        }
+      };
+
+      input.addEventListener("focus", function () {
+        renderFieldState();
+      });
       input.addEventListener("input", function () {
         if (!actionDialogSession) {
           return;
@@ -3966,6 +4041,39 @@ interface ActionDialogSession {
         });
         updateActionDialogValidity();
       });
+      input.addEventListener("blur", function () {
+        closeSuggestionMenu();
+      });
+      input.addEventListener("keydown", function (event) {
+        if (suggestionMenu.classList.contains("hidden")) {
+          return;
+        }
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          event.stopPropagation();
+          moveSuggestionSelection(1);
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          event.stopPropagation();
+          moveSuggestionSelection(-1);
+          return;
+        }
+        if ((event.key === "Enter" || event.key === "Tab") && selectedSuggestionIndex >= 0 && selectedSuggestionIndex < visibleSuggestions.length) {
+          event.preventDefault();
+          event.stopPropagation();
+          const suggestion = visibleSuggestions[selectedSuggestionIndex];
+          closeSuggestionMenu();
+          applySuggestion(suggestion);
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          closeSuggestionMenu();
+        }
+      }, true);
       els.actionDialogFields.appendChild(row);
     });
 

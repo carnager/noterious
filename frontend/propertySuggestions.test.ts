@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { collectPropertyValueSuggestions } from "./propertySuggestions";
+import {
+  collectPropertyValueSuggestions,
+  filterPropertyValueSuggestions,
+  movePropertySuggestionIndex,
+} from "./propertySuggestions";
 import type { FrontmatterMap, PageSummary } from "./types";
 
 function page(path: string, frontmatter?: FrontmatterMap): PageSummary {
@@ -47,5 +51,32 @@ describe("collectPropertyValueSuggestions", function () {
     expect(collectPropertyValueSuggestions([
       page("Private/other", { active: true }),
     ], "Private", "", "active", "bool")).toEqual([]);
+  });
+
+  it("filters and ranks suggestions for autocomplete", function () {
+    expect(filterPropertyValueSuggestions([
+      "Berlin",
+      "Bern",
+      "Hamburg",
+      "berlin",
+    ], "ber", [])).toEqual(["Bern", "Berlin"]);
+
+    expect(filterPropertyValueSuggestions([
+      "Berlin",
+    ], "Berlin", [])).toEqual([]);
+
+    expect(filterPropertyValueSuggestions([
+      "Berlin",
+      "Hamburg",
+    ], "", ["Berlin"])).toEqual(["Hamburg"]);
+  });
+
+  it("moves the autocomplete selection like a menu", function () {
+    expect(movePropertySuggestionIndex(-1, 1, 3)).toBe(0);
+    expect(movePropertySuggestionIndex(-1, -1, 3)).toBe(2);
+    expect(movePropertySuggestionIndex(1, 1, 3)).toBe(2);
+    expect(movePropertySuggestionIndex(1, -1, 3)).toBe(0);
+    expect(movePropertySuggestionIndex(0, -1, 3)).toBe(0);
+    expect(movePropertySuggestionIndex(0, 1, 0)).toBe(-1);
   });
 });

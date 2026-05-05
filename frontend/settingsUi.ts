@@ -577,10 +577,15 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
       ? "Enabled (" + String(state.serverMeta.notificationInterval || "").trim() + ")"
       : "Disabled";
   const indexStatus = state.serverMeta ? state.serverMeta.indexStatus : null;
+  const indexSummary = !indexStatus
+    ? "(unknown)"
+    : String(indexStatus.summary || "").trim() === "Stale"
+      ? "Indexed snapshot"
+      : (String(indexStatus.summary || "").trim() || "Unknown");
   els.settingsRuntimeIndex.textContent = !indexStatus
     ? "(unknown)"
     : [
-        String(indexStatus.summary || "").trim() || "Unknown",
+        indexSummary,
         "(" + String(indexStatus.indexedPageCount || 0) + " pages, " + String(indexStatus.indexedTaskCount || 0) + " tasks)",
       ].join(" ");
   els.settingsRuntimeRestartRequired.textContent = state.serverMeta && state.serverMeta.restartRequired ? "Yes" : "No";
