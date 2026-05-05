@@ -25,7 +25,6 @@ export interface PaletteModalElements {
   documentsModalShell: HTMLElement;
   documentsInput: HTMLInputElement;
   documentsResults: HTMLDivElement;
-  helpModalShell: HTMLElement;
   pageHistoryModalShell: HTMLElement;
   trashModalShell: HTMLElement;
 }
@@ -43,7 +42,6 @@ function hideOtherPalettes(els: PaletteModalElements, active: "search" | "comman
   if (active !== "documents") {
     els.documentsModalShell.classList.add("hidden");
   }
-  els.helpModalShell.classList.add("hidden");
   els.pageHistoryModalShell.classList.add("hidden");
   els.trashModalShell.classList.add("hidden");
 }
@@ -114,7 +112,6 @@ export function renderSearchResults(options: {
   onOpenPage: (pagePath: string) => void;
   onOpenPageAtLine: (pagePath: string, lineNumber: number | string) => void;
   onOpenPageAtTask: (pagePath: string, taskRef: string, lineNumber: number | string) => void;
-  onOpenSavedQuery: (name: string) => void;
 }): number {
   const selectionIndex = renderGlobalSearchResultsUI({
     container: options.els.globalSearchResults,
@@ -123,7 +120,6 @@ export function renderSearchResults(options: {
     onOpenPage: options.onOpenPage,
     onOpenPageAtLine: options.onOpenPageAtLine,
     onOpenPageAtTask: options.onOpenPageAtTask,
-    onOpenSavedQuery: options.onOpenSavedQuery,
   });
   if (selectionIndex >= 0) {
     updatePaletteSelection(options.els.globalSearchResults, selectionIndex);
@@ -157,7 +153,6 @@ export function renderCommandResults(options: {
   onOpenHelp: () => void;
   onOpenSettings: () => void;
   onOpenDocuments: () => void;
-  onOpenQueries: () => void;
   onOpenQuickSwitcher: () => void;
   onQuickNote: () => void;
   onOpenSearch: () => void;
@@ -180,7 +175,6 @@ export function renderCommandResults(options: {
     onOpenHelp: options.onOpenHelp,
     onOpenSettings: options.onOpenSettings,
     onOpenDocuments: options.onOpenDocuments,
-    onOpenQueries: options.onOpenQueries,
     onOpenQuickSwitcher: options.onOpenQuickSwitcher,
     onQuickNote: options.onQuickNote,
     onOpenSearch: options.onOpenSearch,

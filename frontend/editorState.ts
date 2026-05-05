@@ -21,7 +21,6 @@ export interface EditorControllerElements {
   quickSwitcherModalShell?: HTMLElement;
   documentsModalShell?: HTMLElement;
   conflictModalShell?: HTMLElement;
-  helpModalShell?: HTMLElement;
   actionDialogShell?: HTMLElement;
   settingsModalShell?: HTMLElement;
   pageHistoryModalShell?: HTMLElement;
@@ -143,6 +142,15 @@ export function markdownEditorSetDateTimeFormat(state: EditorControllerState, fo
   }
 }
 
+export function markdownEditorSetEditable(state: EditorControllerState, elements: EditorControllerElements, enabled: boolean): void {
+  const api = markdownEditorAPI(state);
+  if (api && typeof api.setEditable === "function") {
+    api.setEditable(Boolean(enabled));
+  }
+  elements.markdownEditor.readOnly = !enabled;
+  elements.markdownEditor.disabled = !enabled;
+}
+
 export function markdownEditorSetQueryBlocks(state: EditorControllerState, blocks: QueryBlockRender[]): void {
   const api = markdownEditorAPI(state);
   if (api && typeof api.setQueryBlocks === "function") {
@@ -192,7 +200,6 @@ export function blockingOverlayOpen(elements: EditorControllerElements): boolean
     Boolean(elements.quickSwitcherModalShell && !elements.quickSwitcherModalShell.classList.contains("hidden")) ||
     Boolean(elements.documentsModalShell && !elements.documentsModalShell.classList.contains("hidden")) ||
     Boolean(elements.conflictModalShell && !elements.conflictModalShell.classList.contains("hidden")) ||
-    Boolean(elements.helpModalShell && !elements.helpModalShell.classList.contains("hidden")) ||
     Boolean(elements.actionDialogShell && !elements.actionDialogShell.classList.contains("hidden")) ||
     Boolean(elements.settingsModalShell && !elements.settingsModalShell.classList.contains("hidden")) ||
     Boolean(elements.pageHistoryModalShell && !elements.pageHistoryModalShell.classList.contains("hidden")) ||

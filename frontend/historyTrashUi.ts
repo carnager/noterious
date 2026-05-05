@@ -15,7 +15,6 @@ export interface HistoryTrashElements {
   commandModalShell: HTMLElement;
   quickSwitcherModalShell: HTMLElement;
   documentsModalShell: HTMLElement;
-  helpModalShell: HTMLElement;
   settingsModalShell: HTMLElement;
   trashModalShell: HTMLElement;
   pageHistoryModalShell: HTMLElement;
@@ -134,7 +133,6 @@ export function setPageHistoryOpen(
     els.commandModalShell.classList.add("hidden");
     els.quickSwitcherModalShell.classList.add("hidden");
     els.documentsModalShell.classList.add("hidden");
-    els.helpModalShell.classList.add("hidden");
     els.settingsModalShell.classList.add("hidden");
     els.trashModalShell.classList.add("hidden");
     els.pageHistoryModalShell.classList.remove("hidden");
@@ -203,7 +201,6 @@ export function setTrashOpen(
     els.commandModalShell.classList.add("hidden");
     els.quickSwitcherModalShell.classList.add("hidden");
     els.documentsModalShell.classList.add("hidden");
-    els.helpModalShell.classList.add("hidden");
     els.settingsModalShell.classList.add("hidden");
     els.pageHistoryModalShell.classList.add("hidden");
     els.trashModalShell.classList.remove("hidden");

@@ -3,7 +3,7 @@ export type FrontmatterValue = FrontmatterScalar | FrontmatterScalar[];
 export type FrontmatterMap = Record<string, FrontmatterValue>;
 export type QueryRow = Record<string, unknown>;
 export type FrontmatterKind = "text" | "list" | "tags" | "bool" | "date" | "datetime" | "notification";
-export type AppScreen = "notes" | "queries";
+export type AppScreen = "notes" | "help";
 
 export interface PageIdentity {
   page?: string;
@@ -585,6 +585,7 @@ export interface NoteriousEditorApi {
   setHighlightedLine(lineNumber: number | null): void;
   setPagePath(path: string): void;
   setDateTimeFormat(format: "browser" | "iso" | "de"): void;
+  setEditable(enabled: boolean): void;
   setRenderMode(enabled: boolean): void;
   setQueryBlocks(blocks: QueryBlockRender[]): void;
   setTasks(tasks: TaskRender[]): void;

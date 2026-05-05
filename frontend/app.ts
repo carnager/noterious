@@ -24,7 +24,6 @@ import {
   loadPageDetailData,
   type LoadedPageDetail,
   resolvePageTask,
-  loadSavedQueryDetailData,
   savePageMarkdown,
   saveTask,
   toggleTaskDone as toggleTaskDoneRequest,
@@ -46,6 +45,7 @@ import {
   focusMarkdownEditor,
   markdownEditorCaretRect,
   markdownEditorHasFocus,
+  markdownEditorSetEditable,
   markdownEditorSetPagePath,
   markdownEditorSetDateTimeFormat,
   markdownEditorScrollTop,
@@ -102,7 +102,6 @@ import {
   setPageHistoryOpen as setPageHistoryOpenUI,
   setTrashOpen as setTrashOpenUI,
 } from "./historyTrashUi";
-import { renderHelpShortcuts as renderHelpShortcutsUI } from "./helpUi";
 import { currentPageView as buildCurrentPageView, renderedQueryBlocksForEditor, renderedTasksForEditor } from "./noteView";
 import {
   createPage as createPageRequest,
@@ -185,7 +184,6 @@ import {
   templateFieldsNeedingInput,
   templatePropertyKindHints,
 } from "./noteTemplates";
-import { renderSavedQueryTree as renderSavedQueryTreeUI } from "./queryTree";
 import { applyURLState as applyURLStateUI, buildSelectionURL, navigateToPageSelection } from "./routing";
 import {
   applyAuthSessionResponse,
@@ -206,6 +204,14 @@ import { createPageConflictDialogDraft, createPageConflictDraft, type PageConfli
 import { savePageConflictResolutionFlow } from "./pageConflictSaveFlow";
 import { bindPageEventStream } from "./pageEventStream";
 import { runSelectedPageRemoteSync } from "./pageSyncIntegration";
+import {
+  buildSystemHelpPage,
+  emptySystemDerivedPage,
+  loadSystemHelpMarkdown,
+  placeholderHelpMarkdown,
+  SYSTEM_HELP_LABEL,
+  SYSTEM_HELP_PATH,
+} from "./systemHelp";
 import {
   applyTheme,
   builtinThemeLibrary,
@@ -243,14 +249,9 @@ import type {
   PageRevisionRecord,
   PageSummary,
   PropertyDraft,
-  QueryBlockRecord,
   QueryCopilotResponse,
-  QueryWorkbenchResult,
-  QueryRow,
   Preferences as ClientPreferences,
-  SavedQueryRecord,
-  SavedQueryTreeFolder,
-  SavedQueryTreeResponse,
+  QueryBlockRecord,
   ServerSettings,
   SettingsResponse,
   SearchPayload,
@@ -325,22 +326,13 @@ interface CodeCopyDetail {
   code?: string;
 }
 
-interface QueryFormatResponse {
-  valid: boolean;
-  error?: string;
-  formatted?: string;
-}
-
 interface AppState {
   appScreen: AppScreen;
   selectedPage: string;
-  selectedSavedQuery: string;
   pages: PageSummary[];
   folders: string[];
   documents: DocumentRecord[];
   tasks: TaskRecord[];
-  queryTree: SavedQueryTreeFolder[];
-  selectedSavedQueryPayload: SavedQueryRecord | null;
   eventSource: EventSource | null;
   refreshTimer: number | null;
   autosaveTimer: number | null;
@@ -426,10 +418,10 @@ interface AppState {
   pageConflict: PageConflictDraft | null;
   pageConflictRemoteLoaded: LoadedPageDetail | null;
   pageConflictStatus: string;
-  queryWorkbench: QueryWorkbenchResult | null;
-  queryWorkbenchStatus: string;
-  queryCopilotResponse: QueryCopilotResponse | null;
-  queryCopilotPending: boolean;
+  helpMarkdown: string;
+  helpLoaded: boolean;
+  helpLoading: boolean;
+  helpError: string;
 }
 
 interface TemplateFillSession {
@@ -506,13 +498,10 @@ interface ActionDialogSession {
   const state: AppState = {
     appScreen: "notes",
     selectedPage: "",
-    selectedSavedQuery: "",
     pages: [],
     folders: [],
     documents: [],
     tasks: [],
-    queryTree: [],
-    selectedSavedQueryPayload: null,
     eventSource: null,
     refreshTimer: null,
     autosaveTimer: null,
@@ -626,10 +615,10 @@ interface ActionDialogSession {
     pageConflict: null,
     pageConflictRemoteLoaded: null,
     pageConflictStatus: "",
-    queryWorkbench: null,
-    queryWorkbenchStatus: "Run an ad hoc query here, or ask the AI copilot to draft one.",
-    queryCopilotResponse: null,
-    queryCopilotPending: false,
+    helpMarkdown: "",
+    helpLoaded: false,
+    helpLoading: false,
+    helpError: "",
   };
 
   const els = {
@@ -667,11 +656,6 @@ interface ActionDialogSession {
     pageProperties: requiredElement<HTMLDivElement>("page-properties"),
     addProperty: requiredElement<HTMLButtonElement>("add-property"),
     propertyActions: optionalQuery<HTMLDivElement>(".property-actions"),
-    querySearch: requiredElement<HTMLInputElement>("query-search"),
-    queryTree: requiredElement<HTMLDivElement>("query-tree"),
-    queryScreenEyebrow: requiredElement<HTMLElement>("query-screen-eyebrow"),
-    queryScreenTitle: requiredElement<HTMLElement>("query-screen-title"),
-    queryScreenMeta: requiredElement<HTMLElement>("query-screen-meta"),
     detailKind: requiredElement<HTMLElement>("detail-kind"),
     detailTitle: requiredElement<HTMLElement>("detail-title"),
     detailPath: requiredElement<HTMLElement>("detail-path"),
@@ -687,14 +671,6 @@ interface ActionDialogSession {
     structuredView: requiredElement<HTMLElement>("structured-view"),
     derivedView: requiredElement<HTMLElement>("derived-view"),
     rawView: requiredElement<HTMLElement>("raw-view"),
-    queryIntent: requiredElement<HTMLTextAreaElement>("query-intent"),
-    queryEditor: requiredElement<HTMLTextAreaElement>("query-editor"),
-    queryDiagnostics: requiredElement<HTMLDivElement>("query-diagnostics"),
-    queryPreview: requiredElement<HTMLDivElement>("query-preview"),
-    queryOutput: requiredElement<HTMLElement>("query-output"),
-    queryCopilotStatus: requiredElement<HTMLElement>("query-copilot-status"),
-    queryCopilotExplanation: requiredElement<HTMLElement>("query-copilot-explanation"),
-    queryCopilotAssumptions: requiredElement<HTMLUListElement>("query-copilot-assumptions"),
     eventStatus: requiredElement<HTMLElement>("event-status"),
     eventLog: requiredElement<HTMLDivElement>("event-log"),
     appLayout: optionalQuery<HTMLElement>(".app-layout"),
@@ -706,7 +682,6 @@ interface ActionDialogSession {
     railPanelContext: requiredElement<HTMLElement>("rail-panel-context"),
     railPanelTasks: requiredElement<HTMLElement>("rail-panel-tasks"),
     notesScreen: requiredElement<HTMLElement>("notes-screen"),
-    queriesScreen: requiredElement<HTMLElement>("queries-screen"),
     noteLayout: requiredElement<HTMLElement>("note-layout"),
     noteSurface: requiredElement<HTMLElement>("note-surface"),
     fileUploadInput: requiredElement<HTMLInputElement>("file-upload-input"),
@@ -715,7 +690,6 @@ interface ActionDialogSession {
     historyBack: requiredElement<HTMLButtonElement>("history-back"),
     historyForward: requiredElement<HTMLButtonElement>("history-forward"),
     openHomePage: requiredElement<HTMLButtonElement>("open-home-page"),
-    openQueries: requiredElement<HTMLButtonElement>("open-queries"),
     openQuickSwitcher: requiredElement<HTMLButtonElement>("open-quick-switcher"),
     openDocuments: requiredElement<HTMLButtonElement>("open-documents"),
     openSearch: requiredElement<HTMLButtonElement>("open-search"),
@@ -733,10 +707,6 @@ interface ActionDialogSession {
     vaultSwitcherPanel: requiredElement<HTMLElement>("vault-switcher-panel"),
     vaultSwitcherList: requiredElement<HTMLDivElement>("vault-switcher-list"),
     reloadPages: optionalElement<HTMLButtonElement>("reload-pages"),
-    reloadQueries: optionalElement<HTMLButtonElement>("reload-queries"),
-    formatQuery: requiredElement<HTMLButtonElement>("format-query"),
-    runQuery: requiredElement<HTMLButtonElement>("run-query"),
-    generateQuery: requiredElement<HTMLButtonElement>("generate-query"),
     inlineTaskPicker: requiredElement<HTMLDivElement>("inline-task-picker"),
     searchModalShell: requiredElement<HTMLElement>("search-modal-shell"),
     closeSearchModal: requiredElement<HTMLButtonElement>("close-search-modal"),
@@ -786,10 +756,6 @@ interface ActionDialogSession {
     emptyTrash: requiredElement<HTMLButtonElement>("empty-trash"),
     closeTrashModal: requiredElement<HTMLButtonElement>("close-trash-modal"),
     trashResults: requiredElement<HTMLDivElement>("trash-results"),
-    helpModalShell: requiredElement<HTMLElement>("help-modal-shell"),
-    closeHelpModal: requiredElement<HTMLButtonElement>("close-help-modal"),
-    helpShortcutCore: requiredElement<HTMLDivElement>("help-shortcuts-core"),
-    helpShortcutEditor: requiredElement<HTMLDivElement>("help-shortcuts-editor"),
     actionDialogShell: requiredElement<HTMLElement>("action-dialog-shell"),
     closeActionDialog: requiredElement<HTMLButtonElement>("close-action-dialog"),
     actionDialogEyebrow: requiredElement<HTMLElement>("action-dialog-eyebrow"),
@@ -1064,7 +1030,6 @@ interface ActionDialogSession {
     state.refreshTimer = window.setTimeout(function () {
       loadPages();
       loadTasks();
-      loadSavedQueryTree();
       if (!markdownEditorHasFocus(state, els)) {
         refreshCurrentDetail(false);
       }
@@ -1119,7 +1084,6 @@ interface ActionDialogSession {
     clearRemoteChangeToast();
     loadPages();
     loadTasks();
-    loadSavedQueryTree();
     if (pagePath && state.selectedPage === pagePath) {
       refreshCurrentDetail(true);
     }
@@ -1139,7 +1103,6 @@ interface ActionDialogSession {
     clearAutosaveTimer();
     clearPropertyDraft();
     const templateFillActive = openTemplateFillDraft(page);
-    state.selectedSavedQueryPayload = null;
     els.detailPath.textContent = page.page || page.path || pagePath;
     setNoteHeadingValue(page.title || page.page || pagePath, true);
 
@@ -1243,7 +1206,6 @@ interface ActionDialogSession {
       refreshCollections: function () {
         void loadPages();
         void loadTasks();
-        void loadSavedQueryTree();
       },
     });
   }
@@ -1320,21 +1282,48 @@ interface ActionDialogSession {
       : "No home page configured";
   }
 
-  function renderAppScreen(): void {
-    const queriesVisible = state.appScreen === "queries";
-    els.notesScreen.classList.toggle("hidden", queriesVisible);
-    els.queriesScreen.classList.toggle("hidden", !queriesVisible);
-    els.openQueries.classList.toggle("active", queriesVisible);
-    if (els.appLayout) {
-      els.appLayout.classList.toggle("queries-mode", queriesVisible);
-      els.appLayout.classList.toggle("rail-collapsed", queriesVisible || !state.railOpen);
+  function helpScreenMarkdown(): string {
+    if (state.helpLoaded && state.helpMarkdown) {
+      return state.helpMarkdown;
     }
-    els.toggleRail.disabled = queriesVisible;
-    if (queriesVisible) {
-      const selected = state.selectedSavedQueryPayload;
-      els.detailPath.textContent = selected
-        ? (selected.name || selected.title || "Queries")
-        : "Queries";
+    if (state.helpLoading) {
+      return placeholderHelpMarkdown("Loading built-in help…");
+    }
+    if (state.helpError) {
+      return placeholderHelpMarkdown("Help could not be loaded.\n\n" + state.helpError);
+    }
+    return placeholderHelpMarkdown("Loading built-in help…");
+  }
+
+  function currentStudioPageView(): PageRecord | null {
+    if (state.appScreen === "help") {
+      return buildSystemHelpPage(helpScreenMarkdown());
+    }
+    return buildCurrentPageView(state.currentPage, state.currentMarkdown);
+  }
+
+  function currentStudioDerived(): DerivedPage | null {
+    if (state.appScreen === "help") {
+      return emptySystemDerivedPage();
+    }
+    return state.currentDerived;
+  }
+
+  function studioPageEditable(): boolean {
+    return state.appScreen === "notes" && Boolean(state.selectedPage && state.currentPage);
+  }
+
+  function studioPageAvailable(): boolean {
+    return state.appScreen === "help" || Boolean(state.selectedPage && state.currentPage);
+  }
+
+  function renderAppScreen(): void {
+    if (els.appLayout) {
+      els.appLayout.classList.toggle("rail-collapsed", !state.railOpen);
+    }
+    els.toggleRail.disabled = false;
+    if (state.appScreen === "help") {
+      els.detailPath.textContent = SYSTEM_HELP_LABEL;
       return;
     }
     if (state.selectedPage) {
@@ -1350,9 +1339,25 @@ interface ActionDialogSession {
     syncURLState(replaceURL);
   }
 
-  function openQueriesScreen(replaceURL: boolean): void {
-    setAppScreen("queries", replaceURL);
-    renderQueryScreen();
+  function openHelpScreen(replaceURL: boolean): void {
+    setSessionMenuOpen(false);
+    clearPropertyDraft();
+    closeSlashMenu(state, els);
+    closeTaskPickers();
+    els.searchModalShell.classList.add("hidden");
+    els.commandModalShell.classList.add("hidden");
+    els.quickSwitcherModalShell.classList.add("hidden");
+    els.documentsModalShell.classList.add("hidden");
+    els.pageHistoryModalShell.classList.add("hidden");
+    els.trashModalShell.classList.add("hidden");
+    els.settingsModalShell.classList.add("hidden");
+    setAppScreen("help", replaceURL);
+    renderNoteStudio();
+    renderPageContext();
+    renderPageProperties();
+    if (!state.helpLoaded && !state.helpLoading) {
+      void loadHelpPage();
+    }
   }
 
   function setSessionMenuOpen(open: boolean): void {
@@ -1525,11 +1530,50 @@ interface ActionDialogSession {
       loadMeta(),
       loadPages(),
       loadTasks(),
-      loadSavedQueryTree(),
       loadDocuments(),
     ]);
     applyURLState();
     connectEvents();
+  }
+
+  async function loadHelpPage(force?: boolean): Promise<void> {
+    if (state.helpLoading) {
+      return;
+    }
+    if (state.helpLoaded && !force) {
+      if (state.appScreen === "help") {
+        renderNoteStudio();
+        renderPageContext();
+        renderPageProperties();
+      }
+      return;
+    }
+    state.helpLoading = true;
+    state.helpError = "";
+    if (state.appScreen === "help") {
+      renderNoteStudio();
+    }
+    try {
+      state.helpMarkdown = await loadSystemHelpMarkdown();
+      state.helpLoaded = true;
+      if (state.appScreen === "help") {
+        setNoteStatus("Viewing built-in help.");
+      }
+    } catch (error) {
+      state.helpMarkdown = "";
+      state.helpLoaded = false;
+      state.helpError = errorMessage(error);
+      if (state.appScreen === "help") {
+        setNoteStatus("Help failed to load: " + state.helpError);
+      }
+    } finally {
+      state.helpLoading = false;
+      if (state.appScreen === "help") {
+        renderNoteStudio();
+        renderPageContext();
+        renderPageProperties();
+      }
+    }
   }
 
   function setCurrentScopePrefix(prefix: string): void {
@@ -1646,7 +1690,7 @@ interface ActionDialogSession {
   }
 
   function syncURLState(replace: boolean) {
-    const url = buildSelectionURL(window.location.href, state.selectedPage, state.selectedSavedQuery, state.appScreen);
+    const url = buildSelectionURL(window.location.href, state.selectedPage, state.appScreen);
     if (url.href === window.location.href) {
       return;
     }
@@ -1663,26 +1707,13 @@ interface ActionDialogSession {
       currentHomePage: currentHomePage(),
       pages: state.pages,
       onNavigateToPage: navigateToPage,
-      onSelectSavedQuery: function (name) {
-        state.appScreen = "queries";
-        state.selectedSavedQuery = name;
-        state.selectedPage = "";
-        renderAppScreen();
-        renderPages();
-        renderSavedQueryTree();
-        loadSavedQueryDetail(name);
-      },
-      onOpenQueriesScreen: function () {
-        state.appScreen = "queries";
-        renderAppScreen();
-        renderQueryScreen();
+      onOpenHelpScreen: function () {
+        openHelpScreen(true);
       },
       onRenderIdle: function () {
         state.selectedPage = "";
-        state.selectedSavedQuery = "";
         state.appScreen = "notes";
         renderPages();
-        renderSavedQueryTree();
         renderAppScreen();
         syncURLState(true);
       },
@@ -1704,12 +1735,10 @@ interface ActionDialogSession {
         clearRemoteChangeToast();
         state.appScreen = "notes";
         state.selectedPage = path;
-        state.selectedSavedQuery = "";
         renderAppScreen();
       },
       onSyncURL: syncURLState,
       onRenderPages: renderPages,
-      onRenderSavedQueryTree: renderSavedQueryTree,
       onLoadPageDetail: function (path) {
         loadPageDetail(path, true);
       },
@@ -1780,12 +1809,10 @@ interface ActionDialogSession {
         clearRemoteChangeToast();
         state.appScreen = "notes";
         state.selectedPage = path;
-        state.selectedSavedQuery = "";
         renderAppScreen();
       },
       onSyncURL: syncURLState,
       onRenderPages: renderPages,
-      onRenderSavedQueryTree: renderSavedQueryTree,
       onLoadPageDetail: function (path) {
         loadPageDetail(path, true);
       },
@@ -1809,12 +1836,10 @@ interface ActionDialogSession {
         clearRemoteChangeToast();
         state.appScreen = "notes";
         state.selectedPage = path;
-        state.selectedSavedQuery = "";
         renderAppScreen();
       },
       onSyncURL: syncURLState,
       onRenderPages: renderPages,
-      onRenderSavedQueryTree: renderSavedQueryTree,
       onLoadPageDetail: function (path) {
         loadPageDetail(path, true);
       },
@@ -2101,11 +2126,6 @@ interface ActionDialogSession {
       }
       replaceTransientEditorLine(originalValue, rawContext.lineStart, rawContext.lineEnd, block, scrollTop);
       scheduleAutosave();
-      state.queryCopilotResponse = payload;
-      state.queryWorkbench = payload.workbench;
-      state.queryWorkbenchStatus = payload.valid
-        ? "Inserted AI-generated query block."
-        : (payload.error || "Inserted an AI query draft that still needs review.");
       setNoteStatus(
         payload.valid
           ? "Inserted AI-generated query block."
@@ -2176,7 +2196,7 @@ interface ActionDialogSession {
   }
 
   function insertTextAtEditorSelection(text: string): void {
-    if (!state.selectedPage || !state.currentPage) {
+    if (state.appScreen !== "notes" || !state.selectedPage || !state.currentPage) {
       return;
     }
     const value = markdownEditorValue(state, els);
@@ -2268,6 +2288,9 @@ interface ActionDialogSession {
   }
 
   function refreshLivePageChrome() {
+    if (state.appScreen !== "notes") {
+      return;
+    }
     const page = currentPageView();
     if (!page) {
       return;
@@ -2282,8 +2305,8 @@ interface ActionDialogSession {
   }
 
   function renderSourceModeButton(): void {
-    const hasPage = Boolean(state.selectedPage && state.currentPage);
-    els.toggleSourceMode.disabled = !hasPage;
+    const available = studioPageAvailable();
+    els.toggleSourceMode.disabled = !available;
     els.toggleSourceMode.classList.toggle("active", state.sourceOpen);
     els.toggleSourceMode.setAttribute("aria-pressed", state.sourceOpen ? "true" : "false");
     els.toggleSourceMode.textContent = state.sourceOpen ? "Preview" : "Raw";
@@ -2293,9 +2316,9 @@ interface ActionDialogSession {
   }
 
   function renderPageHistoryButton(): void {
-    const hasPage = Boolean(state.selectedPage && state.currentPage);
-    els.pageHistoryButton.disabled = !hasPage;
-    els.pageHistoryButton.title = hasPage ? "Open page history" : "Open a note first";
+    const hasHistory = state.appScreen === "notes" && Boolean(state.selectedPage && state.currentPage);
+    els.pageHistoryButton.disabled = !hasHistory;
+    els.pageHistoryButton.title = hasHistory ? "Open page history" : "Open a note first";
   }
 
   function updateMarkdownBodyRange(start: number, end: number, replacement: string): void {
@@ -2346,10 +2369,12 @@ interface ActionDialogSession {
   }
 
   function renderNoteStudio() {
-    const page = currentPageView();
+    const helpActive = state.appScreen === "help";
+    const page = currentStudioPageView();
     if (!page) {
       closeInlineTableEditor();
       setMarkdownEditorValue(state, els, "");
+      markdownEditorSetEditable(state, els, false);
       markdownEditorSetPagePath(state, "");
       setNoteStatus("Select a page to edit and preview markdown.");
       renderSourceModeButton();
@@ -2357,21 +2382,53 @@ interface ActionDialogSession {
       return;
     }
 
-    setMarkdownEditorValue(state, els, state.currentMarkdown);
+    const nextMarkdown = helpActive ? helpScreenMarkdown() : state.currentMarkdown;
+    setMarkdownEditorValue(state, els, nextMarkdown);
+    markdownEditorSetEditable(state, els, !helpActive);
     if (state.markdownEditorApi && state.markdownEditorApi.host) {
       state.markdownEditorApi.host.classList.remove("hidden");
-      markdownEditorSetPagePath(state, state.selectedPage);
+      markdownEditorSetPagePath(state, helpActive ? SYSTEM_HELP_PATH : state.selectedPage);
       markdownEditorSetRenderMode(state, !state.sourceOpen);
-      markdownEditorSetQueryBlocks(state, renderedQueryBlocksForEditor(state.currentDerived));
-      markdownEditorSetTasks(state, renderedTasksForEditor(page));
+      markdownEditorSetQueryBlocks(state, helpActive ? [] : renderedQueryBlocksForEditor(currentStudioDerived()));
+      markdownEditorSetTasks(state, helpActive ? [] : renderedTasksForEditor(page));
     }
     if (els.pageProperties) {
-      els.pageProperties.classList.toggle("hidden", state.sourceOpen);
+      els.pageProperties.classList.toggle("hidden", helpActive || state.sourceOpen);
     }
     if (els.propertyActions) {
-      els.propertyActions.classList.toggle("hidden", state.sourceOpen);
+      els.propertyActions.classList.toggle("hidden", helpActive || state.sourceOpen);
     }
-    els.rawView.textContent = state.currentMarkdown;
+    els.rawView.textContent = nextMarkdown;
+    if (helpActive) {
+      setStructuredViews(
+        "Guide",
+        page.title || SYSTEM_HELP_LABEL,
+        {
+          page: SYSTEM_HELP_PATH,
+          title: page.title || SYSTEM_HELP_LABEL,
+          builtIn: true,
+          readOnly: true,
+        },
+        emptySystemDerivedPage(),
+        nextMarkdown
+      );
+      els.detailPath.textContent = SYSTEM_HELP_LABEL;
+      setNoteHeadingValue(page.title || SYSTEM_HELP_LABEL, false);
+      closeInlineTableEditor();
+      renderSourceModeButton();
+      renderPageHistoryButton();
+      if (hasUnsavedPageChanges()) {
+        scheduleAutosave();
+      }
+      setNoteStatus(
+        state.helpLoading
+          ? "Loading built-in help…"
+          : state.helpError
+            ? ("Viewing built-in help (load error: " + state.helpError + ").")
+            : "Viewing built-in help."
+      );
+      return;
+    }
     refreshLivePageChrome();
     if (state.sourceOpen) {
       closeInlineTableEditor();
@@ -2416,10 +2473,14 @@ interface ActionDialogSession {
       toggleTaskDone(task).catch(function (error) {
         setNoteStatus("Task toggle failed: " + errorMessage(error));
       });
-    }, state.taskFilters, state.currentPage ? (state.currentPage.page || state.currentPage.path || "") : "");
+    }, state.taskFilters, state.appScreen === "notes" && state.currentPage ? (state.currentPage.page || state.currentPage.path || "") : "");
   }
 
   function renderPageContext() {
+    if (state.appScreen === "help") {
+      renderEmpty(els.pageContext, "Built-in help is read-only and has no backlinks or embedded query state.");
+      return;
+    }
     renderPageContextUI(els.pageContext, state.currentPage, state.currentDerived);
   }
 
@@ -2795,6 +2856,13 @@ interface ActionDialogSession {
     });
   }
   function renderPageProperties() {
+    if (state.appScreen === "help") {
+      if (els.propertyActions) {
+        els.propertyActions.classList.add("hidden");
+      }
+      renderEmpty(els.pageProperties, "Built-in help is read-only.");
+      return;
+    }
     const page = currentPageView();
     if (els.propertyActions) {
       els.propertyActions.classList.toggle("hidden", state.sourceOpen || state.editingPropertyKey === "__new__");
@@ -2849,7 +2917,6 @@ interface ActionDialogSession {
 
   function clearPageSelection() {
     clearLoadedPageState();
-    state.selectedSavedQuery = "";
     els.detailPath.textContent = "Select a page";
     setNoteHeadingValue("Waiting for selection", false);
     syncURLState(true);
@@ -2861,10 +2928,6 @@ interface ActionDialogSession {
     els.structuredView.textContent = pretty(structured);
     els.derivedView.textContent = pretty(derived);
     els.rawView.textContent = raw || "";
-  }
-
-  function renderHelpShortcuts() {
-    renderHelpShortcutsUI(els, state.settings.preferences);
   }
 
   function currentHotkeyPreferencesFromInputs(): ClientPreferences["hotkeys"] {
@@ -2974,19 +3037,16 @@ interface ActionDialogSession {
       : [];
     state.settingsLoaded = true;
     renderHomeButton();
-    renderHelpShortcuts();
     renderSettingsForm();
     applyUIPreferences();
     renderSourceModeButton();
     renderPageHistoryButton();
     loadMeta();
-    if (state.currentPage) {
+    if (state.currentPage || state.appScreen === "help") {
       renderNoteStudio();
       renderPageTasks();
       renderPageContext();
       renderPageProperties();
-    } else if (state.selectedSavedQuery) {
-      loadSavedQueryDetail(state.selectedSavedQuery);
     }
   }
 
@@ -3011,7 +3071,6 @@ interface ActionDialogSession {
     state.aiClearKeyPending = false;
     els.settingsAIAPIKey.value = "";
     renderSettingsForm();
-    renderQueryScreen();
   }
 
   function currentThemeID(): string {
@@ -3253,7 +3312,7 @@ interface ActionDialogSession {
 
   function renderPages() {
     renderPagesSection({
-      selectedPage: state.selectedPage,
+      selectedPage: state.appScreen === "notes" ? state.selectedPage : "",
       pages: visiblePagesForRail(),
       folders: state.folders,
       expandedPageFolders: state.expandedPageFolders,
@@ -3314,35 +3373,6 @@ interface ActionDialogSession {
       setHomePage: setHomePage,
       setNoteStatus: setNoteStatus,
       errorMessage: errorMessage,
-    });
-  }
-
-  async function loadSavedQueryTree() {
-    const params = new URLSearchParams();
-    const query = els.querySearch.value.trim();
-    if (query) {
-      params.set("q", query);
-    }
-
-    try {
-      const payload = await fetchJSON<SavedQueryTreeResponse>("/api/queries/tree" + (params.toString() ? "?" + params.toString() : ""));
-      state.queryTree = payload.folders || [];
-      renderSavedQueryTree();
-    } catch (error) {
-      renderEmpty(els.queryTree, errorMessage(error));
-    }
-  }
-
-  function renderSavedQueryTree() {
-    renderSavedQueryTreeUI(els.queryTree, state.queryTree, state.selectedSavedQuery, function (name) {
-      state.appScreen = "queries";
-      state.selectedSavedQuery = name;
-      state.selectedPage = "";
-      renderAppScreen();
-      syncURLState(false);
-      renderPages();
-      renderSavedQueryTree();
-      loadSavedQueryDetail(name);
     });
   }
 
@@ -3457,39 +3487,12 @@ interface ActionDialogSession {
     }
   }
 
-  async function loadSavedQueryDetail(name: string): Promise<void> {
-    clearLoadedPageState();
-    state.appScreen = "queries";
-    renderAppScreen();
-    try {
-      const detail = await loadSavedQueryDetailData(name);
-      const savedQuery = detail.savedQuery;
-      state.selectedSavedQueryPayload = savedQuery;
-      els.queryEditor.value = savedQuery.query || "";
-      state.queryCopilotResponse = null;
-      state.queryWorkbench = detail.workbench as QueryWorkbenchResult;
-      state.queryWorkbenchStatus = 'Loaded saved query "' + (savedQuery.title || savedQuery.name || name) + '".';
-      renderQueryScreen();
-      setNoteStatus('Loaded saved query "' + (savedQuery.title || savedQuery.name || name) + '".');
-    } catch (error) {
-      state.selectedSavedQueryPayload = null;
-      state.queryWorkbench = null;
-      state.queryWorkbenchStatus = errorMessage(error);
-      renderQueryScreen();
-      setNoteStatus("Saved query failed: " + errorMessage(error));
-    }
-  }
-
   function refreshCurrentDetail(force: boolean): void {
     if (state.selectedPage) {
       if (!force && (markdownEditorHasFocus(state, els) || inlineTableEditorHasFocus() || inlineTableEditorOpen())) {
         return;
       }
       loadPageDetail(state.selectedPage, force, false);
-      return;
-    }
-    if (state.selectedSavedQuery) {
-      loadSavedQueryDetail(state.selectedSavedQuery);
     }
   }
 
@@ -3519,281 +3522,6 @@ interface ActionDialogSession {
         break;
       }
       els.eventLog.removeChild(lastChild);
-    }
-  }
-
-  function renderQueryPreview(): void {
-    clearNode(els.queryPreview);
-    const preview = state.queryWorkbench && state.queryWorkbench.preview ? state.queryWorkbench.preview : null;
-    if (!preview) {
-      renderEmpty(els.queryPreview, "Run a query to preview results.");
-      return;
-    }
-    if (!preview.valid) {
-      renderEmpty(els.queryPreview, preview.error || "Preview failed.");
-      return;
-    }
-    const columns = Array.isArray(preview.columns) ? preview.columns : [];
-    const rows = Array.isArray(preview.rows) ? preview.rows : [];
-    if (!columns.length) {
-      renderEmpty(els.queryPreview, "Preview returned no visible columns.");
-      return;
-    }
-    if (!rows.length) {
-      renderEmpty(els.queryPreview, "Preview returned no rows.");
-      return;
-    }
-
-    const table = document.createElement("table");
-    table.className = "query-preview-table";
-
-    const head = document.createElement("thead");
-    const headRow = document.createElement("tr");
-    columns.forEach(function (column) {
-      const th = document.createElement("th");
-      th.textContent = column;
-      headRow.appendChild(th);
-    });
-    head.appendChild(headRow);
-    table.appendChild(head);
-
-    const body = document.createElement("tbody");
-    rows.forEach(function (row) {
-      const tr = document.createElement("tr");
-      columns.forEach(function (column) {
-        const td = document.createElement("td");
-        const value = row && typeof row === "object" ? (row as QueryRow)[column] : "";
-        td.textContent = typeof value === "string" ? value : JSON.stringify(value ?? "");
-        tr.appendChild(td);
-      });
-      body.appendChild(tr);
-    });
-    table.appendChild(body);
-    els.queryPreview.appendChild(table);
-  }
-
-  function renderQueryDiagnostics(): void {
-    clearNode(els.queryDiagnostics);
-    const workbench = state.queryWorkbench;
-    if (!workbench) {
-      return;
-    }
-    const diagnostics: Array<{ label: string; ok: boolean; detail: string }> = [];
-    if (workbench.analyze) {
-      diagnostics.push({
-        label: "Analyze",
-        ok: Boolean(workbench.analyze.valid),
-        detail: workbench.analyze.valid
-          ? (workbench.analyze.dataset || "valid")
-          : (workbench.analyze.error || "invalid"),
-      });
-    }
-    if (workbench.lint) {
-      diagnostics.push({
-        label: "Lint",
-        ok: Boolean(workbench.lint.valid),
-        detail: workbench.lint.valid
-          ? ((workbench.lint.count || 0) + " warning" + ((workbench.lint.count || 0) === 1 ? "" : "s"))
-          : (workbench.lint.error || "invalid"),
-      });
-    }
-    if (workbench.preview) {
-      diagnostics.push({
-        label: "Preview",
-        ok: Boolean(workbench.preview.valid),
-        detail: workbench.preview.valid
-          ? ((workbench.preview.count || 0) + " row" + ((workbench.preview.count || 0) === 1 ? "" : "s"))
-          : (workbench.preview.error || "failed"),
-      });
-    }
-    if (workbench.count) {
-      diagnostics.push({
-        label: "Count",
-        ok: Boolean(workbench.count.valid),
-        detail: workbench.count.valid
-          ? String(workbench.count.count || 0)
-          : (workbench.count.error || "failed"),
-      });
-    }
-
-    diagnostics.forEach(function (diagnostic) {
-      const card = document.createElement("div");
-      card.className = "query-diagnostic" + (diagnostic.ok ? " ok" : " warn");
-
-      const strong = document.createElement("strong");
-      strong.textContent = diagnostic.label;
-      card.appendChild(strong);
-
-      const span = document.createElement("span");
-      span.textContent = diagnostic.detail;
-      card.appendChild(span);
-
-      els.queryDiagnostics.appendChild(card);
-    });
-  }
-
-  function renderQueryCopilotResult(): void {
-    const aiReady = state.aiSettingsLoaded && state.aiSettings.enabled && state.aiAPIKeyConfigured;
-    if (state.queryCopilotPending) {
-      els.queryCopilotStatus.textContent = "Generating query…";
-    } else if (!state.aiSettingsLoaded) {
-      els.queryCopilotStatus.textContent = "AI settings are still loading.";
-    } else if (!state.aiSettings.enabled) {
-      els.queryCopilotStatus.textContent = "Enable the AI query copilot in Settings > AI.";
-    } else if (!state.aiAPIKeyConfigured) {
-      els.queryCopilotStatus.textContent = "Add an API key in Settings > AI to use the copilot.";
-    } else if (state.queryCopilotResponse) {
-      els.queryCopilotStatus.textContent = state.queryCopilotResponse.valid
-        ? ("Generated and validated in " + String(state.queryCopilotResponse.attempts) + " attempt" + (state.queryCopilotResponse.attempts === 1 ? "" : "s") + ".")
-        : (state.queryCopilotResponse.error || "Generated a draft that still needs review.");
-    } else {
-      els.queryCopilotStatus.textContent = aiReady
-        ? "Describe the query you want and let the server draft it."
-        : "";
-    }
-
-    const response = state.queryCopilotResponse;
-    if (response && response.explanation) {
-      els.queryCopilotExplanation.textContent = response.explanation;
-      els.queryCopilotExplanation.classList.remove("hidden");
-    } else {
-      els.queryCopilotExplanation.textContent = "";
-      els.queryCopilotExplanation.classList.add("hidden");
-    }
-
-    clearNode(els.queryCopilotAssumptions);
-    if (response && Array.isArray(response.assumptions) && response.assumptions.length) {
-      response.assumptions.forEach(function (assumption) {
-        const item = document.createElement("li");
-        item.textContent = assumption;
-        els.queryCopilotAssumptions.appendChild(item);
-      });
-      els.queryCopilotAssumptions.classList.remove("hidden");
-    } else {
-      els.queryCopilotAssumptions.classList.add("hidden");
-    }
-  }
-
-  function renderQueryScreen(): void {
-    const selected = state.selectedSavedQueryPayload;
-    els.queryScreenEyebrow.textContent = selected ? "Saved Query" : "Queries";
-    els.queryScreenTitle.textContent = selected
-      ? (selected.title || selected.name || "Query Workbench")
-      : "Query Workbench";
-    els.queryScreenMeta.textContent = selected
-      ? [selected.name, selected.folder, selected.tags && selected.tags.length ? ("#" + selected.tags.join(" #")) : ""].filter(Boolean).join(" · ")
-      : "Draft ad hoc queries, preview them, and use AI to generate a starting point.";
-    els.generateQuery.disabled = !state.aiSettingsLoaded || !state.aiSettings.enabled || !state.aiAPIKeyConfigured || state.queryCopilotPending;
-    els.queryIntent.placeholder = state.aiSettings.enabled
-      ? "show open tasks due this week"
-      : "Enable the AI query copilot in Settings > AI";
-    renderQueryCopilotResult();
-    renderQueryDiagnostics();
-    renderQueryPreview();
-    els.queryOutput.textContent = state.queryWorkbench
-      ? pretty(state.queryWorkbench)
-      : state.queryWorkbenchStatus;
-  }
-
-  async function runQueryWorkbench() {
-    const query = els.queryEditor.value.trim();
-    if (!query) {
-      state.queryWorkbench = null;
-      state.queryWorkbenchStatus = "Enter a query first.";
-      renderQueryScreen();
-      return;
-    }
-
-    state.queryWorkbenchStatus = "Running query workbench...";
-    renderQueryScreen();
-    try {
-      const payload = await fetchJSON<QueryWorkbenchResult>("/api/query/workbench", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: query,
-          previewLimit: 10,
-        }),
-      });
-      state.queryWorkbench = payload;
-      state.queryWorkbenchStatus = "Query workbench updated.";
-      renderQueryScreen();
-    } catch (error) {
-      state.queryWorkbench = null;
-      state.queryWorkbenchStatus = errorMessage(error);
-      renderQueryScreen();
-    }
-  }
-
-  async function formatQueryText() {
-    const query = els.queryEditor.value.trim();
-    if (!query) {
-      state.queryWorkbenchStatus = "Enter a query first.";
-      renderQueryScreen();
-      return;
-    }
-
-    state.queryWorkbenchStatus = "Formatting query...";
-    renderQueryScreen();
-    try {
-      const payload = await fetchJSON<QueryFormatResponse>("/api/query/format", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: query }),
-      });
-      if (payload.valid && payload.formatted) {
-        els.queryEditor.value = payload.formatted;
-        state.queryWorkbenchStatus = "Formatted query.";
-      } else {
-        state.queryWorkbenchStatus = payload.error || "Format failed.";
-      }
-      renderQueryScreen();
-    } catch (error) {
-      state.queryWorkbenchStatus = errorMessage(error);
-      renderQueryScreen();
-    }
-  }
-
-  async function generateQueryWithAI() {
-    const intent = String(els.queryIntent.value || "").trim();
-    if (!intent) {
-      els.queryCopilotStatus.textContent = "Enter what you want the query to do first.";
-      return;
-    }
-
-    state.queryCopilotPending = true;
-    renderQueryScreen();
-    try {
-      const payload = await fetchJSON<QueryCopilotResponse>("/api/query/copilot", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          intent: intent,
-          currentQuery: String(els.queryEditor.value || ""),
-          previewLimit: 10,
-        }),
-      });
-      state.queryCopilotResponse = payload;
-      if (payload.formattedQuery) {
-        els.queryEditor.value = payload.formattedQuery;
-      } else if (payload.query) {
-        els.queryEditor.value = payload.query;
-      }
-      state.queryWorkbench = payload.workbench;
-      state.queryWorkbenchStatus = payload.valid
-        ? "AI query generated and validated."
-        : (payload.error || "AI generated a draft that still needs review.");
-      setNoteStatus(
-        payload.valid
-          ? "AI query generated."
-          : "AI query draft returned with validation issues."
-      );
-    } catch (error) {
-      state.queryWorkbenchStatus = errorMessage(error);
-      setNoteStatus("AI query generation failed: " + errorMessage(error));
-    } finally {
-      state.queryCopilotPending = false;
-      renderQueryScreen();
     }
   }
 
@@ -4290,7 +4018,6 @@ interface ActionDialogSession {
       els.commandModalShell.classList.add("hidden");
       els.quickSwitcherModalShell.classList.add("hidden");
       els.documentsModalShell.classList.add("hidden");
-      els.helpModalShell.classList.add("hidden");
       els.pageHistoryModalShell.classList.add("hidden");
       els.trashModalShell.classList.add("hidden");
       els.settingsModalShell.classList.add("hidden");
@@ -4386,7 +4113,7 @@ interface ActionDialogSession {
       loadedRemote.page.rawMarkdown || ""
     );
     closePageConflictModal();
-    await Promise.all([loadPages(), loadTasks(), loadSavedQueryTree()]);
+    await Promise.all([loadPages(), loadTasks()]);
     if (state.selectedPage === conflict.pagePath && !templateFillActive) {
       restoreNoteFocus();
     }
@@ -4427,7 +4154,7 @@ interface ActionDialogSession {
       els.rawView.textContent = state.currentMarkdown;
       refreshLivePageChrome();
       closePageConflictModal();
-      await Promise.all([loadPages(), loadTasks(), loadSavedQueryTree()]);
+      await Promise.all([loadPages(), loadTasks()]);
       if (state.selectedPage === conflict.pagePath) {
         await loadPageDetail(conflict.pagePath, true, false);
       }
@@ -4621,28 +4348,6 @@ interface ActionDialogSession {
     setNoteStatus("Trash emptied.");
   }
 
-  function setHelpOpen(open: boolean): void {
-    if (open) {
-      rememberNoteFocus();
-      els.searchModalShell.classList.add("hidden");
-      els.commandModalShell.classList.add("hidden");
-      els.quickSwitcherModalShell.classList.add("hidden");
-      els.documentsModalShell.classList.add("hidden");
-      els.pageHistoryModalShell.classList.add("hidden");
-      els.trashModalShell.classList.add("hidden");
-      els.helpModalShell.classList.remove("hidden");
-      window.requestAnimationFrame(function () {
-        focusWithoutScroll(els.closeHelpModal);
-      });
-      return;
-    }
-    els.helpModalShell.classList.add("hidden");
-  }
-
-  function closeHelpModal() {
-    setHelpOpen(false);
-  }
-
   function resetSettingsTemplateDrafts(): void {
     state.settingsTemplateDrafts = cloneNoteTemplates(state.settings.preferences.templates);
   }
@@ -4699,7 +4404,6 @@ interface ActionDialogSession {
       els.commandModalShell.classList.add("hidden");
       els.quickSwitcherModalShell.classList.add("hidden");
       els.documentsModalShell.classList.add("hidden");
-      els.helpModalShell.classList.add("hidden");
       els.pageHistoryModalShell.classList.add("hidden");
       els.trashModalShell.classList.add("hidden");
       els.settingsModalShell.classList.remove("hidden");
@@ -4837,12 +4541,11 @@ interface ActionDialogSession {
     state.savedThemeId = currentThemeID();
     state.previewThemeId = currentThemeID();
     saveStoredClientPreferences(state.settings.preferences);
-    renderHelpShortcuts();
     renderSettingsForm();
     applyUIPreferences();
     renderSourceModeButton();
     renderPageHistoryButton();
-    if (state.currentPage) {
+    if (state.currentPage || state.appScreen === "help") {
       renderNoteStudio();
       renderPageTasks();
       renderPageContext();
@@ -4886,7 +4589,7 @@ interface ActionDialogSession {
       setAISettingsSnapshot(aiSnapshot);
       await loadMeta();
       await loadAvailableVaults();
-      if (state.selectedPage || state.selectedSavedQuery) {
+      if (state.selectedPage || state.appScreen === "help") {
         syncURLState(true);
       }
       if (previousTopLevelFoldersAsVaults !== state.topLevelFoldersAsVaults) {
@@ -4920,16 +4623,6 @@ interface ActionDialogSession {
       onOpenPageAtTask: function (pagePath, taskRef, lineNumber) {
         navigateToPageAtTask(pagePath, taskRef, lineNumber, false);
       },
-      onOpenSavedQuery: function (name) {
-        state.appScreen = "queries";
-        state.selectedSavedQuery = name;
-        state.selectedPage = "";
-        renderAppScreen();
-        syncURLState(false);
-        renderPages();
-        renderSavedQueryTree();
-        loadSavedQueryDetail(name);
-      },
     });
   }
 
@@ -4939,7 +4632,7 @@ interface ActionDialogSession {
     }
     const query = els.globalSearchInput.value.trim();
     if (!query) {
-      renderSearchEmptyState(els, "Type to search pages, tasks, and saved queries.");
+      renderSearchEmptyState(els, "Type to search pages and tasks.");
       return;
     }
     els.globalSearchResults.textContent = "Searching…";
@@ -5545,7 +5238,7 @@ interface ActionDialogSession {
     state.commandSelectionIndex = renderCommandResults({
       els: els,
       inputValue: els.commandPaletteInput ? els.commandPaletteInput.value : "",
-      selectedPage: state.selectedPage,
+      selectedPage: state.appScreen === "notes" ? state.selectedPage : "",
       sourceOpen: state.sourceOpen,
       railOpen: state.railOpen,
       currentHomePage: currentHomePage(),
@@ -5555,7 +5248,7 @@ interface ActionDialogSession {
       },
       onOpenHelp: function () {
         closeCommandPalette();
-        setHelpOpen(true);
+        openHelpScreen(false);
       },
       onOpenSettings: function () {
         closeCommandPalette();
@@ -5565,10 +5258,6 @@ interface ActionDialogSession {
         closeCommandPalette();
         setDocumentsOpen(true);
         scheduleDocumentsRefresh();
-      },
-      onOpenQueries: function () {
-        closeCommandPalette();
-        openQueriesScreen(false);
       },
       onOpenQuickSwitcher: function () {
         closeCommandPalette();
@@ -5636,10 +5325,10 @@ interface ActionDialogSession {
     state.sourceOpen = nextOpen;
     markdownEditorSetRenderMode(state, !state.sourceOpen);
     if (els.pageProperties) {
-      els.pageProperties.classList.toggle("hidden", state.sourceOpen);
+      els.pageProperties.classList.toggle("hidden", state.appScreen === "help" || state.sourceOpen);
     }
     if (els.propertyActions) {
-      els.propertyActions.classList.toggle("hidden", state.sourceOpen);
+      els.propertyActions.classList.toggle("hidden", state.appScreen === "help" || state.sourceOpen);
     }
     if (els.markdownEditor) {
       els.markdownEditor.classList.add("hidden");
@@ -5663,7 +5352,7 @@ interface ActionDialogSession {
       els.rail.classList.toggle("open", state.railOpen);
     }
     if (els.appLayout) {
-      els.appLayout.classList.toggle("rail-collapsed", state.appScreen === "queries" || (!mobileLayout && !state.railOpen));
+      els.appLayout.classList.toggle("rail-collapsed", !mobileLayout && !state.railOpen);
     }
     if (els.toggleRail) {
       els.toggleRail.classList.toggle("active", state.railOpen);
@@ -5766,7 +5455,7 @@ interface ActionDialogSession {
       source,
       currentClientId: currentClientInstanceId(),
       selectedPage: function () {
-        return state.selectedPage || "";
+        return state.appScreen === "notes" ? (state.selectedPage || "") : "";
       },
       conflictPage: function () {
         return state.pageConflict ? state.pageConflict.pagePath : "";
@@ -5875,9 +5564,7 @@ interface ActionDialogSession {
         setPageSearchOpen(false);
       }
     });
-    on(els.querySearch, "input", loadSavedQueryTree);
     on(els.reloadPages, "click", loadPages);
-    on(els.reloadQueries, "click", loadSavedQueryTree);
     on(els.addProperty, "click", startAddProperty);
     on(els.toggleRail, "click", function () {
       setRailOpen(!state.railOpen);
@@ -5905,7 +5592,7 @@ interface ActionDialogSession {
     });
     on(els.openHelp, "click", function () {
       setSessionMenuOpen(false);
-      setHelpOpen(true);
+      openHelpScreen(false);
     });
     on(els.openTrash, "click", function () {
       setSessionMenuOpen(false);
@@ -6108,14 +5795,6 @@ interface ActionDialogSession {
       }
       navigateToPage(homePage, false);
     });
-    on(els.openQueries, "click", function () {
-      setSessionMenuOpen(false);
-      if (state.appScreen === "queries") {
-        setAppScreen("notes", false);
-        return;
-      }
-      openQueriesScreen(false);
-    });
     on(els.openDocuments, "click", function () {
       setSessionMenuOpen(false);
       setDocumentsOpen(true);
@@ -6133,13 +5812,13 @@ interface ActionDialogSession {
       window.history.forward();
     });
     on(els.toggleSourceMode, "click", function () {
-      if (!state.selectedPage) {
+      if (!studioPageAvailable()) {
         return;
       }
       setSourceOpen(!state.sourceOpen);
     });
     on(els.pageHistoryButton, "click", function () {
-      if (!state.selectedPage) {
+      if (state.appScreen !== "notes" || !state.selectedPage) {
         return;
       }
       setPageHistoryOpen(true);
@@ -6211,6 +5890,10 @@ interface ActionDialogSession {
     });
     on(els.documentsInput, "input", scheduleDocumentsRefresh);
     on(els.fileUploadInput, "change", function () {
+      if (state.appScreen !== "notes" || !state.selectedPage || !state.currentPage) {
+        els.fileUploadInput.value = "";
+        return;
+      }
       uploadDroppedFiles(els.fileUploadInput.files).catch(function (error) {
         setNoteStatus("Upload failed: " + errorMessage(error));
       }).finally(function () {
@@ -6254,18 +5937,17 @@ interface ActionDialogSession {
       });
       renderPageTasks();
     });
-    on(els.formatQuery, "click", formatQueryText);
-    on(els.runQuery, "click", runQueryWorkbench);
-    on(els.generateQuery, "click", function () {
-      generateQueryWithAI().catch(function (error) {
-        setNoteStatus("AI query generation failed: " + errorMessage(error));
-      });
-    });
     on(els.noteSurface, "dragenter", function (event) {
+      if (state.appScreen !== "notes" || !state.selectedPage || !state.currentPage) {
+        return;
+      }
       event.preventDefault();
       els.noteSurface.classList.add("drop-active");
     });
     on(els.noteSurface, "dragover", function (event) {
+      if (state.appScreen !== "notes" || !state.selectedPage || !state.currentPage) {
+        return;
+      }
       event.preventDefault();
       els.noteSurface.classList.add("drop-active");
     });
@@ -6279,6 +5961,10 @@ interface ActionDialogSession {
     });
     on(els.noteSurface, "drop", function (event) {
       const dragEvent = event as DragEvent;
+      if (state.appScreen !== "notes" || !state.selectedPage || !state.currentPage) {
+        els.noteSurface.classList.remove("drop-active");
+        return;
+      }
       dragEvent.preventDefault();
       els.noteSurface.classList.remove("drop-active");
       uploadDroppedFiles(dragEvent.dataTransfer ? dragEvent.dataTransfer.files : null).catch(function (error) {
@@ -6541,16 +6227,6 @@ interface ActionDialogSession {
         setNoteStatus("Rename failed: " + errorMessage(error));
       });
     });
-    on(els.closeHelpModal, "click", function () {
-      closeHelpModal();
-      restoreNoteFocus();
-    });
-    on(els.helpModalShell, "click", function (event) {
-      if (event.target === els.helpModalShell) {
-        closeHelpModal();
-        restoreNoteFocus();
-      }
-    });
     on(els.closeSettingsModal, "click", function () {
       closeSettingsModal();
       restoreNoteFocus();
@@ -6752,11 +6428,6 @@ interface ActionDialogSession {
         restoreNoteFocus();
         return;
       }
-      if (event.key === "Escape" && els.helpModalShell && !els.helpModalShell.classList.contains("hidden")) {
-        closeHelpModal();
-        restoreNoteFocus();
-        return;
-      }
       if (event.key === "Escape" && els.actionDialogShell && !els.actionDialogShell.classList.contains("hidden")) {
         dismissActionDialog(null);
         return;
@@ -6778,12 +6449,12 @@ interface ActionDialogSession {
         event.preventDefault();
         return;
       }
-      if (matchesHotkey(state.settings.preferences.hotkeys.saveCurrentPage, event) && state.selectedPage) {
+      if (matchesHotkey(state.settings.preferences.hotkeys.saveCurrentPage, event) && state.appScreen === "notes" && state.selectedPage) {
         event.preventDefault();
         saveCurrentPage();
         return;
       }
-      if (matchesHotkey(state.settings.preferences.hotkeys.toggleRawMode, event) && state.selectedPage) {
+      if (matchesHotkey(state.settings.preferences.hotkeys.toggleRawMode, event) && studioPageAvailable()) {
         event.preventDefault();
         setSourceOpen(!state.sourceOpen);
         return;
@@ -6817,7 +6488,7 @@ interface ActionDialogSession {
         && (!isTypingTarget(event.target) || !hotkeyProducesText(helpHotkey))
       ) {
         event.preventDefault();
-        setHelpOpen(true);
+        openHelpScreen(false);
         return;
       }
     });
@@ -6971,12 +6642,10 @@ interface ActionDialogSession {
     state.previewThemeId = currentThemeID();
     applyUIPreferences();
     renderNoteStudio();
-    renderQueryScreen();
     renderAppScreen();
     renderPageTasks();
     renderPageContext();
     renderPageProperties();
-    renderHelpShortcuts();
     renderSettingsForm();
     wireEvents();
     try {

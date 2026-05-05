@@ -35,6 +35,15 @@ func mountUI(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		http.ServeFileFS(w, r, staticFS, "sw.js")
 	})
+	mux.HandleFunc("/help.md", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/help.md" {
+			http.NotFound(w, r)
+			return
+		}
+		setNoCacheHeaders(w)
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		http.ServeFileFS(w, r, staticFS, "help.md")
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)

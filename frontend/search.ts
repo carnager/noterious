@@ -8,7 +8,6 @@ export interface RenderGlobalSearchResultsOptions {
   onOpenPage(pagePath: string): void;
   onOpenPageAtLine(pagePath: string, lineNumber: number | string): void;
   onOpenPageAtTask(pagePath: string, taskRef: string, lineNumber: number | string): void;
-  onOpenSavedQuery(name: string): void;
 }
 
 export function buildGlobalSearchSections(options: Omit<RenderGlobalSearchResultsOptions, "container">): PaletteSection[] {
@@ -19,7 +18,6 @@ export function buildGlobalSearchSections(options: Omit<RenderGlobalSearchResult
 
   const pageItems = options.payload.pages || [];
   const taskItems = options.payload.tasks || [];
-  const queryItems = options.payload.queries || [];
   return [
     {
       title: "Pages",
@@ -55,21 +53,9 @@ export function buildGlobalSearchSections(options: Omit<RenderGlobalSearchResult
         };
       }),
     },
-    {
-      title: "Saved Queries",
-      items: queryItems.map(function (item): PaletteItem {
-        return {
-          title: item.title || item.name,
-          meta: [item.name, item.folder, item.match].filter(Boolean).join(" · "),
-          snippet: item.snippet || "",
-          onSelect: function () {
-            options.onClose();
-            options.onOpenSavedQuery(item.name);
-          },
-        };
-      }),
-    },
-  ];
+  ].filter(function (section) {
+    return section.items.length > 0;
+  });
 }
 
 export function renderGlobalSearchResults(options: RenderGlobalSearchResultsOptions): number {

@@ -34,9 +34,6 @@ function paletteOptions(overrides: Partial<Parameters<typeof buildCommandPalette
       onOpenDocuments: function () {
         calls.push("open-documents");
       },
-      onOpenQueries: function () {
-        calls.push("open-queries");
-      },
       onOpenQuickSwitcher: function () {
         calls.push("open-quick-switcher");
       },
@@ -108,9 +105,6 @@ describe("command helpers", function () {
     const quickSwitcher = commands.find(function (item) {
       return item.title === "Open Quick Switcher";
     });
-    const queries = commands.find(function (item) {
-      return item.title === "Open Queries";
-    });
     const quickNote = commands.find(function (item) {
       return item.title === "Open Daily Note";
     });
@@ -120,7 +114,6 @@ describe("command helpers", function () {
     expect(help).toBeTruthy();
     expect(settings).toBeTruthy();
     expect(documents).toBeTruthy();
-    expect(queries).toBeTruthy();
     expect(quickSwitcher).toBeTruthy();
     expect(quickNote).toBeTruthy();
 
@@ -129,7 +122,6 @@ describe("command helpers", function () {
     help?.onSelect();
     settings?.onSelect();
     documents?.onSelect();
-    queries?.onSelect();
     quickSwitcher?.onSelect();
     quickNote?.onSelect();
 
@@ -138,7 +130,6 @@ describe("command helpers", function () {
     expect(calls).toContain("open-help");
     expect(calls).toContain("open-settings");
     expect(calls).toContain("open-documents");
-    expect(calls).toContain("open-queries");
     expect(calls).toContain("open-quick-switcher");
     expect(calls).toContain("quick-note");
   });

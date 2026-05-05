@@ -96,10 +96,6 @@
             <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><path d="M4.5 10.5 12 4l7.5 6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 9.5V19a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V9.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span class="sr-only">Home page</span>
           </button>
-          <button type="button" id="open-queries" class="topbar-toggle topbar-toggle-icon hidden" aria-label="Queries" title="Queries">
-            <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><path d="M5 7.5h14M5 12h8M5 16.5h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="17.5" cy="12" r="1.25" fill="currentColor"/></svg>
-            <span class="sr-only">Queries</span>
-          </button>
           <button type="button" id="open-quick-switcher" class="topbar-toggle topbar-toggle-icon" aria-label="Open note" title="Open note">
             <svg viewBox="0 0 24 24" class="topbar-icon" aria-hidden="true"><path d="M5 4.5h8.5L19 10v9.5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1Zm8 1.5v4h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span class="sr-only">Open note</span>
@@ -246,86 +242,31 @@
             </div>
           </section>
 
-          <section class="queries-screen hidden" id="queries-screen">
-            <div class="queries-layout">
-              <section class="card queries-sidebar-card">
+          <section class="debug-drawer hidden" id="debug-drawer">
+            <div class="focus-grid">
+              <section class="card">
                 <div class="section-head">
-                  <div>
-                    <p class="eyebrow">Queries</p>
-                    <h3>Saved Queries</h3>
-                  </div>
-                  <button type="button" id="reload-queries">Reload</button>
+                  <h3>Live Events</h3>
+                  <span class="status-dot" id="event-status">offline</span>
                 </div>
-                <label class="search">
-                  <span>Search saved queries</span>
-                  <input id="query-search" type="text" placeholder="ops, dashboard, links" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-                </label>
-                <div class="tree queries-tree" id="query-tree"></div>
+                <div class="event-log" id="event-log"></div>
               </section>
 
-              <section class="card queries-main-card">
-                <div class="section-head">
-                  <div>
-                    <p class="eyebrow" id="query-screen-eyebrow">Queries</p>
-                    <h2 id="query-screen-title">Query Workbench</h2>
-                    <p class="queries-meta" id="query-screen-meta">Draft ad hoc queries, preview them, and use AI to generate a starting point.</p>
-                  </div>
-                  <div class="hero-actions">
-                    <button type="button" id="format-query">Format</button>
-                    <button type="button" id="run-query">Run</button>
-                  </div>
-                </div>
+              <section class="card">
+                <h3>Structured</h3>
+                <pre class="code-block" id="structured-view">Select a page to inspect structured server output.</pre>
+              </section>
 
-                <label class="search modal-field-wide">
-                  <span>Ask AI to build a query</span>
-                  <textarea id="query-intent" class="query-intent" spellcheck="true" placeholder="show open tasks due this week"></textarea>
-                </label>
-                <div class="queries-ai-actions">
-                  <button type="button" id="generate-query">Generate Query</button>
-                  <span class="inline-meta" id="query-copilot-status">Enable the AI query copilot in Settings &gt; AI.</span>
-                </div>
-                <p class="queries-explanation hidden" id="query-copilot-explanation"></p>
-                <ul class="queries-assumptions hidden" id="query-copilot-assumptions"></ul>
+              <section class="card">
+                <h3>Derived / Query State</h3>
+                <pre class="code-block" id="derived-view">Derived state and inline query previews land here.</pre>
+              </section>
 
-                <label class="search modal-field-wide">
-                  <span>Query</span>
-                  <textarea id="query-editor" class="query-editor" spellcheck="false" placeholder="from tasks&#10;where done = false&#10;order by due&#10;select ref, due"></textarea>
-                </label>
-
-                <div class="queries-diagnostics" id="query-diagnostics"></div>
-                <div class="queries-preview" id="query-preview">
-                  <div class="empty">Run a query to preview results.</div>
-                </div>
-                <pre class="code-block" id="query-output">Run an ad hoc query here. Selecting a saved query will preload the editor.</pre>
+              <section class="card wide">
+                <h3>Raw Markdown</h3>
+                <pre class="code-block raw" id="raw-view">Raw source appears here.</pre>
               </section>
             </div>
-
-            <section class="debug-drawer hidden" id="debug-drawer">
-              <div class="focus-grid">
-                <section class="card">
-                  <div class="section-head">
-                    <h3>Live Events</h3>
-                    <span class="status-dot" id="event-status">offline</span>
-                  </div>
-                  <div class="event-log" id="event-log"></div>
-                </section>
-
-                <section class="card">
-                  <h3>Structured</h3>
-                  <pre class="code-block" id="structured-view">Select a page or saved query to inspect structured server output.</pre>
-                </section>
-
-                <section class="card">
-                  <h3>Derived / Workbench</h3>
-                  <pre class="code-block" id="derived-view">Derived state and query previews land here.</pre>
-                </section>
-
-                <section class="card wide">
-                  <h3>Raw Markdown / Query</h3>
-                  <pre class="code-block raw" id="raw-view">Raw source appears here.</pre>
-                </section>
-              </div>
-            </section>
           </section>
         </section>
       </main>
@@ -554,36 +495,6 @@
         <div class="search-results" id="trash-results">
           <div class="empty">Trash is empty.</div>
         </div>
-      </div>
-    </div>
-
-    <div class="modal-shell hidden" id="help-modal-shell">
-      <div class="modal-card help-modal-card">
-        <div class="section-head help-head">
-          <div>
-            <p class="eyebrow">Help</p>
-            <h2>Navigation & Shortcuts</h2>
-          </div>
-          <button type="button" id="close-help-modal" class="help-close" aria-label="Close help">×</button>
-        </div>
-        <p class="help-lead">Built-in actions are split into note opening, full search, commands, and editor actions so they stay predictable in the browser.</p>
-        <section class="help-section">
-          <h3>Core Shortcuts</h3>
-          <div class="shortcut-list" id="help-shortcuts-core"></div>
-        </section>
-        <section class="help-section">
-          <h3>Editor</h3>
-          <div class="shortcut-list" id="help-shortcuts-editor"></div>
-        </section>
-        <section class="help-section">
-          <h3>Where Things Live</h3>
-          <ul class="help-bullets">
-            <li><strong>Open</strong> jumps to a note quickly and can create one if there is no exact match.</li>
-            <li><strong>Search</strong> searches pages, tasks, and saved queries across the whole app.</li>
-            <li><strong>Command Palette</strong> runs app commands like toggling raw mode or focusing a rail panel.</li>
-            <li><strong>Slash Commands</strong> are editor-only block commands, closer to Obsidian-style editing.</li>
-          </ul>
-        </section>
       </div>
     </div>
 

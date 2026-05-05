@@ -27776,6 +27776,8 @@
       var setTasksEffect = StateEffect.define();
       var setPagePathEffect = StateEffect.define();
       var setHighlightedLineEffect = StateEffect.define();
+      var editableCompartment = new Compartment();
+      var readOnlyCompartment = new Compartment();
       var taskInlineDatePattern2 = /\[(due|remind):\s*[^\]]+?\]|\b(due|remind)::\s*[^\s]+(?:\s+\d{2}:\d{2})?/g;
       var codeLanguages = [
         LanguageDescription.of({ name: "JavaScript", alias: ["js", "javascript"], extensions: ["js", "mjs", "cjs"], support: javascript() }),
@@ -28963,6 +28965,8 @@
             state: EditorState.create({
               doc: textarea.value || "",
               extensions: [
+                editableCompartment.of(EditorView.editable.of(true)),
+                readOnlyCompartment.of(EditorState.readOnly.of(false)),
                 history(),
                 drawSelection(),
                 highlightActiveLine(),
@@ -29129,6 +29133,16 @@
               setDateTimeDisplayFormat(normalizeDateTimeDisplayFormat(format));
               view.dispatch({
                 effects: setTasksEffect.of(new Map(view.state.field(tasksField)))
+              });
+            },
+            setEditable(enabled) {
+              const editable2 = Boolean(enabled);
+              host.classList.toggle("is-readonly", !editable2);
+              view.dispatch({
+                effects: [
+                  editableCompartment.reconfigure(EditorView.editable.of(editable2)),
+                  readOnlyCompartment.reconfigure(EditorState.readOnly.of(!editable2))
+                ]
               });
             },
             setQueryBlocks(blocks) {

@@ -4,7 +4,7 @@ import { buildGlobalSearchSections } from "./search";
 import type { SearchPayload } from "./types";
 
 describe("search helpers", function () {
-  it("builds page, task, and query sections with callbacks", function () {
+  it("builds page and task sections with callbacks", function () {
     const calls: string[] = [];
     const payload: SearchPayload = {
       counts: { total: 3, pages: 1, tasks: 1, queries: 1 },
@@ -27,24 +27,18 @@ describe("search helpers", function () {
       onOpenPageAtTask: function (pagePath: string, taskRef: string, lineNumber: number | string) {
         calls.push("task:" + pagePath + ":" + taskRef + ":" + lineNumber);
       },
-      onOpenSavedQuery: function (name: string) {
-        calls.push("query:" + name);
-      },
     });
 
-    expect(sections.map(function (section) { return section.title; })).toEqual(["Pages", "Tasks", "Saved Queries"]);
+    expect(sections.map(function (section) { return section.title; })).toEqual(["Pages", "Tasks"]);
 
     sections[0].items[0].onSelect();
     sections[1].items[0].onSelect();
-    sections[2].items[0].onSelect();
 
     expect(calls).toEqual([
       "close",
       "line:notes/alpha:7",
       "close",
       "task:notes/alpha:task-1:9",
-      "close",
-      "query:recent",
     ]);
   });
 
@@ -55,7 +49,6 @@ describe("search helpers", function () {
       onOpenPage: function () {},
       onOpenPageAtLine: function () {},
       onOpenPageAtTask: function () {},
-      onOpenSavedQuery: function () {},
     })).toEqual([]);
   });
 });

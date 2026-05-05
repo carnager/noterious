@@ -2,7 +2,6 @@ import type { AppScreen, PageSummary } from "./types";
 
 export interface URLState {
   page: string;
-  query: string;
   screen: AppScreen;
 }
 
@@ -11,8 +10,7 @@ export interface ApplyURLStateOptions {
   currentHomePage: string;
   pages: PageSummary[];
   onNavigateToPage(pagePath: string, replace: boolean): void;
-  onSelectSavedQuery(name: string): void;
-  onOpenQueriesScreen(): void;
+  onOpenHelpScreen(): void;
   onRenderIdle(): void;
 }
 
@@ -26,33 +24,30 @@ export interface NavigateToPageOptions {
   onSelectPage(pagePath: string): void;
   onSyncURL(replace: boolean): void;
   onRenderPages(): void;
-  onRenderSavedQueryTree(): void;
   onLoadPageDetail(pagePath: string): void;
 }
 
 export function parseURLState(href: string): URLState {
   const url = new URL(href);
+  const screenParam = url.searchParams.get("screen");
   return {
     page: url.searchParams.get("page") || "",
-    query: url.searchParams.get("query") || "",
-    screen: url.searchParams.get("screen") === "queries" ? "queries" : "notes",
+    screen: screenParam === "help"
+        ? "help"
+        : "notes",
   };
 }
 
-export function buildSelectionURL(href: string, selectedPage: string, selectedSavedQuery: string, screen: AppScreen): URL {
+export function buildSelectionURL(href: string, selectedPage: string, screen: AppScreen): URL {
   const url = new URL(href);
-  if (selectedPage) {
+  if (screen === "notes" && selectedPage) {
     url.searchParams.set("page", selectedPage);
   } else {
     url.searchParams.delete("page");
   }
-  if (screen === "queries" && selectedSavedQuery) {
-    url.searchParams.set("query", selectedSavedQuery);
-  } else {
-    url.searchParams.delete("query");
-  }
-  if (screen === "queries") {
-    url.searchParams.set("screen", "queries");
+  url.searchParams.delete("query");
+  if (screen === "help") {
+    url.searchParams.set("screen", "help");
   } else {
     url.searchParams.delete("screen");
   }
@@ -61,19 +56,14 @@ export function buildSelectionURL(href: string, selectedPage: string, selectedSa
 
 export function applyURLState(options: ApplyURLStateOptions): void {
   const urlState = parseURLState(options.href);
+  if (urlState.screen === "help") {
+    options.onOpenHelpScreen();
+    return;
+  }
   if (urlState.page && options.pages.some(function (page) {
     return String(page.path || "").toLowerCase() === urlState.page.toLowerCase();
   })) {
     options.onNavigateToPage(urlState.page, true);
-    return;
-  }
-  if (urlState.query) {
-    options.onOpenQueriesScreen();
-    options.onSelectSavedQuery(urlState.query);
-    return;
-  }
-  if (urlState.screen === "queries") {
-    options.onOpenQueriesScreen();
     return;
   }
   const homePage = String(options.currentHomePage || "").trim();
@@ -97,6 +87,5 @@ export function navigateToPageSelection(options: NavigateToPageOptions): void {
   options.onExpandAncestors(options.pagePath);
   options.onSyncURL(Boolean(options.replace));
   options.onRenderPages();
-  options.onRenderSavedQueryTree();
   options.onLoadPageDetail(options.pagePath);
 }

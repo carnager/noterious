@@ -37,6 +37,22 @@ describe("buildPathDialogAssist", function () {
     expect(assist.error).toBe('A note already exists at "Private/contacts/alina".');
   });
 
+  it("allows notes to share a base name with a folder", function () {
+    const assist = buildPathDialogAssist({
+      kind: "note",
+      action: "rename",
+      input: "foobar.md",
+      sourcePath: "alpha",
+      scopePrefix: "",
+      pages: [],
+      folders: ["foobar"],
+    });
+
+    expect(assist.error).toBe("");
+    expect(assist.targetPath).toBe("foobar");
+    expect(assist.helper).toContain("notes and folders can coexist");
+  });
+
   it("warns when a rename target leaves the current scope", function () {
     const assist = buildPathDialogAssist({
       kind: "note",

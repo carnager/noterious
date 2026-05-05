@@ -1,4 +1,4 @@
-import {EditorSelection, EditorState, StateEffect, StateField, RangeSetBuilder, Transaction} from "@codemirror/state";
+import {Compartment, EditorSelection, EditorState, StateEffect, StateField, RangeSetBuilder, Transaction} from "@codemirror/state";
 import {EditorView, keymap, drawSelection, highlightActiveLine, Decoration, type DecorationSet, WidgetType} from "@codemirror/view";
 import {defaultKeymap, indentWithTab, history, historyKeymap} from "@codemirror/commands";
 import {markdown} from "@codemirror/lang-markdown";
@@ -75,6 +75,8 @@ const setQueryBlocksEffect = StateEffect.define<Map<string, string>>();
 const setTasksEffect = StateEffect.define<Map<number, EditorTaskState>>();
 const setPagePathEffect = StateEffect.define<string>();
 const setHighlightedLineEffect = StateEffect.define<number | null>();
+const editableCompartment = new Compartment();
+const readOnlyCompartment = new Compartment();
 const taskInlineDatePattern = /\[(due|remind):\s*[^\]]+?\]|\b(due|remind)::\s*[^\s]+(?:\s+\d{2}:\d{2})?/g;
 
 const codeLanguages = [
@@ -1446,6 +1448,8 @@ window.NoteriousCodeEditor = {
       state: EditorState.create({
         doc: textarea.value || "",
         extensions: [
+          editableCompartment.of(EditorView.editable.of(true)),
+          readOnlyCompartment.of(EditorState.readOnly.of(false)),
           history(),
           drawSelection(),
           highlightActiveLine(),
@@ -1614,6 +1618,16 @@ window.NoteriousCodeEditor = {
         setDateTimeDisplayFormat(normalizeDateTimeDisplayFormat(format));
         view.dispatch({
           effects: setTasksEffect.of(new Map(view.state.field(tasksField))),
+        });
+      },
+      setEditable(enabled: boolean) {
+        const editable = Boolean(enabled);
+        host.classList.toggle("is-readonly", !editable);
+        view.dispatch({
+          effects: [
+            editableCompartment.reconfigure(EditorView.editable.of(editable)),
+            readOnlyCompartment.reconfigure(EditorState.readOnly.of(!editable)),
+          ],
         });
       },
       setQueryBlocks(blocks: QueryBlockRender[]) {

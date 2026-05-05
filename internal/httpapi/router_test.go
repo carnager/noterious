@@ -769,7 +769,7 @@ func TestUIServesStaticAssets(t *testing.T) {
 	if got := recorder.Header().Get("Cache-Control"); got != "no-store, max-age=0" {
 		t.Fatalf("Cache-Control = %q", got)
 	}
-	if !strings.Contains(recorder.Body.String(), "connectEvents") || !strings.Contains(recorder.Body.String(), "runQueryWorkbench") {
+	if !strings.Contains(recorder.Body.String(), "connectEvents") || !strings.Contains(recorder.Body.String(), "loadSystemHelpMarkdown") {
 		t.Fatalf("body = %s", recorder.Body.String())
 	}
 }
@@ -790,6 +790,7 @@ func TestUIServesPWAFilesAtRoot(t *testing.T) {
 	}{
 		{path: "/manifest.webmanifest", contentType: "application/manifest+json", contains: "\"start_url\": \"/\""},
 		{path: "/sw.js", contentType: "application/javascript", contains: "CACHE_NAME"},
+		{path: "/help.md", contentType: "text/markdown", contains: "# Noterious Help"},
 	} {
 		request := httptest.NewRequest(http.MethodGet, tc.path, nil)
 		recorder := httptest.NewRecorder()

@@ -1,6 +1,7 @@
-const CACHE_NAME = "noterious-shell-v3";
+const CACHE_NAME = "noterious-shell-v4";
 const SHELL_URLS = [
   "/",
+  "/help.md",
   "/manifest.webmanifest",
   "/assets/app.css",
   "/assets/app.js",
@@ -54,6 +55,7 @@ self.addEventListener("fetch", function (event) {
 
   const networkFirstPaths = new Set([
     "/",
+    "/help.md",
     "/manifest.webmanifest",
     "/assets/app.css",
     "/assets/app.js",

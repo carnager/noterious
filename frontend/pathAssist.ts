@@ -229,7 +229,11 @@ export function buildPathDialogAssist(options: BuildPathDialogAssistOptions): Pa
     error = "A folder cannot be moved into itself.";
   } else if (pages.has(targetPath.toLowerCase()) && !(action === "rename" && kind === "note" && samePath(targetPath, normalizedSource))) {
     error = 'A note already exists at "' + targetPath + '".';
-  } else if (folders.has(targetPath.toLowerCase()) && !(action === "rename" && kind === "folder" && samePath(targetPath, normalizedSource))) {
+  } else if (
+    kind === "folder"
+    && folders.has(targetPath.toLowerCase())
+    && !(action === "rename" && samePath(targetPath, normalizedSource))
+  ) {
     error = 'A folder already exists at "' + targetPath + '".';
   }
 
@@ -247,6 +251,9 @@ export function buildPathDialogAssist(options: BuildPathDialogAssistOptions): Pa
         helper += " This will move it out of the current scope.";
         helperTone = "warn";
       }
+    }
+    if (kind === "note" && folders.has(targetPath.toLowerCase())) {
+      helper += " A folder with the same name already exists, but notes and folders can coexist here.";
     }
   }
 
