@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.23] - 2026-05-07
+
+### Added
+- Browser notifications can now surface recent task and note reminders directly in the web client, with persisted sent-state tracking to avoid duplicate local alerts.
+- Document move/rename flows now include page-relative path assistance and can rewrite affected markdown document links automatically when files move.
+- The rendered editor now has a mounted UI regression harness that exercises real cursor movement across tasks, tables, code fences, hidden prefixes, and render/raw transitions.
+
+### Changed
+- ntfy reminders now default to the Noterious Android deep link `noterious://open?page=...` when no explicit `[click: ...]` or `*_click` override is present.
+- The Files rail now hides document entries by default, and the tag filter section starts collapsed behind an explicit disclosure toggle.
+- Inline markdown rendering now runs through a shared parser-backed path for the web preview and editor render mode instead of separate regex-only handling.
+
+### Fixed
+- The daily note hotkey now opens an existing daily note instead of overwriting it when the page already exists.
+- Rendered editor navigation no longer jumps unexpectedly around tasks, tables, code blocks, hidden prefixes, or selection-extending moves such as `Shift+Up`, and `Home`/`End` now behave consistently in render mode.
+- Markdown rendering now covers more real-world content correctly, including reference links, bare URLs, nested blockquotes and lists, allowed inline HTML, simple HTML blocks, and inline/block math styling.
+- Tag-filtered page trees now hide folders that do not contain any visible matching notes.
+
 ## [v0.1.22] - 2026-05-05
 
 ### Added
