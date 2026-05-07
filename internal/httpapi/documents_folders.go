@@ -1,13 +1,19 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"mime"
 	"net/http"
+	"os"
 	"path"
 	"strings"
 
 	"github.com/carnager/noterious/internal/documents"
+	"github.com/carnager/noterious/internal/markdown"
+	"github.com/carnager/noterious/internal/query"
+	"github.com/carnager/noterious/internal/vault"
 )
 
 type documentResponse struct {
@@ -27,6 +33,18 @@ type documentsResponse struct {
 	Documents []documentResponse `json:"documents"`
 	Count     int                `json:"count"`
 	Query     string             `json:"query"`
+}
+
+type movedDocumentResponse struct {
+	Document   documentResponse `json:"document"`
+	SourcePath string           `json:"sourcePath"`
+	TargetPath string           `json:"targetPath"`
+	RewrittenPages []string     `json:"rewrittenPages,omitempty"`
+}
+
+type deletedDocumentResponse struct {
+	OK   bool   `json:"ok"`
+	Path string `json:"path"`
 }
 
 type movedFolderResponse struct {
@@ -56,6 +74,12 @@ func mountDocumentAndFolderEndpoints(mux *http.ServeMux, deps Dependencies) {
 	})
 	mux.HandleFunc("POST /api/documents", func(w http.ResponseWriter, r *http.Request) {
 		handleDocumentsRequest(w, r, deps)
+	})
+	mux.HandleFunc("POST /api/documents/move/{documentPath...}", func(w http.ResponseWriter, r *http.Request) {
+		handleDocumentMoveRequest(w, r, deps)
+	})
+	mux.HandleFunc("DELETE /api/documents/{documentPath...}", func(w http.ResponseWriter, r *http.Request) {
+		handleDocumentDeleteRequest(w, r, deps)
 	})
 	mux.HandleFunc("GET /api/folders", func(w http.ResponseWriter, r *http.Request) {
 		handleFolderListRequest(w, r, deps)
@@ -178,6 +202,81 @@ func handleDocumentsRequest(w http.ResponseWriter, r *http.Request, deps Depende
 		return
 	}
 	writeJSON(w, http.StatusCreated, mapDocument(document, documentService, documents.Usage{}, false))
+}
+
+func handleDocumentMoveRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
+	documentService, err := currentDocuments(r.Context(), deps)
+	if err != nil {
+		http.Error(w, "document service unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	documentPath := strings.Trim(strings.TrimSpace(r.PathValue("documentPath")), "/")
+	if documentPath == "" {
+		http.Error(w, "document path is required", http.StatusBadRequest)
+		return
+	}
+
+	var request struct {
+		TargetPath string `json:"targetPath"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(request.TargetPath) == "" {
+		http.Error(w, "targetPath is required", http.StatusBadRequest)
+		return
+	}
+
+	moved, err := documentService.Move(documentPath, request.TargetPath)
+	if err != nil {
+		http.Error(w, err.Error(), statusForDocumentMutationError(err))
+		return
+	}
+	rewrittenPages, err := rewriteMovedDocumentLinks(r.Context(), deps, currentVault(r.Context(), deps), documentPath, moved.Path)
+	if err != nil {
+		http.Error(w, "failed to rewrite links to moved file", http.StatusInternalServerError)
+		return
+	}
+	for _, rewrittenPage := range rewrittenPages {
+		PublishInvalidationEvents(r.Context(), deps.Events, deps.Index, deps.Query, rewrittenPage.path, []query.PageChange{{
+			Before: rewrittenPage.before.summary,
+			After:  rewrittenPage.after.summary,
+		}}, query.DiffTaskChanges(rewrittenPage.before.tasks, rewrittenPage.after.tasks))
+	}
+	rewrittenPagePaths := make([]string, 0, len(rewrittenPages))
+	for _, rewrittenPage := range rewrittenPages {
+		rewrittenPagePaths = append(rewrittenPagePaths, rewrittenPage.path)
+	}
+	writeJSON(w, http.StatusOK, movedDocumentResponse{
+		Document:   mapDocument(moved, documentService, documents.Usage{}, false),
+		SourcePath: documentPath,
+		TargetPath: moved.Path,
+		RewrittenPages: rewrittenPagePaths,
+	})
+}
+
+func handleDocumentDeleteRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
+	documentService, err := currentDocuments(r.Context(), deps)
+	if err != nil {
+		http.Error(w, "document service unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	documentPath := strings.Trim(strings.TrimSpace(r.PathValue("documentPath")), "/")
+	if documentPath == "" {
+		http.Error(w, "document path is required", http.StatusBadRequest)
+		return
+	}
+	if err := documentService.Delete(documentPath); err != nil {
+		http.Error(w, err.Error(), statusForDocumentMutationError(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, deletedDocumentResponse{
+		OK:   true,
+		Path: documentPath,
+	})
 }
 
 func handleFolderRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
@@ -359,4 +458,63 @@ func mapDocuments(items []documents.Document, service *documents.Service, usage 
 func wantsDocumentUsage(r *http.Request) bool {
 	value := strings.TrimSpace(r.URL.Query().Get("withUsage"))
 	return value == "1" || strings.EqualFold(value, "true")
+}
+
+func statusForDocumentMutationError(err error) int {
+	switch {
+	case err == nil:
+		return http.StatusOK
+	case errors.Is(err, documents.ErrDocumentPathConflict):
+		return http.StatusConflict
+	case errors.Is(err, documents.ErrInvalidDocumentPath), errors.Is(err, documents.ErrInvalidTargetDocumentPath):
+		return http.StatusBadRequest
+	case errors.Is(err, os.ErrNotExist):
+		return http.StatusNotFound
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func rewriteMovedDocumentLinks(ctx context.Context, deps Dependencies, vaultService *vault.Service, fromDocument string, toDocument string) ([]rewrittenPageState, error) {
+	pages, err := vaultService.ScanMarkdownPages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rewritten := make([]rewrittenPageState, 0)
+	for _, page := range pages {
+		raw, err := vaultService.ReadPage(page.Path)
+		if err != nil {
+			return nil, err
+		}
+		nextRaw, changed := markdown.RewriteDocumentLinks(string(raw), page.Path, fromDocument, toDocument)
+		if !changed {
+			continue
+		}
+		before, err := loadIndexedPageState(ctx, deps.Index, page.Path)
+		if err != nil {
+			return nil, err
+		}
+		if err := vaultService.WritePage(page.Path, []byte(nextRaw)); err != nil {
+			return nil, err
+		}
+		acknowledgePageChanges(ctx, deps, page.Path)
+		if deps.History != nil {
+			if _, err := deps.History.SaveRevision(page.Path, []byte(nextRaw)); err != nil {
+				return nil, err
+			}
+		}
+		if err := refreshPageDerivedState(ctx, deps, vaultService, page.Path); err != nil {
+			return nil, err
+		}
+		after, err := loadIndexedPageState(ctx, deps.Index, page.Path)
+		if err != nil {
+			return nil, err
+		}
+		rewritten = append(rewritten, rewrittenPageState{
+			path:   page.Path,
+			before: before,
+			after:  after,
+		})
+	}
+	return rewritten, nil
 }

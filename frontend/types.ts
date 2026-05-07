@@ -43,6 +43,7 @@ export interface TaskRecord {
   done: boolean;
   due?: string;
   remind?: string;
+  click?: string;
   who?: string[];
 }
 
@@ -293,6 +294,7 @@ export interface Preferences {
   hotkeys: Hotkeys;
   ui: UISettings;
   vaults: VaultPreferences;
+  notifications: NotificationPreferences;
   templates: NoteTemplate[];
 }
 
@@ -355,6 +357,10 @@ export interface VaultPreferences {
   topLevelFoldersAsVaults: boolean;
   rootHomePage: string;
   scopeHomePages: Record<string, string>;
+}
+
+export interface NotificationPreferences {
+  browserEnabled: boolean;
 }
 
 export interface VaultSettings {

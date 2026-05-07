@@ -1,4 +1,5 @@
 import { normalizePageDraftPath, pageTitleFromPath } from "./commands";
+import { HTTPError } from "./http";
 import type { PageSummary } from "./types";
 
 export interface PageOperationsContext {
@@ -28,6 +29,29 @@ export interface PageOperationsCallbacks {
 
 export interface CreatePageOptions {
   rawMarkdown?: string;
+}
+
+const createOnlyPageHeaderName = "X-Noterious-Create-Only";
+
+async function openExistingPageIfPresent(
+  pagePath: string,
+  callbacks: Pick<PageOperationsCallbacks, "encodePath" | "fetchJSON" | "navigateToPage">,
+): Promise<boolean> {
+  const normalized = normalizePageDraftPath(pagePath);
+  if (!normalized) {
+    return false;
+  }
+
+  try {
+    await callbacks.fetchJSON<unknown>("/api/pages/" + callbacks.encodePath(normalized));
+    callbacks.navigateToPage(normalized, false);
+    return true;
+  } catch (error) {
+    if (error instanceof HTTPError && error.status === 404) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function remapPathPrefix(value: string, fromPrefix: string, toPrefix: string): string {
@@ -69,16 +93,31 @@ export async function createPage(
     return;
   }
 
+  if (await openExistingPageIfPresent(normalized, callbacks)) {
+    return;
+  }
+
   const leaf = pageTitleFromPath(normalized);
   const initialMarkdown = typeof options?.rawMarkdown === "string"
     ? options.rawMarkdown
     : (leaf ? "# " + leaf + "\n" : "");
 
-  await callbacks.fetchJSON<unknown>("/api/pages/" + callbacks.encodePath(normalized), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rawMarkdown: initialMarkdown }),
-  });
+  try {
+    await callbacks.fetchJSON<unknown>("/api/pages/" + callbacks.encodePath(normalized), {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        [createOnlyPageHeaderName]: "true",
+      },
+      body: JSON.stringify({ rawMarkdown: initialMarkdown }),
+    });
+  } catch (error) {
+    if (error instanceof HTTPError && error.status === 409) {
+      callbacks.navigateToPage(normalized, false);
+      return;
+    }
+    throw error;
+  }
 
   await callbacks.loadPages();
   callbacks.navigateToPage(normalized, false);

@@ -157,16 +157,24 @@
               </div>
             </div>
             <label class="search rail-search hidden" id="page-search-shell">
-              <span>Search pages</span>
+              <span>Search notes and files</span>
               <input id="page-search" type="text" placeholder="daily, project, alpha" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
             </label>
+            <div class="rail-chip-filters" id="file-tree-filters">
+              <button type="button" class="rail-chip-filter active" id="file-tree-filter-pages" aria-pressed="true">Notes</button>
+              <button type="button" class="rail-chip-filter" id="file-tree-filter-documents" aria-pressed="false">Files</button>
+              <button type="button" class="rail-chip-filter" id="file-tree-filter-templates" aria-pressed="false">Templates</button>
+            </div>
             <div class="list" id="page-list"></div>
-            <section class="rail-tags-panel">
+            <section class="rail-tags-panel collapsed" id="rail-tags-panel">
               <div class="rail-tags-head">
-                <strong>Tags</strong>
-                <span>Filter the tree</span>
+                <div class="rail-tags-copy">
+                  <strong>Tags</strong>
+                  <span>Filter the tree</span>
+                </div>
+                <button type="button" class="rail-tags-toggle" id="toggle-page-tags" aria-expanded="false" aria-controls="page-tags" title="Expand tag filters">Show</button>
               </div>
-              <div class="tag-list tag-filter-list" id="page-tags">
+              <div class="tag-list tag-filter-list hidden" id="page-tags">
                 <div class="empty">No indexed tags in this scope.</div>
               </div>
             </section>
@@ -670,15 +678,32 @@
               <h3>Notifications</h3>
             </div>
             <div class="settings-form-stack settings-group-fields">
-              <p class="settings-section-intro">These credentials belong to your user account and are used for personal ntfy delivery.</p>
-              <label class="search modal-field-wide">
-                <span>ntfy Topic URL</span>
-                <input id="settings-user-ntfy-topic-url" type="text" placeholder="https://ntfy.sh/your-topic" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-              </label>
-              <label class="search">
-                <span>ntfy Token</span>
-                <input id="settings-user-ntfy-token" type="password" placeholder="Optional bearer token" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-              </label>
+              <p class="settings-section-intro">Mix browser-local notification permission with your personal ntfy delivery settings.</p>
+              <div class="settings-subsection">
+                <div class="settings-subsection-head">
+                  <strong>Browser</strong>
+                  <span>Local to this browser only while Noterious is open here. Enabling the toggle asks the browser for permission.</span>
+                </div>
+                <label class="settings-toggle-row">
+                  <input id="settings-browser-notifications" type="checkbox">
+                  <span>Enable browser notifications</span>
+                </label>
+                <p class="settings-theme-help modal-field-wide" id="settings-browser-notifications-status">Permission not granted yet.</p>
+              </div>
+              <div class="settings-subsection">
+                <div class="settings-subsection-head">
+                  <strong>ntfy</strong>
+                  <span>These credentials belong to your user account and are used for personal ntfy delivery.</span>
+                </div>
+                <label class="search modal-field-wide">
+                  <span>ntfy Topic URL</span>
+                  <input id="settings-user-ntfy-topic-url" type="text" placeholder="https://ntfy.sh/your-topic" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                </label>
+                <label class="search">
+                  <span>ntfy Token</span>
+                  <input id="settings-user-ntfy-token" type="password" placeholder="Optional bearer token" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                </label>
+              </div>
             </div>
           </section>
 

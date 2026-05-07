@@ -2,6 +2,7 @@ package documents
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,6 +100,80 @@ func TestCreateSupportsVaultRootAndNoteSubfolderPlacements(t *testing.T) {
 	}
 	if subfolderDocument.Path != "notes/_files/nested.pdf" {
 		t.Fatalf("note-subfolder document path = %q", subfolderDocument.Path)
+	}
+}
+
+func TestMoveRenamesAndMovesDocument(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	document, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "Meeting Notes.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	moved, err := service.Move(document.Path, "archive/Quarterly Report")
+	if err != nil {
+		t.Fatalf("Move() error = %v", err)
+	}
+	if moved.Path != "archive/quarterly-report.pdf" {
+		t.Fatalf("moved path = %q", moved.Path)
+	}
+	if moved.Name != "quarterly-report.pdf" {
+		t.Fatalf("moved name = %q", moved.Name)
+	}
+	if _, _, err := service.Get(document.Path); err == nil {
+		t.Fatalf("source document should no longer exist after move")
+	}
+	if _, _, err := service.Get(moved.Path); err != nil {
+		t.Fatalf("Get(moved) error = %v", err)
+	}
+}
+
+func TestMoveRejectsConflictingDocumentPath(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	document, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "source.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	if err != nil {
+		t.Fatalf("Create(source) error = %v", err)
+	}
+	if _, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "target.pdf", "application/pdf", strings.NewReader("%PDF-1.7")); err != nil {
+		t.Fatalf("Create(target) error = %v", err)
+	}
+
+	_, err = service.Move(document.Path, "notes/target.pdf")
+	if err == nil || !errors.Is(err, ErrDocumentPathConflict) {
+		t.Fatalf("Move() error = %v", err)
+	}
+}
+
+func TestDeleteRemovesDocument(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	document, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "report.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if err := service.Delete(document.Path); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if _, _, err := service.Get(document.Path); err == nil {
+		t.Fatalf("document should no longer exist after delete")
 	}
 }
 

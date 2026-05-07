@@ -744,6 +744,34 @@ button.tag-chip:focus-visible {
   border-radius: 8px;
 }
 
+.rail-chip-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.rail-chip-filter {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.26rem 0.72rem;
+  font: inherit;
+  font-size: 0.76rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.rail-chip-filter.active,
+.rail-chip-filter:hover,
+.rail-chip-filter:focus-visible {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 40%, var(--surface));
+  outline: none;
+}
+
 .rail-tags-panel {
   flex: 0 0 auto;
   display: flex;
@@ -756,9 +784,16 @@ button.tag-chip:focus-visible {
 
 .rail-tags-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
+}
+
+.rail-tags-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 0;
 }
 
 .rail-tags-head strong {
@@ -770,6 +805,33 @@ button.tag-chip:focus-visible {
 .rail-tags-head span {
   font-size: 0.66rem;
   color: var(--muted);
+}
+
+.rail-tags-toggle {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.18rem 0.62rem;
+  font: inherit;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.rail-tags-toggle:hover,
+.rail-tags-toggle:focus-visible,
+.rail-tags-toggle[aria-expanded="true"] {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 40%, var(--surface));
+  outline: none;
+}
+
+.rail-tags-panel.collapsed {
+  gap: 0;
 }
 
 .tag-filter-list {
@@ -872,6 +934,11 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 .page-tree-toggle:hover,
 .page-tree-page:hover {
   background: rgba(122, 162, 247, 0.08);
+}
+
+.page-tree-document .page-tree-icon {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .page-tree-toggle {
@@ -1951,6 +2018,39 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   object-fit: contain;
 }
 
+.markdown-inline-sub {
+  font-size: 0.8em;
+}
+
+.markdown-inline-sup {
+  font-size: 0.8em;
+}
+
+.markdown-inline-kbd {
+  display: inline-block;
+  padding: 0.08em 0.38em;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-soft) 82%, transparent);
+  font-family: var(--code-font-family);
+  font-size: 0.86em;
+  line-height: 1.1;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--overlay) 92%, transparent);
+}
+
+.markdown-inline-mark {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: inherit;
+  padding: 0.02em 0.18em;
+  border-radius: 4px;
+}
+
+.markdown-inline-math {
+  font-family: var(--code-font-family);
+  font-style: italic;
+  color: color-mix(in srgb, var(--accent) 86%, var(--ink));
+}
+
 
 .context-list {
   display: flex;
@@ -2355,12 +2455,137 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 }
 
 .markdown-editor-host.render-mode .cm-md-quote {
-  margin-left: 0.55rem;
-  padding-left: 1.55rem !important;
   color: var(--muted);
   font-style: italic;
-  border-left: 2px solid var(--line-strong);
   box-shadow: none;
+}
+
+.markdown-editor-host.render-mode .cm-md-quote-prefix {
+  --quote-prefix-width: 1.24rem;
+  --quote-stride-width: 1.24rem;
+  display: inline-block;
+  width: var(--quote-prefix-width);
+  min-height: 1.3em;
+  margin-right: 0.46rem;
+  vertical-align: -0.12em;
+  background-image: repeating-linear-gradient(
+    to right,
+    color-mix(in srgb, var(--line-strong) 88%, var(--surface)) 0 2px,
+    transparent 2px var(--quote-stride-width)
+  );
+  background-repeat: repeat-x;
+  background-size: var(--quote-stride-width) 100%;
+  opacity: 0.88;
+}
+
+.markdown-editor-host.render-mode .cm-md-list-marker {
+  --list-prefix-width: 1.3rem;
+  --list-indent-width: 0rem;
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  box-sizing: border-box;
+  min-width: var(--list-prefix-width);
+  padding-left: var(--list-indent-width);
+  color: color-mix(in srgb, var(--muted) 82%, var(--ink));
+  vertical-align: baseline;
+}
+
+.markdown-editor-host.render-mode .cm-md-list-marker-ordered {
+  font-variant-numeric: tabular-nums;
+}
+
+.markdown-editor-host.render-mode .cm-md-list-raw {
+  color: var(--muted);
+  opacity: 0.9;
+}
+
+.markdown-editor-host.render-mode .cm-md-html-raw,
+.markdown-editor-host.render-mode .cm-md-math-raw {
+  color: color-mix(in srgb, var(--accent) 72%, var(--muted));
+}
+
+.markdown-editor-host.render-mode .cm-md-html-sub {
+  font-size: 0.8em;
+  vertical-align: sub;
+}
+
+.markdown-editor-host.render-mode .cm-md-html-sup {
+  font-size: 0.8em;
+  vertical-align: super;
+}
+
+.markdown-editor-host.render-mode .cm-md-html-kbd {
+  display: inline-block;
+  padding: 0.08em 0.38em;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-soft) 82%, transparent);
+  font-family: var(--code-font-family);
+  font-size: 0.86em;
+  line-height: 1.1;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--overlay) 92%, transparent);
+}
+
+.markdown-editor-host.render-mode .cm-md-html-mark {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: inherit;
+  padding: 0.02em 0.18em;
+  border-radius: 4px;
+}
+
+.markdown-editor-host.render-mode .cm-md-math-inline {
+  font-family: var(--code-font-family);
+  font-style: italic;
+  color: color-mix(in srgb, var(--accent) 86%, var(--ink));
+}
+
+.markdown-editor-host.render-mode .cm-md-html-line {
+  color: color-mix(in srgb, var(--ink) 88%, var(--muted));
+}
+
+.markdown-editor-host.render-mode .cm-md-html-summary {
+  font-weight: 600;
+}
+
+.markdown-editor-host.render-mode .cm-md-html-summary-marker {
+  display: inline-block;
+  margin-right: 0.42rem;
+  color: var(--muted);
+}
+
+.markdown-editor-host.render-mode .cm-md-html-dt {
+  font-weight: 600;
+}
+
+.markdown-editor-host.render-mode .cm-md-html-dd {
+  padding-left: 1.4rem !important;
+  color: color-mix(in srgb, var(--ink) 82%, var(--muted));
+}
+
+.markdown-editor-host.render-mode .cm-md-math-block-fence {
+  min-height: 0.28rem;
+  padding: 0 !important;
+}
+
+.markdown-editor-host.render-mode .cm-md-math-block-body {
+  padding: 0.02rem 0.88rem !important;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 30%, var(--line-strong));
+  color: color-mix(in srgb, var(--accent) 78%, var(--ink));
+  font-family: var(--code-font-family);
+  font-style: italic;
+}
+
+.markdown-editor-host.render-mode .cm-md-rule-line {
+  padding-top: 0.26rem !important;
+  padding-bottom: 0.34rem !important;
+}
+
+.markdown-editor-host.render-mode .cm-md-rule {
+  display: block;
+  width: 100%;
+  height: 0;
+  border-top: 1px solid color-mix(in srgb, var(--line-strong) 88%, var(--surface));
 }
 
 .markdown-editor-host.render-mode .cm-line.cm-md-code-block {
@@ -2416,6 +2641,12 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   font-family: var(--code-font-family);
 }
 
+.markdown-editor-host.render-mode .cm-md-code-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+}
+
 .markdown-editor-host.render-mode .cm-md-code-language {
   min-width: 0;
   color: var(--muted);
@@ -2427,7 +2658,8 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   text-overflow: ellipsis;
 }
 
-.markdown-editor-host.render-mode .cm-md-code-copy {
+.markdown-editor-host.render-mode .cm-md-code-copy,
+.markdown-editor-host.render-mode .cm-md-code-toggle {
   flex: 0 0 auto;
   border-radius: 7px;
   border: 1px solid var(--line);
@@ -2440,11 +2672,36 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 }
 
 .markdown-editor-host.render-mode .cm-md-code-copy:hover,
-.markdown-editor-host.render-mode .cm-md-code-copy:focus-visible {
+.markdown-editor-host.render-mode .cm-md-code-copy:focus-visible,
+.markdown-editor-host.render-mode .cm-md-code-toggle:hover,
+.markdown-editor-host.render-mode .cm-md-code-toggle:focus-visible {
   border-color: var(--line-strong);
   background: var(--accent-soft);
   color: var(--accent);
   outline: none;
+}
+
+.markdown-editor-host.render-mode .cm-md-code-block-hidden {
+  display: none;
+}
+
+.markdown-editor-host.render-mode .cm-md-code-block-truncated {
+  position: relative;
+}
+
+.markdown-editor-host.render-mode .cm-md-code-block-truncated::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1.9rem;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--editor-overlay) 0%, transparent),
+    color-mix(in srgb, var(--editor-overlay) 92%, var(--surface-soft)) 92%
+  );
 }
 
 .markdown-editor-host.render-mode .cm-md-link {

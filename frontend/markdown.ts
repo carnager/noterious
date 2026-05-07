@@ -1,5 +1,14 @@
 import { documentDownloadURL, documentPathLeaf, inlineDocumentURL, isImagePath, resolveDocumentPath } from "./documents";
 import { pageTitleFromPath } from "./commands";
+import {
+  findMarkdownInlineSpecialSpans,
+  markdownResolvedLinkInfo,
+  parseInlineMarkdownTree,
+  visibleTextFromChildren,
+  type MarkdownInlineNode,
+  type MarkdownReferenceDefinition,
+  type MarkdownInlineSpecialSpan,
+} from "./markdownInline";
 import type {
   FrontmatterMap,
   FrontmatterScalar,
@@ -47,6 +56,13 @@ export interface MarkdownCodeFenceBlock {
 
 export interface RenderInlineOptions {
   currentPagePath?: string | null;
+  referenceDefinitions?: Map<string, MarkdownReferenceDefinition> | null;
+}
+
+interface InlineMathSpan {
+  from: number;
+  to: number;
+  content: string;
 }
 
 function escapePattern(value: string): string {
@@ -336,7 +352,7 @@ function looksLikeMarkdownTableRow(line: string): boolean {
   return source.indexOf("|") >= 0 && splitMarkdownTableRow(source).length >= 2;
 }
 
-export function markdownTableBlockAt(lines: string[], startLineIndex: number): MarkdownTableBlock | null {
+export function markdownTableBlockAt(lines: string[], startLineIndex: number, options?: RenderInlineOptions): MarkdownTableBlock | null {
   if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex + 1 >= lines.length) {
     return null;
   }
@@ -379,7 +395,7 @@ export function markdownTableBlockAt(lines: string[], startLineIndex: number): M
   const renderCell = function (cell: string, rowIndex: number, index: number, tag: "th" | "td"): string {
     const alignment = alignments[index] || "left";
     return "<" + tag + ' class="markdown-table-cell" style="text-align:' + alignment + ';" data-table-cell="true" data-table-start-line="' + String(startLineIndex + 1) + '" data-table-row="' + String(rowIndex) + '" data-table-col="' + String(index) + '">' +
-      renderInline(cell) +
+      renderInline(cell, options) +
       "</" + tag + ">";
   };
 
@@ -476,8 +492,47 @@ function resolveInlineDocumentTarget(target: string, options?: RenderInlineOptio
   return resolveDocumentPath(options && options.currentPagePath ? String(options.currentPagePath) : "", text);
 }
 
-function renderDocumentAnchor(href: string, label: string): string {
-  return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+function findInlineMathSpans(source: string): InlineMathSpan[] {
+  const text = String(source || "");
+  const spans: InlineMathSpan[] = [];
+  let index = 0;
+
+  while (index < text.length) {
+    if (text[index] !== "$" || text[index + 1] === "$" || (index > 0 && text[index - 1] === "\\")) {
+      index += 1;
+      continue;
+    }
+
+    let end = index + 1;
+    while (end < text.length) {
+      if (text[end] === "$" && text[end - 1] !== "\\") {
+        break;
+      }
+      end += 1;
+    }
+    if (end >= text.length || text[end] !== "$") {
+      break;
+    }
+
+    const content = text.slice(index + 1, end);
+    if (!content || /^\s|\s$/.test(content)) {
+      index = end + 1;
+      continue;
+    }
+
+    spans.push({
+      from: index,
+      to: end + 1,
+      content,
+    });
+    index = end + 1;
+  }
+
+  return spans;
+}
+
+function renderDocumentAnchor(href: string, labelHTML: string): string {
+  return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
 }
 
 function renderImageAnchor(href: string, src: string, alt: string): string {
@@ -506,85 +561,320 @@ function shouldRenderMarkdownLinkAsImage(label: string, target: string): boolean
   return trimmedLabel === documentPathLeaf(target);
 }
 
-export function renderInline(value: string, options?: RenderInlineOptions): string {
-  const source = String(value || "");
-  const inlinePattern = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|!\[([^\]]*)\]\(([^)\s]+)\)|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
-  let result = "";
-  let cursor = 0;
-  let match: RegExpExecArray | null = null;
+function renderExternalAnchor(href: string, labelHTML: string): string {
+  return '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
+}
 
-  while ((match = inlinePattern.exec(source)) !== null) {
-    result += escapeHTML(source.slice(cursor, match.index));
+function renderWikiButton(target: string, labelHTML: string): string {
+  return '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + labelHTML + "</button>";
+}
 
-    if (match[1] !== undefined) {
-      const target = String(match[1] || "").trim();
-      const label = embeddedWikiLabel(target, String(match[2] || ""));
-      const resolvedPath = resolveInlineDocumentTarget(target, options);
-      const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
-      if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath)) {
-        if (isImagePath(resolvedPath)) {
-          const href = inlineDocumentURL(resolvedPath);
-          result += renderImageAnchor(href, href, label || documentPathLeaf(resolvedPath) || "image");
-        } else {
-          result += renderDocumentAnchor(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath));
-        }
-      } else {
-        result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
-      }
-    } else if (match[3] !== undefined) {
-      const alt = String(match[3] || "").trim();
-      const target = String(match[4] || "").trim();
-      if (/^[a-z]+:/i.test(target)) {
-        result += renderImageAnchor(target, target, alt || documentPathLeaf(target) || "image");
-      } else {
-        const resolvedPath = resolveInlineDocumentTarget(target, options);
-        if (resolvedPath && !/\.md$/i.test(resolvedPath)) {
-          const href = inlineDocumentURL(resolvedPath);
-          result += renderImageAnchor(href, href, alt || documentPathLeaf(resolvedPath) || "image");
-        } else {
-          result += escapeHTML(match[0]);
-        }
-      }
-    } else if (match[5] !== undefined) {
-      const target = String(match[5] || "").trim();
-      const label = String(match[6] || match[5] || "").trim();
-      result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
-    } else if (match[7] !== undefined) {
-      const label = String(match[7] || "").trim();
-      const href = String(match[8] || "").trim();
-      if (/^[a-z]+:/i.test(href)) {
-        if (isImagePath(href) && shouldRenderMarkdownLinkAsImage(label, href)) {
-          result += renderImageAnchor(href, href, label || documentPathLeaf(href) || "image");
-        } else {
-          result += '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
-        }
-      } else {
-        const resolvedPath = resolveInlineDocumentTarget(href, options);
-        if (resolvedPath && !/\.md$/i.test(resolvedPath)) {
-          if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage(label, href)) {
-            const imageHref = inlineDocumentURL(resolvedPath);
-            result += renderImageAnchor(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image");
-          } else {
-            result += renderDocumentAnchor(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath));
-          }
-        } else {
-          result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(href) + '">' + escapeHTML(label) + "</button>";
-        }
-      }
-    } else if (match[9] !== undefined) {
-      result += "<code>" + escapeHTML(match[9]) + "</code>";
-    } else if (match[10] !== undefined || match[11] !== undefined) {
-      result += "<strong>" + escapeHTML(match[10] || match[11]) + "</strong>";
-    } else if (match[12] !== undefined || match[13] !== undefined) {
-      result += "<em>" + escapeHTML(match[12] || match[13]) + "</em>";
-    } else if (match[14] !== undefined) {
-      result += "<del>" + escapeHTML(match[14]) + "</del>";
-    }
+function renderInlineMathSpan(span: InlineMathSpan): string {
+  return '<span class="markdown-inline-math">' + escapeHTML(span.content) + "</span>";
+}
 
-    cursor = match.index + match[0].length;
+function renderPlainTextSegment(source: string): string {
+  const text = String(source || "");
+  const mathSpans = findInlineMathSpans(text);
+  if (!mathSpans.length) {
+    return escapeHTML(text);
   }
 
-  result += escapeHTML(source.slice(cursor));
+  let result = "";
+  let cursor = 0;
+  for (let index = 0; index < mathSpans.length; index += 1) {
+    const span = mathSpans[index];
+    if (cursor < span.from) {
+      result += escapeHTML(text.slice(cursor, span.from));
+    }
+    result += renderInlineMathSpan(span);
+    cursor = span.to;
+  }
+
+  if (cursor < text.length) {
+    result += escapeHTML(text.slice(cursor));
+  }
+
+  return result;
+}
+
+interface AllowedHtmlTagInfo {
+  tagName: "sub" | "sup" | "kbd" | "mark" | "br";
+  kind: "open" | "close" | "self";
+}
+
+function parseAllowedInlineHtmlTag(raw: string): AllowedHtmlTagInfo | null {
+  const text = String(raw || "").trim().toLowerCase();
+  if (/^<br\s*\/?>$/.test(text)) {
+    return {
+      tagName: "br",
+      kind: "self",
+    };
+  }
+
+  const match = text.match(/^<(\/?)(sub|sup|kbd|mark)>$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    tagName: match[2] as AllowedHtmlTagInfo["tagName"],
+    kind: match[1] ? "close" : "open",
+  };
+}
+
+function renderParsedInlineChildren(
+  node: MarkdownInlineNode,
+  source: string,
+  options: RenderInlineOptions | undefined,
+  rangeFrom: number,
+  rangeTo: number
+): string {
+  if (rangeTo <= rangeFrom) {
+    return "";
+  }
+
+  let result = "";
+  let cursor = rangeFrom;
+  for (let index = 0; index < node.children.length; index += 1) {
+    const child = node.children[index];
+    if (child.to <= rangeFrom || child.from >= rangeTo) {
+      continue;
+    }
+    if (cursor < child.from) {
+      result += renderPlainTextSegment(source.slice(cursor, Math.min(child.from, rangeTo)));
+    }
+
+    if (child.name === "HTMLTag") {
+      const tagInfo = parseAllowedInlineHtmlTag(source.slice(child.from, child.to));
+      if (tagInfo && tagInfo.kind === "self") {
+        result += "<br>";
+        cursor = child.to;
+        continue;
+      }
+
+      if (tagInfo && tagInfo.kind === "open") {
+        let depth = 1;
+        let closeNode: MarkdownInlineNode | null = null;
+        let closeIndex = index;
+        for (let scanIndex = index + 1; scanIndex < node.children.length; scanIndex += 1) {
+          const candidate = node.children[scanIndex];
+          if (candidate.to <= rangeFrom || candidate.from >= rangeTo || candidate.name !== "HTMLTag") {
+            continue;
+          }
+          const candidateInfo = parseAllowedInlineHtmlTag(source.slice(candidate.from, candidate.to));
+          if (!candidateInfo || candidateInfo.tagName !== tagInfo.tagName) {
+            continue;
+          }
+          if (candidateInfo.kind === "open") {
+            depth += 1;
+          } else if (candidateInfo.kind === "close") {
+            depth -= 1;
+            if (!depth) {
+              closeNode = candidate;
+              closeIndex = scanIndex;
+              break;
+            }
+          }
+        }
+
+        if (closeNode) {
+          const innerHTML = renderParsedInlineChildren(node, source, options, child.to, closeNode.from);
+          switch (tagInfo.tagName) {
+            case "sub":
+              result += '<sub class="markdown-inline-sub">' + innerHTML + "</sub>";
+              break;
+            case "sup":
+              result += '<sup class="markdown-inline-sup">' + innerHTML + "</sup>";
+              break;
+            case "kbd":
+              result += '<kbd class="markdown-inline-kbd">' + innerHTML + "</kbd>";
+              break;
+            case "mark":
+              result += '<mark class="markdown-inline-mark">' + innerHTML + "</mark>";
+              break;
+          }
+          cursor = closeNode.to;
+          index = closeIndex;
+          continue;
+        }
+      }
+
+      result += escapeHTML(source.slice(child.from, child.to));
+      cursor = child.to;
+      continue;
+    }
+
+    result += renderParsedInlineNode(child, source, options);
+    cursor = child.to;
+  }
+
+  if (cursor < rangeTo) {
+    result += renderPlainTextSegment(source.slice(cursor, rangeTo));
+  }
+
+  return result;
+}
+
+function renderParsedLinkNode(node: MarkdownInlineNode, source: string, options?: RenderInlineOptions): string {
+  const info = markdownResolvedLinkInfo(node, source, options && options.referenceDefinitions ? options.referenceDefinitions : null);
+  if (!info) {
+    return escapeHTML(source.slice(node.from, node.to));
+  }
+
+  const target = String(info.target || "").trim();
+  const labelHTML = renderParsedInlineChildren(node, source, options, info.labelFrom, info.labelTo);
+  const labelText = visibleTextFromChildren(node, source, info.labelFrom, info.labelTo).trim();
+
+  if (/^[a-z]+:/i.test(target)) {
+    if (isImagePath(target) && shouldRenderMarkdownLinkAsImage(labelText, target)) {
+      return renderImageAnchor(target, target, labelText || documentPathLeaf(target) || "image");
+    }
+    return renderExternalAnchor(target, labelHTML || escapeHTML(labelText || target));
+  }
+
+  const resolvedPath = resolveInlineDocumentTarget(target, options);
+  if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+    if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage(labelText, target)) {
+      const imageHref = inlineDocumentURL(resolvedPath);
+      return renderImageAnchor(imageHref, imageHref, labelText || documentPathLeaf(resolvedPath) || "image");
+    }
+    return renderDocumentAnchor(
+      documentDownloadURL(resolvedPath),
+      labelHTML || escapeHTML(labelText || documentPathLeaf(resolvedPath) || documentPathLeaf(target) || target)
+    );
+  }
+
+  return renderWikiButton(target, labelHTML || escapeHTML(labelText || pageTitleFromPath(target)));
+}
+
+function renderParsedImageNode(node: MarkdownInlineNode, source: string, options?: RenderInlineOptions): string {
+  const info = markdownResolvedLinkInfo(node, source, options && options.referenceDefinitions ? options.referenceDefinitions : null);
+  if (!info) {
+    return escapeHTML(source.slice(node.from, node.to));
+  }
+
+  const target = String(info.target || "").trim();
+  const alt = visibleTextFromChildren(node, source, info.labelFrom, info.labelTo).trim();
+
+  if (/^[a-z]+:/i.test(target)) {
+    return renderImageAnchor(target, target, alt || documentPathLeaf(target) || "image");
+  }
+
+  const resolvedPath = resolveInlineDocumentTarget(target, options);
+  if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+    const href = inlineDocumentURL(resolvedPath);
+    return renderImageAnchor(href, href, alt || documentPathLeaf(resolvedPath) || "image");
+  }
+
+  return escapeHTML(source.slice(node.from, node.to));
+}
+
+function renderParsedAutolinkNode(node: MarkdownInlineNode, source: string): string {
+  const urlNode = node.children.find(function (child) {
+    return child.name === "URL";
+  });
+  const href = String(urlNode ? source.slice(urlNode.from, urlNode.to) : source.slice(node.from, node.to)).trim();
+  if (!href) {
+    return escapeHTML(source.slice(node.from, node.to));
+  }
+  return renderExternalAnchor(href, escapeHTML(href));
+}
+
+function renderParsedInlineNode(node: MarkdownInlineNode, source: string, options?: RenderInlineOptions): string {
+  switch (node.name) {
+    case "Document":
+    case "Paragraph":
+      return renderParsedInlineChildren(node, source, options, node.from, node.to);
+    case "StrongEmphasis":
+      return "<strong>" + renderParsedInlineChildren(node, source, options, node.from, node.to) + "</strong>";
+    case "Emphasis":
+      return "<em>" + renderParsedInlineChildren(node, source, options, node.from, node.to) + "</em>";
+    case "Strikethrough":
+      return "<del>" + renderParsedInlineChildren(node, source, options, node.from, node.to) + "</del>";
+    case "InlineCode":
+      return "<code>" + renderParsedInlineChildren(node, source, options, node.from, node.to) + "</code>";
+    case "Link":
+      return renderParsedLinkNode(node, source, options);
+    case "Image":
+      return renderParsedImageNode(node, source, options);
+    case "Autolink":
+      return renderParsedAutolinkNode(node, source);
+    case "URL":
+      return renderExternalAnchor(source.slice(node.from, node.to), escapeHTML(source.slice(node.from, node.to)));
+    case "Escape":
+      return escapeHTML(source.slice(node.from + 1, node.to));
+    case "HTMLTag":
+      return escapeHTML(source.slice(node.from, node.to));
+    case "LinkMark":
+    case "EmphasisMark":
+    case "StrikethroughMark":
+    case "CodeMark":
+    case "HeaderMark":
+    case "QuoteMark":
+    case "ListMark":
+    case "TaskMarker":
+      return "";
+  }
+
+  if (node.children.length) {
+    return renderParsedInlineChildren(node, source, options, node.from, node.to);
+  }
+  return renderPlainTextSegment(source.slice(node.from, node.to));
+}
+
+function renderStandardInlineSegment(source: string, options?: RenderInlineOptions): string {
+  const text = String(source || "");
+  if (!text) {
+    return "";
+  }
+  const root = parseInlineMarkdownTree(text);
+  return renderParsedInlineNode(root, text, options);
+}
+
+function renderSpecialInlineSpan(span: MarkdownInlineSpecialSpan, options?: RenderInlineOptions): string {
+  const target = String(span.target || "").trim();
+  const label = String(span.label || "").trim();
+  const resolvedPath = resolveInlineDocumentTarget(target, options);
+  const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
+  const visibleLabel = label || embeddedWikiLabel(target, "");
+  const labelHTML = escapeHTML(visibleLabel);
+
+  if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+    if (isImagePath(resolvedPath)) {
+      const href = inlineDocumentURL(resolvedPath);
+      return renderImageAnchor(href, href, visibleLabel || documentPathLeaf(resolvedPath) || "image");
+    }
+    return renderDocumentAnchor(
+      documentDownloadURL(resolvedPath),
+      labelHTML || escapeHTML(documentPathLeaf(resolvedPath) || visibleLabel || target)
+    );
+  }
+
+  return renderWikiButton(target, labelHTML || escapeHTML(pageTitleFromPath(target)));
+}
+
+export function renderInline(value: string, options?: RenderInlineOptions): string {
+  const source = String(value || "");
+  const specialSpans = findMarkdownInlineSpecialSpans(source);
+  if (!specialSpans.length) {
+    return renderStandardInlineSegment(source, options);
+  }
+
+  let result = "";
+  let cursor = 0;
+  for (let index = 0; index < specialSpans.length; index += 1) {
+    const span = specialSpans[index];
+    if (cursor < span.from) {
+      result += renderStandardInlineSegment(source.slice(cursor, span.from), options);
+    }
+    result += renderSpecialInlineSpan(span, options);
+    cursor = span.to;
+  }
+
+  if (cursor < source.length) {
+    result += renderStandardInlineSegment(source.slice(cursor), options);
+  }
   return result;
 }
 

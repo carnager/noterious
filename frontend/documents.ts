@@ -116,6 +116,46 @@ export function resolveDocumentPath(currentPagePath: string, linkTarget: string)
   return resolved.join("/");
 }
 
+export function rewriteDocumentLinksInMarkdown(
+  rawMarkdown: string,
+  currentPagePath: string,
+  fromDocumentPath: string,
+  toDocumentPath: string,
+): { markdown: string; changed: boolean } {
+  const sourcePage = normalizePath(currentPagePath).replace(/\.md$/i, "");
+  const fromNormalized = normalizePath(fromDocumentPath);
+  const toNormalized = normalizePath(toDocumentPath);
+  if (!sourcePage || !fromNormalized || !toNormalized || fromNormalized === toNormalized) {
+    return { markdown: String(rawMarkdown || ""), changed: false };
+  }
+
+  let changed = false;
+  let rewritten = String(rawMarkdown || "").replace(/(!?)\[\[([^\]|#]+)(#[^\]|]+)?(\|[^\]]+)?\]\]/g, function (match, bang: string, target: string, anchor: string, label: string) {
+    const resolved = resolveDocumentPath(sourcePage, String(target || ""));
+    if (!resolved || resolved !== fromNormalized) {
+      return match;
+    }
+    changed = true;
+    const nextTarget = relativeDocumentPath(sourcePage, toNormalized);
+    return String(bang || "") + "[[" + nextTarget + String(anchor || "") + String(label || "") + "]]";
+  });
+
+  rewritten = rewritten.replace(/(!?)\[([^\]]*)\]\(([^)#]+?)(#[^)]+)?\)/g, function (match, bang: string, label: string, target: string, anchor: string) {
+    const resolved = resolveDocumentPath(sourcePage, String(target || ""));
+    if (!resolved || resolved !== fromNormalized) {
+      return match;
+    }
+    changed = true;
+    const nextTarget = relativeDocumentPath(sourcePage, toNormalized);
+    return String(bang || "") + "[" + String(label || "") + "](" + nextTarget + String(anchor || "") + ")";
+  });
+
+  return {
+    markdown: rewritten,
+    changed: changed,
+  };
+}
+
 function pathLeaf(path: string): string {
   const parts = normalizePath(path).split("/");
   return parts[parts.length - 1] || path;

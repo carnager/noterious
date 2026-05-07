@@ -2,6 +2,7 @@ package documents
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -33,6 +34,12 @@ const (
 	UploadPlacementSameFolder    = "same-folder"
 	UploadPlacementVaultRoot     = "vault-root"
 	UploadPlacementNoteSubfolder = "note-subfolder"
+)
+
+var (
+	ErrInvalidDocumentPath       = errors.New("invalid document path")
+	ErrInvalidTargetDocumentPath = errors.New("invalid target document path")
+	ErrDocumentPathConflict      = errors.New("document path already exists")
 )
 
 func NewService(rootPath string) (*Service, error) {
@@ -150,6 +157,55 @@ func (s *Service) Create(_ context.Context, pagePath string, uploadPlacement str
 		document.ContentType = detected
 	}
 	return document, nil
+}
+
+func (s *Service) Move(documentPath string, targetPath string) (Document, error) {
+	source, sourceFullPath, err := s.Get(documentPath)
+	if err != nil {
+		return Document{}, err
+	}
+
+	normalizedTargetPath, err := normalizeDocumentTargetPath(targetPath, source.Name)
+	if err != nil {
+		return Document{}, err
+	}
+	if normalizedTargetPath == source.Path {
+		return source, nil
+	}
+
+	targetFullPath := filepath.Join(s.rootPath, filepath.FromSlash(normalizedTargetPath))
+	if _, err := os.Stat(targetFullPath); err == nil {
+		return Document{}, fmt.Errorf("%w: %q", ErrDocumentPathConflict, normalizedTargetPath)
+	} else if !os.IsNotExist(err) {
+		return Document{}, fmt.Errorf("stat document target %q: %w", normalizedTargetPath, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(targetFullPath), 0o755); err != nil {
+		return Document{}, fmt.Errorf("create document dir: %w", err)
+	}
+	if err := os.Rename(sourceFullPath, targetFullPath); err != nil {
+		return Document{}, fmt.Errorf("move document %q to %q: %w", source.Path, normalizedTargetPath, err)
+	}
+
+	info, err := os.Stat(targetFullPath)
+	if err != nil {
+		return Document{}, fmt.Errorf("stat document %q: %w", normalizedTargetPath, err)
+	}
+	document := documentFromPath(normalizedTargetPath, info)
+	if strings.TrimSpace(source.ContentType) != "" {
+		document.ContentType = strings.TrimSpace(source.ContentType)
+	}
+	return document, nil
+}
+
+func (s *Service) Delete(documentPath string) error {
+	document, fullPath, err := s.Get(documentPath)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(fullPath); err != nil {
+		return fmt.Errorf("delete document %q: %w", document.Path, err)
+	}
+	return nil
 }
 
 func (s *Service) DownloadURL(document Document) string {
@@ -328,9 +384,32 @@ func normalizeDocumentPath(documentPath string) (string, error) {
 	normalized := path.Clean(strings.TrimSpace(strings.ReplaceAll(documentPath, "\\", "/")))
 	normalized = strings.TrimPrefix(normalized, "/")
 	if normalized == "" || normalized == "." || normalized == ".." || strings.HasPrefix(normalized, "../") {
-		return "", fmt.Errorf("invalid document path %q", documentPath)
+		return "", fmt.Errorf("%w: %q", ErrInvalidDocumentPath, documentPath)
 	}
 	return normalized, nil
+}
+
+func normalizeDocumentTargetPath(targetPath string, sourceName string) (string, error) {
+	normalized, err := normalizeDocumentPath(targetPath)
+	if err != nil {
+		return "", fmt.Errorf("%w: %q", ErrInvalidTargetDocumentPath, targetPath)
+	}
+
+	dir := path.Dir(normalized)
+	if dir == "." {
+		dir = ""
+	}
+	name := path.Base(normalized)
+	if path.Ext(name) == "" {
+		if sourceExt := path.Ext(strings.TrimSpace(sourceName)); sourceExt != "" {
+			name += sourceExt
+		}
+	}
+	name = sanitizeDocumentName(name)
+	if name == "" {
+		return "", fmt.Errorf("%w: %q", ErrInvalidTargetDocumentPath, targetPath)
+	}
+	return joinDocumentPath(dir, name), nil
 }
 
 func normalizePagePath(pagePath string) string {

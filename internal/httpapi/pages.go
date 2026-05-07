@@ -83,6 +83,8 @@ type rewrittenPageState struct {
 	after  indexedPageState
 }
 
+const createOnlyPageHeaderName = "X-Noterious-Create-Only"
+
 func handlePageRequest(w http.ResponseWriter, r *http.Request, deps Dependencies) {
 	handlePageRequestByMethod(w, r, deps, r.Method)
 }
@@ -234,9 +236,13 @@ func handlePagePutRequest(w http.ResponseWriter, r *http.Request, deps Dependenc
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	currentMarkdown, err := loadPageMarkdownForSave(vaultService, pagePath)
+	currentMarkdown, pageExists, err := loadPageMarkdownForSave(vaultService, pagePath)
 	if err != nil {
 		http.Error(w, "failed to read current page", http.StatusInternalServerError)
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get(createOnlyPageHeaderName)), "true") && pageExists {
+		http.Error(w, "page already exists", http.StatusConflict)
 		return
 	}
 	if request.BaseRawMarkdown != nil && currentMarkdown != request.RawMarkdown && currentMarkdown != *request.BaseRawMarkdown {
@@ -283,18 +289,18 @@ func handlePagePutRequest(w http.ResponseWriter, r *http.Request, deps Dependenc
 	writeJSON(w, http.StatusOK, pageRecordPayload(pageRecord))
 }
 
-func loadPageMarkdownForSave(vaultService *vault.Service, pagePath string) (string, error) {
+func loadPageMarkdownForSave(vaultService *vault.Service, pagePath string) (string, bool, error) {
 	if vaultService == nil {
-		return "", nil
+		return "", false, nil
 	}
 	rawMarkdown, err := vaultService.ReadPage(pagePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
+			return "", false, nil
 		}
-		return "", err
+		return "", false, err
 	}
-	return string(rawMarkdown), nil
+	return string(rawMarkdown), true, nil
 }
 
 func handlePageDeleteRequest(w http.ResponseWriter, r *http.Request, deps Dependencies, vaultService *vault.Service, pagePath string) {

@@ -10,10 +10,11 @@ describe("clientPreferences", function () {
   it("defaults scope home pages to an empty map", function () {
     expect(defaultClientPreferences().vaults.scopeHomePages).toEqual({});
     expect(defaultClientPreferences().vaults.rootHomePage).toBe("");
+    expect(defaultClientPreferences().notifications.browserEnabled).toBe(false);
     expect(defaultClientPreferences().templates).toEqual([]);
   });
 
-  it("normalizes and clones scope home pages and templates", function () {
+  it("normalizes and clones scope home pages, notifications, and templates", function () {
     const normalized = normalizeClientPreferences({
       vaults: {
         topLevelFoldersAsVaults: true,
@@ -22,6 +23,9 @@ describe("clientPreferences", function () {
           Work: "notes/home",
           Private: "shopping/index",
         },
+      },
+      notifications: {
+        browserEnabled: true,
       },
       templates: [
         {
@@ -41,6 +45,7 @@ describe("clientPreferences", function () {
       Work: "notes/home",
       Private: "shopping/index",
     });
+    expect(normalized.notifications.browserEnabled).toBe(true);
     expect(normalized.templates).toEqual([
       {
         id: "contact",
@@ -57,6 +62,7 @@ describe("clientPreferences", function () {
     expect(cloned.vaults.rootHomePage).toBe(normalized.vaults.rootHomePage);
     expect(cloned.vaults.scopeHomePages).toEqual(normalized.vaults.scopeHomePages);
     expect(cloned.vaults.scopeHomePages).not.toBe(normalized.vaults.scopeHomePages);
+    expect(cloned.notifications.browserEnabled).toBe(true);
     expect(cloned.templates).toEqual(normalized.templates);
     expect(cloned.templates).not.toBe(normalized.templates);
   });

@@ -8,6 +8,7 @@ import {
   markdownLinkForDocument,
   relativeDocumentPath,
   resolveDocumentPath,
+  rewriteDocumentLinksInMarkdown,
 } from "./documents";
 import type { DocumentRecord } from "./types";
 import type { ServerDocumentSettings } from "./types";
@@ -55,6 +56,14 @@ describe("document helpers", function () {
     expect(relativeDocumentPath("Meetings/Teamsitzungen/index", "Meetings/Teamsitzungen/Adventscafe.pdf")).toBe("Adventscafe.pdf");
     expect(resolveDocumentPath("Meetings/Teamsitzungen/index", "Adventscafe.pdf")).toBe("Meetings/Teamsitzungen/Adventscafe.pdf");
     expect(resolveDocumentPath("Meetings/Teamsitzungen/index", "../Adventscafe.pdf")).toBe("Meetings/Adventscafe.pdf");
+  });
+
+  it("rewrites moved document links in markdown and wiki syntax", function () {
+    const source = "![Cat](Assets/cat.png)\n![[Assets/cat.png|Cat]]\n[Spec](Docs/spec.pdf)";
+    const rewritten = rewriteDocumentLinksInMarkdown(source, "Notes/today", "Notes/Assets/cat.png", "Media/cat.png");
+
+    expect(rewritten.changed).toBe(true);
+    expect(rewritten.markdown).toBe("![Cat](../Media/cat.png)\n![[../Media/cat.png|Cat]]\n[Spec](Docs/spec.pdf)");
   });
 
   it("describes where uploads for the current note will be stored", function () {

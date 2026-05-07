@@ -124,9 +124,9 @@
     const wrapper = document.createElement("section");
     wrapper.className = "search-result-section";
     if (showHeading) {
-      const heading = document.createElement("h3");
-      heading.textContent = section.title;
-      wrapper.appendChild(heading);
+      const heading2 = document.createElement("h3");
+      heading2.textContent = section.title;
+      wrapper.appendChild(heading2);
     }
     if (!section.items.length) {
       const empty = document.createElement("div");
@@ -349,22 +349,22 @@
     const trimmed = String(value || "").trim();
     return trimmed || fallback;
   }
-  function buildBackupManifest(meta) {
-    const runtimeVaultPath = safeString(meta.runtimeVault && meta.runtimeVault.vaultPath, "(unknown)");
-    const currentScopeVault2 = safeString(meta.currentVault && meta.currentVault.vaultPath);
+  function buildBackupManifest(meta2) {
+    const runtimeVaultPath = safeString(meta2.runtimeVault && meta2.runtimeVault.vaultPath, "(unknown)");
+    const currentScopeVault2 = safeString(meta2.currentVault && meta2.currentVault.vaultPath);
     return {
-      generatedAt: safeString(meta.serverTime, (/* @__PURE__ */ new Date()).toISOString()),
+      generatedAt: safeString(meta2.serverTime, (/* @__PURE__ */ new Date()).toISOString()),
       app: {
-        name: safeString(meta.name, "Noterious"),
-        listenAddr: safeString(meta.listenAddr, "(unknown)")
+        name: safeString(meta2.name, "Noterious"),
+        listenAddr: safeString(meta2.listenAddr, "(unknown)")
       },
       paths: {
         vaultRoot: runtimeVaultPath,
-        dataDir: safeString(meta.dataDir, "(unknown)"),
-        database: safeString(meta.database, "(unknown)"),
+        dataDir: safeString(meta2.dataDir, "(unknown)"),
+        database: safeString(meta2.database, "(unknown)"),
         currentScopeVault: currentScopeVault2 && currentScopeVault2 !== runtimeVaultPath ? currentScopeVault2 : void 0
       },
-      restartRequired: Boolean(meta.restartRequired),
+      restartRequired: Boolean(meta2.restartRequired),
       notes: [
         "Back up the full vault root and the full data dir together.",
         "The SQLite index database is rebuildable from the vault, but history, trash, themes, and auth state live under the data dir.",
@@ -372,8 +372,8 @@
       ]
     };
   }
-  function backupManifestFilename(meta) {
-    const isoTimestamp = safeString(meta.serverTime, (/* @__PURE__ */ new Date()).toISOString()).replace(/[:]/g, "-");
+  function backupManifestFilename(meta2) {
+    const isoTimestamp = safeString(meta2.serverTime, (/* @__PURE__ */ new Date()).toISOString()).replace(/[:]/g, "-");
     return "noterious-backup-manifest-" + isoTimestamp + ".json";
   }
   var init_backupManifest = __esm({
@@ -422,35 +422,35 @@
       }).filter(Boolean) : []
     };
   }
-  function currentScopeVault(meta) {
-    return safeString2(meta.currentVault && meta.currentVault.vaultPath);
+  function currentScopeVault(meta2) {
+    return safeString2(meta2.currentVault && meta2.currentVault.vaultPath);
   }
-  function validateBackupManifest(meta, manifest, sourceLabel) {
+  function validateBackupManifest(meta2, manifest, sourceLabel) {
     const checks = [
       {
         key: "vaultRoot",
         label: "Vault Root",
         manifestValue: safeString2(manifest.paths.vaultRoot),
-        currentValue: safeString2(meta.runtimeVault && meta.runtimeVault.vaultPath),
-        matches: safeString2(manifest.paths.vaultRoot) === safeString2(meta.runtimeVault && meta.runtimeVault.vaultPath)
+        currentValue: safeString2(meta2.runtimeVault && meta2.runtimeVault.vaultPath),
+        matches: safeString2(manifest.paths.vaultRoot) === safeString2(meta2.runtimeVault && meta2.runtimeVault.vaultPath)
       },
       {
         key: "dataDir",
         label: "Data Dir",
         manifestValue: safeString2(manifest.paths.dataDir),
-        currentValue: safeString2(meta.dataDir),
-        matches: safeString2(manifest.paths.dataDir) === safeString2(meta.dataDir)
+        currentValue: safeString2(meta2.dataDir),
+        matches: safeString2(manifest.paths.dataDir) === safeString2(meta2.dataDir)
       },
       {
         key: "database",
         label: "Index DB",
         manifestValue: safeString2(manifest.paths.database),
-        currentValue: safeString2(meta.database),
-        matches: safeString2(manifest.paths.database) === safeString2(meta.database)
+        currentValue: safeString2(meta2.database),
+        matches: safeString2(manifest.paths.database) === safeString2(meta2.database)
       }
     ];
     const manifestScope = safeString2(manifest.paths.currentScopeVault);
-    const liveScope = currentScopeVault(meta);
+    const liveScope = currentScopeVault(meta2);
     if (manifestScope || liveScope) {
       checks.push({
         key: "currentScopeVault",
@@ -516,13 +516,13 @@
   function comment(value) {
     return "# " + String(value || "").replace(/\s+/g, " ").trim();
   }
-  function buildBackupScript(meta) {
-    const appName = safeString3(meta.name, "noterious");
-    const generatedAt = safeString3(meta.serverTime, (/* @__PURE__ */ new Date()).toISOString());
-    const runtimeVaultPath = safeString3(meta.runtimeVault && meta.runtimeVault.vaultPath, "/path/to/noterious-vault");
-    const dataDir = safeString3(meta.dataDir, "/path/to/noterious-data");
-    const database = safeString3(meta.database, dataDir ? dataDir.replace(/\/+$/g, "") + "/index.sqlite" : "/path/to/noterious-data/index.sqlite");
-    const currentScopeVault2 = safeString3(meta.currentVault && meta.currentVault.vaultPath);
+  function buildBackupScript(meta2) {
+    const appName = safeString3(meta2.name, "noterious");
+    const generatedAt = safeString3(meta2.serverTime, (/* @__PURE__ */ new Date()).toISOString());
+    const runtimeVaultPath = safeString3(meta2.runtimeVault && meta2.runtimeVault.vaultPath, "/path/to/noterious-vault");
+    const dataDir = safeString3(meta2.dataDir, "/path/to/noterious-data");
+    const database = safeString3(meta2.database, dataDir ? dataDir.replace(/\/+$/g, "") + "/index.sqlite" : "/path/to/noterious-data/index.sqlite");
+    const currentScopeVault2 = safeString3(meta2.currentVault && meta2.currentVault.vaultPath);
     const lines = [
       "#!/usr/bin/env sh",
       "set -eu",
@@ -569,8 +569,8 @@
     ];
     return lines.filter(Boolean).join("\n") + "\n";
   }
-  function backupScriptFilename(meta) {
-    const isoTimestamp = safeString3(meta.serverTime, (/* @__PURE__ */ new Date()).toISOString()).replace(/[:]/g, "-");
+  function backupScriptFilename(meta2) {
+    const isoTimestamp = safeString3(meta2.serverTime, (/* @__PURE__ */ new Date()).toISOString()).replace(/[:]/g, "-");
     return "noterious-backup-" + isoTimestamp + ".sh";
   }
   var init_backupScript = __esm({
@@ -665,6 +665,37 @@
     });
     return resolved.join("/");
   }
+  function rewriteDocumentLinksInMarkdown(rawMarkdown, currentPagePath, fromDocumentPath, toDocumentPath) {
+    const sourcePage = normalizePath(currentPagePath).replace(/\.md$/i, "");
+    const fromNormalized = normalizePath(fromDocumentPath);
+    const toNormalized = normalizePath(toDocumentPath);
+    if (!sourcePage || !fromNormalized || !toNormalized || fromNormalized === toNormalized) {
+      return { markdown: String(rawMarkdown || ""), changed: false };
+    }
+    let changed = false;
+    let rewritten = String(rawMarkdown || "").replace(/(!?)\[\[([^\]|#]+)(#[^\]|]+)?(\|[^\]]+)?\]\]/g, function(match, bang, target, anchor, label) {
+      const resolved = resolveDocumentPath(sourcePage, String(target || ""));
+      if (!resolved || resolved !== fromNormalized) {
+        return match;
+      }
+      changed = true;
+      const nextTarget = relativeDocumentPath(sourcePage, toNormalized);
+      return String(bang || "") + "[[" + nextTarget + String(anchor || "") + String(label || "") + "]]";
+    });
+    rewritten = rewritten.replace(/(!?)\[([^\]]*)\]\(([^)#]+?)(#[^)]+)?\)/g, function(match, bang, label, target, anchor) {
+      const resolved = resolveDocumentPath(sourcePage, String(target || ""));
+      if (!resolved || resolved !== fromNormalized) {
+        return match;
+      }
+      changed = true;
+      const nextTarget = relativeDocumentPath(sourcePage, toNormalized);
+      return String(bang || "") + "[" + String(label || "") + "](" + nextTarget + String(anchor || "") + ")";
+    });
+    return {
+      markdown: rewritten,
+      changed
+    };
+  }
   function pathLeaf(path) {
     const parts = normalizePath(path).split("/");
     return parts[parts.length - 1] || path;
@@ -705,18 +736,18 @@
   }
   function scoreDocument(document2, query) {
     const target = String(query || "").trim().toLowerCase();
-    const name = String(document2.name || "").toLowerCase();
+    const name2 = String(document2.name || "").toLowerCase();
     if (!target) {
       return document2.createdAt ? Date.parse(document2.createdAt) || 0 : 0;
     }
-    return (name === target ? 4e3 : 0) + (name.startsWith(target) ? 2800 : 0) + (name.indexOf(target) >= 0 ? 1200 : 0) + (document2.createdAt ? (Date.parse(document2.createdAt) || 0) / 1e12 : 0);
+    return (name2 === target ? 4e3 : 0) + (name2.startsWith(target) ? 2800 : 0) + (name2.indexOf(target) >= 0 ? 1200 : 0) + (document2.createdAt ? (Date.parse(document2.createdAt) || 0) / 1e12 : 0);
   }
   function usageMeta(document2) {
     if (!document2.usageKnown) {
       return "";
     }
-    const count = Number(document2.referenceCount || 0);
-    return count > 0 ? "Used in " + String(count) + " note" + (count === 1 ? "" : "s") : "Unused";
+    const count2 = Number(document2.referenceCount || 0);
+    return count2 > 0 ? "Used in " + String(count2) + " note" + (count2 === 1 ? "" : "s") : "Unused";
   }
   function documentMeta(document2) {
     return [
@@ -782,6 +813,4414 @@
     "frontend/documents.ts"() {
       "use strict";
       init_palette();
+    }
+  });
+
+  // node_modules/@lezer/common/dist/index.js
+  function checkSide(side, pos, from, to) {
+    switch (side) {
+      case -2:
+        return from < pos;
+      case -1:
+        return to >= pos && from < pos;
+      case 0:
+        return from < pos && to > pos;
+      case 1:
+        return from <= pos && to > pos;
+      case 2:
+        return to > pos;
+      case 4:
+        return true;
+    }
+  }
+  function resolveNode(node, pos, side, overlays) {
+    var _a;
+    while (node.from == node.to || (side < 1 ? node.from >= pos : node.from > pos) || (side > -1 ? node.to <= pos : node.to < pos)) {
+      let parent = !overlays && node instanceof TreeNode && node.index < 0 ? null : node.parent;
+      if (!parent)
+        return node;
+      node = parent;
+    }
+    let mode = overlays ? 0 : IterMode.IgnoreOverlays;
+    if (overlays)
+      for (let scan = node, parent = scan.parent; parent; scan = parent, parent = scan.parent) {
+        if (scan instanceof TreeNode && scan.index < 0 && ((_a = parent.enter(pos, side, mode)) === null || _a === void 0 ? void 0 : _a.from) != scan.from)
+          node = parent;
+      }
+    for (; ; ) {
+      let inner = node.enter(pos, side, mode);
+      if (!inner)
+        return node;
+      node = inner;
+    }
+  }
+  function getChildren(node, type, before, after) {
+    let cur = node.cursor(), result = [];
+    if (!cur.firstChild())
+      return result;
+    if (before != null)
+      for (let found = false; !found; ) {
+        found = cur.type.is(before);
+        if (!cur.nextSibling())
+          return result;
+      }
+    for (; ; ) {
+      if (after != null && cur.type.is(after))
+        return result;
+      if (cur.type.is(type))
+        result.push(cur.node);
+      if (!cur.nextSibling())
+        return after == null ? result : [];
+    }
+  }
+  function matchNodeContext(node, context, i = context.length - 1) {
+    for (let p = node; i >= 0; p = p.parent) {
+      if (!p)
+        return false;
+      if (!p.type.isAnonymous) {
+        if (context[i] && context[i] != p.name)
+          return false;
+        i--;
+      }
+    }
+    return true;
+  }
+  function iterStack(heads) {
+    if (!heads.length)
+      return null;
+    let pick = 0, picked = heads[0];
+    for (let i = 1; i < heads.length; i++) {
+      let node = heads[i];
+      if (node.from > picked.from || node.to < picked.to) {
+        picked = node;
+        pick = i;
+      }
+    }
+    let next = picked instanceof TreeNode && picked.index < 0 ? null : picked.parent;
+    let newHeads = heads.slice();
+    if (next)
+      newHeads[pick] = next;
+    else
+      newHeads.splice(pick, 1);
+    return new StackIterator(newHeads, picked);
+  }
+  function stackIterator(tree, pos, side) {
+    let inner = tree.resolveInner(pos, side), layers = null;
+    for (let scan = inner instanceof TreeNode ? inner : inner.context.parent; scan; scan = scan.parent) {
+      if (scan.index < 0) {
+        let parent = scan.parent;
+        (layers || (layers = [inner])).push(parent.resolve(pos, side));
+        scan = parent;
+      } else {
+        let mount = MountedTree.get(scan.tree);
+        if (mount && mount.overlay && mount.overlay[0].from <= pos && mount.overlay[mount.overlay.length - 1].to >= pos) {
+          let root = new TreeNode(mount.tree, mount.overlay[0].from + scan.from, -1, scan);
+          (layers || (layers = [inner])).push(resolveNode(root, pos, side, false));
+        }
+      }
+    }
+    return layers ? iterStack(layers) : inner;
+  }
+  function hasChild(tree) {
+    return tree.children.some((ch) => ch instanceof TreeBuffer || !ch.type.isAnonymous || hasChild(ch));
+  }
+  function buildTree(data) {
+    var _a;
+    let { buffer, nodeSet, maxBufferLength = DefaultBufferLength, reused = [], minRepeatType = nodeSet.types.length } = data;
+    let cursor = Array.isArray(buffer) ? new FlatBufferCursor(buffer, buffer.length) : buffer;
+    let types = nodeSet.types;
+    let contextHash = 0, lookAhead = 0;
+    function takeNode(parentStart, minPos, children2, positions2, inRepeat, depth) {
+      let { id, start, end, size } = cursor;
+      let lookAheadAtStart = lookAhead, contextAtStart = contextHash;
+      if (size < 0) {
+        cursor.next();
+        if (size == -1) {
+          let node2 = reused[id];
+          children2.push(node2);
+          positions2.push(start - parentStart);
+          return;
+        } else if (size == -3) {
+          contextHash = id;
+          return;
+        } else if (size == -4) {
+          lookAhead = id;
+          return;
+        } else {
+          throw new RangeError(`Unrecognized record size: ${size}`);
+        }
+      }
+      let type = types[id], node, buffer2;
+      let startPos = start - parentStart;
+      if (end - start <= maxBufferLength && (buffer2 = findBufferSize(cursor.pos - minPos, inRepeat))) {
+        let data2 = new Uint16Array(buffer2.size - buffer2.skip);
+        let endPos = cursor.pos - buffer2.size, index = data2.length;
+        while (cursor.pos > endPos)
+          index = copyToBuffer(buffer2.start, data2, index);
+        node = new TreeBuffer(data2, end - buffer2.start, nodeSet);
+        startPos = buffer2.start - parentStart;
+      } else {
+        let endPos = cursor.pos - size;
+        cursor.next();
+        let localChildren = [], localPositions = [];
+        let localInRepeat = id >= minRepeatType ? id : -1;
+        let lastGroup = 0, lastEnd = end;
+        while (cursor.pos > endPos) {
+          if (localInRepeat >= 0 && cursor.id == localInRepeat && cursor.size >= 0) {
+            if (cursor.end <= lastEnd - maxBufferLength) {
+              makeRepeatLeaf(localChildren, localPositions, start, lastGroup, cursor.end, lastEnd, localInRepeat, lookAheadAtStart, contextAtStart);
+              lastGroup = localChildren.length;
+              lastEnd = cursor.end;
+            }
+            cursor.next();
+          } else if (depth > 2500) {
+            takeFlatNode(start, endPos, localChildren, localPositions);
+          } else {
+            takeNode(start, endPos, localChildren, localPositions, localInRepeat, depth + 1);
+          }
+        }
+        if (localInRepeat >= 0 && lastGroup > 0 && lastGroup < localChildren.length)
+          makeRepeatLeaf(localChildren, localPositions, start, lastGroup, start, lastEnd, localInRepeat, lookAheadAtStart, contextAtStart);
+        localChildren.reverse();
+        localPositions.reverse();
+        if (localInRepeat > -1 && lastGroup > 0) {
+          let make = makeBalanced(type, contextAtStart);
+          node = balanceRange(type, localChildren, localPositions, 0, localChildren.length, 0, end - start, make, make);
+        } else {
+          node = makeTree(type, localChildren, localPositions, end - start, lookAheadAtStart - end, contextAtStart);
+        }
+      }
+      children2.push(node);
+      positions2.push(startPos);
+    }
+    function takeFlatNode(parentStart, minPos, children2, positions2) {
+      let nodes = [];
+      let nodeCount = 0, stopAt = -1;
+      while (cursor.pos > minPos) {
+        let { id, start, end, size } = cursor;
+        if (size > 4) {
+          cursor.next();
+        } else if (stopAt > -1 && start < stopAt) {
+          break;
+        } else {
+          if (stopAt < 0)
+            stopAt = end - maxBufferLength;
+          nodes.push(id, start, end);
+          nodeCount++;
+          cursor.next();
+        }
+      }
+      if (nodeCount) {
+        let buffer2 = new Uint16Array(nodeCount * 4);
+        let start = nodes[nodes.length - 2];
+        for (let i = nodes.length - 3, j = 0; i >= 0; i -= 3) {
+          buffer2[j++] = nodes[i];
+          buffer2[j++] = nodes[i + 1] - start;
+          buffer2[j++] = nodes[i + 2] - start;
+          buffer2[j++] = j;
+        }
+        children2.push(new TreeBuffer(buffer2, nodes[2] - start, nodeSet));
+        positions2.push(start - parentStart);
+      }
+    }
+    function makeBalanced(type, contextHash2) {
+      return (children2, positions2, length2) => {
+        let lookAhead2 = 0, lastI = children2.length - 1, last, lookAheadProp;
+        if (lastI >= 0 && (last = children2[lastI]) instanceof Tree) {
+          if (!lastI && last.type == type && last.length == length2)
+            return last;
+          if (lookAheadProp = last.prop(NodeProp.lookAhead))
+            lookAhead2 = positions2[lastI] + last.length + lookAheadProp;
+        }
+        return makeTree(type, children2, positions2, length2, lookAhead2, contextHash2);
+      };
+    }
+    function makeRepeatLeaf(children2, positions2, base, i, from, to, type, lookAhead2, contextHash2) {
+      let localChildren = [], localPositions = [];
+      while (children2.length > i) {
+        localChildren.push(children2.pop());
+        localPositions.push(positions2.pop() + base - from);
+      }
+      children2.push(makeTree(nodeSet.types[type], localChildren, localPositions, to - from, lookAhead2 - to, contextHash2));
+      positions2.push(from - base);
+    }
+    function makeTree(type, children2, positions2, length2, lookAhead2, contextHash2, props) {
+      if (contextHash2) {
+        let pair = [NodeProp.contextHash, contextHash2];
+        props = props ? [pair].concat(props) : [pair];
+      }
+      if (lookAhead2 > 25) {
+        let pair = [NodeProp.lookAhead, lookAhead2];
+        props = props ? [pair].concat(props) : [pair];
+      }
+      return new Tree(type, children2, positions2, length2, props);
+    }
+    function findBufferSize(maxSize, inRepeat) {
+      let fork = cursor.fork();
+      let size = 0, start = 0, skip = 0, minStart = fork.end - maxBufferLength;
+      let result = { size: 0, start: 0, skip: 0 };
+      scan: for (let minPos = fork.pos - maxSize; fork.pos > minPos; ) {
+        let nodeSize2 = fork.size;
+        if (fork.id == inRepeat && nodeSize2 >= 0) {
+          result.size = size;
+          result.start = start;
+          result.skip = skip;
+          skip += 4;
+          size += 4;
+          fork.next();
+          continue;
+        }
+        let startPos = fork.pos - nodeSize2;
+        if (nodeSize2 < 0 || startPos < minPos || fork.start < minStart)
+          break;
+        let localSkipped = fork.id >= minRepeatType ? 4 : 0;
+        let nodeStart = fork.start;
+        fork.next();
+        while (fork.pos > startPos) {
+          if (fork.size < 0) {
+            if (fork.size == -3 || fork.size == -4)
+              localSkipped += 4;
+            else
+              break scan;
+          } else if (fork.id >= minRepeatType) {
+            localSkipped += 4;
+          }
+          fork.next();
+        }
+        start = nodeStart;
+        size += nodeSize2;
+        skip += localSkipped;
+      }
+      if (inRepeat < 0 || size == maxSize) {
+        result.size = size;
+        result.start = start;
+        result.skip = skip;
+      }
+      return result.size > 4 ? result : void 0;
+    }
+    function copyToBuffer(bufferStart, buffer2, index) {
+      let { id, start, end, size } = cursor;
+      cursor.next();
+      if (size >= 0 && id < minRepeatType) {
+        let startIndex = index;
+        if (size > 4) {
+          let endPos = cursor.pos - (size - 4);
+          while (cursor.pos > endPos)
+            index = copyToBuffer(bufferStart, buffer2, index);
+        }
+        buffer2[--index] = startIndex;
+        buffer2[--index] = end - bufferStart;
+        buffer2[--index] = start - bufferStart;
+        buffer2[--index] = id;
+      } else if (size == -3) {
+        contextHash = id;
+      } else if (size == -4) {
+        lookAhead = id;
+      }
+      return index;
+    }
+    let children = [], positions = [];
+    while (cursor.pos > 0)
+      takeNode(data.start || 0, data.bufferStart || 0, children, positions, -1, 0);
+    let length = (_a = data.length) !== null && _a !== void 0 ? _a : children.length ? positions[0] + children[0].length : 0;
+    return new Tree(types[data.topID], children.reverse(), positions.reverse(), length);
+  }
+  function nodeSize(balanceType, node) {
+    if (!balanceType.isAnonymous || node instanceof TreeBuffer || node.type != balanceType)
+      return 1;
+    let size = nodeSizeCache.get(node);
+    if (size == null) {
+      size = 1;
+      for (let child of node.children) {
+        if (child.type != balanceType || !(child instanceof Tree)) {
+          size = 1;
+          break;
+        }
+        size += nodeSize(balanceType, child);
+      }
+      nodeSizeCache.set(node, size);
+    }
+    return size;
+  }
+  function balanceRange(balanceType, children, positions, from, to, start, length, mkTop, mkTree) {
+    let total = 0;
+    for (let i = from; i < to; i++)
+      total += nodeSize(balanceType, children[i]);
+    let maxChild = Math.ceil(
+      total * 1.5 / 8
+      /* Balance.BranchFactor */
+    );
+    let localChildren = [], localPositions = [];
+    function divide(children2, positions2, from2, to2, offset) {
+      for (let i = from2; i < to2; ) {
+        let groupFrom = i, groupStart = positions2[i], groupSize = nodeSize(balanceType, children2[i]);
+        i++;
+        for (; i < to2; i++) {
+          let nextSize = nodeSize(balanceType, children2[i]);
+          if (groupSize + nextSize >= maxChild)
+            break;
+          groupSize += nextSize;
+        }
+        if (i == groupFrom + 1) {
+          if (groupSize > maxChild) {
+            let only = children2[groupFrom];
+            divide(only.children, only.positions, 0, only.children.length, positions2[groupFrom] + offset);
+            continue;
+          }
+          localChildren.push(children2[groupFrom]);
+        } else {
+          let length2 = positions2[i - 1] + children2[i - 1].length - groupStart;
+          localChildren.push(balanceRange(balanceType, children2, positions2, groupFrom, i, groupStart, length2, null, mkTree));
+        }
+        localPositions.push(groupStart + offset - start);
+      }
+    }
+    divide(children, positions, from, to, 0);
+    return (mkTop || mkTree)(localChildren, localPositions, length);
+  }
+  var DefaultBufferLength, nextPropID, Range, NodeProp, MountedTree, noProps, NodeType, NodeSet, CachedNode, CachedInnerNode, IterMode, Tree, FlatBufferCursor, TreeBuffer, BaseNode, TreeNode, BufferContext, BufferNode, StackIterator, TreeCursor, nodeSizeCache, Parser, StringInput, stoppedInner;
+  var init_dist = __esm({
+    "node_modules/@lezer/common/dist/index.js"() {
+      DefaultBufferLength = 1024;
+      nextPropID = 0;
+      Range = class {
+        constructor(from, to) {
+          this.from = from;
+          this.to = to;
+        }
+      };
+      NodeProp = class {
+        /**
+        Create a new node prop type.
+        */
+        constructor(config = {}) {
+          this.id = nextPropID++;
+          this.perNode = !!config.perNode;
+          this.deserialize = config.deserialize || (() => {
+            throw new Error("This node type doesn't define a deserialize function");
+          });
+          this.combine = config.combine || null;
+        }
+        /**
+        This is meant to be used with
+        [`NodeSet.extend`](#common.NodeSet.extend) or
+        [`LRParser.configure`](#lr.ParserConfig.props) to compute
+        prop values for each node type in the set. Takes a [match
+        object](#common.NodeType^match) or function that returns undefined
+        if the node type doesn't get this prop, and the prop's value if
+        it does.
+        */
+        add(match) {
+          if (this.perNode)
+            throw new RangeError("Can't add per-node props to node types");
+          if (typeof match != "function")
+            match = NodeType.match(match);
+          return (type) => {
+            let result = match(type);
+            return result === void 0 ? null : [this, result];
+          };
+        }
+      };
+      NodeProp.closedBy = new NodeProp({ deserialize: (str) => str.split(" ") });
+      NodeProp.openedBy = new NodeProp({ deserialize: (str) => str.split(" ") });
+      NodeProp.group = new NodeProp({ deserialize: (str) => str.split(" ") });
+      NodeProp.isolate = new NodeProp({ deserialize: (value) => {
+        if (value && value != "rtl" && value != "ltr" && value != "auto")
+          throw new RangeError("Invalid value for isolate: " + value);
+        return value || "auto";
+      } });
+      NodeProp.contextHash = new NodeProp({ perNode: true });
+      NodeProp.lookAhead = new NodeProp({ perNode: true });
+      NodeProp.mounted = new NodeProp({ perNode: true });
+      MountedTree = class {
+        constructor(tree, overlay, parser2, bracketed = false) {
+          this.tree = tree;
+          this.overlay = overlay;
+          this.parser = parser2;
+          this.bracketed = bracketed;
+        }
+        /**
+        @internal
+        */
+        static get(tree) {
+          return tree && tree.props && tree.props[NodeProp.mounted.id];
+        }
+      };
+      noProps = /* @__PURE__ */ Object.create(null);
+      NodeType = class _NodeType {
+        /**
+        @internal
+        */
+        constructor(name2, props, id, flags = 0) {
+          this.name = name2;
+          this.props = props;
+          this.id = id;
+          this.flags = flags;
+        }
+        /**
+        Define a node type.
+        */
+        static define(spec) {
+          let props = spec.props && spec.props.length ? /* @__PURE__ */ Object.create(null) : noProps;
+          let flags = (spec.top ? 1 : 0) | (spec.skipped ? 2 : 0) | (spec.error ? 4 : 0) | (spec.name == null ? 8 : 0);
+          let type = new _NodeType(spec.name || "", props, spec.id, flags);
+          if (spec.props)
+            for (let src of spec.props) {
+              if (!Array.isArray(src))
+                src = src(type);
+              if (src) {
+                if (src[0].perNode)
+                  throw new RangeError("Can't store a per-node prop on a node type");
+                props[src[0].id] = src[1];
+              }
+            }
+          return type;
+        }
+        /**
+        Retrieves a node prop for this type. Will return `undefined` if
+        the prop isn't present on this node.
+        */
+        prop(prop) {
+          return this.props[prop.id];
+        }
+        /**
+        True when this is the top node of a grammar.
+        */
+        get isTop() {
+          return (this.flags & 1) > 0;
+        }
+        /**
+        True when this node is produced by a skip rule.
+        */
+        get isSkipped() {
+          return (this.flags & 2) > 0;
+        }
+        /**
+        Indicates whether this is an error node.
+        */
+        get isError() {
+          return (this.flags & 4) > 0;
+        }
+        /**
+        When true, this node type doesn't correspond to a user-declared
+        named node, for example because it is used to cache repetition.
+        */
+        get isAnonymous() {
+          return (this.flags & 8) > 0;
+        }
+        /**
+        Returns true when this node's name or one of its
+        [groups](#common.NodeProp^group) matches the given string.
+        */
+        is(name2) {
+          if (typeof name2 == "string") {
+            if (this.name == name2)
+              return true;
+            let group = this.prop(NodeProp.group);
+            return group ? group.indexOf(name2) > -1 : false;
+          }
+          return this.id == name2;
+        }
+        /**
+        Create a function from node types to arbitrary values by
+        specifying an object whose property names are node or
+        [group](#common.NodeProp^group) names. Often useful with
+        [`NodeProp.add`](#common.NodeProp.add). You can put multiple
+        names, separated by spaces, in a single property name to map
+        multiple node names to a single value.
+        */
+        static match(map) {
+          let direct = /* @__PURE__ */ Object.create(null);
+          for (let prop in map)
+            for (let name2 of prop.split(" "))
+              direct[name2] = map[prop];
+          return (node) => {
+            for (let groups = node.prop(NodeProp.group), i = -1; i < (groups ? groups.length : 0); i++) {
+              let found = direct[i < 0 ? node.name : groups[i]];
+              if (found)
+                return found;
+            }
+          };
+        }
+      };
+      NodeType.none = new NodeType(
+        "",
+        /* @__PURE__ */ Object.create(null),
+        0,
+        8
+        /* NodeFlag.Anonymous */
+      );
+      NodeSet = class _NodeSet {
+        /**
+        Create a set with the given types. The `id` property of each
+        type should correspond to its position within the array.
+        */
+        constructor(types) {
+          this.types = types;
+          for (let i = 0; i < types.length; i++)
+            if (types[i].id != i)
+              throw new RangeError("Node type ids should correspond to array positions when creating a node set");
+        }
+        /**
+        Create a copy of this set with some node properties added. The
+        arguments to this method can be created with
+        [`NodeProp.add`](#common.NodeProp.add).
+        */
+        extend(...props) {
+          let newTypes = [];
+          for (let type of this.types) {
+            let newProps = null;
+            for (let source of props) {
+              let add = source(type);
+              if (add) {
+                if (!newProps)
+                  newProps = Object.assign({}, type.props);
+                let value = add[1], prop = add[0];
+                if (prop.combine && prop.id in newProps)
+                  value = prop.combine(newProps[prop.id], value);
+                newProps[prop.id] = value;
+              }
+            }
+            newTypes.push(newProps ? new NodeType(type.name, newProps, type.id, type.flags) : type);
+          }
+          return new _NodeSet(newTypes);
+        }
+      };
+      CachedNode = /* @__PURE__ */ new WeakMap();
+      CachedInnerNode = /* @__PURE__ */ new WeakMap();
+      (function(IterMode2) {
+        IterMode2[IterMode2["ExcludeBuffers"] = 1] = "ExcludeBuffers";
+        IterMode2[IterMode2["IncludeAnonymous"] = 2] = "IncludeAnonymous";
+        IterMode2[IterMode2["IgnoreMounts"] = 4] = "IgnoreMounts";
+        IterMode2[IterMode2["IgnoreOverlays"] = 8] = "IgnoreOverlays";
+        IterMode2[IterMode2["EnterBracketed"] = 16] = "EnterBracketed";
+      })(IterMode || (IterMode = {}));
+      Tree = class _Tree {
+        /**
+        Construct a new tree. See also [`Tree.build`](#common.Tree^build).
+        */
+        constructor(type, children, positions, length, props) {
+          this.type = type;
+          this.children = children;
+          this.positions = positions;
+          this.length = length;
+          this.props = null;
+          if (props && props.length) {
+            this.props = /* @__PURE__ */ Object.create(null);
+            for (let [prop, value] of props)
+              this.props[typeof prop == "number" ? prop : prop.id] = value;
+          }
+        }
+        /**
+        @internal
+        */
+        toString() {
+          let mounted = MountedTree.get(this);
+          if (mounted && !mounted.overlay)
+            return mounted.tree.toString();
+          let children = "";
+          for (let ch of this.children) {
+            let str = ch.toString();
+            if (str) {
+              if (children)
+                children += ",";
+              children += str;
+            }
+          }
+          return !this.type.name ? children : (/\W/.test(this.type.name) && !this.type.isError ? JSON.stringify(this.type.name) : this.type.name) + (children.length ? "(" + children + ")" : "");
+        }
+        /**
+        Get a [tree cursor](#common.TreeCursor) positioned at the top of
+        the tree. Mode can be used to [control](#common.IterMode) which
+        nodes the cursor visits.
+        */
+        cursor(mode = 0) {
+          return new TreeCursor(this.topNode, mode);
+        }
+        /**
+        Get a [tree cursor](#common.TreeCursor) pointing into this tree
+        at the given position and side (see
+        [`moveTo`](#common.TreeCursor.moveTo).
+        */
+        cursorAt(pos, side = 0, mode = 0) {
+          let scope = CachedNode.get(this) || this.topNode;
+          let cursor = new TreeCursor(scope);
+          cursor.moveTo(pos, side);
+          CachedNode.set(this, cursor._tree);
+          return cursor;
+        }
+        /**
+        Get a [syntax node](#common.SyntaxNode) object for the top of the
+        tree.
+        */
+        get topNode() {
+          return new TreeNode(this, 0, 0, null);
+        }
+        /**
+        Get the [syntax node](#common.SyntaxNode) at the given position.
+        If `side` is -1, this will move into nodes that end at the
+        position. If 1, it'll move into nodes that start at the
+        position. With 0, it'll only enter nodes that cover the position
+        from both sides.
+        
+        Note that this will not enter
+        [overlays](#common.MountedTree.overlay), and you often want
+        [`resolveInner`](#common.Tree.resolveInner) instead.
+        */
+        resolve(pos, side = 0) {
+          let node = resolveNode(CachedNode.get(this) || this.topNode, pos, side, false);
+          CachedNode.set(this, node);
+          return node;
+        }
+        /**
+        Like [`resolve`](#common.Tree.resolve), but will enter
+        [overlaid](#common.MountedTree.overlay) nodes, producing a syntax node
+        pointing into the innermost overlaid tree at the given position
+        (with parent links going through all parent structure, including
+        the host trees).
+        */
+        resolveInner(pos, side = 0) {
+          let node = resolveNode(CachedInnerNode.get(this) || this.topNode, pos, side, true);
+          CachedInnerNode.set(this, node);
+          return node;
+        }
+        /**
+        In some situations, it can be useful to iterate through all
+        nodes around a position, including those in overlays that don't
+        directly cover the position. This method gives you an iterator
+        that will produce all nodes, from small to big, around the given
+        position.
+        */
+        resolveStack(pos, side = 0) {
+          return stackIterator(this, pos, side);
+        }
+        /**
+        Iterate over the tree and its children, calling `enter` for any
+        node that touches the `from`/`to` region (if given) before
+        running over such a node's children, and `leave` (if given) when
+        leaving the node. When `enter` returns `false`, that node will
+        not have its children iterated over (or `leave` called).
+        */
+        iterate(spec) {
+          let { enter, leave, from = 0, to = this.length } = spec;
+          let mode = spec.mode || 0, anon = (mode & IterMode.IncludeAnonymous) > 0;
+          for (let c = this.cursor(mode | IterMode.IncludeAnonymous); ; ) {
+            let entered = false;
+            if (c.from <= to && c.to >= from && (!anon && c.type.isAnonymous || enter(c) !== false)) {
+              if (c.firstChild())
+                continue;
+              entered = true;
+            }
+            for (; ; ) {
+              if (entered && leave && (anon || !c.type.isAnonymous))
+                leave(c);
+              if (c.nextSibling())
+                break;
+              if (!c.parent())
+                return;
+              entered = true;
+            }
+          }
+        }
+        /**
+        Get the value of the given [node prop](#common.NodeProp) for this
+        node. Works with both per-node and per-type props.
+        */
+        prop(prop) {
+          return !prop.perNode ? this.type.prop(prop) : this.props ? this.props[prop.id] : void 0;
+        }
+        /**
+        Returns the node's [per-node props](#common.NodeProp.perNode) in a
+        format that can be passed to the [`Tree`](#common.Tree)
+        constructor.
+        */
+        get propValues() {
+          let result = [];
+          if (this.props)
+            for (let id in this.props)
+              result.push([+id, this.props[id]]);
+          return result;
+        }
+        /**
+        Balance the direct children of this tree, producing a copy of
+        which may have children grouped into subtrees with type
+        [`NodeType.none`](#common.NodeType^none).
+        */
+        balance(config = {}) {
+          return this.children.length <= 8 ? this : balanceRange(NodeType.none, this.children, this.positions, 0, this.children.length, 0, this.length, (children, positions, length) => new _Tree(this.type, children, positions, length, this.propValues), config.makeTree || ((children, positions, length) => new _Tree(NodeType.none, children, positions, length)));
+        }
+        /**
+        Build a tree from a postfix-ordered buffer of node information,
+        or a cursor over such a buffer.
+        */
+        static build(data) {
+          return buildTree(data);
+        }
+      };
+      Tree.empty = new Tree(NodeType.none, [], [], 0);
+      FlatBufferCursor = class _FlatBufferCursor {
+        constructor(buffer, index) {
+          this.buffer = buffer;
+          this.index = index;
+        }
+        get id() {
+          return this.buffer[this.index - 4];
+        }
+        get start() {
+          return this.buffer[this.index - 3];
+        }
+        get end() {
+          return this.buffer[this.index - 2];
+        }
+        get size() {
+          return this.buffer[this.index - 1];
+        }
+        get pos() {
+          return this.index;
+        }
+        next() {
+          this.index -= 4;
+        }
+        fork() {
+          return new _FlatBufferCursor(this.buffer, this.index);
+        }
+      };
+      TreeBuffer = class _TreeBuffer {
+        /**
+        Create a tree buffer.
+        */
+        constructor(buffer, length, set) {
+          this.buffer = buffer;
+          this.length = length;
+          this.set = set;
+        }
+        /**
+        @internal
+        */
+        get type() {
+          return NodeType.none;
+        }
+        /**
+        @internal
+        */
+        toString() {
+          let result = [];
+          for (let index = 0; index < this.buffer.length; ) {
+            result.push(this.childString(index));
+            index = this.buffer[index + 3];
+          }
+          return result.join(",");
+        }
+        /**
+        @internal
+        */
+        childString(index) {
+          let id = this.buffer[index], endIndex = this.buffer[index + 3];
+          let type = this.set.types[id], result = type.name;
+          if (/\W/.test(result) && !type.isError)
+            result = JSON.stringify(result);
+          index += 4;
+          if (endIndex == index)
+            return result;
+          let children = [];
+          while (index < endIndex) {
+            children.push(this.childString(index));
+            index = this.buffer[index + 3];
+          }
+          return result + "(" + children.join(",") + ")";
+        }
+        /**
+        @internal
+        */
+        findChild(startIndex, endIndex, dir, pos, side) {
+          let { buffer } = this, pick = -1;
+          for (let i = startIndex; i != endIndex; i = buffer[i + 3]) {
+            if (checkSide(side, pos, buffer[i + 1], buffer[i + 2])) {
+              pick = i;
+              if (dir > 0)
+                break;
+            }
+          }
+          return pick;
+        }
+        /**
+        @internal
+        */
+        slice(startI, endI, from) {
+          let b = this.buffer;
+          let copy = new Uint16Array(endI - startI), len = 0;
+          for (let i = startI, j = 0; i < endI; ) {
+            copy[j++] = b[i++];
+            copy[j++] = b[i++] - from;
+            let to = copy[j++] = b[i++] - from;
+            copy[j++] = b[i++] - startI;
+            len = Math.max(len, to);
+          }
+          return new _TreeBuffer(copy, len, this.set);
+        }
+      };
+      BaseNode = class {
+        cursor(mode = 0) {
+          return new TreeCursor(this, mode);
+        }
+        getChild(type, before = null, after = null) {
+          let r = getChildren(this, type, before, after);
+          return r.length ? r[0] : null;
+        }
+        getChildren(type, before = null, after = null) {
+          return getChildren(this, type, before, after);
+        }
+        resolve(pos, side = 0) {
+          return resolveNode(this, pos, side, false);
+        }
+        resolveInner(pos, side = 0) {
+          return resolveNode(this, pos, side, true);
+        }
+        matchContext(context) {
+          return matchNodeContext(this.parent, context);
+        }
+        enterUnfinishedNodesBefore(pos) {
+          let scan = this.childBefore(pos), node = this;
+          while (scan) {
+            let last = scan.lastChild;
+            if (!last || last.to != scan.to)
+              break;
+            if (last.type.isError && last.from == last.to) {
+              node = scan;
+              scan = last.prevSibling;
+            } else {
+              scan = last;
+            }
+          }
+          return node;
+        }
+        get node() {
+          return this;
+        }
+        get next() {
+          return this.parent;
+        }
+      };
+      TreeNode = class _TreeNode extends BaseNode {
+        constructor(_tree, from, index, _parent) {
+          super();
+          this._tree = _tree;
+          this.from = from;
+          this.index = index;
+          this._parent = _parent;
+        }
+        get type() {
+          return this._tree.type;
+        }
+        get name() {
+          return this._tree.type.name;
+        }
+        get to() {
+          return this.from + this._tree.length;
+        }
+        nextChild(i, dir, pos, side, mode = 0) {
+          for (let parent = this; ; ) {
+            for (let { children, positions } = parent._tree, e = dir > 0 ? children.length : -1; i != e; i += dir) {
+              let next = children[i], start = positions[i] + parent.from, mounted;
+              if (!(mode & IterMode.EnterBracketed && next instanceof Tree && (mounted = MountedTree.get(next)) && !mounted.overlay && mounted.bracketed && pos >= start && pos <= start + next.length) && !checkSide(side, pos, start, start + next.length))
+                continue;
+              if (next instanceof TreeBuffer) {
+                if (mode & IterMode.ExcludeBuffers)
+                  continue;
+                let index = next.findChild(0, next.buffer.length, dir, pos - start, side);
+                if (index > -1)
+                  return new BufferNode(new BufferContext(parent, next, i, start), null, index);
+              } else if (mode & IterMode.IncludeAnonymous || (!next.type.isAnonymous || hasChild(next))) {
+                let mounted2;
+                if (!(mode & IterMode.IgnoreMounts) && (mounted2 = MountedTree.get(next)) && !mounted2.overlay)
+                  return new _TreeNode(mounted2.tree, start, i, parent);
+                let inner = new _TreeNode(next, start, i, parent);
+                return mode & IterMode.IncludeAnonymous || !inner.type.isAnonymous ? inner : inner.nextChild(dir < 0 ? next.children.length - 1 : 0, dir, pos, side, mode);
+              }
+            }
+            if (mode & IterMode.IncludeAnonymous || !parent.type.isAnonymous)
+              return null;
+            if (parent.index >= 0)
+              i = parent.index + dir;
+            else
+              i = dir < 0 ? -1 : parent._parent._tree.children.length;
+            parent = parent._parent;
+            if (!parent)
+              return null;
+          }
+        }
+        get firstChild() {
+          return this.nextChild(
+            0,
+            1,
+            0,
+            4
+            /* Side.DontCare */
+          );
+        }
+        get lastChild() {
+          return this.nextChild(
+            this._tree.children.length - 1,
+            -1,
+            0,
+            4
+            /* Side.DontCare */
+          );
+        }
+        childAfter(pos) {
+          return this.nextChild(
+            0,
+            1,
+            pos,
+            2
+            /* Side.After */
+          );
+        }
+        childBefore(pos) {
+          return this.nextChild(
+            this._tree.children.length - 1,
+            -1,
+            pos,
+            -2
+            /* Side.Before */
+          );
+        }
+        prop(prop) {
+          return this._tree.prop(prop);
+        }
+        enter(pos, side, mode = 0) {
+          let mounted;
+          if (!(mode & IterMode.IgnoreOverlays) && (mounted = MountedTree.get(this._tree)) && mounted.overlay) {
+            let rPos = pos - this.from, enterBracketed = mode & IterMode.EnterBracketed && mounted.bracketed;
+            for (let { from, to } of mounted.overlay) {
+              if ((side > 0 || enterBracketed ? from <= rPos : from < rPos) && (side < 0 || enterBracketed ? to >= rPos : to > rPos))
+                return new _TreeNode(mounted.tree, mounted.overlay[0].from + this.from, -1, this);
+            }
+          }
+          return this.nextChild(0, 1, pos, side, mode);
+        }
+        nextSignificantParent() {
+          let val = this;
+          while (val.type.isAnonymous && val._parent)
+            val = val._parent;
+          return val;
+        }
+        get parent() {
+          return this._parent ? this._parent.nextSignificantParent() : null;
+        }
+        get nextSibling() {
+          return this._parent && this.index >= 0 ? this._parent.nextChild(
+            this.index + 1,
+            1,
+            0,
+            4
+            /* Side.DontCare */
+          ) : null;
+        }
+        get prevSibling() {
+          return this._parent && this.index >= 0 ? this._parent.nextChild(
+            this.index - 1,
+            -1,
+            0,
+            4
+            /* Side.DontCare */
+          ) : null;
+        }
+        get tree() {
+          return this._tree;
+        }
+        toTree() {
+          return this._tree;
+        }
+        /**
+        @internal
+        */
+        toString() {
+          return this._tree.toString();
+        }
+      };
+      BufferContext = class {
+        constructor(parent, buffer, index, start) {
+          this.parent = parent;
+          this.buffer = buffer;
+          this.index = index;
+          this.start = start;
+        }
+      };
+      BufferNode = class _BufferNode extends BaseNode {
+        get name() {
+          return this.type.name;
+        }
+        get from() {
+          return this.context.start + this.context.buffer.buffer[this.index + 1];
+        }
+        get to() {
+          return this.context.start + this.context.buffer.buffer[this.index + 2];
+        }
+        constructor(context, _parent, index) {
+          super();
+          this.context = context;
+          this._parent = _parent;
+          this.index = index;
+          this.type = context.buffer.set.types[context.buffer.buffer[index]];
+        }
+        child(dir, pos, side) {
+          let { buffer } = this.context;
+          let index = buffer.findChild(this.index + 4, buffer.buffer[this.index + 3], dir, pos - this.context.start, side);
+          return index < 0 ? null : new _BufferNode(this.context, this, index);
+        }
+        get firstChild() {
+          return this.child(
+            1,
+            0,
+            4
+            /* Side.DontCare */
+          );
+        }
+        get lastChild() {
+          return this.child(
+            -1,
+            0,
+            4
+            /* Side.DontCare */
+          );
+        }
+        childAfter(pos) {
+          return this.child(
+            1,
+            pos,
+            2
+            /* Side.After */
+          );
+        }
+        childBefore(pos) {
+          return this.child(
+            -1,
+            pos,
+            -2
+            /* Side.Before */
+          );
+        }
+        prop(prop) {
+          return this.type.prop(prop);
+        }
+        enter(pos, side, mode = 0) {
+          if (mode & IterMode.ExcludeBuffers)
+            return null;
+          let { buffer } = this.context;
+          let index = buffer.findChild(this.index + 4, buffer.buffer[this.index + 3], side > 0 ? 1 : -1, pos - this.context.start, side);
+          return index < 0 ? null : new _BufferNode(this.context, this, index);
+        }
+        get parent() {
+          return this._parent || this.context.parent.nextSignificantParent();
+        }
+        externalSibling(dir) {
+          return this._parent ? null : this.context.parent.nextChild(
+            this.context.index + dir,
+            dir,
+            0,
+            4
+            /* Side.DontCare */
+          );
+        }
+        get nextSibling() {
+          let { buffer } = this.context;
+          let after = buffer.buffer[this.index + 3];
+          if (after < (this._parent ? buffer.buffer[this._parent.index + 3] : buffer.buffer.length))
+            return new _BufferNode(this.context, this._parent, after);
+          return this.externalSibling(1);
+        }
+        get prevSibling() {
+          let { buffer } = this.context;
+          let parentStart = this._parent ? this._parent.index + 4 : 0;
+          if (this.index == parentStart)
+            return this.externalSibling(-1);
+          return new _BufferNode(this.context, this._parent, buffer.findChild(
+            parentStart,
+            this.index,
+            -1,
+            0,
+            4
+            /* Side.DontCare */
+          ));
+        }
+        get tree() {
+          return null;
+        }
+        toTree() {
+          let children = [], positions = [];
+          let { buffer } = this.context;
+          let startI = this.index + 4, endI = buffer.buffer[this.index + 3];
+          if (endI > startI) {
+            let from = buffer.buffer[this.index + 1];
+            children.push(buffer.slice(startI, endI, from));
+            positions.push(0);
+          }
+          return new Tree(this.type, children, positions, this.to - this.from);
+        }
+        /**
+        @internal
+        */
+        toString() {
+          return this.context.buffer.childString(this.index);
+        }
+      };
+      StackIterator = class {
+        constructor(heads, node) {
+          this.heads = heads;
+          this.node = node;
+        }
+        get next() {
+          return iterStack(this.heads);
+        }
+      };
+      TreeCursor = class {
+        /**
+        Shorthand for `.type.name`.
+        */
+        get name() {
+          return this.type.name;
+        }
+        /**
+        @internal
+        */
+        constructor(node, mode = 0) {
+          this.buffer = null;
+          this.stack = [];
+          this.index = 0;
+          this.bufferNode = null;
+          this.mode = mode & ~IterMode.EnterBracketed;
+          if (node instanceof TreeNode) {
+            this.yieldNode(node);
+          } else {
+            this._tree = node.context.parent;
+            this.buffer = node.context;
+            for (let n = node._parent; n; n = n._parent)
+              this.stack.unshift(n.index);
+            this.bufferNode = node;
+            this.yieldBuf(node.index);
+          }
+        }
+        yieldNode(node) {
+          if (!node)
+            return false;
+          this._tree = node;
+          this.type = node.type;
+          this.from = node.from;
+          this.to = node.to;
+          return true;
+        }
+        yieldBuf(index, type) {
+          this.index = index;
+          let { start, buffer } = this.buffer;
+          this.type = type || buffer.set.types[buffer.buffer[index]];
+          this.from = start + buffer.buffer[index + 1];
+          this.to = start + buffer.buffer[index + 2];
+          return true;
+        }
+        /**
+        @internal
+        */
+        yield(node) {
+          if (!node)
+            return false;
+          if (node instanceof TreeNode) {
+            this.buffer = null;
+            return this.yieldNode(node);
+          }
+          this.buffer = node.context;
+          return this.yieldBuf(node.index, node.type);
+        }
+        /**
+        @internal
+        */
+        toString() {
+          return this.buffer ? this.buffer.buffer.childString(this.index) : this._tree.toString();
+        }
+        /**
+        @internal
+        */
+        enterChild(dir, pos, side) {
+          if (!this.buffer)
+            return this.yield(this._tree.nextChild(dir < 0 ? this._tree._tree.children.length - 1 : 0, dir, pos, side, this.mode));
+          let { buffer } = this.buffer;
+          let index = buffer.findChild(this.index + 4, buffer.buffer[this.index + 3], dir, pos - this.buffer.start, side);
+          if (index < 0)
+            return false;
+          this.stack.push(this.index);
+          return this.yieldBuf(index);
+        }
+        /**
+        Move the cursor to this node's first child. When this returns
+        false, the node has no child, and the cursor has not been moved.
+        */
+        firstChild() {
+          return this.enterChild(
+            1,
+            0,
+            4
+            /* Side.DontCare */
+          );
+        }
+        /**
+        Move the cursor to this node's last child.
+        */
+        lastChild() {
+          return this.enterChild(
+            -1,
+            0,
+            4
+            /* Side.DontCare */
+          );
+        }
+        /**
+        Move the cursor to the first child that ends after `pos`.
+        */
+        childAfter(pos) {
+          return this.enterChild(
+            1,
+            pos,
+            2
+            /* Side.After */
+          );
+        }
+        /**
+        Move to the last child that starts before `pos`.
+        */
+        childBefore(pos) {
+          return this.enterChild(
+            -1,
+            pos,
+            -2
+            /* Side.Before */
+          );
+        }
+        /**
+        Move the cursor to the child around `pos`. If side is -1 the
+        child may end at that position, when 1 it may start there. This
+        will also enter [overlaid](#common.MountedTree.overlay)
+        [mounted](#common.NodeProp^mounted) trees unless `overlays` is
+        set to false.
+        */
+        enter(pos, side, mode = this.mode) {
+          if (!this.buffer)
+            return this.yield(this._tree.enter(pos, side, mode));
+          return mode & IterMode.ExcludeBuffers ? false : this.enterChild(1, pos, side);
+        }
+        /**
+        Move to the node's parent node, if this isn't the top node.
+        */
+        parent() {
+          if (!this.buffer)
+            return this.yieldNode(this.mode & IterMode.IncludeAnonymous ? this._tree._parent : this._tree.parent);
+          if (this.stack.length)
+            return this.yieldBuf(this.stack.pop());
+          let parent = this.mode & IterMode.IncludeAnonymous ? this.buffer.parent : this.buffer.parent.nextSignificantParent();
+          this.buffer = null;
+          return this.yieldNode(parent);
+        }
+        /**
+        @internal
+        */
+        sibling(dir) {
+          if (!this.buffer)
+            return !this._tree._parent ? false : this.yield(this._tree.index < 0 ? null : this._tree._parent.nextChild(this._tree.index + dir, dir, 0, 4, this.mode));
+          let { buffer } = this.buffer, d = this.stack.length - 1;
+          if (dir < 0) {
+            let parentStart = d < 0 ? 0 : this.stack[d] + 4;
+            if (this.index != parentStart)
+              return this.yieldBuf(buffer.findChild(
+                parentStart,
+                this.index,
+                -1,
+                0,
+                4
+                /* Side.DontCare */
+              ));
+          } else {
+            let after = buffer.buffer[this.index + 3];
+            if (after < (d < 0 ? buffer.buffer.length : buffer.buffer[this.stack[d] + 3]))
+              return this.yieldBuf(after);
+          }
+          return d < 0 ? this.yield(this.buffer.parent.nextChild(this.buffer.index + dir, dir, 0, 4, this.mode)) : false;
+        }
+        /**
+        Move to this node's next sibling, if any.
+        */
+        nextSibling() {
+          return this.sibling(1);
+        }
+        /**
+        Move to this node's previous sibling, if any.
+        */
+        prevSibling() {
+          return this.sibling(-1);
+        }
+        atLastNode(dir) {
+          let index, parent, { buffer } = this;
+          if (buffer) {
+            if (dir > 0) {
+              if (this.index < buffer.buffer.buffer.length)
+                return false;
+            } else {
+              for (let i = 0; i < this.index; i++)
+                if (buffer.buffer.buffer[i + 3] < this.index)
+                  return false;
+            }
+            ({ index, parent } = buffer);
+          } else {
+            ({ index, _parent: parent } = this._tree);
+          }
+          for (; parent; { index, _parent: parent } = parent) {
+            if (index > -1)
+              for (let i = index + dir, e = dir < 0 ? -1 : parent._tree.children.length; i != e; i += dir) {
+                let child = parent._tree.children[i];
+                if (this.mode & IterMode.IncludeAnonymous || child instanceof TreeBuffer || !child.type.isAnonymous || hasChild(child))
+                  return false;
+              }
+          }
+          return true;
+        }
+        move(dir, enter) {
+          if (enter && this.enterChild(
+            dir,
+            0,
+            4
+            /* Side.DontCare */
+          ))
+            return true;
+          for (; ; ) {
+            if (this.sibling(dir))
+              return true;
+            if (this.atLastNode(dir) || !this.parent())
+              return false;
+          }
+        }
+        /**
+        Move to the next node in a
+        [pre-order](https://en.wikipedia.org/wiki/Tree_traversal#Pre-order,_NLR)
+        traversal, going from a node to its first child or, if the
+        current node is empty or `enter` is false, its next sibling or
+        the next sibling of the first parent node that has one.
+        */
+        next(enter = true) {
+          return this.move(1, enter);
+        }
+        /**
+        Move to the next node in a last-to-first pre-order traversal. A
+        node is followed by its last child or, if it has none, its
+        previous sibling or the previous sibling of the first parent
+        node that has one.
+        */
+        prev(enter = true) {
+          return this.move(-1, enter);
+        }
+        /**
+        Move the cursor to the innermost node that covers `pos`. If
+        `side` is -1, it will enter nodes that end at `pos`. If it is 1,
+        it will enter nodes that start at `pos`.
+        */
+        moveTo(pos, side = 0) {
+          while (this.from == this.to || (side < 1 ? this.from >= pos : this.from > pos) || (side > -1 ? this.to <= pos : this.to < pos))
+            if (!this.parent())
+              break;
+          while (this.enterChild(1, pos, side)) {
+          }
+          return this;
+        }
+        /**
+        Get a [syntax node](#common.SyntaxNode) at the cursor's current
+        position.
+        */
+        get node() {
+          if (!this.buffer)
+            return this._tree;
+          let cache = this.bufferNode, result = null, depth = 0;
+          if (cache && cache.context == this.buffer) {
+            scan: for (let index = this.index, d = this.stack.length; d >= 0; ) {
+              for (let c = cache; c; c = c._parent)
+                if (c.index == index) {
+                  if (index == this.index)
+                    return c;
+                  result = c;
+                  depth = d + 1;
+                  break scan;
+                }
+              index = this.stack[--d];
+            }
+          }
+          for (let i = depth; i < this.stack.length; i++)
+            result = new BufferNode(this.buffer, result, this.stack[i]);
+          return this.bufferNode = new BufferNode(this.buffer, result, this.index);
+        }
+        /**
+        Get the [tree](#common.Tree) that represents the current node, if
+        any. Will return null when the node is in a [tree
+        buffer](#common.TreeBuffer).
+        */
+        get tree() {
+          return this.buffer ? null : this._tree._tree;
+        }
+        /**
+        Iterate over the current node and all its descendants, calling
+        `enter` when entering a node and `leave`, if given, when leaving
+        one. When `enter` returns `false`, any children of that node are
+        skipped, and `leave` isn't called for it.
+        */
+        iterate(enter, leave) {
+          for (let depth = 0; ; ) {
+            let mustLeave = false;
+            if (this.type.isAnonymous || enter(this) !== false) {
+              if (this.firstChild()) {
+                depth++;
+                continue;
+              }
+              if (!this.type.isAnonymous)
+                mustLeave = true;
+            }
+            for (; ; ) {
+              if (mustLeave && leave)
+                leave(this);
+              mustLeave = this.type.isAnonymous;
+              if (!depth)
+                return;
+              if (this.nextSibling())
+                break;
+              this.parent();
+              depth--;
+              mustLeave = true;
+            }
+          }
+        }
+        /**
+        Test whether the current node matches a given context—a sequence
+        of direct parent node names. Empty strings in the context array
+        are treated as wildcards.
+        */
+        matchContext(context) {
+          if (!this.buffer)
+            return matchNodeContext(this.node.parent, context);
+          let { buffer } = this.buffer, { types } = buffer.set;
+          for (let i = context.length - 1, d = this.stack.length - 1; i >= 0; d--) {
+            if (d < 0)
+              return matchNodeContext(this._tree, context, i);
+            let type = types[buffer.buffer[this.stack[d]]];
+            if (!type.isAnonymous) {
+              if (context[i] && context[i] != type.name)
+                return false;
+              i--;
+            }
+          }
+          return true;
+        }
+      };
+      nodeSizeCache = /* @__PURE__ */ new WeakMap();
+      Parser = class {
+        /**
+        Start a parse, returning a [partial parse](#common.PartialParse)
+        object. [`fragments`](#common.TreeFragment) can be passed in to
+        make the parse incremental.
+        
+        By default, the entire input is parsed. You can pass `ranges`,
+        which should be a sorted array of non-empty, non-overlapping
+        ranges, to parse only those ranges. The tree returned in that
+        case will start at `ranges[0].from`.
+        */
+        startParse(input, fragments, ranges) {
+          if (typeof input == "string")
+            input = new StringInput(input);
+          ranges = !ranges ? [new Range(0, input.length)] : ranges.length ? ranges.map((r) => new Range(r.from, r.to)) : [new Range(0, 0)];
+          return this.createParse(input, fragments || [], ranges);
+        }
+        /**
+        Run a full parse, returning the resulting tree.
+        */
+        parse(input, fragments, ranges) {
+          let parse = this.startParse(input, fragments, ranges);
+          for (; ; ) {
+            let done = parse.advance();
+            if (done)
+              return done;
+          }
+        }
+      };
+      StringInput = class {
+        constructor(string2) {
+          this.string = string2;
+        }
+        get length() {
+          return this.string.length;
+        }
+        chunk(from) {
+          return this.string.slice(from);
+        }
+        get lineChunks() {
+          return false;
+        }
+        read(from, to) {
+          return this.string.slice(from, to);
+        }
+      };
+      stoppedInner = new NodeProp({ perNode: true });
+    }
+  });
+
+  // node_modules/@lezer/highlight/dist/index.js
+  function sameArray(a, b) {
+    return a.length == b.length && a.every((x, i) => x == b[i]);
+  }
+  function powerSet(array) {
+    let sets = [[]];
+    for (let i = 0; i < array.length; i++) {
+      for (let j = 0, e = sets.length; j < e; j++) {
+        sets.push(sets[j].concat(array[i]));
+      }
+    }
+    return sets.sort((a, b) => b.length - a.length);
+  }
+  function styleTags(spec) {
+    let byName = /* @__PURE__ */ Object.create(null);
+    for (let prop in spec) {
+      let tags2 = spec[prop];
+      if (!Array.isArray(tags2))
+        tags2 = [tags2];
+      for (let part of prop.split(" "))
+        if (part) {
+          let pieces = [], mode = 2, rest = part;
+          for (let pos = 0; ; ) {
+            if (rest == "..." && pos > 0 && pos + 3 == part.length) {
+              mode = 1;
+              break;
+            }
+            let m = /^"(?:[^"\\]|\\.)*?"|[^\/!]+/.exec(rest);
+            if (!m)
+              throw new RangeError("Invalid path: " + part);
+            pieces.push(m[0] == "*" ? "" : m[0][0] == '"' ? JSON.parse(m[0]) : m[0]);
+            pos += m[0].length;
+            if (pos == part.length)
+              break;
+            let next = part[pos++];
+            if (pos == part.length && next == "!") {
+              mode = 0;
+              break;
+            }
+            if (next != "/")
+              throw new RangeError("Invalid path: " + part);
+            rest = part.slice(pos);
+          }
+          let last = pieces.length - 1, inner = pieces[last];
+          if (!inner)
+            throw new RangeError("Invalid path: " + part);
+          let rule = new Rule(tags2, mode, last > 0 ? pieces.slice(0, last) : null);
+          byName[inner] = rule.sort(byName[inner]);
+        }
+    }
+    return ruleNodeProp.add(byName);
+  }
+  function tagHighlighter(tags2, options) {
+    let map = /* @__PURE__ */ Object.create(null);
+    for (let style of tags2) {
+      if (!Array.isArray(style.tag))
+        map[style.tag.id] = style.class;
+      else
+        for (let tag of style.tag)
+          map[tag.id] = style.class;
+    }
+    let { scope, all = null } = options || {};
+    return {
+      style: (tags3) => {
+        let cls = all;
+        for (let tag of tags3) {
+          for (let sub of tag.set) {
+            let tagClass = map[sub.id];
+            if (tagClass) {
+              cls = cls ? cls + " " + tagClass : tagClass;
+              break;
+            }
+          }
+        }
+        return cls;
+      },
+      scope
+    };
+  }
+  var nextTagID, Tag, nextModifierID, Modifier, ruleNodeProp, Rule, t, comment2, name, typeName, propertyName, literal, string, number, content, heading, keyword, operator, punctuation, bracket, meta, tags, classHighlighter;
+  var init_dist2 = __esm({
+    "node_modules/@lezer/highlight/dist/index.js"() {
+      init_dist();
+      nextTagID = 0;
+      Tag = class _Tag {
+        /**
+        @internal
+        */
+        constructor(name2, set, base, modified) {
+          this.name = name2;
+          this.set = set;
+          this.base = base;
+          this.modified = modified;
+          this.id = nextTagID++;
+        }
+        toString() {
+          let { name: name2 } = this;
+          for (let mod of this.modified)
+            if (mod.name)
+              name2 = `${mod.name}(${name2})`;
+          return name2;
+        }
+        static define(nameOrParent, parent) {
+          let name2 = typeof nameOrParent == "string" ? nameOrParent : "?";
+          if (nameOrParent instanceof _Tag)
+            parent = nameOrParent;
+          if (parent === null || parent === void 0 ? void 0 : parent.base)
+            throw new Error("Can not derive from a modified tag");
+          let tag = new _Tag(name2, [], null, []);
+          tag.set.push(tag);
+          if (parent)
+            for (let t2 of parent.set)
+              tag.set.push(t2);
+          return tag;
+        }
+        /**
+        Define a tag _modifier_, which is a function that, given a tag,
+        will return a tag that is a subtag of the original. Applying the
+        same modifier to a twice tag will return the same value (`m1(t1)
+        == m1(t1)`) and applying multiple modifiers will, regardless or
+        order, produce the same tag (`m1(m2(t1)) == m2(m1(t1))`).
+        
+        When multiple modifiers are applied to a given base tag, each
+        smaller set of modifiers is registered as a parent, so that for
+        example `m1(m2(m3(t1)))` is a subtype of `m1(m2(t1))`,
+        `m1(m3(t1)`, and so on.
+        */
+        static defineModifier(name2) {
+          let mod = new Modifier(name2);
+          return (tag) => {
+            if (tag.modified.indexOf(mod) > -1)
+              return tag;
+            return Modifier.get(tag.base || tag, tag.modified.concat(mod).sort((a, b) => a.id - b.id));
+          };
+        }
+      };
+      nextModifierID = 0;
+      Modifier = class _Modifier {
+        constructor(name2) {
+          this.name = name2;
+          this.instances = [];
+          this.id = nextModifierID++;
+        }
+        static get(base, mods) {
+          if (!mods.length)
+            return base;
+          let exists = mods[0].instances.find((t2) => t2.base == base && sameArray(mods, t2.modified));
+          if (exists)
+            return exists;
+          let set = [], tag = new Tag(base.name, set, base, mods);
+          for (let m of mods)
+            m.instances.push(tag);
+          let configs = powerSet(mods);
+          for (let parent of base.set)
+            if (!parent.modified.length)
+              for (let config of configs)
+                set.push(_Modifier.get(parent, config));
+          return tag;
+        }
+      };
+      ruleNodeProp = new NodeProp({
+        combine(a, b) {
+          let cur, root, take;
+          while (a || b) {
+            if (!a || b && a.depth >= b.depth) {
+              take = b;
+              b = b.next;
+            } else {
+              take = a;
+              a = a.next;
+            }
+            if (cur && cur.mode == take.mode && !take.context && !cur.context)
+              continue;
+            let copy = new Rule(take.tags, take.mode, take.context);
+            if (cur)
+              cur.next = copy;
+            else
+              root = copy;
+            cur = copy;
+          }
+          return root;
+        }
+      });
+      Rule = class {
+        constructor(tags2, mode, context, next) {
+          this.tags = tags2;
+          this.mode = mode;
+          this.context = context;
+          this.next = next;
+        }
+        get opaque() {
+          return this.mode == 0;
+        }
+        get inherit() {
+          return this.mode == 1;
+        }
+        sort(other) {
+          if (!other || other.depth < this.depth) {
+            this.next = other;
+            return this;
+          }
+          other.next = this.sort(other.next);
+          return other;
+        }
+        get depth() {
+          return this.context ? this.context.length : 0;
+        }
+      };
+      Rule.empty = new Rule([], 2, null);
+      t = Tag.define;
+      comment2 = t();
+      name = t();
+      typeName = t(name);
+      propertyName = t(name);
+      literal = t();
+      string = t(literal);
+      number = t(literal);
+      content = t();
+      heading = t(content);
+      keyword = t();
+      operator = t();
+      punctuation = t();
+      bracket = t(punctuation);
+      meta = t();
+      tags = {
+        /**
+        A comment.
+        */
+        comment: comment2,
+        /**
+        A line [comment](#highlight.tags.comment).
+        */
+        lineComment: t(comment2),
+        /**
+        A block [comment](#highlight.tags.comment).
+        */
+        blockComment: t(comment2),
+        /**
+        A documentation [comment](#highlight.tags.comment).
+        */
+        docComment: t(comment2),
+        /**
+        Any kind of identifier.
+        */
+        name,
+        /**
+        The [name](#highlight.tags.name) of a variable.
+        */
+        variableName: t(name),
+        /**
+        A type [name](#highlight.tags.name).
+        */
+        typeName,
+        /**
+        A tag name (subtag of [`typeName`](#highlight.tags.typeName)).
+        */
+        tagName: t(typeName),
+        /**
+        A property or field [name](#highlight.tags.name).
+        */
+        propertyName,
+        /**
+        An attribute name (subtag of [`propertyName`](#highlight.tags.propertyName)).
+        */
+        attributeName: t(propertyName),
+        /**
+        The [name](#highlight.tags.name) of a class.
+        */
+        className: t(name),
+        /**
+        A label [name](#highlight.tags.name).
+        */
+        labelName: t(name),
+        /**
+        A namespace [name](#highlight.tags.name).
+        */
+        namespace: t(name),
+        /**
+        The [name](#highlight.tags.name) of a macro.
+        */
+        macroName: t(name),
+        /**
+        A literal value.
+        */
+        literal,
+        /**
+        A string [literal](#highlight.tags.literal).
+        */
+        string,
+        /**
+        A documentation [string](#highlight.tags.string).
+        */
+        docString: t(string),
+        /**
+        A character literal (subtag of [string](#highlight.tags.string)).
+        */
+        character: t(string),
+        /**
+        An attribute value (subtag of [string](#highlight.tags.string)).
+        */
+        attributeValue: t(string),
+        /**
+        A number [literal](#highlight.tags.literal).
+        */
+        number,
+        /**
+        An integer [number](#highlight.tags.number) literal.
+        */
+        integer: t(number),
+        /**
+        A floating-point [number](#highlight.tags.number) literal.
+        */
+        float: t(number),
+        /**
+        A boolean [literal](#highlight.tags.literal).
+        */
+        bool: t(literal),
+        /**
+        Regular expression [literal](#highlight.tags.literal).
+        */
+        regexp: t(literal),
+        /**
+        An escape [literal](#highlight.tags.literal), for example a
+        backslash escape in a string.
+        */
+        escape: t(literal),
+        /**
+        A color [literal](#highlight.tags.literal).
+        */
+        color: t(literal),
+        /**
+        A URL [literal](#highlight.tags.literal).
+        */
+        url: t(literal),
+        /**
+        A language keyword.
+        */
+        keyword,
+        /**
+        The [keyword](#highlight.tags.keyword) for the self or this
+        object.
+        */
+        self: t(keyword),
+        /**
+        The [keyword](#highlight.tags.keyword) for null.
+        */
+        null: t(keyword),
+        /**
+        A [keyword](#highlight.tags.keyword) denoting some atomic value.
+        */
+        atom: t(keyword),
+        /**
+        A [keyword](#highlight.tags.keyword) that represents a unit.
+        */
+        unit: t(keyword),
+        /**
+        A modifier [keyword](#highlight.tags.keyword).
+        */
+        modifier: t(keyword),
+        /**
+        A [keyword](#highlight.tags.keyword) that acts as an operator.
+        */
+        operatorKeyword: t(keyword),
+        /**
+        A control-flow related [keyword](#highlight.tags.keyword).
+        */
+        controlKeyword: t(keyword),
+        /**
+        A [keyword](#highlight.tags.keyword) that defines something.
+        */
+        definitionKeyword: t(keyword),
+        /**
+        A [keyword](#highlight.tags.keyword) related to defining or
+        interfacing with modules.
+        */
+        moduleKeyword: t(keyword),
+        /**
+        An operator.
+        */
+        operator,
+        /**
+        An [operator](#highlight.tags.operator) that dereferences something.
+        */
+        derefOperator: t(operator),
+        /**
+        Arithmetic-related [operator](#highlight.tags.operator).
+        */
+        arithmeticOperator: t(operator),
+        /**
+        Logical [operator](#highlight.tags.operator).
+        */
+        logicOperator: t(operator),
+        /**
+        Bit [operator](#highlight.tags.operator).
+        */
+        bitwiseOperator: t(operator),
+        /**
+        Comparison [operator](#highlight.tags.operator).
+        */
+        compareOperator: t(operator),
+        /**
+        [Operator](#highlight.tags.operator) that updates its operand.
+        */
+        updateOperator: t(operator),
+        /**
+        [Operator](#highlight.tags.operator) that defines something.
+        */
+        definitionOperator: t(operator),
+        /**
+        Type-related [operator](#highlight.tags.operator).
+        */
+        typeOperator: t(operator),
+        /**
+        Control-flow [operator](#highlight.tags.operator).
+        */
+        controlOperator: t(operator),
+        /**
+        Program or markup punctuation.
+        */
+        punctuation,
+        /**
+        [Punctuation](#highlight.tags.punctuation) that separates
+        things.
+        */
+        separator: t(punctuation),
+        /**
+        Bracket-style [punctuation](#highlight.tags.punctuation).
+        */
+        bracket,
+        /**
+        Angle [brackets](#highlight.tags.bracket) (usually `<` and `>`
+        tokens).
+        */
+        angleBracket: t(bracket),
+        /**
+        Square [brackets](#highlight.tags.bracket) (usually `[` and `]`
+        tokens).
+        */
+        squareBracket: t(bracket),
+        /**
+        Parentheses (usually `(` and `)` tokens). Subtag of
+        [bracket](#highlight.tags.bracket).
+        */
+        paren: t(bracket),
+        /**
+        Braces (usually `{` and `}` tokens). Subtag of
+        [bracket](#highlight.tags.bracket).
+        */
+        brace: t(bracket),
+        /**
+        Content, for example plain text in XML or markup documents.
+        */
+        content,
+        /**
+        [Content](#highlight.tags.content) that represents a heading.
+        */
+        heading,
+        /**
+        A level 1 [heading](#highlight.tags.heading).
+        */
+        heading1: t(heading),
+        /**
+        A level 2 [heading](#highlight.tags.heading).
+        */
+        heading2: t(heading),
+        /**
+        A level 3 [heading](#highlight.tags.heading).
+        */
+        heading3: t(heading),
+        /**
+        A level 4 [heading](#highlight.tags.heading).
+        */
+        heading4: t(heading),
+        /**
+        A level 5 [heading](#highlight.tags.heading).
+        */
+        heading5: t(heading),
+        /**
+        A level 6 [heading](#highlight.tags.heading).
+        */
+        heading6: t(heading),
+        /**
+        A prose [content](#highlight.tags.content) separator (such as a horizontal rule).
+        */
+        contentSeparator: t(content),
+        /**
+        [Content](#highlight.tags.content) that represents a list.
+        */
+        list: t(content),
+        /**
+        [Content](#highlight.tags.content) that represents a quote.
+        */
+        quote: t(content),
+        /**
+        [Content](#highlight.tags.content) that is emphasized.
+        */
+        emphasis: t(content),
+        /**
+        [Content](#highlight.tags.content) that is styled strong.
+        */
+        strong: t(content),
+        /**
+        [Content](#highlight.tags.content) that is part of a link.
+        */
+        link: t(content),
+        /**
+        [Content](#highlight.tags.content) that is styled as code or
+        monospace.
+        */
+        monospace: t(content),
+        /**
+        [Content](#highlight.tags.content) that has a strike-through
+        style.
+        */
+        strikethrough: t(content),
+        /**
+        Inserted text in a change-tracking format.
+        */
+        inserted: t(),
+        /**
+        Deleted text.
+        */
+        deleted: t(),
+        /**
+        Changed text.
+        */
+        changed: t(),
+        /**
+        An invalid or unsyntactic element.
+        */
+        invalid: t(),
+        /**
+        Metadata or meta-instruction.
+        */
+        meta,
+        /**
+        [Metadata](#highlight.tags.meta) that applies to the entire
+        document.
+        */
+        documentMeta: t(meta),
+        /**
+        [Metadata](#highlight.tags.meta) that annotates or adds
+        attributes to a given syntactic element.
+        */
+        annotation: t(meta),
+        /**
+        Processing instruction or preprocessor directive. Subtag of
+        [meta](#highlight.tags.meta).
+        */
+        processingInstruction: t(meta),
+        /**
+        [Modifier](#highlight.Tag^defineModifier) that indicates that a
+        given element is being defined. Expected to be used with the
+        various [name](#highlight.tags.name) tags.
+        */
+        definition: Tag.defineModifier("definition"),
+        /**
+        [Modifier](#highlight.Tag^defineModifier) that indicates that
+        something is constant. Mostly expected to be used with
+        [variable names](#highlight.tags.variableName).
+        */
+        constant: Tag.defineModifier("constant"),
+        /**
+        [Modifier](#highlight.Tag^defineModifier) used to indicate that
+        a [variable](#highlight.tags.variableName) or [property
+        name](#highlight.tags.propertyName) is being called or defined
+        as a function.
+        */
+        function: Tag.defineModifier("function"),
+        /**
+        [Modifier](#highlight.Tag^defineModifier) that can be applied to
+        [names](#highlight.tags.name) to indicate that they belong to
+        the language's standard environment.
+        */
+        standard: Tag.defineModifier("standard"),
+        /**
+        [Modifier](#highlight.Tag^defineModifier) that indicates a given
+        [names](#highlight.tags.name) is local to some scope.
+        */
+        local: Tag.defineModifier("local"),
+        /**
+        A generic variant [modifier](#highlight.Tag^defineModifier) that
+        can be used to tag language-specific alternative variants of
+        some common tag. It is recommended for themes to define special
+        forms of at least the [string](#highlight.tags.string) and
+        [variable name](#highlight.tags.variableName) tags, since those
+        come up a lot.
+        */
+        special: Tag.defineModifier("special")
+      };
+      for (let name2 in tags) {
+        let val = tags[name2];
+        if (val instanceof Tag)
+          val.name = name2;
+      }
+      classHighlighter = tagHighlighter([
+        { tag: tags.link, class: "tok-link" },
+        { tag: tags.heading, class: "tok-heading" },
+        { tag: tags.emphasis, class: "tok-emphasis" },
+        { tag: tags.strong, class: "tok-strong" },
+        { tag: tags.keyword, class: "tok-keyword" },
+        { tag: tags.atom, class: "tok-atom" },
+        { tag: tags.bool, class: "tok-bool" },
+        { tag: tags.url, class: "tok-url" },
+        { tag: tags.labelName, class: "tok-labelName" },
+        { tag: tags.inserted, class: "tok-inserted" },
+        { tag: tags.deleted, class: "tok-deleted" },
+        { tag: tags.literal, class: "tok-literal" },
+        { tag: tags.string, class: "tok-string" },
+        { tag: tags.number, class: "tok-number" },
+        { tag: [tags.regexp, tags.escape, tags.special(tags.string)], class: "tok-string2" },
+        { tag: tags.variableName, class: "tok-variableName" },
+        { tag: tags.local(tags.variableName), class: "tok-variableName tok-local" },
+        { tag: tags.definition(tags.variableName), class: "tok-variableName tok-definition" },
+        { tag: tags.special(tags.variableName), class: "tok-variableName2" },
+        { tag: tags.definition(tags.propertyName), class: "tok-propertyName tok-definition" },
+        { tag: tags.typeName, class: "tok-typeName" },
+        { tag: tags.namespace, class: "tok-namespace" },
+        { tag: tags.className, class: "tok-className" },
+        { tag: tags.macroName, class: "tok-macroName" },
+        { tag: tags.propertyName, class: "tok-propertyName" },
+        { tag: tags.operator, class: "tok-operator" },
+        { tag: tags.comment, class: "tok-comment" },
+        { tag: tags.meta, class: "tok-meta" },
+        { tag: tags.invalid, class: "tok-invalid" },
+        { tag: tags.punctuation, class: "tok-punctuation" }
+      ]);
+    }
+  });
+
+  // node_modules/@lezer/markdown/dist/index.js
+  function skipForList(bl, cx, line) {
+    if (line.pos == line.text.length || bl != cx.block && line.indent >= cx.stack[line.depth + 1].value + line.baseIndent)
+      return true;
+    if (line.indent >= line.baseIndent + 4)
+      return false;
+    let size = (bl.type == Type.OrderedList ? isOrderedList : isBulletList)(line, cx, false);
+    return size > 0 && (bl.type != Type.BulletList || isHorizontalRule(line, cx, false) < 0) && line.text.charCodeAt(line.pos + size - 1) == bl.value;
+  }
+  function space(ch) {
+    return ch == 32 || ch == 9 || ch == 10 || ch == 13;
+  }
+  function skipSpace(line, i = 0) {
+    while (i < line.length && space(line.charCodeAt(i)))
+      i++;
+    return i;
+  }
+  function skipSpaceBack(line, i, to) {
+    while (i > to && space(line.charCodeAt(i - 1)))
+      i--;
+    return i;
+  }
+  function isFencedCode(line) {
+    if (line.next != 96 && line.next != 126)
+      return -1;
+    let pos = line.pos + 1;
+    while (pos < line.text.length && line.text.charCodeAt(pos) == line.next)
+      pos++;
+    if (pos < line.pos + 3)
+      return -1;
+    if (line.next == 96) {
+      for (let i = pos; i < line.text.length; i++)
+        if (line.text.charCodeAt(i) == 96)
+          return -1;
+    }
+    return pos;
+  }
+  function isBlockquote(line) {
+    return line.next != 62 ? -1 : line.text.charCodeAt(line.pos + 1) == 32 ? 2 : 1;
+  }
+  function isHorizontalRule(line, cx, breaking) {
+    if (line.next != 42 && line.next != 45 && line.next != 95)
+      return -1;
+    let count2 = 1;
+    for (let pos = line.pos + 1; pos < line.text.length; pos++) {
+      let ch = line.text.charCodeAt(pos);
+      if (ch == line.next)
+        count2++;
+      else if (!space(ch))
+        return -1;
+    }
+    if (breaking && line.next == 45 && isSetextUnderline(line) > -1 && line.depth == cx.stack.length && cx.parser.leafBlockParsers.indexOf(DefaultLeafBlocks.SetextHeading) > -1)
+      return -1;
+    return count2 < 3 ? -1 : 1;
+  }
+  function inList(cx, type) {
+    for (let i = cx.stack.length - 1; i >= 0; i--)
+      if (cx.stack[i].type == type)
+        return true;
+    return false;
+  }
+  function isBulletList(line, cx, breaking) {
+    return (line.next == 45 || line.next == 43 || line.next == 42) && (line.pos == line.text.length - 1 || space(line.text.charCodeAt(line.pos + 1))) && (!breaking || inList(cx, Type.BulletList) || line.skipSpace(line.pos + 2) < line.text.length) ? 1 : -1;
+  }
+  function isOrderedList(line, cx, breaking) {
+    let pos = line.pos, next = line.next;
+    for (; ; ) {
+      if (next >= 48 && next <= 57)
+        pos++;
+      else
+        break;
+      if (pos == line.text.length)
+        return -1;
+      next = line.text.charCodeAt(pos);
+    }
+    if (pos == line.pos || pos > line.pos + 9 || next != 46 && next != 41 || pos < line.text.length - 1 && !space(line.text.charCodeAt(pos + 1)) || breaking && !inList(cx, Type.OrderedList) && (line.skipSpace(pos + 1) == line.text.length || pos > line.pos + 1 || line.next != 49))
+      return -1;
+    return pos + 1 - line.pos;
+  }
+  function isAtxHeading(line) {
+    if (line.next != 35)
+      return -1;
+    let pos = line.pos + 1;
+    while (pos < line.text.length && line.text.charCodeAt(pos) == 35)
+      pos++;
+    if (pos < line.text.length && line.text.charCodeAt(pos) != 32)
+      return -1;
+    let size = pos - line.pos;
+    return size > 6 ? -1 : size;
+  }
+  function isSetextUnderline(line) {
+    if (line.next != 45 && line.next != 61 || line.indent >= line.baseIndent + 4)
+      return -1;
+    let pos = line.pos + 1;
+    while (pos < line.text.length && line.text.charCodeAt(pos) == line.next)
+      pos++;
+    let end = pos;
+    while (pos < line.text.length && space(line.text.charCodeAt(pos)))
+      pos++;
+    return pos == line.text.length ? end : -1;
+  }
+  function isHTMLBlock(line, _cx, breaking) {
+    if (line.next != 60)
+      return -1;
+    let rest = line.text.slice(line.pos);
+    for (let i = 0, e = HTMLBlockStyle.length - (breaking ? 1 : 0); i < e; i++)
+      if (HTMLBlockStyle[i][0].test(rest))
+        return i;
+    return -1;
+  }
+  function getListIndent(line, pos) {
+    let indentAfter = line.countIndent(pos, line.pos, line.indent);
+    let indented = line.countIndent(line.skipSpace(pos), pos, indentAfter);
+    return indented >= indentAfter + 5 ? indentAfter + 1 : indented;
+  }
+  function addCodeText(marks, from, to) {
+    let last = marks.length - 1;
+    if (last >= 0 && marks[last].to == from && marks[last].type == Type.CodeText)
+      marks[last].to = to;
+    else
+      marks.push(elt(Type.CodeText, from, to));
+  }
+  function lineEnd(text, pos) {
+    for (; pos < text.length; pos++) {
+      let next = text.charCodeAt(pos);
+      if (next == 10)
+        break;
+      if (!space(next))
+        return -1;
+    }
+    return pos;
+  }
+  function injectGaps(ranges, rangeI, tree, offset, dummies) {
+    let rangeEnd = ranges[rangeI].to;
+    let children = [], positions = [], start = tree.from + offset;
+    function movePastNext(upto, inclusive) {
+      while (inclusive ? upto >= rangeEnd : upto > rangeEnd) {
+        let size = ranges[rangeI + 1].from - rangeEnd;
+        offset += size;
+        upto += size;
+        rangeI++;
+        rangeEnd = ranges[rangeI].to;
+      }
+    }
+    for (let ch = tree.firstChild; ch; ch = ch.nextSibling) {
+      movePastNext(ch.from + offset, true);
+      let from = ch.from + offset, node, reuse = dummies.get(ch.tree);
+      if (reuse) {
+        node = reuse;
+      } else if (ch.to + offset > rangeEnd) {
+        node = injectGaps(ranges, rangeI, ch, offset, dummies);
+        movePastNext(ch.to + offset, false);
+      } else {
+        node = ch.toTree();
+      }
+      children.push(node);
+      positions.push(from - start);
+    }
+    movePastNext(tree.to + offset, false);
+    return new Tree(tree.type, children, positions, tree.to + offset - start, tree.tree ? tree.tree.propValues : void 0);
+  }
+  function nonEmpty(a) {
+    return a != null && a.length > 0;
+  }
+  function resolveConfig(spec) {
+    if (!Array.isArray(spec))
+      return spec;
+    if (spec.length == 0)
+      return null;
+    let conf = resolveConfig(spec[0]);
+    if (spec.length == 1)
+      return conf;
+    let rest = resolveConfig(spec.slice(1));
+    if (!rest || !conf)
+      return conf || rest;
+    let conc = (a, b) => (a || none).concat(b || none);
+    let wrapA = conf.wrap, wrapB = rest.wrap;
+    return {
+      props: conc(conf.props, rest.props),
+      defineNodes: conc(conf.defineNodes, rest.defineNodes),
+      parseBlock: conc(conf.parseBlock, rest.parseBlock),
+      parseInline: conc(conf.parseInline, rest.parseInline),
+      remove: conc(conf.remove, rest.remove),
+      wrap: !wrapA ? wrapB : !wrapB ? wrapA : (inner, input, fragments, ranges) => wrapA(wrapB(inner, input, fragments, ranges), input, fragments, ranges)
+    };
+  }
+  function findName(names, name2) {
+    let found = names.indexOf(name2);
+    if (found < 0)
+      throw new RangeError(`Position specified relative to unknown parser ${name2}`);
+    return found;
+  }
+  function elt(type, from, to, children) {
+    return new Element2(type, from, to, children);
+  }
+  function finishLink(cx, content2, type, start, startPos) {
+    let { text } = cx, next = cx.char(startPos), endPos = startPos;
+    content2.unshift(elt(Type.LinkMark, start, start + (type == Type.Image ? 2 : 1)));
+    content2.push(elt(Type.LinkMark, startPos - 1, startPos));
+    if (next == 40) {
+      let pos = cx.skipSpace(startPos + 1);
+      let dest = parseURL(text, pos - cx.offset, cx.offset), title;
+      if (dest) {
+        pos = cx.skipSpace(dest.to);
+        if (pos != dest.to) {
+          title = parseLinkTitle(text, pos - cx.offset, cx.offset);
+          if (title)
+            pos = cx.skipSpace(title.to);
+        }
+      }
+      if (cx.char(pos) == 41) {
+        content2.push(elt(Type.LinkMark, startPos, startPos + 1));
+        endPos = pos + 1;
+        if (dest)
+          content2.push(dest);
+        if (title)
+          content2.push(title);
+        content2.push(elt(Type.LinkMark, pos, endPos));
+      }
+    } else if (next == 91) {
+      let label = parseLinkLabel(text, startPos - cx.offset, cx.offset, false);
+      if (label) {
+        content2.push(label);
+        endPos = label.to;
+      }
+    }
+    return elt(type, start, endPos, content2);
+  }
+  function parseURL(text, start, offset) {
+    let next = text.charCodeAt(start);
+    if (next == 60) {
+      for (let pos = start + 1; pos < text.length; pos++) {
+        let ch = text.charCodeAt(pos);
+        if (ch == 62)
+          return elt(Type.URL, start + offset, pos + 1 + offset);
+        if (ch == 60 || ch == 10)
+          return false;
+      }
+      return null;
+    } else {
+      let depth = 0, pos = start;
+      for (let escaped = false; pos < text.length; pos++) {
+        let ch = text.charCodeAt(pos);
+        if (space(ch)) {
+          break;
+        } else if (escaped) {
+          escaped = false;
+        } else if (ch == 40) {
+          depth++;
+        } else if (ch == 41) {
+          if (!depth)
+            break;
+          depth--;
+        } else if (ch == 92) {
+          escaped = true;
+        }
+      }
+      return pos > start ? elt(Type.URL, start + offset, pos + offset) : pos == text.length ? null : false;
+    }
+  }
+  function parseLinkTitle(text, start, offset) {
+    let next = text.charCodeAt(start);
+    if (next != 39 && next != 34 && next != 40)
+      return false;
+    let end = next == 40 ? 41 : next;
+    for (let pos = start + 1, escaped = false; pos < text.length; pos++) {
+      let ch = text.charCodeAt(pos);
+      if (escaped)
+        escaped = false;
+      else if (ch == end)
+        return elt(Type.LinkTitle, start + offset, pos + 1 + offset);
+      else if (ch == 92)
+        escaped = true;
+    }
+    return null;
+  }
+  function parseLinkLabel(text, start, offset, requireNonWS) {
+    for (let escaped = false, pos = start + 1, end = Math.min(text.length, pos + 999); pos < end; pos++) {
+      let ch = text.charCodeAt(pos);
+      if (escaped)
+        escaped = false;
+      else if (ch == 93)
+        return requireNonWS ? false : elt(Type.LinkLabel, start + offset, pos + 1 + offset);
+      else {
+        if (requireNonWS && !space(ch))
+          requireNonWS = false;
+        if (ch == 91)
+          return false;
+        else if (ch == 92)
+          escaped = true;
+      }
+    }
+    return null;
+  }
+  function injectMarks(elements, marks) {
+    if (!marks.length)
+      return elements;
+    if (!elements.length)
+      return marks;
+    let elts = elements.slice(), eI = 0;
+    for (let mark of marks) {
+      while (eI < elts.length && elts[eI].to < mark.to)
+        eI++;
+      if (eI < elts.length && elts[eI].from < mark.from) {
+        let e = elts[eI];
+        if (e instanceof Element2)
+          elts[eI] = new Element2(e.type, e.from, e.to, injectMarks(e.children, [mark]));
+      } else {
+        elts.splice(eI++, 0, mark);
+      }
+    }
+    return elts;
+  }
+  function toRelative(abs, ranges) {
+    let pos = abs;
+    for (let i = 1; i < ranges.length; i++) {
+      let gapFrom = ranges[i - 1].to, gapTo = ranges[i].from;
+      if (gapFrom < abs)
+        pos -= gapTo - gapFrom;
+    }
+    return pos;
+  }
+  function parseRow(cx, line, startI = 0, elts, offset = 0) {
+    let count2 = 0, first = true, cellStart = -1, cellEnd = -1, esc = false;
+    let parseCell = () => {
+      elts.push(cx.elt("TableCell", offset + cellStart, offset + cellEnd, cx.parser.parseInline(line.slice(cellStart, cellEnd), offset + cellStart)));
+    };
+    for (let i = startI; i < line.length; i++) {
+      let next = line.charCodeAt(i);
+      if (next == 124 && !esc) {
+        if (!first || cellStart > -1)
+          count2++;
+        first = false;
+        if (elts) {
+          if (cellStart > -1)
+            parseCell();
+          elts.push(cx.elt("TableDelimiter", i + offset, i + offset + 1));
+        }
+        cellStart = cellEnd = -1;
+      } else if (esc || next != 32 && next != 9) {
+        if (cellStart < 0)
+          cellStart = i;
+        cellEnd = i + 1;
+      }
+      esc = !esc && next == 92;
+    }
+    if (cellStart > -1) {
+      count2++;
+      if (elts)
+        parseCell();
+    }
+    return count2;
+  }
+  function hasPipe(str, start) {
+    for (let i = start; i < str.length; i++) {
+      let next = str.charCodeAt(i);
+      if (next == 124)
+        return true;
+      if (next == 92)
+        i++;
+    }
+    return false;
+  }
+  function count(str, from, to, ch) {
+    let result = 0;
+    for (let i = from; i < to; i++)
+      if (str[i] == ch)
+        result++;
+    return result;
+  }
+  function autolinkURLEnd(text, from) {
+    urlRE.lastIndex = from;
+    let m = urlRE.exec(text);
+    if (!m || lastTwoDomainWords.exec(m[0])[0].indexOf("_") > -1)
+      return -1;
+    let end = from + m[0].length;
+    for (; ; ) {
+      let last = text[end - 1], m2;
+      if (/[?!.,:*_~]/.test(last) || last == ")" && count(text, from, end, ")") > count(text, from, end, "("))
+        end--;
+      else if (last == ";" && (m2 = /&(?:#\d+|#x[a-f\d]+|\w+);$/.exec(text.slice(from, end))))
+        end = from + m2.index;
+      else
+        break;
+    }
+    return end;
+  }
+  function autolinkEmailEnd(text, from) {
+    emailRE.lastIndex = from;
+    let m = emailRE.exec(text);
+    if (!m)
+      return -1;
+    let last = m[0][m[0].length - 1];
+    return last == "_" || last == "-" ? -1 : from + m[0].length - (last == "." ? 1 : 0);
+  }
+  function parseSubSuper(ch, node, mark) {
+    return (cx, next, pos) => {
+      if (next != ch || cx.char(pos + 1) == ch)
+        return -1;
+      let elts = [cx.elt(mark, pos, pos + 1)];
+      for (let i = pos + 1; i < cx.end; i++) {
+        let next2 = cx.char(i);
+        if (next2 == ch)
+          return cx.addElement(cx.elt(node, pos, i + 1, elts.concat(cx.elt(mark, i, i + 1))));
+        if (next2 == 92)
+          elts.push(cx.elt("Escape", i, i++ + 2));
+        if (space(next2))
+          break;
+      }
+      return -1;
+    };
+  }
+  var CompositeBlock, Type, LeafBlock, Line, DefaultSkipMarkup, EmptyLine, CommentEnd, ProcessingEnd, HTMLBlockStyle, DefaultBlockParsers, LinkReferenceParser, SetextHeadingParser, DefaultLeafBlocks, DefaultEndLeaf, scanLineResult, BlockContext, MarkdownParser, nodeTypes, none, Buffer2, Element2, TreeElement, EmphasisUnderscore, EmphasisAsterisk, LinkStart, ImageStart, InlineDelimiter, Escapable, Punctuation, DefaultInline, InlineContext, NotLast, FragmentCursor, markdownHighlighting, parser, StrikethroughDelim, Strikethrough, delimiterLine, TableParser, Table, TaskParser, TaskList, autolinkRE, urlRE, lastTwoDomainWords, emailRE, xmppResourceRE, Autolink, GFM, Superscript, Subscript, Emoji;
+  var init_dist3 = __esm({
+    "node_modules/@lezer/markdown/dist/index.js"() {
+      init_dist();
+      init_dist2();
+      CompositeBlock = class _CompositeBlock {
+        static create(type, value, from, parentHash, end) {
+          let hash = parentHash + (parentHash << 8) + type + (value << 4) | 0;
+          return new _CompositeBlock(type, value, from, hash, end, [], []);
+        }
+        constructor(type, value, from, hash, end, children, positions) {
+          this.type = type;
+          this.value = value;
+          this.from = from;
+          this.hash = hash;
+          this.end = end;
+          this.children = children;
+          this.positions = positions;
+          this.hashProp = [[NodeProp.contextHash, hash]];
+        }
+        addChild(child, pos) {
+          if (child.prop(NodeProp.contextHash) != this.hash)
+            child = new Tree(child.type, child.children, child.positions, child.length, this.hashProp);
+          this.children.push(child);
+          this.positions.push(pos);
+        }
+        toTree(nodeSet, end = this.end) {
+          let last = this.children.length - 1;
+          if (last >= 0)
+            end = Math.max(end, this.positions[last] + this.children[last].length + this.from);
+          return new Tree(nodeSet.types[this.type], this.children, this.positions, end - this.from).balance({
+            makeTree: (children, positions, length) => new Tree(NodeType.none, children, positions, length, this.hashProp)
+          });
+        }
+      };
+      (function(Type2) {
+        Type2[Type2["Document"] = 1] = "Document";
+        Type2[Type2["CodeBlock"] = 2] = "CodeBlock";
+        Type2[Type2["FencedCode"] = 3] = "FencedCode";
+        Type2[Type2["Blockquote"] = 4] = "Blockquote";
+        Type2[Type2["HorizontalRule"] = 5] = "HorizontalRule";
+        Type2[Type2["BulletList"] = 6] = "BulletList";
+        Type2[Type2["OrderedList"] = 7] = "OrderedList";
+        Type2[Type2["ListItem"] = 8] = "ListItem";
+        Type2[Type2["ATXHeading1"] = 9] = "ATXHeading1";
+        Type2[Type2["ATXHeading2"] = 10] = "ATXHeading2";
+        Type2[Type2["ATXHeading3"] = 11] = "ATXHeading3";
+        Type2[Type2["ATXHeading4"] = 12] = "ATXHeading4";
+        Type2[Type2["ATXHeading5"] = 13] = "ATXHeading5";
+        Type2[Type2["ATXHeading6"] = 14] = "ATXHeading6";
+        Type2[Type2["SetextHeading1"] = 15] = "SetextHeading1";
+        Type2[Type2["SetextHeading2"] = 16] = "SetextHeading2";
+        Type2[Type2["HTMLBlock"] = 17] = "HTMLBlock";
+        Type2[Type2["LinkReference"] = 18] = "LinkReference";
+        Type2[Type2["Paragraph"] = 19] = "Paragraph";
+        Type2[Type2["CommentBlock"] = 20] = "CommentBlock";
+        Type2[Type2["ProcessingInstructionBlock"] = 21] = "ProcessingInstructionBlock";
+        Type2[Type2["Escape"] = 22] = "Escape";
+        Type2[Type2["Entity"] = 23] = "Entity";
+        Type2[Type2["HardBreak"] = 24] = "HardBreak";
+        Type2[Type2["Emphasis"] = 25] = "Emphasis";
+        Type2[Type2["StrongEmphasis"] = 26] = "StrongEmphasis";
+        Type2[Type2["Link"] = 27] = "Link";
+        Type2[Type2["Image"] = 28] = "Image";
+        Type2[Type2["InlineCode"] = 29] = "InlineCode";
+        Type2[Type2["HTMLTag"] = 30] = "HTMLTag";
+        Type2[Type2["Comment"] = 31] = "Comment";
+        Type2[Type2["ProcessingInstruction"] = 32] = "ProcessingInstruction";
+        Type2[Type2["Autolink"] = 33] = "Autolink";
+        Type2[Type2["HeaderMark"] = 34] = "HeaderMark";
+        Type2[Type2["QuoteMark"] = 35] = "QuoteMark";
+        Type2[Type2["ListMark"] = 36] = "ListMark";
+        Type2[Type2["LinkMark"] = 37] = "LinkMark";
+        Type2[Type2["EmphasisMark"] = 38] = "EmphasisMark";
+        Type2[Type2["CodeMark"] = 39] = "CodeMark";
+        Type2[Type2["CodeText"] = 40] = "CodeText";
+        Type2[Type2["CodeInfo"] = 41] = "CodeInfo";
+        Type2[Type2["LinkTitle"] = 42] = "LinkTitle";
+        Type2[Type2["LinkLabel"] = 43] = "LinkLabel";
+        Type2[Type2["URL"] = 44] = "URL";
+      })(Type || (Type = {}));
+      LeafBlock = class {
+        /**
+        @internal
+        */
+        constructor(start, content2) {
+          this.start = start;
+          this.content = content2;
+          this.marks = [];
+          this.parsers = [];
+        }
+      };
+      Line = class {
+        constructor() {
+          this.text = "";
+          this.baseIndent = 0;
+          this.basePos = 0;
+          this.depth = 0;
+          this.markers = [];
+          this.pos = 0;
+          this.indent = 0;
+          this.next = -1;
+        }
+        /**
+        @internal
+        */
+        forward() {
+          if (this.basePos > this.pos)
+            this.forwardInner();
+        }
+        /**
+        @internal
+        */
+        forwardInner() {
+          let newPos = this.skipSpace(this.basePos);
+          this.indent = this.countIndent(newPos, this.pos, this.indent);
+          this.pos = newPos;
+          this.next = newPos == this.text.length ? -1 : this.text.charCodeAt(newPos);
+        }
+        /**
+        Skip whitespace after the given position, return the position of
+        the next non-space character or the end of the line if there's
+        only space after `from`.
+        */
+        skipSpace(from) {
+          return skipSpace(this.text, from);
+        }
+        /**
+        @internal
+        */
+        reset(text) {
+          this.text = text;
+          this.baseIndent = this.basePos = this.pos = this.indent = 0;
+          this.forwardInner();
+          this.depth = 1;
+          while (this.markers.length)
+            this.markers.pop();
+        }
+        /**
+        Move the line's base position forward to the given position.
+        This should only be called by composite [block
+        parsers](#BlockParser.parse) or [markup skipping
+        functions](#NodeSpec.composite).
+        */
+        moveBase(to) {
+          this.basePos = to;
+          this.baseIndent = this.countIndent(to, this.pos, this.indent);
+        }
+        /**
+        Move the line's base position forward to the given _column_.
+        */
+        moveBaseColumn(indent) {
+          this.baseIndent = indent;
+          this.basePos = this.findColumn(indent);
+        }
+        /**
+        Store a composite-block-level marker. Should be called from
+        [markup skipping functions](#NodeSpec.composite) when they
+        consume any non-whitespace characters.
+        */
+        addMarker(elt2) {
+          this.markers.push(elt2);
+        }
+        /**
+        Find the column position at `to`, optionally starting at a given
+        position and column.
+        */
+        countIndent(to, from = 0, indent = 0) {
+          for (let i = from; i < to; i++)
+            indent += this.text.charCodeAt(i) == 9 ? 4 - indent % 4 : 1;
+          return indent;
+        }
+        /**
+        Find the position corresponding to the given column.
+        */
+        findColumn(goal) {
+          let i = 0;
+          for (let indent = 0; i < this.text.length && indent < goal; i++)
+            indent += this.text.charCodeAt(i) == 9 ? 4 - indent % 4 : 1;
+          return i;
+        }
+        /**
+        @internal
+        */
+        scrub() {
+          if (!this.baseIndent)
+            return this.text;
+          let result = "";
+          for (let i = 0; i < this.basePos; i++)
+            result += " ";
+          return result + this.text.slice(this.basePos);
+        }
+      };
+      DefaultSkipMarkup = {
+        [Type.Blockquote](bl, cx, line) {
+          if (line.next != 62)
+            return false;
+          line.markers.push(elt(Type.QuoteMark, cx.lineStart + line.pos, cx.lineStart + line.pos + 1));
+          line.moveBase(line.pos + (space(line.text.charCodeAt(line.pos + 1)) ? 2 : 1));
+          bl.end = cx.lineStart + line.text.length;
+          return true;
+        },
+        [Type.ListItem](bl, _cx, line) {
+          if (line.indent < line.baseIndent + bl.value && line.next > -1)
+            return false;
+          line.moveBaseColumn(line.baseIndent + bl.value);
+          return true;
+        },
+        [Type.OrderedList]: skipForList,
+        [Type.BulletList]: skipForList,
+        [Type.Document]() {
+          return true;
+        }
+      };
+      EmptyLine = /^[ \t]*$/;
+      CommentEnd = /-->/;
+      ProcessingEnd = /\?>/;
+      HTMLBlockStyle = [
+        [/^<(?:script|pre|style)(?:\s|>|$)/i, /<\/(?:script|pre|style)>/i],
+        [/^\s*<!--/, CommentEnd],
+        [/^\s*<\?/, ProcessingEnd],
+        [/^\s*<![A-Z]/, />/],
+        [/^\s*<!\[CDATA\[/, /\]\]>/],
+        [/^\s*<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|section|source|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:\s|\/?>|$)/i, EmptyLine],
+        [/^\s*(?:<\/[a-z][\w-]*\s*>|<[a-z][\w-]*(\s+[a-z:_][\w-.]*(?:\s*=\s*(?:[^\s"'=<>`]+|'[^']*'|"[^"]*"))?)*\s*>)\s*$/i, EmptyLine]
+      ];
+      DefaultBlockParsers = {
+        LinkReference: void 0,
+        IndentedCode(cx, line) {
+          let base = line.baseIndent + 4;
+          if (line.indent < base)
+            return false;
+          let start = line.findColumn(base);
+          let from = cx.lineStart + start, to = cx.lineStart + line.text.length;
+          let marks = [], pendingMarks = [];
+          addCodeText(marks, from, to);
+          while (cx.nextLine() && line.depth >= cx.stack.length) {
+            if (line.pos == line.text.length) {
+              addCodeText(pendingMarks, cx.lineStart - 1, cx.lineStart);
+              for (let m of line.markers)
+                pendingMarks.push(m);
+            } else if (line.indent < base) {
+              break;
+            } else {
+              if (pendingMarks.length) {
+                for (let m of pendingMarks) {
+                  if (m.type == Type.CodeText)
+                    addCodeText(marks, m.from, m.to);
+                  else
+                    marks.push(m);
+                }
+                pendingMarks = [];
+              }
+              addCodeText(marks, cx.lineStart - 1, cx.lineStart);
+              for (let m of line.markers)
+                marks.push(m);
+              to = cx.lineStart + line.text.length;
+              let codeStart = cx.lineStart + line.findColumn(line.baseIndent + 4);
+              if (codeStart < to)
+                addCodeText(marks, codeStart, to);
+            }
+          }
+          if (pendingMarks.length) {
+            pendingMarks = pendingMarks.filter((m) => m.type != Type.CodeText);
+            if (pendingMarks.length)
+              line.markers = pendingMarks.concat(line.markers);
+          }
+          cx.addNode(cx.buffer.writeElements(marks, -from).finish(Type.CodeBlock, to - from), from);
+          return true;
+        },
+        FencedCode(cx, line) {
+          let fenceEnd = isFencedCode(line);
+          if (fenceEnd < 0)
+            return false;
+          let from = cx.lineStart + line.pos, ch = line.next, len = fenceEnd - line.pos;
+          let infoFrom = line.skipSpace(fenceEnd), infoTo = skipSpaceBack(line.text, line.text.length, infoFrom);
+          let marks = [elt(Type.CodeMark, from, from + len)];
+          if (infoFrom < infoTo)
+            marks.push(elt(Type.CodeInfo, cx.lineStart + infoFrom, cx.lineStart + infoTo));
+          for (let first = true, empty = true, hasLine = false; cx.nextLine() && line.depth >= cx.stack.length; first = false) {
+            let i = line.pos;
+            if (line.indent - line.baseIndent < 4)
+              while (i < line.text.length && line.text.charCodeAt(i) == ch)
+                i++;
+            if (i - line.pos >= len && line.skipSpace(i) == line.text.length) {
+              for (let m of line.markers)
+                marks.push(m);
+              if (empty && hasLine)
+                addCodeText(marks, cx.lineStart - 1, cx.lineStart);
+              marks.push(elt(Type.CodeMark, cx.lineStart + line.pos, cx.lineStart + i));
+              cx.nextLine();
+              break;
+            } else {
+              hasLine = true;
+              if (!first) {
+                addCodeText(marks, cx.lineStart - 1, cx.lineStart);
+                empty = false;
+              }
+              for (let m of line.markers)
+                marks.push(m);
+              let textStart = cx.lineStart + line.basePos, textEnd = cx.lineStart + line.text.length;
+              if (textStart < textEnd) {
+                addCodeText(marks, textStart, textEnd);
+                empty = false;
+              }
+            }
+          }
+          cx.addNode(cx.buffer.writeElements(marks, -from).finish(Type.FencedCode, cx.prevLineEnd() - from), from);
+          return true;
+        },
+        Blockquote(cx, line) {
+          let size = isBlockquote(line);
+          if (size < 0)
+            return false;
+          cx.startContext(Type.Blockquote, line.pos);
+          cx.addNode(Type.QuoteMark, cx.lineStart + line.pos, cx.lineStart + line.pos + 1);
+          line.moveBase(line.pos + size);
+          return null;
+        },
+        HorizontalRule(cx, line) {
+          if (isHorizontalRule(line, cx, false) < 0)
+            return false;
+          let from = cx.lineStart + line.pos;
+          cx.nextLine();
+          cx.addNode(Type.HorizontalRule, from);
+          return true;
+        },
+        BulletList(cx, line) {
+          let size = isBulletList(line, cx, false);
+          if (size < 0)
+            return false;
+          if (cx.block.type != Type.BulletList)
+            cx.startContext(Type.BulletList, line.basePos, line.next);
+          let newBase = getListIndent(line, line.pos + 1);
+          cx.startContext(Type.ListItem, line.basePos, newBase - line.baseIndent);
+          cx.addNode(Type.ListMark, cx.lineStart + line.pos, cx.lineStart + line.pos + size);
+          line.moveBaseColumn(newBase);
+          return null;
+        },
+        OrderedList(cx, line) {
+          let size = isOrderedList(line, cx, false);
+          if (size < 0)
+            return false;
+          if (cx.block.type != Type.OrderedList)
+            cx.startContext(Type.OrderedList, line.basePos, line.text.charCodeAt(line.pos + size - 1));
+          let newBase = getListIndent(line, line.pos + size);
+          cx.startContext(Type.ListItem, line.basePos, newBase - line.baseIndent);
+          cx.addNode(Type.ListMark, cx.lineStart + line.pos, cx.lineStart + line.pos + size);
+          line.moveBaseColumn(newBase);
+          return null;
+        },
+        ATXHeading(cx, line) {
+          let size = isAtxHeading(line);
+          if (size < 0)
+            return false;
+          let off = line.pos, from = cx.lineStart + off;
+          let endOfSpace = skipSpaceBack(line.text, line.text.length, off), after = endOfSpace;
+          while (after > off && line.text.charCodeAt(after - 1) == line.next)
+            after--;
+          if (after == endOfSpace || after == off || !space(line.text.charCodeAt(after - 1)))
+            after = line.text.length;
+          let buf = cx.buffer.write(Type.HeaderMark, 0, size).writeElements(cx.parser.parseInline(line.text.slice(off + size + 1, after), from + size + 1), -from);
+          if (after < line.text.length)
+            buf.write(Type.HeaderMark, after - off, endOfSpace - off);
+          let node = buf.finish(Type.ATXHeading1 - 1 + size, line.text.length - off);
+          cx.nextLine();
+          cx.addNode(node, from);
+          return true;
+        },
+        HTMLBlock(cx, line) {
+          let type = isHTMLBlock(line, cx, false);
+          if (type < 0)
+            return false;
+          let from = cx.lineStart + line.pos, end = HTMLBlockStyle[type][1];
+          let marks = [], trailing = end != EmptyLine;
+          while (!end.test(line.text) && cx.nextLine()) {
+            if (line.depth < cx.stack.length) {
+              trailing = false;
+              break;
+            }
+            for (let m of line.markers)
+              marks.push(m);
+          }
+          if (trailing)
+            cx.nextLine();
+          let nodeType = end == CommentEnd ? Type.CommentBlock : end == ProcessingEnd ? Type.ProcessingInstructionBlock : Type.HTMLBlock;
+          let to = cx.prevLineEnd();
+          cx.addNode(cx.buffer.writeElements(marks, -from).finish(nodeType, to - from), from);
+          return true;
+        },
+        SetextHeading: void 0
+        // Specifies relative precedence for block-continue function
+      };
+      LinkReferenceParser = class {
+        constructor(leaf) {
+          this.stage = 0;
+          this.elts = [];
+          this.pos = 0;
+          this.start = leaf.start;
+          this.advance(leaf.content);
+        }
+        nextLine(cx, line, leaf) {
+          if (this.stage == -1)
+            return false;
+          let content2 = leaf.content + "\n" + line.scrub();
+          let finish = this.advance(content2);
+          if (finish > -1 && finish < content2.length)
+            return this.complete(cx, leaf, finish);
+          return false;
+        }
+        finish(cx, leaf) {
+          if ((this.stage == 2 || this.stage == 3) && skipSpace(leaf.content, this.pos) == leaf.content.length)
+            return this.complete(cx, leaf, leaf.content.length);
+          return false;
+        }
+        complete(cx, leaf, len) {
+          cx.addLeafElement(leaf, elt(Type.LinkReference, this.start, this.start + len, this.elts));
+          return true;
+        }
+        nextStage(elt2) {
+          if (elt2) {
+            this.pos = elt2.to - this.start;
+            this.elts.push(elt2);
+            this.stage++;
+            return true;
+          }
+          if (elt2 === false)
+            this.stage = -1;
+          return false;
+        }
+        advance(content2) {
+          for (; ; ) {
+            if (this.stage == -1) {
+              return -1;
+            } else if (this.stage == 0) {
+              if (!this.nextStage(parseLinkLabel(content2, this.pos, this.start, true)))
+                return -1;
+              if (content2.charCodeAt(this.pos) != 58)
+                return this.stage = -1;
+              this.elts.push(elt(Type.LinkMark, this.pos + this.start, this.pos + this.start + 1));
+              this.pos++;
+            } else if (this.stage == 1) {
+              if (!this.nextStage(parseURL(content2, skipSpace(content2, this.pos), this.start)))
+                return -1;
+            } else if (this.stage == 2) {
+              let skip = skipSpace(content2, this.pos), end = 0;
+              if (skip > this.pos) {
+                let title = parseLinkTitle(content2, skip, this.start);
+                if (title) {
+                  let titleEnd = lineEnd(content2, title.to - this.start);
+                  if (titleEnd > 0) {
+                    this.nextStage(title);
+                    end = titleEnd;
+                  }
+                }
+              }
+              if (!end)
+                end = lineEnd(content2, this.pos);
+              return end > 0 && end < content2.length ? end : -1;
+            } else {
+              return lineEnd(content2, this.pos);
+            }
+          }
+        }
+      };
+      SetextHeadingParser = class {
+        nextLine(cx, line, leaf) {
+          let underline = line.depth < cx.stack.length ? -1 : isSetextUnderline(line);
+          let next = line.next;
+          if (underline < 0)
+            return false;
+          let underlineMark = elt(Type.HeaderMark, cx.lineStart + line.pos, cx.lineStart + underline);
+          cx.nextLine();
+          cx.addLeafElement(leaf, elt(next == 61 ? Type.SetextHeading1 : Type.SetextHeading2, leaf.start, cx.prevLineEnd(), [
+            ...cx.parser.parseInline(leaf.content, leaf.start),
+            underlineMark
+          ]));
+          return true;
+        }
+        finish() {
+          return false;
+        }
+      };
+      DefaultLeafBlocks = {
+        LinkReference(_, leaf) {
+          return leaf.content.charCodeAt(0) == 91 ? new LinkReferenceParser(leaf) : null;
+        },
+        SetextHeading() {
+          return new SetextHeadingParser();
+        }
+      };
+      DefaultEndLeaf = [
+        (_, line) => isAtxHeading(line) >= 0,
+        (_, line) => isFencedCode(line) >= 0,
+        (_, line) => isBlockquote(line) >= 0,
+        (p, line) => isBulletList(line, p, true) >= 0,
+        (p, line) => isOrderedList(line, p, true) >= 0,
+        (p, line) => isHorizontalRule(line, p, true) >= 0,
+        (p, line) => isHTMLBlock(line, p, true) >= 0
+      ];
+      scanLineResult = { text: "", end: 0 };
+      BlockContext = class {
+        /**
+        @internal
+        */
+        constructor(parser2, input, fragments, ranges) {
+          this.parser = parser2;
+          this.input = input;
+          this.ranges = ranges;
+          this.line = new Line();
+          this.atEnd = false;
+          this.reusePlaceholders = /* @__PURE__ */ new Map();
+          this.stoppedAt = null;
+          this.rangeI = 0;
+          this.to = ranges[ranges.length - 1].to;
+          this.lineStart = this.absoluteLineStart = this.absoluteLineEnd = ranges[0].from;
+          this.block = CompositeBlock.create(Type.Document, 0, this.lineStart, 0, 0);
+          this.stack = [this.block];
+          this.fragments = fragments.length ? new FragmentCursor(fragments, input) : null;
+          this.readLine();
+        }
+        get parsedPos() {
+          return this.absoluteLineStart;
+        }
+        advance() {
+          if (this.stoppedAt != null && this.absoluteLineStart > this.stoppedAt)
+            return this.finish();
+          let { line } = this;
+          for (; ; ) {
+            for (let markI = 0; ; ) {
+              let next = line.depth < this.stack.length ? this.stack[this.stack.length - 1] : null;
+              while (markI < line.markers.length && (!next || line.markers[markI].from < next.end)) {
+                let mark = line.markers[markI++];
+                this.addNode(mark.type, mark.from, mark.to);
+              }
+              if (!next)
+                break;
+              this.finishContext();
+            }
+            if (line.pos < line.text.length)
+              break;
+            if (!this.nextLine())
+              return this.finish();
+          }
+          if (this.fragments && this.reuseFragment(line.basePos))
+            return null;
+          start: for (; ; ) {
+            for (let type of this.parser.blockParsers)
+              if (type) {
+                let result = type(this, line);
+                if (result != false) {
+                  if (result == true)
+                    return null;
+                  line.forward();
+                  continue start;
+                }
+              }
+            break;
+          }
+          let leaf = new LeafBlock(this.lineStart + line.pos, line.text.slice(line.pos));
+          for (let parse of this.parser.leafBlockParsers)
+            if (parse) {
+              let parser2 = parse(this, leaf);
+              if (parser2)
+                leaf.parsers.push(parser2);
+            }
+          lines: while (this.nextLine()) {
+            if (line.pos == line.text.length)
+              break;
+            if (line.indent < line.baseIndent + 4) {
+              for (let stop of this.parser.endLeafBlock)
+                if (stop(this, line, leaf))
+                  break lines;
+            }
+            for (let parser2 of leaf.parsers)
+              if (parser2.nextLine(this, line, leaf))
+                return null;
+            leaf.content += "\n" + line.scrub();
+            for (let m of line.markers)
+              leaf.marks.push(m);
+          }
+          this.finishLeaf(leaf);
+          return null;
+        }
+        stopAt(pos) {
+          if (this.stoppedAt != null && this.stoppedAt < pos)
+            throw new RangeError("Can't move stoppedAt forward");
+          this.stoppedAt = pos;
+        }
+        reuseFragment(start) {
+          if (!this.fragments.moveTo(this.absoluteLineStart + start, this.absoluteLineStart) || !this.fragments.matches(this.block.hash))
+            return false;
+          let taken = this.fragments.takeNodes(this);
+          if (!taken)
+            return false;
+          this.absoluteLineStart += taken;
+          this.lineStart = toRelative(this.absoluteLineStart, this.ranges);
+          this.moveRangeI();
+          if (this.absoluteLineStart < this.to) {
+            this.lineStart++;
+            this.absoluteLineStart++;
+            this.readLine();
+          } else {
+            this.atEnd = true;
+            this.readLine();
+          }
+          return true;
+        }
+        /**
+        The number of parent blocks surrounding the current block.
+        */
+        get depth() {
+          return this.stack.length;
+        }
+        /**
+        Get the type of the parent block at the given depth. When no
+        depth is passed, return the type of the innermost parent.
+        */
+        parentType(depth = this.depth - 1) {
+          return this.parser.nodeSet.types[this.stack[depth].type];
+        }
+        /**
+        Move to the next input line. This should only be called by
+        (non-composite) [block parsers](#BlockParser.parse) that consume
+        the line directly, or leaf block parser
+        [`nextLine`](#LeafBlockParser.nextLine) methods when they
+        consume the current line (and return true).
+        */
+        nextLine() {
+          this.lineStart += this.line.text.length;
+          if (this.absoluteLineEnd >= this.to) {
+            this.absoluteLineStart = this.absoluteLineEnd;
+            this.atEnd = true;
+            this.readLine();
+            return false;
+          } else {
+            this.lineStart++;
+            this.absoluteLineStart = this.absoluteLineEnd + 1;
+            this.moveRangeI();
+            this.readLine();
+            return true;
+          }
+        }
+        /**
+        Retrieve the text of the line after the current one, without
+        actually moving the context's current line forward.
+        */
+        peekLine() {
+          return this.scanLine(this.absoluteLineEnd + 1).text;
+        }
+        moveRangeI() {
+          while (this.rangeI < this.ranges.length - 1 && this.absoluteLineStart >= this.ranges[this.rangeI].to) {
+            this.rangeI++;
+            this.absoluteLineStart = Math.max(this.absoluteLineStart, this.ranges[this.rangeI].from);
+          }
+        }
+        /**
+        @internal
+        Collect the text for the next line.
+        */
+        scanLine(start) {
+          let r = scanLineResult;
+          r.end = start;
+          if (start >= this.to) {
+            r.text = "";
+          } else {
+            r.text = this.lineChunkAt(start);
+            r.end += r.text.length;
+            if (this.ranges.length > 1) {
+              let textOffset = this.absoluteLineStart, rangeI = this.rangeI;
+              while (this.ranges[rangeI].to < r.end) {
+                rangeI++;
+                let nextFrom = this.ranges[rangeI].from;
+                let after = this.lineChunkAt(nextFrom);
+                r.end = nextFrom + after.length;
+                r.text = r.text.slice(0, this.ranges[rangeI - 1].to - textOffset) + after;
+                textOffset = r.end - r.text.length;
+              }
+            }
+          }
+          return r;
+        }
+        /**
+        @internal
+        Populate this.line with the content of the next line. Skip
+        leading characters covered by composite blocks.
+        */
+        readLine() {
+          let { line } = this, { text, end } = this.scanLine(this.absoluteLineStart);
+          this.absoluteLineEnd = end;
+          line.reset(text);
+          for (; line.depth < this.stack.length; line.depth++) {
+            let cx = this.stack[line.depth], handler = this.parser.skipContextMarkup[cx.type];
+            if (!handler)
+              throw new Error("Unhandled block context " + Type[cx.type]);
+            let marks = this.line.markers.length;
+            if (!handler(cx, this, line)) {
+              if (this.line.markers.length > marks)
+                cx.end = this.line.markers[this.line.markers.length - 1].to;
+              line.forward();
+              break;
+            }
+            line.forward();
+          }
+        }
+        lineChunkAt(pos) {
+          let next = this.input.chunk(pos), text;
+          if (!this.input.lineChunks) {
+            let eol = next.indexOf("\n");
+            text = eol < 0 ? next : next.slice(0, eol);
+          } else {
+            text = next == "\n" ? "" : next;
+          }
+          return pos + text.length > this.to ? text.slice(0, this.to - pos) : text;
+        }
+        /**
+        The end position of the previous line.
+        */
+        prevLineEnd() {
+          return this.atEnd ? this.lineStart : this.lineStart - 1;
+        }
+        /**
+        @internal
+        */
+        startContext(type, start, value = 0) {
+          this.block = CompositeBlock.create(type, value, this.lineStart + start, this.block.hash, this.lineStart + this.line.text.length);
+          this.stack.push(this.block);
+        }
+        /**
+        Start a composite block. Should only be called from [block
+        parser functions](#BlockParser.parse) that return null.
+        */
+        startComposite(type, start, value = 0) {
+          this.startContext(this.parser.getNodeType(type), start, value);
+        }
+        /**
+        @internal
+        */
+        addNode(block, from, to) {
+          if (typeof block == "number")
+            block = new Tree(this.parser.nodeSet.types[block], none, none, (to !== null && to !== void 0 ? to : this.prevLineEnd()) - from);
+          this.block.addChild(block, from - this.block.from);
+        }
+        /**
+        Add a block element. Can be called by [block
+        parsers](#BlockParser.parse).
+        */
+        addElement(elt2) {
+          this.block.addChild(elt2.toTree(this.parser.nodeSet), elt2.from - this.block.from);
+        }
+        /**
+        Add a block element from a [leaf parser](#LeafBlockParser). This
+        makes sure any extra composite block markup (such as blockquote
+        markers) inside the block are also added to the syntax tree.
+        */
+        addLeafElement(leaf, elt2) {
+          this.addNode(this.buffer.writeElements(injectMarks(elt2.children, leaf.marks), -elt2.from).finish(elt2.type, elt2.to - elt2.from), elt2.from);
+        }
+        /**
+        @internal
+        */
+        finishContext() {
+          let cx = this.stack.pop();
+          let top = this.stack[this.stack.length - 1];
+          top.addChild(cx.toTree(this.parser.nodeSet), cx.from - top.from);
+          this.block = top;
+        }
+        finish() {
+          while (this.stack.length > 1)
+            this.finishContext();
+          return this.addGaps(this.block.toTree(this.parser.nodeSet, this.lineStart));
+        }
+        addGaps(tree) {
+          return this.ranges.length > 1 ? injectGaps(this.ranges, 0, tree.topNode, this.ranges[0].from, this.reusePlaceholders) : tree;
+        }
+        /**
+        @internal
+        */
+        finishLeaf(leaf) {
+          for (let parser2 of leaf.parsers)
+            if (parser2.finish(this, leaf))
+              return;
+          let inline = injectMarks(this.parser.parseInline(leaf.content, leaf.start), leaf.marks);
+          this.addNode(this.buffer.writeElements(inline, -leaf.start).finish(Type.Paragraph, leaf.content.length), leaf.start);
+        }
+        elt(type, from, to, children) {
+          if (typeof type == "string")
+            return elt(this.parser.getNodeType(type), from, to, children);
+          return new TreeElement(type, from);
+        }
+        /**
+        @internal
+        */
+        get buffer() {
+          return new Buffer2(this.parser.nodeSet);
+        }
+      };
+      MarkdownParser = class _MarkdownParser extends Parser {
+        /**
+        @internal
+        */
+        constructor(nodeSet, blockParsers, leafBlockParsers, blockNames, endLeafBlock, skipContextMarkup, inlineParsers, inlineNames, wrappers) {
+          super();
+          this.nodeSet = nodeSet;
+          this.blockParsers = blockParsers;
+          this.leafBlockParsers = leafBlockParsers;
+          this.blockNames = blockNames;
+          this.endLeafBlock = endLeafBlock;
+          this.skipContextMarkup = skipContextMarkup;
+          this.inlineParsers = inlineParsers;
+          this.inlineNames = inlineNames;
+          this.wrappers = wrappers;
+          this.nodeTypes = /* @__PURE__ */ Object.create(null);
+          for (let t2 of nodeSet.types)
+            this.nodeTypes[t2.name] = t2.id;
+        }
+        createParse(input, fragments, ranges) {
+          let parse = new BlockContext(this, input, fragments, ranges);
+          for (let w of this.wrappers)
+            parse = w(parse, input, fragments, ranges);
+          return parse;
+        }
+        /**
+        Reconfigure the parser.
+        */
+        configure(spec) {
+          let config = resolveConfig(spec);
+          if (!config)
+            return this;
+          let { nodeSet, skipContextMarkup } = this;
+          let blockParsers = this.blockParsers.slice(), leafBlockParsers = this.leafBlockParsers.slice(), blockNames = this.blockNames.slice(), inlineParsers = this.inlineParsers.slice(), inlineNames = this.inlineNames.slice(), endLeafBlock = this.endLeafBlock.slice(), wrappers = this.wrappers;
+          if (nonEmpty(config.defineNodes)) {
+            skipContextMarkup = Object.assign({}, skipContextMarkup);
+            let nodeTypes2 = nodeSet.types.slice(), styles;
+            for (let s of config.defineNodes) {
+              let { name: name2, block, composite, style } = typeof s == "string" ? { name: s } : s;
+              if (nodeTypes2.some((t2) => t2.name == name2))
+                continue;
+              if (composite)
+                skipContextMarkup[nodeTypes2.length] = (bl, cx, line) => composite(cx, line, bl.value);
+              let id = nodeTypes2.length;
+              let group = composite ? ["Block", "BlockContext"] : !block ? void 0 : id >= Type.ATXHeading1 && id <= Type.SetextHeading2 ? ["Block", "LeafBlock", "Heading"] : ["Block", "LeafBlock"];
+              nodeTypes2.push(NodeType.define({
+                id,
+                name: name2,
+                props: group && [[NodeProp.group, group]]
+              }));
+              if (style) {
+                if (!styles)
+                  styles = {};
+                if (Array.isArray(style) || style instanceof Tag)
+                  styles[name2] = style;
+                else
+                  Object.assign(styles, style);
+              }
+            }
+            nodeSet = new NodeSet(nodeTypes2);
+            if (styles)
+              nodeSet = nodeSet.extend(styleTags(styles));
+          }
+          if (nonEmpty(config.props))
+            nodeSet = nodeSet.extend(...config.props);
+          if (nonEmpty(config.remove)) {
+            for (let rm of config.remove) {
+              let block = this.blockNames.indexOf(rm), inline = this.inlineNames.indexOf(rm);
+              if (block > -1)
+                blockParsers[block] = leafBlockParsers[block] = void 0;
+              if (inline > -1)
+                inlineParsers[inline] = void 0;
+            }
+          }
+          if (nonEmpty(config.parseBlock)) {
+            for (let spec2 of config.parseBlock) {
+              let found = blockNames.indexOf(spec2.name);
+              if (found > -1) {
+                blockParsers[found] = spec2.parse;
+                leafBlockParsers[found] = spec2.leaf;
+              } else {
+                let pos = spec2.before ? findName(blockNames, spec2.before) : spec2.after ? findName(blockNames, spec2.after) + 1 : blockNames.length - 1;
+                blockParsers.splice(pos, 0, spec2.parse);
+                leafBlockParsers.splice(pos, 0, spec2.leaf);
+                blockNames.splice(pos, 0, spec2.name);
+              }
+              if (spec2.endLeaf)
+                endLeafBlock.push(spec2.endLeaf);
+            }
+          }
+          if (nonEmpty(config.parseInline)) {
+            for (let spec2 of config.parseInline) {
+              let found = inlineNames.indexOf(spec2.name);
+              if (found > -1) {
+                inlineParsers[found] = spec2.parse;
+              } else {
+                let pos = spec2.before ? findName(inlineNames, spec2.before) : spec2.after ? findName(inlineNames, spec2.after) + 1 : inlineNames.length - 1;
+                inlineParsers.splice(pos, 0, spec2.parse);
+                inlineNames.splice(pos, 0, spec2.name);
+              }
+            }
+          }
+          if (config.wrap)
+            wrappers = wrappers.concat(config.wrap);
+          return new _MarkdownParser(nodeSet, blockParsers, leafBlockParsers, blockNames, endLeafBlock, skipContextMarkup, inlineParsers, inlineNames, wrappers);
+        }
+        /**
+        @internal
+        */
+        getNodeType(name2) {
+          let found = this.nodeTypes[name2];
+          if (found == null)
+            throw new RangeError(`Unknown node type '${name2}'`);
+          return found;
+        }
+        /**
+        Parse the given piece of inline text at the given offset,
+        returning an array of [`Element`](#Element) objects representing
+        the inline content.
+        */
+        parseInline(text, offset) {
+          let cx = new InlineContext(this, text, offset);
+          outer: for (let pos = offset; pos < cx.end; ) {
+            let next = cx.char(pos);
+            for (let token of this.inlineParsers)
+              if (token) {
+                let result = token(cx, next, pos);
+                if (result >= 0) {
+                  pos = result;
+                  continue outer;
+                }
+              }
+            pos++;
+          }
+          return cx.resolveMarkers(0);
+        }
+      };
+      nodeTypes = [NodeType.none];
+      for (let i = 1, name2; name2 = Type[i]; i++) {
+        nodeTypes[i] = NodeType.define({
+          id: i,
+          name: name2,
+          props: i >= Type.Escape ? [] : [[NodeProp.group, i in DefaultSkipMarkup ? ["Block", "BlockContext"] : ["Block", "LeafBlock"]]],
+          top: name2 == "Document"
+        });
+      }
+      none = [];
+      Buffer2 = class {
+        constructor(nodeSet) {
+          this.nodeSet = nodeSet;
+          this.content = [];
+          this.nodes = [];
+        }
+        write(type, from, to, children = 0) {
+          this.content.push(type, from, to, 4 + children * 4);
+          return this;
+        }
+        writeElements(elts, offset = 0) {
+          for (let e of elts)
+            e.writeTo(this, offset);
+          return this;
+        }
+        finish(type, length) {
+          return Tree.build({
+            buffer: this.content,
+            nodeSet: this.nodeSet,
+            reused: this.nodes,
+            topID: type,
+            length
+          });
+        }
+      };
+      Element2 = class {
+        /**
+        @internal
+        */
+        constructor(type, from, to, children = none) {
+          this.type = type;
+          this.from = from;
+          this.to = to;
+          this.children = children;
+        }
+        /**
+        @internal
+        */
+        writeTo(buf, offset) {
+          let startOff = buf.content.length;
+          buf.writeElements(this.children, offset);
+          buf.content.push(this.type, this.from + offset, this.to + offset, buf.content.length + 4 - startOff);
+        }
+        /**
+        @internal
+        */
+        toTree(nodeSet) {
+          return new Buffer2(nodeSet).writeElements(this.children, -this.from).finish(this.type, this.to - this.from);
+        }
+      };
+      TreeElement = class {
+        constructor(tree, from) {
+          this.tree = tree;
+          this.from = from;
+        }
+        get to() {
+          return this.from + this.tree.length;
+        }
+        get type() {
+          return this.tree.type.id;
+        }
+        get children() {
+          return none;
+        }
+        writeTo(buf, offset) {
+          buf.nodes.push(this.tree);
+          buf.content.push(buf.nodes.length - 1, this.from + offset, this.to + offset, -1);
+        }
+        toTree() {
+          return this.tree;
+        }
+      };
+      EmphasisUnderscore = { resolve: "Emphasis", mark: "EmphasisMark" };
+      EmphasisAsterisk = { resolve: "Emphasis", mark: "EmphasisMark" };
+      LinkStart = {};
+      ImageStart = {};
+      InlineDelimiter = class {
+        constructor(type, from, to, side) {
+          this.type = type;
+          this.from = from;
+          this.to = to;
+          this.side = side;
+        }
+      };
+      Escapable = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+      Punctuation = /[!"#$%&'()*+,\-.\/:;<=>?@\[\\\]^_`{|}~\xA1\u2010-\u2027]/;
+      try {
+        Punctuation = new RegExp("[\\p{S}|\\p{P}]", "u");
+      } catch (_) {
+      }
+      DefaultInline = {
+        Escape(cx, next, start) {
+          if (next != 92 || start == cx.end - 1)
+            return -1;
+          let escaped = cx.char(start + 1);
+          for (let i = 0; i < Escapable.length; i++)
+            if (Escapable.charCodeAt(i) == escaped)
+              return cx.append(elt(Type.Escape, start, start + 2));
+          return -1;
+        },
+        Entity(cx, next, start) {
+          if (next != 38)
+            return -1;
+          let m = /^(?:#\d+|#x[a-f\d]+|\w+);/i.exec(cx.slice(start + 1, start + 31));
+          return m ? cx.append(elt(Type.Entity, start, start + 1 + m[0].length)) : -1;
+        },
+        InlineCode(cx, next, start) {
+          if (next != 96 || start && cx.char(start - 1) == 96)
+            return -1;
+          let pos = start + 1;
+          while (pos < cx.end && cx.char(pos) == 96)
+            pos++;
+          let size = pos - start, curSize = 0;
+          for (; pos < cx.end; pos++) {
+            if (cx.char(pos) == 96) {
+              curSize++;
+              if (curSize == size && cx.char(pos + 1) != 96)
+                return cx.append(elt(Type.InlineCode, start, pos + 1, [
+                  elt(Type.CodeMark, start, start + size),
+                  elt(Type.CodeMark, pos + 1 - size, pos + 1)
+                ]));
+            } else {
+              curSize = 0;
+            }
+          }
+          return -1;
+        },
+        HTMLTag(cx, next, start) {
+          if (next != 60 || start == cx.end - 1)
+            return -1;
+          let after = cx.slice(start + 1, cx.end);
+          let url = /^(?:[a-z][-\w+.]+:[^\s>]+|[a-z\d.!#$%&'*+/=?^_`{|}~-]+@[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?(?:\.[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?)*)>/i.exec(after);
+          if (url) {
+            return cx.append(elt(Type.Autolink, start, start + 1 + url[0].length, [
+              elt(Type.LinkMark, start, start + 1),
+              // url[0] includes the closing bracket, so exclude it from this slice
+              elt(Type.URL, start + 1, start + url[0].length),
+              elt(Type.LinkMark, start + url[0].length, start + 1 + url[0].length)
+            ]));
+          }
+          let comment3 = /^!--[^>](?:-[^-]|[^-])*?-->/i.exec(after);
+          if (comment3)
+            return cx.append(elt(Type.Comment, start, start + 1 + comment3[0].length));
+          let procInst = /^\?[^]*?\?>/.exec(after);
+          if (procInst)
+            return cx.append(elt(Type.ProcessingInstruction, start, start + 1 + procInst[0].length));
+          let m = /^(?:![A-Z][^]*?>|!\[CDATA\[[^]*?\]\]>|\/\s*[a-zA-Z][\w-]*\s*>|\s*[a-zA-Z][\w-]*(\s+[a-zA-Z:_][\w-.:]*(?:\s*=\s*(?:[^\s"'=<>`]+|'[^']*'|"[^"]*"))?)*\s*(\/\s*)?>)/.exec(after);
+          if (!m)
+            return -1;
+          return cx.append(elt(Type.HTMLTag, start, start + 1 + m[0].length));
+        },
+        Emphasis(cx, next, start) {
+          if (next != 95 && next != 42)
+            return -1;
+          let pos = start + 1;
+          while (cx.char(pos) == next)
+            pos++;
+          let before = cx.slice(start - 1, start), after = cx.slice(pos, pos + 1);
+          let pBefore = Punctuation.test(before), pAfter = Punctuation.test(after);
+          let sBefore = /\s|^$/.test(before), sAfter = /\s|^$/.test(after);
+          let leftFlanking = !sAfter && (!pAfter || sBefore || pBefore);
+          let rightFlanking = !sBefore && (!pBefore || sAfter || pAfter);
+          let canOpen = leftFlanking && (next == 42 || !rightFlanking || pBefore);
+          let canClose = rightFlanking && (next == 42 || !leftFlanking || pAfter);
+          return cx.append(new InlineDelimiter(next == 95 ? EmphasisUnderscore : EmphasisAsterisk, start, pos, (canOpen ? 1 : 0) | (canClose ? 2 : 0)));
+        },
+        HardBreak(cx, next, start) {
+          if (next == 92 && cx.char(start + 1) == 10)
+            return cx.append(elt(Type.HardBreak, start, start + 2));
+          if (next == 32) {
+            let pos = start + 1;
+            while (cx.char(pos) == 32)
+              pos++;
+            if (cx.char(pos) == 10 && pos >= start + 2)
+              return cx.append(elt(Type.HardBreak, start, pos + 1));
+          }
+          return -1;
+        },
+        Link(cx, next, start) {
+          return next == 91 ? cx.append(new InlineDelimiter(
+            LinkStart,
+            start,
+            start + 1,
+            1
+            /* Mark.Open */
+          )) : -1;
+        },
+        Image(cx, next, start) {
+          return next == 33 && cx.char(start + 1) == 91 ? cx.append(new InlineDelimiter(
+            ImageStart,
+            start,
+            start + 2,
+            1
+            /* Mark.Open */
+          )) : -1;
+        },
+        LinkEnd(cx, next, start) {
+          if (next != 93)
+            return -1;
+          for (let i = cx.parts.length - 1; i >= 0; i--) {
+            let part = cx.parts[i];
+            if (part instanceof InlineDelimiter && (part.type == LinkStart || part.type == ImageStart)) {
+              if (!part.side || cx.skipSpace(part.to) == start && !/[(\[]/.test(cx.slice(start + 1, start + 2))) {
+                cx.parts[i] = null;
+                return -1;
+              }
+              let content2 = cx.takeContent(i);
+              let link = cx.parts[i] = finishLink(cx, content2, part.type == LinkStart ? Type.Link : Type.Image, part.from, start + 1);
+              if (part.type == LinkStart)
+                for (let j = 0; j < i; j++) {
+                  let p = cx.parts[j];
+                  if (p instanceof InlineDelimiter && p.type == LinkStart)
+                    p.side = 0;
+                }
+              return link.to;
+            }
+          }
+          return -1;
+        }
+      };
+      InlineContext = class {
+        /**
+        @internal
+        */
+        constructor(parser2, text, offset) {
+          this.parser = parser2;
+          this.text = text;
+          this.offset = offset;
+          this.parts = [];
+        }
+        /**
+        Get the character code at the given (document-relative)
+        position.
+        */
+        char(pos) {
+          return pos >= this.end ? -1 : this.text.charCodeAt(pos - this.offset);
+        }
+        /**
+        The position of the end of this inline section.
+        */
+        get end() {
+          return this.offset + this.text.length;
+        }
+        /**
+        Get a substring of this inline section. Again uses
+        document-relative positions.
+        */
+        slice(from, to) {
+          return this.text.slice(from - this.offset, to - this.offset);
+        }
+        /**
+        @internal
+        */
+        append(elt2) {
+          this.parts.push(elt2);
+          return elt2.to;
+        }
+        /**
+        Add a [delimiter](#DelimiterType) at this given position. `open`
+        and `close` indicate whether this delimiter is opening, closing,
+        or both. Returns the end of the delimiter, for convenient
+        returning from [parse functions](#InlineParser.parse).
+        */
+        addDelimiter(type, from, to, open, close) {
+          return this.append(new InlineDelimiter(type, from, to, (open ? 1 : 0) | (close ? 2 : 0)));
+        }
+        /**
+        Returns true when there is an unmatched link or image opening
+        token before the current position.
+        */
+        get hasOpenLink() {
+          for (let i = this.parts.length - 1; i >= 0; i--) {
+            let part = this.parts[i];
+            if (part instanceof InlineDelimiter && (part.type == LinkStart || part.type == ImageStart))
+              return true;
+          }
+          return false;
+        }
+        /**
+        Add an inline element. Returns the end of the element.
+        */
+        addElement(elt2) {
+          return this.append(elt2);
+        }
+        /**
+        Resolve markers between this.parts.length and from, wrapping matched markers in the
+        appropriate node and updating the content of this.parts. @internal
+        */
+        resolveMarkers(from) {
+          for (let i = from; i < this.parts.length; i++) {
+            let close = this.parts[i];
+            if (!(close instanceof InlineDelimiter && close.type.resolve && close.side & 2))
+              continue;
+            let emp = close.type == EmphasisUnderscore || close.type == EmphasisAsterisk;
+            let closeSize = close.to - close.from;
+            let open, j = i - 1;
+            for (; j >= from; j--) {
+              let part = this.parts[j];
+              if (part instanceof InlineDelimiter && part.side & 1 && part.type == close.type && // Ignore emphasis delimiters where the character count doesn't match
+              !(emp && (close.side & 1 || part.side & 2) && (part.to - part.from + closeSize) % 3 == 0 && ((part.to - part.from) % 3 || closeSize % 3))) {
+                open = part;
+                break;
+              }
+            }
+            if (!open)
+              continue;
+            let type = close.type.resolve, content2 = [];
+            let start = open.from, end = close.to;
+            if (emp) {
+              let size = Math.min(2, open.to - open.from, closeSize);
+              start = open.to - size;
+              end = close.from + size;
+              type = size == 1 ? "Emphasis" : "StrongEmphasis";
+            }
+            if (open.type.mark)
+              content2.push(this.elt(open.type.mark, start, open.to));
+            for (let k = j + 1; k < i; k++) {
+              if (this.parts[k] instanceof Element2)
+                content2.push(this.parts[k]);
+              this.parts[k] = null;
+            }
+            if (close.type.mark)
+              content2.push(this.elt(close.type.mark, close.from, end));
+            let element = this.elt(type, start, end, content2);
+            this.parts[j] = emp && open.from != start ? new InlineDelimiter(open.type, open.from, start, open.side) : null;
+            let keep = this.parts[i] = emp && close.to != end ? new InlineDelimiter(close.type, end, close.to, close.side) : null;
+            if (keep)
+              this.parts.splice(i, 0, element);
+            else
+              this.parts[i] = element;
+          }
+          let result = [];
+          for (let i = from; i < this.parts.length; i++) {
+            let part = this.parts[i];
+            if (part instanceof Element2)
+              result.push(part);
+          }
+          return result;
+        }
+        /**
+        Find an opening delimiter of the given type. Returns `null` if
+        no delimiter is found, or an index that can be passed to
+        [`takeContent`](#InlineContext.takeContent) otherwise.
+        */
+        findOpeningDelimiter(type) {
+          for (let i = this.parts.length - 1; i >= 0; i--) {
+            let part = this.parts[i];
+            if (part instanceof InlineDelimiter && part.type == type && part.side & 1)
+              return i;
+          }
+          return null;
+        }
+        /**
+        Remove all inline elements and delimiters starting from the
+        given index (which you should get from
+        [`findOpeningDelimiter`](#InlineContext.findOpeningDelimiter),
+        resolve delimiters inside of them, and return them as an array
+        of elements.
+        */
+        takeContent(startIndex) {
+          let content2 = this.resolveMarkers(startIndex);
+          this.parts.length = startIndex;
+          return content2;
+        }
+        /**
+        Return the delimiter at the given index. Mostly useful to get
+        additional info out of a delimiter index returned by
+        [`findOpeningDelimiter`](#InlineContext.findOpeningDelimiter).
+        Returns null if there is no delimiter at this index.
+        */
+        getDelimiterAt(index) {
+          let part = this.parts[index];
+          return part instanceof InlineDelimiter ? part : null;
+        }
+        /**
+        Skip space after the given (document) position, returning either
+        the position of the next non-space character or the end of the
+        section.
+        */
+        skipSpace(from) {
+          return skipSpace(this.text, from - this.offset) + this.offset;
+        }
+        elt(type, from, to, children) {
+          if (typeof type == "string")
+            return elt(this.parser.getNodeType(type), from, to, children);
+          return new TreeElement(type, from);
+        }
+      };
+      InlineContext.linkStart = LinkStart;
+      InlineContext.imageStart = ImageStart;
+      NotLast = [Type.CodeBlock, Type.ListItem, Type.OrderedList, Type.BulletList];
+      FragmentCursor = class {
+        constructor(fragments, input) {
+          this.fragments = fragments;
+          this.input = input;
+          this.i = 0;
+          this.fragment = null;
+          this.fragmentEnd = -1;
+          this.cursor = null;
+          if (fragments.length)
+            this.fragment = fragments[this.i++];
+        }
+        nextFragment() {
+          this.fragment = this.i < this.fragments.length ? this.fragments[this.i++] : null;
+          this.cursor = null;
+          this.fragmentEnd = -1;
+        }
+        moveTo(pos, lineStart) {
+          while (this.fragment && this.fragment.to <= pos)
+            this.nextFragment();
+          if (!this.fragment || this.fragment.from > (pos ? pos - 1 : 0))
+            return false;
+          if (this.fragmentEnd < 0) {
+            let end = this.fragment.to;
+            while (end > 0 && this.input.read(end - 1, end) != "\n")
+              end--;
+            this.fragmentEnd = end ? end - 1 : 0;
+          }
+          let c = this.cursor;
+          if (!c) {
+            c = this.cursor = this.fragment.tree.cursor();
+            c.firstChild();
+          }
+          let rPos = pos + this.fragment.offset;
+          while (c.to <= rPos)
+            if (!c.parent())
+              return false;
+          for (; ; ) {
+            if (c.from >= rPos)
+              return this.fragment.from <= lineStart;
+            if (!c.childAfter(rPos))
+              return false;
+          }
+        }
+        matches(hash) {
+          let tree = this.cursor.tree;
+          return tree && tree.prop(NodeProp.contextHash) == hash;
+        }
+        takeNodes(cx) {
+          let cur = this.cursor, off = this.fragment.offset, fragEnd = this.fragmentEnd - (this.fragment.openEnd ? 1 : 0);
+          let start = cx.absoluteLineStart, end = start, blockI = cx.block.children.length;
+          let prevEnd = end, prevI = blockI;
+          for (; ; ) {
+            if (cur.to - off > fragEnd) {
+              if (cur.type.isAnonymous && cur.firstChild())
+                continue;
+              break;
+            }
+            let pos = toRelative(cur.from - off, cx.ranges);
+            if (cur.to - off <= cx.ranges[cx.rangeI].to) {
+              cx.addNode(cur.tree, pos);
+            } else {
+              let dummy = new Tree(cx.parser.nodeSet.types[Type.Paragraph], [], [], 0, cx.block.hashProp);
+              cx.reusePlaceholders.set(dummy, cur.tree);
+              cx.addNode(dummy, pos);
+            }
+            if (cur.type.is("Block")) {
+              if (NotLast.indexOf(cur.type.id) < 0) {
+                end = cur.to - off;
+                blockI = cx.block.children.length;
+              } else {
+                end = prevEnd;
+                blockI = prevI;
+              }
+              prevEnd = cur.to - off;
+              prevI = cx.block.children.length;
+            }
+            if (!cur.nextSibling())
+              break;
+          }
+          while (cx.block.children.length > blockI) {
+            cx.block.children.pop();
+            cx.block.positions.pop();
+          }
+          return end - start;
+        }
+      };
+      markdownHighlighting = styleTags({
+        "Blockquote/...": tags.quote,
+        HorizontalRule: tags.contentSeparator,
+        "ATXHeading1/... SetextHeading1/...": tags.heading1,
+        "ATXHeading2/... SetextHeading2/...": tags.heading2,
+        "ATXHeading3/...": tags.heading3,
+        "ATXHeading4/...": tags.heading4,
+        "ATXHeading5/...": tags.heading5,
+        "ATXHeading6/...": tags.heading6,
+        "Comment CommentBlock": tags.comment,
+        Escape: tags.escape,
+        Entity: tags.character,
+        "Emphasis/...": tags.emphasis,
+        "StrongEmphasis/...": tags.strong,
+        "Link/... Image/...": tags.link,
+        "OrderedList/... BulletList/...": tags.list,
+        "BlockQuote/...": tags.quote,
+        "InlineCode CodeText": tags.monospace,
+        "URL Autolink": tags.url,
+        "HeaderMark HardBreak QuoteMark ListMark LinkMark EmphasisMark CodeMark": tags.processingInstruction,
+        "CodeInfo LinkLabel": tags.labelName,
+        LinkTitle: tags.string,
+        Paragraph: tags.content
+      });
+      parser = new MarkdownParser(new NodeSet(nodeTypes).extend(markdownHighlighting), Object.keys(DefaultBlockParsers).map((n) => DefaultBlockParsers[n]), Object.keys(DefaultBlockParsers).map((n) => DefaultLeafBlocks[n]), Object.keys(DefaultBlockParsers), DefaultEndLeaf, DefaultSkipMarkup, Object.keys(DefaultInline).map((n) => DefaultInline[n]), Object.keys(DefaultInline), []);
+      StrikethroughDelim = { resolve: "Strikethrough", mark: "StrikethroughMark" };
+      Strikethrough = {
+        defineNodes: [{
+          name: "Strikethrough",
+          style: { "Strikethrough/...": tags.strikethrough }
+        }, {
+          name: "StrikethroughMark",
+          style: tags.processingInstruction
+        }],
+        parseInline: [{
+          name: "Strikethrough",
+          parse(cx, next, pos) {
+            if (next != 126 || cx.char(pos + 1) != 126 || cx.char(pos + 2) == 126)
+              return -1;
+            let before = cx.slice(pos - 1, pos), after = cx.slice(pos + 2, pos + 3);
+            let sBefore = /\s|^$/.test(before), sAfter = /\s|^$/.test(after);
+            let pBefore = Punctuation.test(before), pAfter = Punctuation.test(after);
+            return cx.addDelimiter(StrikethroughDelim, pos, pos + 2, !sAfter && (!pAfter || sBefore || pBefore), !sBefore && (!pBefore || sAfter || pAfter));
+          },
+          after: "Emphasis"
+        }]
+      };
+      delimiterLine = /^\|?(\s*:?-+:?\s*\|)+(\s*:?-+:?\s*)?$/;
+      TableParser = class {
+        constructor() {
+          this.rows = null;
+        }
+        nextLine(cx, line, leaf) {
+          if (this.rows == null) {
+            this.rows = false;
+            let lineText;
+            if ((line.next == 45 || line.next == 58 || line.next == 124) && delimiterLine.test(lineText = line.text.slice(line.pos))) {
+              let firstRow = [], firstCount = parseRow(cx, leaf.content, 0, firstRow, leaf.start);
+              if (firstCount == parseRow(cx, lineText, line.pos))
+                this.rows = [
+                  cx.elt("TableHeader", leaf.start, leaf.start + leaf.content.length, firstRow),
+                  cx.elt("TableDelimiter", cx.lineStart + line.pos, cx.lineStart + line.text.length)
+                ];
+            }
+          } else if (this.rows) {
+            let content2 = [];
+            parseRow(cx, line.text, line.pos, content2, cx.lineStart);
+            this.rows.push(cx.elt("TableRow", cx.lineStart + line.pos, cx.lineStart + line.text.length, content2));
+          }
+          return false;
+        }
+        finish(cx, leaf) {
+          if (!this.rows)
+            return false;
+          cx.addLeafElement(leaf, cx.elt("Table", leaf.start, leaf.start + leaf.content.length, this.rows));
+          return true;
+        }
+      };
+      Table = {
+        defineNodes: [
+          { name: "Table", block: true },
+          { name: "TableHeader", style: { "TableHeader/...": tags.heading } },
+          "TableRow",
+          { name: "TableCell", style: tags.content },
+          { name: "TableDelimiter", style: tags.processingInstruction }
+        ],
+        parseBlock: [{
+          name: "Table",
+          leaf(_, leaf) {
+            return hasPipe(leaf.content, 0) ? new TableParser() : null;
+          },
+          endLeaf(cx, line, leaf) {
+            if (leaf.parsers.some((p) => p instanceof TableParser) || !hasPipe(line.text, line.basePos))
+              return false;
+            let next = cx.peekLine();
+            return delimiterLine.test(next) && parseRow(cx, line.text, line.basePos) == parseRow(cx, next, line.basePos);
+          },
+          before: "SetextHeading"
+        }]
+      };
+      TaskParser = class {
+        nextLine() {
+          return false;
+        }
+        finish(cx, leaf) {
+          cx.addLeafElement(leaf, cx.elt("Task", leaf.start, leaf.start + leaf.content.length, [
+            cx.elt("TaskMarker", leaf.start, leaf.start + 3),
+            ...cx.parser.parseInline(leaf.content.slice(3), leaf.start + 3)
+          ]));
+          return true;
+        }
+      };
+      TaskList = {
+        defineNodes: [
+          { name: "Task", block: true, style: tags.list },
+          { name: "TaskMarker", style: tags.atom }
+        ],
+        parseBlock: [{
+          name: "TaskList",
+          leaf(cx, leaf) {
+            return /^\[[ xX]\][ \t]/.test(leaf.content) && cx.parentType().name == "ListItem" ? new TaskParser() : null;
+          },
+          after: "SetextHeading"
+        }]
+      };
+      autolinkRE = /(www\.)|(https?:\/\/)|([\w.+-]{1,100}@)|(mailto:|xmpp:)/gy;
+      urlRE = /[\w-]+(\.[\w-]+)+(\/[^\s<]*)?/gy;
+      lastTwoDomainWords = /[\w-]+\.[\w-]+($|\/)/;
+      emailRE = /[\w.+-]+@[\w-]+(\.[\w.-]+)+/gy;
+      xmppResourceRE = /\/[a-zA-Z\d@.]+/gy;
+      Autolink = {
+        parseInline: [{
+          name: "Autolink",
+          parse(cx, next, absPos) {
+            let pos = absPos - cx.offset;
+            if (pos && /\w/.test(cx.text[pos - 1]))
+              return -1;
+            autolinkRE.lastIndex = pos;
+            let m = autolinkRE.exec(cx.text), end = -1;
+            if (!m)
+              return -1;
+            if (m[1] || m[2]) {
+              end = autolinkURLEnd(cx.text, pos + m[0].length);
+              if (end > -1 && cx.hasOpenLink) {
+                let noBracket = /([^\[\]]|\[[^\]]*\])*/.exec(cx.text.slice(pos, end));
+                end = pos + noBracket[0].length;
+              }
+            } else if (m[3]) {
+              end = autolinkEmailEnd(cx.text, pos);
+            } else {
+              end = autolinkEmailEnd(cx.text, pos + m[0].length);
+              if (end > -1 && m[0] == "xmpp:") {
+                xmppResourceRE.lastIndex = end;
+                m = xmppResourceRE.exec(cx.text);
+                if (m)
+                  end = m.index + m[0].length;
+              }
+            }
+            if (end < 0)
+              return -1;
+            cx.addElement(cx.elt("URL", absPos, end + cx.offset));
+            return end + cx.offset;
+          }
+        }]
+      };
+      GFM = [Table, TaskList, Strikethrough, Autolink];
+      Superscript = {
+        defineNodes: [
+          { name: "Superscript", style: tags.special(tags.content) },
+          { name: "SuperscriptMark", style: tags.processingInstruction }
+        ],
+        parseInline: [{
+          name: "Superscript",
+          parse: parseSubSuper(94, "Superscript", "SuperscriptMark")
+        }]
+      };
+      Subscript = {
+        defineNodes: [
+          { name: "Subscript", style: tags.special(tags.content) },
+          { name: "SubscriptMark", style: tags.processingInstruction }
+        ],
+        parseInline: [{
+          name: "Subscript",
+          parse: parseSubSuper(126, "Subscript", "SubscriptMark")
+        }]
+      };
+      Emoji = {
+        defineNodes: [{ name: "Emoji", style: tags.character }],
+        parseInline: [{
+          name: "Emoji",
+          parse(cx, next, pos) {
+            let match;
+            if (next != 58 || !(match = /^[a-zA-Z_0-9]+:/.exec(cx.slice(pos + 1, cx.end))))
+              return -1;
+            return cx.addElement(cx.elt("Emoji", pos, pos + 1 + match[0].length));
+          }
+        }]
+      };
+    }
+  });
+
+  // frontend/markdownInline.ts
+  function buildInlineNode(cursor) {
+    const node = {
+      name: cursor.name,
+      from: cursor.from,
+      to: cursor.to,
+      children: []
+    };
+    if (cursor.firstChild()) {
+      do {
+        node.children.push(buildInlineNode(cursor));
+      } while (cursor.nextSibling());
+      cursor.parent();
+    }
+    return node;
+  }
+  function parseInlineMarkdownTree(source) {
+    return buildInlineNode(configuredMarkdownParser.parse(String(source || "")).cursor());
+  }
+  function normalizeMarkdownLinkLabel(label) {
+    return String(label || "").trim().replace(/\s+/g, " ").toLowerCase();
+  }
+  function markdownLabelText(source, node) {
+    const text = String(source || "");
+    const from = node.from < node.to && text[node.from] === "[" ? node.from + 1 : node.from;
+    const to = node.to > from && text[node.to - 1] === "]" ? node.to - 1 : node.to;
+    return text.slice(from, to);
+  }
+  function findMarkdownInlineSpecialSpans(source) {
+    const text = String(source || "");
+    const spans = [];
+    const pattern = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+    let match = null;
+    while ((match = pattern.exec(text)) !== null) {
+      if (match[1] !== void 0) {
+        spans.push({
+          kind: "wiki_image",
+          from: match.index,
+          to: match.index + match[0].length,
+          raw: match[0],
+          target: String(match[1] || "").trim(),
+          label: String(match[2] || "").trim()
+        });
+        continue;
+      }
+      spans.push({
+        kind: "wiki_link",
+        from: match.index,
+        to: match.index + match[0].length,
+        raw: match[0],
+        target: String(match[3] || "").trim(),
+        label: String(match[4] || "").trim()
+      });
+    }
+    return spans;
+  }
+  function markdownInlineLinkInfo(node) {
+    if (node.name !== "Link" && node.name !== "Image") {
+      return null;
+    }
+    const urlNode = node.children.find(function(child) {
+      return child.name === "URL";
+    });
+    if (!urlNode) {
+      return null;
+    }
+    const marksBeforeUrl = node.children.filter(function(child) {
+      return child.name === "LinkMark" && child.to <= urlNode.from;
+    });
+    if (marksBeforeUrl.length < 2) {
+      return null;
+    }
+    const openingMark = marksBeforeUrl[0];
+    const closingLabelMark = marksBeforeUrl[marksBeforeUrl.length - 2];
+    if (closingLabelMark.from < openingMark.to) {
+      return null;
+    }
+    return {
+      labelFrom: openingMark.to,
+      labelTo: closingLabelMark.from,
+      urlFrom: urlNode.from,
+      urlTo: urlNode.to
+    };
+  }
+  function markdownResolvedLinkInfo(node, source, referenceDefinitions) {
+    const direct = markdownInlineLinkInfo(node);
+    if (direct) {
+      return {
+        labelFrom: direct.labelFrom,
+        labelTo: direct.labelTo,
+        target: String(source || "").slice(direct.urlFrom, direct.urlTo).trim(),
+        title: "",
+        urlFrom: direct.urlFrom,
+        urlTo: direct.urlTo
+      };
+    }
+    if (node.name !== "Link" && node.name !== "Image") {
+      return null;
+    }
+    const labelNode = node.children.find(function(child) {
+      return child.name === "LinkLabel";
+    });
+    const linkMarks = node.children.filter(function(child) {
+      return child.name === "LinkMark";
+    });
+    if (!labelNode || linkMarks.length < 2 || !referenceDefinitions) {
+      return null;
+    }
+    const openingMark = linkMarks[0];
+    const closingLabelMark = linkMarks[linkMarks.length - 1];
+    if (closingLabelMark.from < openingMark.to) {
+      return null;
+    }
+    const referenceLabel = markdownLabelText(source, labelNode);
+    const definition = referenceDefinitions.get(normalizeMarkdownLinkLabel(referenceLabel));
+    if (!definition || !definition.target) {
+      return null;
+    }
+    return {
+      labelFrom: openingMark.to,
+      labelTo: closingLabelMark.from,
+      target: definition.target,
+      title: definition.title,
+      referenceLabel
+    };
+  }
+  function visibleTextFromNode(node, source, rangeFrom, rangeTo) {
+    if (rangeTo <= rangeFrom) {
+      return "";
+    }
+    switch (node.name) {
+      case "LinkMark":
+      case "EmphasisMark":
+      case "StrikethroughMark":
+      case "CodeMark":
+      case "HeaderMark":
+      case "QuoteMark":
+      case "ListMark":
+      case "TaskMarker":
+        return "";
+      case "Escape":
+        return String(source || "").slice(rangeFrom + 1, rangeTo);
+      case "Link": {
+        const info = markdownInlineLinkInfo(node);
+        if (!info) {
+          break;
+        }
+        return visibleTextFromChildren(node, source, info.labelFrom, info.labelTo);
+      }
+      case "Image": {
+        const info = markdownInlineLinkInfo(node);
+        if (!info) {
+          break;
+        }
+        return visibleTextFromChildren(node, source, info.labelFrom, info.labelTo);
+      }
+    }
+    if (!node.children.length) {
+      return String(source || "").slice(rangeFrom, rangeTo);
+    }
+    return visibleTextFromChildren(node, source, rangeFrom, rangeTo);
+  }
+  function visibleTextFromChildren(node, source, rangeFrom, rangeTo) {
+    if (rangeTo <= rangeFrom) {
+      return "";
+    }
+    let result = "";
+    let cursor = rangeFrom;
+    for (let index = 0; index < node.children.length; index += 1) {
+      const child = node.children[index];
+      if (child.to <= rangeFrom || child.from >= rangeTo) {
+        continue;
+      }
+      if (cursor < child.from) {
+        result += String(source || "").slice(cursor, Math.min(child.from, rangeTo));
+      }
+      const childFrom = Math.max(child.from, rangeFrom);
+      const childTo = Math.min(child.to, rangeTo);
+      result += visibleTextFromNode(child, source, childFrom, childTo);
+      cursor = child.to;
+    }
+    if (cursor < rangeTo) {
+      result += String(source || "").slice(cursor, rangeTo);
+    }
+    return result;
+  }
+  var configuredMarkdownParser;
+  var init_markdownInline = __esm({
+    "frontend/markdownInline.ts"() {
+      "use strict";
+      init_dist3();
+      configuredMarkdownParser = parser.configure([GFM]);
     }
   });
 
@@ -958,7 +5397,7 @@
     const source = String(line || "").trim();
     return source.indexOf("|") >= 0 && splitMarkdownTableRow(source).length >= 2;
   }
-  function markdownTableBlockAt(lines, startLineIndex) {
+  function markdownTableBlockAt(lines, startLineIndex, options) {
     if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex + 1 >= lines.length) {
       return null;
     }
@@ -995,7 +5434,7 @@
     }
     const renderCell = function(cell, rowIndex, index, tag) {
       const alignment = alignments[index] || "left";
-      return "<" + tag + ' class="markdown-table-cell" style="text-align:' + alignment + ';" data-table-cell="true" data-table-start-line="' + String(startLineIndex + 1) + '" data-table-row="' + String(rowIndex) + '" data-table-col="' + String(index) + '">' + renderInline(cell) + "</" + tag + ">";
+      return "<" + tag + ' class="markdown-table-cell" style="text-align:' + alignment + ';" data-table-cell="true" data-table-start-line="' + String(startLineIndex + 1) + '" data-table-row="' + String(rowIndex) + '" data-table-col="' + String(index) + '">' + renderInline(cell, options) + "</" + tag + ">";
     };
     const html = '<div class="markdown-table-block" data-table-start-line="' + String(startLineIndex + 1) + '"><table><thead><tr>' + headerCells.map(function(cell, index) {
       return renderCell(cell, 0, index, "th");
@@ -1040,8 +5479,41 @@
     }
     return resolveDocumentPath(options && options.currentPagePath ? String(options.currentPagePath) : "", text);
   }
-  function renderDocumentAnchor(href, label) {
-    return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+  function findInlineMathSpans(source) {
+    const text = String(source || "");
+    const spans = [];
+    let index = 0;
+    while (index < text.length) {
+      if (text[index] !== "$" || text[index + 1] === "$" || index > 0 && text[index - 1] === "\\") {
+        index += 1;
+        continue;
+      }
+      let end = index + 1;
+      while (end < text.length) {
+        if (text[end] === "$" && text[end - 1] !== "\\") {
+          break;
+        }
+        end += 1;
+      }
+      if (end >= text.length || text[end] !== "$") {
+        break;
+      }
+      const content2 = text.slice(index + 1, end);
+      if (!content2 || /^\s|\s$/.test(content2)) {
+        index = end + 1;
+        continue;
+      }
+      spans.push({
+        from: index,
+        to: end + 1,
+        content: content2
+      });
+      index = end + 1;
+    }
+    return spans;
+  }
+  function renderDocumentAnchor(href, labelHTML) {
+    return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
   }
   function renderImageAnchor(href, src, alt) {
     return '<a class="markdown-inline-image-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener"><img class="markdown-inline-image" src="' + escapeHTML(src) + '" alt="' + escapeHTML(alt) + '"></a>';
@@ -1064,81 +5536,271 @@
     }
     return trimmedLabel === documentPathLeaf(target);
   }
-  function renderInline(value, options) {
-    const source = String(value || "");
-    const inlinePattern = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|!\[([^\]]*)\]\(([^)\s]+)\)|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
+  function renderExternalAnchor(href, labelHTML) {
+    return '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
+  }
+  function renderWikiButton(target, labelHTML) {
+    return '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + labelHTML + "</button>";
+  }
+  function renderInlineMathSpan(span) {
+    return '<span class="markdown-inline-math">' + escapeHTML(span.content) + "</span>";
+  }
+  function renderPlainTextSegment(source) {
+    const text = String(source || "");
+    const mathSpans = findInlineMathSpans(text);
+    if (!mathSpans.length) {
+      return escapeHTML(text);
+    }
     let result = "";
     let cursor = 0;
-    let match = null;
-    while ((match = inlinePattern.exec(source)) !== null) {
-      result += escapeHTML(source.slice(cursor, match.index));
-      if (match[1] !== void 0) {
-        const target = String(match[1] || "").trim();
-        const label = embeddedWikiLabel(target, String(match[2] || ""));
-        const resolvedPath = resolveInlineDocumentTarget(target, options);
-        const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
-        if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath)) {
-          if (isImagePath(resolvedPath)) {
-            const href = inlineDocumentURL(resolvedPath);
-            result += renderImageAnchor(href, href, label || documentPathLeaf(resolvedPath) || "image");
-          } else {
-            result += renderDocumentAnchor(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath));
-          }
-        } else {
-          result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
-        }
-      } else if (match[3] !== void 0) {
-        const alt = String(match[3] || "").trim();
-        const target = String(match[4] || "").trim();
-        if (/^[a-z]+:/i.test(target)) {
-          result += renderImageAnchor(target, target, alt || documentPathLeaf(target) || "image");
-        } else {
-          const resolvedPath = resolveInlineDocumentTarget(target, options);
-          if (resolvedPath && !/\.md$/i.test(resolvedPath)) {
-            const href = inlineDocumentURL(resolvedPath);
-            result += renderImageAnchor(href, href, alt || documentPathLeaf(resolvedPath) || "image");
-          } else {
-            result += escapeHTML(match[0]);
-          }
-        }
-      } else if (match[5] !== void 0) {
-        const target = String(match[5] || "").trim();
-        const label = String(match[6] || match[5] || "").trim();
-        result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
-      } else if (match[7] !== void 0) {
-        const label = String(match[7] || "").trim();
-        const href = String(match[8] || "").trim();
-        if (/^[a-z]+:/i.test(href)) {
-          if (isImagePath(href) && shouldRenderMarkdownLinkAsImage(label, href)) {
-            result += renderImageAnchor(href, href, label || documentPathLeaf(href) || "image");
-          } else {
-            result += '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
-          }
-        } else {
-          const resolvedPath = resolveInlineDocumentTarget(href, options);
-          if (resolvedPath && !/\.md$/i.test(resolvedPath)) {
-            if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage(label, href)) {
-              const imageHref = inlineDocumentURL(resolvedPath);
-              result += renderImageAnchor(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image");
-            } else {
-              result += renderDocumentAnchor(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath));
-            }
-          } else {
-            result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(href) + '">' + escapeHTML(label) + "</button>";
-          }
-        }
-      } else if (match[9] !== void 0) {
-        result += "<code>" + escapeHTML(match[9]) + "</code>";
-      } else if (match[10] !== void 0 || match[11] !== void 0) {
-        result += "<strong>" + escapeHTML(match[10] || match[11]) + "</strong>";
-      } else if (match[12] !== void 0 || match[13] !== void 0) {
-        result += "<em>" + escapeHTML(match[12] || match[13]) + "</em>";
-      } else if (match[14] !== void 0) {
-        result += "<del>" + escapeHTML(match[14]) + "</del>";
+    for (let index = 0; index < mathSpans.length; index += 1) {
+      const span = mathSpans[index];
+      if (cursor < span.from) {
+        result += escapeHTML(text.slice(cursor, span.from));
       }
-      cursor = match.index + match[0].length;
+      result += renderInlineMathSpan(span);
+      cursor = span.to;
     }
-    result += escapeHTML(source.slice(cursor));
+    if (cursor < text.length) {
+      result += escapeHTML(text.slice(cursor));
+    }
+    return result;
+  }
+  function parseAllowedInlineHtmlTag(raw) {
+    const text = String(raw || "").trim().toLowerCase();
+    if (/^<br\s*\/?>$/.test(text)) {
+      return {
+        tagName: "br",
+        kind: "self"
+      };
+    }
+    const match = text.match(/^<(\/?)(sub|sup|kbd|mark)>$/);
+    if (!match) {
+      return null;
+    }
+    return {
+      tagName: match[2],
+      kind: match[1] ? "close" : "open"
+    };
+  }
+  function renderParsedInlineChildren(node, source, options, rangeFrom, rangeTo) {
+    if (rangeTo <= rangeFrom) {
+      return "";
+    }
+    let result = "";
+    let cursor = rangeFrom;
+    for (let index = 0; index < node.children.length; index += 1) {
+      const child = node.children[index];
+      if (child.to <= rangeFrom || child.from >= rangeTo) {
+        continue;
+      }
+      if (cursor < child.from) {
+        result += renderPlainTextSegment(source.slice(cursor, Math.min(child.from, rangeTo)));
+      }
+      if (child.name === "HTMLTag") {
+        const tagInfo = parseAllowedInlineHtmlTag(source.slice(child.from, child.to));
+        if (tagInfo && tagInfo.kind === "self") {
+          result += "<br>";
+          cursor = child.to;
+          continue;
+        }
+        if (tagInfo && tagInfo.kind === "open") {
+          let depth = 1;
+          let closeNode = null;
+          let closeIndex = index;
+          for (let scanIndex = index + 1; scanIndex < node.children.length; scanIndex += 1) {
+            const candidate = node.children[scanIndex];
+            if (candidate.to <= rangeFrom || candidate.from >= rangeTo || candidate.name !== "HTMLTag") {
+              continue;
+            }
+            const candidateInfo = parseAllowedInlineHtmlTag(source.slice(candidate.from, candidate.to));
+            if (!candidateInfo || candidateInfo.tagName !== tagInfo.tagName) {
+              continue;
+            }
+            if (candidateInfo.kind === "open") {
+              depth += 1;
+            } else if (candidateInfo.kind === "close") {
+              depth -= 1;
+              if (!depth) {
+                closeNode = candidate;
+                closeIndex = scanIndex;
+                break;
+              }
+            }
+          }
+          if (closeNode) {
+            const innerHTML = renderParsedInlineChildren(node, source, options, child.to, closeNode.from);
+            switch (tagInfo.tagName) {
+              case "sub":
+                result += '<sub class="markdown-inline-sub">' + innerHTML + "</sub>";
+                break;
+              case "sup":
+                result += '<sup class="markdown-inline-sup">' + innerHTML + "</sup>";
+                break;
+              case "kbd":
+                result += '<kbd class="markdown-inline-kbd">' + innerHTML + "</kbd>";
+                break;
+              case "mark":
+                result += '<mark class="markdown-inline-mark">' + innerHTML + "</mark>";
+                break;
+            }
+            cursor = closeNode.to;
+            index = closeIndex;
+            continue;
+          }
+        }
+        result += escapeHTML(source.slice(child.from, child.to));
+        cursor = child.to;
+        continue;
+      }
+      result += renderParsedInlineNode(child, source, options);
+      cursor = child.to;
+    }
+    if (cursor < rangeTo) {
+      result += renderPlainTextSegment(source.slice(cursor, rangeTo));
+    }
+    return result;
+  }
+  function renderParsedLinkNode(node, source, options) {
+    const info = markdownResolvedLinkInfo(node, source, options && options.referenceDefinitions ? options.referenceDefinitions : null);
+    if (!info) {
+      return escapeHTML(source.slice(node.from, node.to));
+    }
+    const target = String(info.target || "").trim();
+    const labelHTML = renderParsedInlineChildren(node, source, options, info.labelFrom, info.labelTo);
+    const labelText = visibleTextFromChildren(node, source, info.labelFrom, info.labelTo).trim();
+    if (/^[a-z]+:/i.test(target)) {
+      if (isImagePath(target) && shouldRenderMarkdownLinkAsImage(labelText, target)) {
+        return renderImageAnchor(target, target, labelText || documentPathLeaf(target) || "image");
+      }
+      return renderExternalAnchor(target, labelHTML || escapeHTML(labelText || target));
+    }
+    const resolvedPath = resolveInlineDocumentTarget(target, options);
+    if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+      if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage(labelText, target)) {
+        const imageHref = inlineDocumentURL(resolvedPath);
+        return renderImageAnchor(imageHref, imageHref, labelText || documentPathLeaf(resolvedPath) || "image");
+      }
+      return renderDocumentAnchor(
+        documentDownloadURL(resolvedPath),
+        labelHTML || escapeHTML(labelText || documentPathLeaf(resolvedPath) || documentPathLeaf(target) || target)
+      );
+    }
+    return renderWikiButton(target, labelHTML || escapeHTML(labelText || pageTitleFromPath(target)));
+  }
+  function renderParsedImageNode(node, source, options) {
+    const info = markdownResolvedLinkInfo(node, source, options && options.referenceDefinitions ? options.referenceDefinitions : null);
+    if (!info) {
+      return escapeHTML(source.slice(node.from, node.to));
+    }
+    const target = String(info.target || "").trim();
+    const alt = visibleTextFromChildren(node, source, info.labelFrom, info.labelTo).trim();
+    if (/^[a-z]+:/i.test(target)) {
+      return renderImageAnchor(target, target, alt || documentPathLeaf(target) || "image");
+    }
+    const resolvedPath = resolveInlineDocumentTarget(target, options);
+    if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+      const href = inlineDocumentURL(resolvedPath);
+      return renderImageAnchor(href, href, alt || documentPathLeaf(resolvedPath) || "image");
+    }
+    return escapeHTML(source.slice(node.from, node.to));
+  }
+  function renderParsedAutolinkNode(node, source) {
+    const urlNode = node.children.find(function(child) {
+      return child.name === "URL";
+    });
+    const href = String(urlNode ? source.slice(urlNode.from, urlNode.to) : source.slice(node.from, node.to)).trim();
+    if (!href) {
+      return escapeHTML(source.slice(node.from, node.to));
+    }
+    return renderExternalAnchor(href, escapeHTML(href));
+  }
+  function renderParsedInlineNode(node, source, options) {
+    switch (node.name) {
+      case "Document":
+      case "Paragraph":
+        return renderParsedInlineChildren(node, source, options, node.from, node.to);
+      case "StrongEmphasis":
+        return "<strong>" + renderParsedInlineChildren(node, source, options, node.from, node.to) + "</strong>";
+      case "Emphasis":
+        return "<em>" + renderParsedInlineChildren(node, source, options, node.from, node.to) + "</em>";
+      case "Strikethrough":
+        return "<del>" + renderParsedInlineChildren(node, source, options, node.from, node.to) + "</del>";
+      case "InlineCode":
+        return "<code>" + renderParsedInlineChildren(node, source, options, node.from, node.to) + "</code>";
+      case "Link":
+        return renderParsedLinkNode(node, source, options);
+      case "Image":
+        return renderParsedImageNode(node, source, options);
+      case "Autolink":
+        return renderParsedAutolinkNode(node, source);
+      case "URL":
+        return renderExternalAnchor(source.slice(node.from, node.to), escapeHTML(source.slice(node.from, node.to)));
+      case "Escape":
+        return escapeHTML(source.slice(node.from + 1, node.to));
+      case "HTMLTag":
+        return escapeHTML(source.slice(node.from, node.to));
+      case "LinkMark":
+      case "EmphasisMark":
+      case "StrikethroughMark":
+      case "CodeMark":
+      case "HeaderMark":
+      case "QuoteMark":
+      case "ListMark":
+      case "TaskMarker":
+        return "";
+    }
+    if (node.children.length) {
+      return renderParsedInlineChildren(node, source, options, node.from, node.to);
+    }
+    return renderPlainTextSegment(source.slice(node.from, node.to));
+  }
+  function renderStandardInlineSegment(source, options) {
+    const text = String(source || "");
+    if (!text) {
+      return "";
+    }
+    const root = parseInlineMarkdownTree(text);
+    return renderParsedInlineNode(root, text, options);
+  }
+  function renderSpecialInlineSpan(span, options) {
+    const target = String(span.target || "").trim();
+    const label = String(span.label || "").trim();
+    const resolvedPath = resolveInlineDocumentTarget(target, options);
+    const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
+    const visibleLabel = label || embeddedWikiLabel(target, "");
+    const labelHTML = escapeHTML(visibleLabel);
+    if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+      if (isImagePath(resolvedPath)) {
+        const href = inlineDocumentURL(resolvedPath);
+        return renderImageAnchor(href, href, visibleLabel || documentPathLeaf(resolvedPath) || "image");
+      }
+      return renderDocumentAnchor(
+        documentDownloadURL(resolvedPath),
+        labelHTML || escapeHTML(documentPathLeaf(resolvedPath) || visibleLabel || target)
+      );
+    }
+    return renderWikiButton(target, labelHTML || escapeHTML(pageTitleFromPath(target)));
+  }
+  function renderInline(value, options) {
+    const source = String(value || "");
+    const specialSpans = findMarkdownInlineSpecialSpans(source);
+    if (!specialSpans.length) {
+      return renderStandardInlineSegment(source, options);
+    }
+    let result = "";
+    let cursor = 0;
+    for (let index = 0; index < specialSpans.length; index += 1) {
+      const span = specialSpans[index];
+      if (cursor < span.from) {
+        result += renderStandardInlineSegment(source.slice(cursor, span.from), options);
+      }
+      result += renderSpecialInlineSpan(span, options);
+      cursor = span.to;
+    }
+    if (cursor < source.length) {
+      result += renderStandardInlineSegment(source.slice(cursor), options);
+    }
     return result;
   }
   function wikiLinkAtCaret(line, caret) {
@@ -1162,6 +5824,7 @@
       "use strict";
       init_documents();
       init_commands();
+      init_markdownInline();
     }
   });
 
@@ -1311,15 +5974,15 @@
     const usedIDs = /* @__PURE__ */ new Set();
     return source.map(function(entry, index) {
       const record = entry && typeof entry === "object" ? entry : {};
-      const name = String(record.name || "").trim();
+      const name2 = String(record.name || "").trim();
       const folder = normalizeTemplateFolder(String(record.folder || "").trim());
       const fields = (Array.isArray(record.fields) ? record.fields : []).map(normalizeTemplateField).filter(function(field) {
         return Boolean(field);
       });
-      if (!name && !folder && !fields.length) {
+      if (!name2 && !folder && !fields.length) {
         return null;
       }
-      const normalizedName = name || "Template " + String(index + 1);
+      const normalizedName = name2 || "Template " + String(index + 1);
       const idSeed = String(record.id || "").trim() || normalizedName;
       return {
         id: uniqueTemplateID(idSeed, usedIDs, index),
@@ -1372,6 +6035,9 @@
       };
     }
     return null;
+  }
+  function isTemplatePagePath(pagePath) {
+    return Boolean(templatePathInfo(pagePath));
   }
   function defaultTemplateFolderFromPath(pagePath) {
     const info = templatePathInfo(pagePath);
@@ -1611,8 +6277,8 @@
     const body = replaceTemplatePlaceholders(bodySource, pagePath);
     const fallbackTitle = pageTitleFromPath(pagePath);
     const fallbackBody = fallbackTitle ? "# " + fallbackTitle + "\n" : "";
-    const content = body || fallbackBody;
-    return ["---"].concat(frontmatterLines, ["---"]).join("\n") + "\n" + content;
+    const content2 = body || fallbackBody;
+    return ["---"].concat(frontmatterLines, ["---"]).join("\n") + "\n" + content2;
   }
   function resolveNoteTemplate(templates, marker) {
     const templateID = String(marker || "").trim();
@@ -2251,6 +6917,9 @@
         rootHomePage: "",
         scopeHomePages: {}
       },
+      notifications: {
+        browserEnabled: false
+      },
       templates: []
     };
   }
@@ -2283,6 +6952,9 @@
           })
         )
       },
+      notifications: {
+        browserEnabled: Boolean(input.notifications.browserEnabled)
+      },
       templates: cloneNoteTemplates(input.templates)
     };
   }
@@ -2292,6 +6964,7 @@
     const hotkeysSource = source.hotkeys && typeof source.hotkeys === "object" ? source.hotkeys : {};
     const uiSource = source.ui && typeof source.ui === "object" ? source.ui : {};
     const vaultsSource = source.vaults && typeof source.vaults === "object" ? source.vaults : {};
+    const notificationsSource = source.notifications && typeof source.notifications === "object" ? source.notifications : {};
     const templatesSource = Array.isArray(source.templates) ? source.templates : [];
     const scopeHomePagesSource = vaultsSource.scopeHomePages && typeof vaultsSource.scopeHomePages === "object" ? vaultsSource.scopeHomePages : {};
     const fontFamily = String(uiSource.fontFamily ?? defaults.ui.fontFamily).trim();
@@ -2326,6 +6999,9 @@
             return Boolean(key || value);
           })
         )
+      },
+      notifications: {
+        browserEnabled: Boolean(notificationsSource.browserEnabled)
       },
       templates: normalizeNoteTemplates(templatesSource)
     };
@@ -2367,6 +7043,321 @@
     }
   });
 
+  // frontend/browserNotifications.ts
+  function notificationAPIFromWindow() {
+    if (typeof window === "undefined") {
+      return null;
+    }
+    const notificationAPI = window.Notification;
+    return notificationAPI || null;
+  }
+  function normalizePermission(value) {
+    if (value === "granted" || value === "denied" || value === "default") {
+      return value;
+    }
+    return "default";
+  }
+  function browserNotificationsSupported(api = notificationAPIFromWindow()) {
+    return Boolean(api && typeof api.requestPermission === "function");
+  }
+  function browserNotificationPermission(api = notificationAPIFromWindow()) {
+    if (!api) {
+      return "unsupported";
+    }
+    return normalizePermission(api.permission);
+  }
+  async function requestBrowserNotificationPermission(api = notificationAPIFromWindow()) {
+    if (!api || typeof api.requestPermission !== "function") {
+      return "unsupported";
+    }
+    try {
+      return normalizePermission(await api.requestPermission());
+    } catch (_error) {
+      return browserNotificationPermission(api);
+    }
+  }
+  function browserNotificationStatus(enabled, permission) {
+    if (permission === "unsupported") {
+      return "This browser does not support notifications.";
+    }
+    if (permission === "granted") {
+      return enabled ? "Granted. Noterious may use browser notifications on this device." : "Granted in this browser, but disabled in Noterious.";
+    }
+    if (permission === "denied") {
+      return enabled ? "Blocked by this browser. Allow notifications for this site, then save again." : "Blocked by this browser.";
+    }
+    return enabled ? "Permission will be requested when you save." : "Permission not granted yet.";
+  }
+  function frontmatterStringValue(value) {
+    return typeof value === "string" ? value.trim() : "";
+  }
+  function isNotificationClickKey2(key) {
+    const normalized = String(key || "").trim().toLowerCase();
+    return normalized.endsWith("_click") || normalized.endsWith("-click");
+  }
+  function isNotificationFrontmatterKey(key) {
+    const normalized = String(key || "").trim().toLowerCase();
+    if (!normalized || normalized.startsWith("_") || isNotificationClickKey2(normalized)) {
+      return false;
+    }
+    return normalized === "notification" || normalized === "notify" || normalized === "remind" || normalized === "reminder" || normalized.includes("_notification") || normalized.includes("_remind") || normalized.includes("_reminder") || normalized.endsWith("-notification") || normalized.endsWith("-remind") || normalized.endsWith("-reminder") || normalized.startsWith("notification_") || normalized.startsWith("remind_") || normalized.startsWith("reminder_");
+  }
+  function isGenericNotificationField(key) {
+    const normalized = String(key || "").trim().toLowerCase();
+    return normalized === "notification" || normalized === "notify" || normalized === "remind" || normalized === "reminder";
+  }
+  function notificationClickTarget(frontmatter, fieldKey) {
+    if (!frontmatter) {
+      return "";
+    }
+    for (const candidate of [fieldKey + "_click", fieldKey + "-click"]) {
+      const value = frontmatterStringValue(frontmatter[candidate]);
+      if (value) {
+        return value;
+      }
+    }
+    return "";
+  }
+  function parseDateOnly(raw) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(raw || "").trim());
+    if (!match) {
+      return null;
+    }
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(year, month - 1, day, 0, 0, 0, 0);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  function parseDateTime(raw) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})$/.exec(String(raw || "").trim());
+    if (!match) {
+      return null;
+    }
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const hour = Number(match[4]);
+    const minute = Number(match[5]);
+    const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  function parseClockTime(raw) {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(String(raw || "").trim());
+    if (!match) {
+      return null;
+    }
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      return null;
+    }
+    return { hour, minute };
+  }
+  function parseNotificationTime(raw, dateOnlyHour) {
+    const text = String(raw || "").trim();
+    if (!text) {
+      return null;
+    }
+    const dateOnly = parseDateOnly(text);
+    if (dateOnly) {
+      return new Date(
+        dateOnly.getFullYear(),
+        dateOnly.getMonth(),
+        dateOnly.getDate(),
+        dateOnlyHour,
+        0,
+        0,
+        0
+      );
+    }
+    const localDateTime = parseDateTime(text);
+    if (localDateTime) {
+      return localDateTime;
+    }
+    const parsed = new Date(text);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  function parseReminderNotificationTime(remindRaw, dueRaw) {
+    const remindText = String(remindRaw || "").trim();
+    if (!remindText) {
+      return null;
+    }
+    const clock = parseClockTime(remindText);
+    if (clock) {
+      const dueDate = parseDateOnly(String(dueRaw || "").trim());
+      if (!dueDate) {
+        return null;
+      }
+      const at2 = new Date(
+        dueDate.getFullYear(),
+        dueDate.getMonth(),
+        dueDate.getDate(),
+        clock.hour,
+        clock.minute,
+        0,
+        0
+      );
+      return {
+        at: at2,
+        raw: [
+          String(at2.getFullYear()).padStart(4, "0"),
+          String(at2.getMonth() + 1).padStart(2, "0"),
+          String(at2.getDate()).padStart(2, "0")
+        ].join("-") + " " + String(clock.hour).padStart(2, "0") + ":" + String(clock.minute).padStart(2, "0")
+      };
+    }
+    const at = parseNotificationTime(remindText, 9);
+    return at ? { at, raw: remindText } : null;
+  }
+  function taskNotificationCandidate(task) {
+    const parsed = parseReminderNotificationTime(String(task.remind || "").trim(), String(task.due || "").trim());
+    if (!parsed) {
+      return null;
+    }
+    const parts = [String(task.text || "").trim()].filter(Boolean);
+    if (task.page) {
+      parts.push("Page: " + task.page);
+    }
+    parts.push("Reminder: " + parsed.raw);
+    if (Array.isArray(task.who) && task.who.length) {
+      parts.push("Who: " + task.who.join(", "));
+    }
+    return {
+      key: task.ref + "|remind|" + parsed.at.toISOString(),
+      kind: "remind",
+      at: parsed.at.getTime(),
+      raw: parsed.raw,
+      click: String(task.click || "").trim(),
+      title: "Task reminder",
+      body: parts.join("\n"),
+      page: task.page,
+      taskRef: task.ref,
+      fieldKey: "remind"
+    };
+  }
+  function noteNotificationCandidates(page) {
+    const frontmatter = page.frontmatter;
+    if (!frontmatter) {
+      return [];
+    }
+    const keys = Object.keys(frontmatter).filter(isNotificationFrontmatterKey).sort();
+    return keys.map(function(key) {
+      const raw = frontmatterStringValue(frontmatter[key]);
+      const at = parseNotificationTime(raw, 9);
+      if (!raw || !at) {
+        return null;
+      }
+      const titleText = String(page.title || "").trim() || String(page.path || "").trim();
+      const parts = [titleText].filter(Boolean);
+      if (page.path && page.path !== titleText) {
+        parts.push("Page: " + page.path);
+      }
+      if (key && !isGenericNotificationField(key)) {
+        parts.push("Field: " + key);
+      }
+      parts.push("Reminder: " + raw);
+      return {
+        key: "page:" + page.path + "|" + key + "|" + at.toISOString(),
+        kind: "notification",
+        at: at.getTime(),
+        raw,
+        click: notificationClickTarget(frontmatter, key),
+        title: "Note reminder",
+        body: parts.join("\n"),
+        page: page.path,
+        taskRef: "",
+        fieldKey: key
+      };
+    }).filter(Boolean);
+  }
+  function collectBrowserNotificationCandidates(tasks, pages) {
+    const taskCandidates = tasks.map(taskNotificationCandidate).filter(Boolean);
+    const pageCandidates = pages.flatMap(noteNotificationCandidates);
+    return taskCandidates.concat(pageCandidates).sort(function(left, right) {
+      if (left.at !== right.at) {
+        return left.at - right.at;
+      }
+      return left.key.localeCompare(right.key);
+    });
+  }
+  function collectDueBrowserNotifications(tasks, pages, now = Date.now(), recentWindowMs = 15 * 60 * 1e3) {
+    const minAt = now - Math.max(0, recentWindowMs);
+    return collectBrowserNotificationCandidates(tasks, pages).filter(function(candidate) {
+      return candidate.at <= now && candidate.at >= minAt;
+    });
+  }
+  function loadStoredBrowserNotificationState() {
+    try {
+      const raw = window.localStorage.getItem(browserNotificationStateStorageKey);
+      if (!raw) {
+        return { sent: {} };
+      }
+      const decoded = JSON.parse(raw);
+      const sent = decoded && typeof decoded === "object" && decoded.sent && typeof decoded.sent === "object" ? decoded.sent : {};
+      return {
+        sent: Object.fromEntries(
+          Object.entries(sent).map(function([key, value]) {
+            return [String(key || "").trim(), String(value || "").trim()];
+          }).filter(function([key, value]) {
+            return Boolean(key && value);
+          })
+        )
+      };
+    } catch (_error) {
+      return { sent: {} };
+    }
+  }
+  function saveStoredBrowserNotificationState(state) {
+    try {
+      window.localStorage.setItem(browserNotificationStateStorageKey, JSON.stringify(state));
+    } catch (_error) {
+    }
+  }
+  function pruneStoredBrowserNotificationState(state, now = Date.now(), retentionMs = browserNotificationRetentionMs) {
+    const cutoff = now - Math.max(0, retentionMs);
+    return {
+      sent: Object.fromEntries(
+        Object.entries(state.sent || {}).filter(function([, value]) {
+          const at = Date.parse(String(value || ""));
+          return Number.isFinite(at) && at >= cutoff;
+        })
+      )
+    };
+  }
+  function candidateAlreadyDelivered(state, candidate) {
+    return Boolean(state.sent && state.sent[candidate.key]);
+  }
+  function markDeliveredBrowserNotification(state, candidate, deliveredAt = (/* @__PURE__ */ new Date()).toISOString()) {
+    return {
+      sent: {
+        ...state.sent || {},
+        [candidate.key]: deliveredAt
+      }
+    };
+  }
+  function notificationTargetURL(candidate, currentHref) {
+    if (candidate.click) {
+      return candidate.click;
+    }
+    const url = new URL(currentHref);
+    if (candidate.page) {
+      url.searchParams.set("page", candidate.page);
+    } else {
+      url.searchParams.delete("page");
+    }
+    url.searchParams.delete("screen");
+    return url.toString();
+  }
+  var browserNotificationStateStorageKey, browserNotificationRetentionMs;
+  var init_browserNotifications = __esm({
+    "frontend/browserNotifications.ts"() {
+      "use strict";
+      browserNotificationStateStorageKey = "noterious.browser-notifications.sent";
+      browserNotificationRetentionMs = 30 * 24 * 60 * 60 * 1e3;
+    }
+  });
+
   // frontend/http.ts
   function normalizeScopePrefix(value) {
     const trimmed = String(value || "").trim().replace(/^\/+|\/+$/g, "");
@@ -2394,6 +7385,17 @@
     } else {
       merged.delete(scopeHeaderName);
     }
+    return merged;
+  }
+  function mergeClientHeaders(headers) {
+    const merged = new Headers(headers);
+    const clientID = currentClientInstanceId();
+    if (clientID) {
+      merged.set(clientIDHeaderName, clientID);
+    } else {
+      merged.delete(clientIDHeaderName);
+    }
+    merged.delete(scopeHeaderName);
     return merged;
   }
   function setActiveScopePrefix(prefix) {
@@ -2439,6 +7441,12 @@
       headers: mergeScopeHeaders(options && options.headers ? options.headers : void 0)
     };
   }
+  function unscopedRequestInit(options) {
+    return {
+      ...options,
+      headers: mergeClientHeaders(options && options.headers ? options.headers : void 0)
+    };
+  }
   function scopedEventSourceURL(url) {
     if (!activeScopePrefix) {
       return url;
@@ -2461,6 +7469,11 @@
   }
   async function fetchJSON(url, options, suppressAuthEvent = false) {
     const response = await fetch(url, scopedRequestInit(options));
+    await requireOK(response, suppressAuthEvent);
+    return response.json();
+  }
+  async function fetchJSONUnscoped(url, options, suppressAuthEvent = false) {
+    const response = await fetch(url, unscopedRequestInit(options));
     await requireOK(response, suppressAuthEvent);
     return response.json();
   }
@@ -2783,6 +7796,238 @@
     }
   });
 
+  // frontend/documentPathAssist.ts
+  function collapseDashes(value) {
+    let result = "";
+    let lastDash = false;
+    for (const character of value) {
+      if (character === "-") {
+        if (lastDash) {
+          continue;
+        }
+        lastDash = true;
+        result += character;
+        continue;
+      }
+      lastDash = false;
+      result += character;
+    }
+    return result;
+  }
+  function sanitizeDocumentName(value) {
+    const trimmed = String(value || "").trim().replace(/\x00/g, "");
+    if (!trimmed || trimmed === ".") {
+      return "";
+    }
+    const lastDot = trimmed.lastIndexOf(".");
+    const extension = lastDot > 0 ? trimmed.slice(lastDot + 1) : "";
+    const base = lastDot > 0 ? trimmed.slice(0, lastDot) : trimmed;
+    let normalizedBase = "";
+    for (const character of base) {
+      if (/[\p{L}\p{N}]/u.test(character)) {
+        normalizedBase += character.toLowerCase();
+      } else if (character === "." || character === "_" || character === "-") {
+        normalizedBase += character;
+      } else if (/\s/u.test(character)) {
+        normalizedBase += "-";
+      } else {
+        normalizedBase += "-";
+      }
+    }
+    normalizedBase = collapseDashes(normalizedBase).replace(/^[.\-_]+|[.\-_]+$/g, "");
+    if (!normalizedBase) {
+      normalizedBase = "document";
+    }
+    const normalizedExtension = extension.split("").filter(function(character) {
+      return /[A-Za-z0-9]/.test(character);
+    }).join("").toLowerCase();
+    return normalizedExtension ? normalizedBase + "." + normalizedExtension : normalizedBase;
+  }
+  function normalizeFolderPath(value) {
+    const segments = String(value || "").trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/").split("/").map(function(segment) {
+      return segment.trim();
+    }).filter(Boolean);
+    if (!segments.length || segments.some(function(segment) {
+      return segment === "." || segment === "..";
+    })) {
+      return "";
+    }
+    return segments.join("/");
+  }
+  function joinPath2(parent, child) {
+    const normalizedParent = normalizeFolderPath(parent);
+    const normalizedChild = normalizeFolderPath(child);
+    if (!normalizedParent) {
+      return normalizedChild;
+    }
+    if (!normalizedChild) {
+      return normalizedParent;
+    }
+    return normalizedParent + "/" + normalizedChild;
+  }
+  function pathLeaf2(value) {
+    const normalized = normalizeFolderPath(value);
+    const slash = normalized.lastIndexOf("/");
+    return slash >= 0 ? normalized.slice(slash + 1) : normalized;
+  }
+  function parentFolder2(value) {
+    const normalized = normalizeFolderPath(value);
+    const slash = normalized.lastIndexOf("/");
+    return slash >= 0 ? normalized.slice(0, slash) : "";
+  }
+  function pathExtension(value) {
+    const leaf = pathLeaf2(value);
+    const dot = leaf.lastIndexOf(".");
+    return dot > 0 ? leaf.slice(dot) : "";
+  }
+  function normalizeDocumentDraftPath(value, sourcePath) {
+    const rawSegments = String(value || "").trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/").split("/").map(function(segment) {
+      return segment.trim();
+    }).filter(Boolean);
+    if (!rawSegments.length || rawSegments.some(function(segment) {
+      return segment === "." || segment === "..";
+    })) {
+      return "";
+    }
+    const segments = rawSegments.slice(0, -1);
+    let leaf = rawSegments[rawSegments.length - 1] || "";
+    if (leaf.indexOf(".") < 0) {
+      const extension = pathExtension(sourcePath || "");
+      if (extension) {
+        leaf += extension;
+      }
+    }
+    leaf = sanitizeDocumentName(leaf);
+    if (!leaf) {
+      return "";
+    }
+    return segments.concat(leaf).join("/");
+  }
+  function samePath2(left, right) {
+    return normalizeFolderPath(left).toLowerCase() === normalizeFolderPath(right).toLowerCase();
+  }
+  function pathWithinScope2(path, scopePrefix) {
+    const normalizedPath = normalizeFolderPath(path);
+    const normalizedScope = normalizeFolderPath(scopePrefix);
+    if (!normalizedPath) {
+      return false;
+    }
+    if (!normalizedScope) {
+      return true;
+    }
+    return normalizedPath === normalizedScope || normalizedPath.startsWith(normalizedScope + "/");
+  }
+  function displayPathWithinScope2(path, scopePrefix) {
+    const normalizedPath = normalizeFolderPath(path);
+    const normalizedScope = normalizeFolderPath(scopePrefix);
+    if (!normalizedPath || !normalizedScope) {
+      return normalizedPath;
+    }
+    if (normalizedPath === normalizedScope) {
+      return "";
+    }
+    if (normalizedPath.startsWith(normalizedScope + "/")) {
+      return normalizedPath.slice(normalizedScope.length + 1);
+    }
+    return normalizedPath;
+  }
+  function sortedUniqueFolders2(folders) {
+    return Array.from(new Set((Array.isArray(folders) ? folders : []).map(normalizeFolderPath).filter(Boolean))).sort();
+  }
+  function filterFoldersForScope2(folders, scopePrefix) {
+    return sortedUniqueFolders2(folders).filter(function(folder) {
+      return pathWithinScope2(folder, scopePrefix);
+    });
+  }
+  function filterSuggestions2(input, suggestions) {
+    const query = normalizeFolderPath(input).toLowerCase();
+    const source = Array.isArray(suggestions) ? suggestions : [];
+    const filtered = source.filter(function(suggestion) {
+      if (!query) {
+        return true;
+      }
+      return suggestion.value.toLowerCase().indexOf(query) >= 0 || suggestion.label.toLowerCase().indexOf(query) >= 0;
+    });
+    if (!filtered.length && query.indexOf("/") >= 0) {
+      const folderPrefix = query.slice(0, query.lastIndexOf("/") + 1);
+      return source.filter(function(suggestion) {
+        return suggestion.value.toLowerCase().indexOf(folderPrefix) >= 0 || suggestion.label.toLowerCase().indexOf(folderPrefix) >= 0;
+      }).slice(0, 6);
+    }
+    return filtered.slice(0, 6);
+  }
+  function buildRenameSuggestions2(sourcePath, scopePrefix, folders) {
+    const sourceLeaf = pathLeaf2(sourcePath);
+    const normalizedScope = normalizeFolderPath(scopePrefix);
+    const scopedFolders = filterFoldersForScope2(folders, scopePrefix);
+    const rootCandidate = normalizedScope || "";
+    const candidates = [rootCandidate].concat(scopedFolders).filter(function(folder, index, list) {
+      return list.findIndex(function(candidate) {
+        return samePath2(candidate, folder);
+      }) === index;
+    });
+    return candidates.map(function(folder) {
+      const value = folder ? folder + "/" + sourceLeaf : sourceLeaf;
+      const labelPrefix = normalizedScope ? displayPathWithinScope2(folder, normalizedScope) : folder;
+      return {
+        value,
+        label: labelPrefix ? labelPrefix + "/" + sourceLeaf : sourceLeaf,
+        meta: normalizedScope ? folder === normalizedScope ? "Scope root" : "Within current scope" : folder ? folder : "Vault root"
+      };
+    }).filter(function(suggestion) {
+      return !samePath2(suggestion.value, sourcePath);
+    });
+  }
+  function pathSet2(paths) {
+    return new Set((Array.isArray(paths) ? paths : []).map(function(value) {
+      return normalizeFolderPath(value).toLowerCase();
+    }).filter(Boolean));
+  }
+  function buildDocumentPathDialogAssist(options) {
+    const normalizedSource = normalizeDocumentDraftPath(options.sourcePath || "");
+    const normalizedScope = normalizeFolderPath(options.scopePrefix || "");
+    const normalizedInput = normalizeDocumentDraftPath(options.input || "", normalizedSource);
+    const documents = pathSet2(options.documents);
+    const folders = pathSet2(options.folders);
+    let targetPath = "";
+    if (normalizedInput) {
+      targetPath = normalizedInput.indexOf("/") >= 0 ? normalizedInput : joinPath2(parentFolder2(normalizedSource), normalizedInput);
+    }
+    let error = "";
+    if (!normalizedInput) {
+      error = "Enter a file name.";
+    } else if (samePath2(targetPath, normalizedSource)) {
+      error = "No change yet.";
+    } else if (documents.has(targetPath.toLowerCase())) {
+      error = 'A file already exists at "' + targetPath + '".';
+    } else if (folders.has(targetPath.toLowerCase())) {
+      error = 'A folder already exists at "' + targetPath + '".';
+    }
+    let helper = "";
+    let helperTone = "neutral";
+    if (!error && targetPath) {
+      const movingToNewParent = parentFolder2(targetPath) !== parentFolder2(normalizedSource);
+      helper = movingToNewParent ? 'Will move file to "' + targetPath + '".' : 'Will rename file to "' + targetPath + '".';
+      if (normalizedScope && !pathWithinScope2(targetPath, normalizedScope)) {
+        helper += " This will move it out of the current scope.";
+        helperTone = "warn";
+      }
+    }
+    return {
+      normalizedInput,
+      targetPath,
+      error,
+      helper,
+      helperTone,
+      suggestions: filterSuggestions2(normalizedInput, buildRenameSuggestions2(normalizedSource, normalizedScope, options.folders))
+    };
+  }
+  var init_documentPathAssist = __esm({
+    "frontend/documentPathAssist.ts"() {
+      "use strict";
+    }
+  });
+
   // frontend/datetime.ts
   function normalizeDateTimeDisplayFormat(value) {
     switch (String(value || "").trim().toLowerCase()) {
@@ -3077,13 +8322,13 @@
   function editableDateTimePlaceholder() {
     return currentDisplayFormat === "de" ? "30.04.2026 09:00" : "2026-04-30 09:00";
   }
-  function isNotificationClickKey2(column) {
+  function isNotificationClickKey3(column) {
     const normalized = String(column || "").trim().toLowerCase();
     return normalized === "click" || normalized.endsWith("_click") || normalized.endsWith("-click");
   }
   function isDateLikeColumn(column) {
     const normalized = String(column || "").trim().toLowerCase();
-    if (isNotificationClickKey2(normalized)) {
+    if (isNotificationClickKey3(normalized)) {
       return false;
     }
     return normalized === "due" || normalized === "remind" || normalized === "notify" || normalized === "notification" || normalized === "reminder" || normalized === "createdat" || normalized === "updatedat" || normalized === "birthday" || normalized === "birthday_reminder" || normalized === "date" || normalized === "datetime" || normalized === "datum" || /(^|_)(date|datum|due|remind|reminder|notify|notification|created|updated|birthday|time|timestamp)(_|$)/i.test(normalized);
@@ -3228,14 +8473,14 @@
     const end = markdownEditorSelectionEnd(state, elements);
     const lineStart = value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
     const lineEndIndex = value.indexOf("\n", end);
-    const lineEnd = lineEndIndex === -1 ? value.length : lineEndIndex;
+    const lineEnd2 = lineEndIndex === -1 ? value.length : lineEndIndex;
     return {
       value,
       selectionStart: start,
       selectionEnd: end,
       lineStart,
-      lineEnd,
-      lineText: value.slice(lineStart, lineEnd),
+      lineEnd: lineEnd2,
+      lineText: value.slice(lineStart, lineEnd2),
       caretInLine: Math.max(0, start - lineStart)
     };
   }
@@ -4243,16 +9488,16 @@
         state.selectedHistoryRevisionId = revision.id;
         onSelectRevision();
       });
-      const meta = document.createElement("div");
-      meta.className = "history-item-meta";
-      meta.textContent = formatDateTimeValue(revision.savedAt);
+      const meta2 = document.createElement("div");
+      meta2.className = "history-item-meta";
+      meta2.textContent = formatDateTimeValue(revision.savedAt);
       const snippet = document.createElement("div");
       snippet.className = "history-item-snippet";
       snippet.textContent = historyChangePreview(
         revision.rawMarkdown,
         index + 1 < state.pageHistory.length ? state.pageHistory[index + 1].rawMarkdown : ""
       );
-      item.appendChild(meta);
+      item.appendChild(meta2);
       item.appendChild(snippet);
       els.pageHistoryResults.appendChild(item);
     });
@@ -4284,9 +9529,9 @@
     state.trashPages.forEach(function(entry) {
       const item = document.createElement("div");
       item.className = "history-item";
-      const meta = document.createElement("div");
-      meta.className = "history-item-meta";
-      meta.textContent = pageTitleFromPath(entry.page) + " \xB7 deleted " + formatDateTimeValue(entry.deletedAt);
+      const meta2 = document.createElement("div");
+      meta2.className = "history-item-meta";
+      meta2.textContent = pageTitleFromPath(entry.page) + " \xB7 deleted " + formatDateTimeValue(entry.deletedAt);
       const snippet = document.createElement("div");
       snippet.className = "history-item-snippet";
       snippet.textContent = firstContentLine(entry.rawMarkdown);
@@ -4307,7 +9552,7 @@
       });
       actionRow.appendChild(restoreButton);
       actionRow.appendChild(deleteButton);
-      item.appendChild(meta);
+      item.appendChild(meta2);
       item.appendChild(snippet);
       item.appendChild(actionRow);
       els.trashResults.appendChild(item);
@@ -4523,6 +9768,22 @@
   });
 
   // frontend/pageOperations.ts
+  async function openExistingPageIfPresent(pagePath, callbacks) {
+    const normalized = normalizePageDraftPath(pagePath);
+    if (!normalized) {
+      return false;
+    }
+    try {
+      await callbacks.fetchJSON("/api/pages/" + callbacks.encodePath(normalized));
+      callbacks.navigateToPage(normalized, false);
+      return true;
+    } catch (error) {
+      if (error instanceof HTTPError && error.status === 404) {
+        return false;
+      }
+      throw error;
+    }
+  }
   function remapPathPrefix(value, fromPrefix, toPrefix) {
     const source = normalizePageDraftPath(value);
     if (!source) {
@@ -4555,13 +9816,27 @@
     if (!normalized) {
       return;
     }
+    if (await openExistingPageIfPresent(normalized, callbacks)) {
+      return;
+    }
     const leaf = pageTitleFromPath(normalized);
     const initialMarkdown = typeof options?.rawMarkdown === "string" ? options.rawMarkdown : leaf ? "# " + leaf + "\n" : "";
-    await callbacks.fetchJSON("/api/pages/" + callbacks.encodePath(normalized), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rawMarkdown: initialMarkdown })
-    });
+    try {
+      await callbacks.fetchJSON("/api/pages/" + callbacks.encodePath(normalized), {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          [createOnlyPageHeaderName]: "true"
+        },
+        body: JSON.stringify({ rawMarkdown: initialMarkdown })
+      });
+    } catch (error) {
+      if (error instanceof HTTPError && error.status === 409) {
+        callbacks.navigateToPage(normalized, false);
+        return;
+      }
+      throw error;
+    }
     await callbacks.loadPages();
     callbacks.navigateToPage(normalized, false);
   }
@@ -4712,25 +9987,25 @@
     if (!sourceFolder || !nextLeaf) {
       return;
     }
-    let parentFolder2;
+    let parentFolder3;
     let folderName;
     if (nextLeaf.indexOf("/") >= 0) {
       const lastSlash = nextLeaf.lastIndexOf("/");
-      parentFolder2 = nextLeaf.slice(0, lastSlash);
+      parentFolder3 = nextLeaf.slice(0, lastSlash);
       folderName = nextLeaf.slice(lastSlash + 1);
     } else {
       const slash = sourceFolder.lastIndexOf("/");
-      parentFolder2 = slash >= 0 ? sourceFolder.slice(0, slash) : "";
+      parentFolder3 = slash >= 0 ? sourceFolder.slice(0, slash) : "";
       folderName = nextLeaf;
     }
-    const destinationFolder = parentFolder2 ? parentFolder2 + "/" + folderName : folderName;
+    const destinationFolder = parentFolder3 ? parentFolder3 + "/" + folderName : folderName;
     if (destinationFolder === sourceFolder || destinationFolder.startsWith(sourceFolder + "/")) {
       return;
     }
     const payload = await callbacks.fetchJSON("/api/folders/" + callbacks.encodePath(sourceFolder) + "/move", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetFolder: parentFolder2, name: folderName })
+      body: JSON.stringify({ targetFolder: parentFolder3, name: folderName })
     });
     const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
     const movedSelectedPage = context.selectedPage ? remapPathPrefix(context.selectedPage, sourceFolder, movedFolder) : "";
@@ -4746,10 +10021,13 @@
     }
     callbacks.renderPages();
   }
+  var createOnlyPageHeaderName;
   var init_pageOperations = __esm({
     "frontend/pageOperations.ts"() {
       "use strict";
       init_commands();
+      init_http();
+      createOnlyPageHeaderName = "X-Noterious-Create-Only";
     }
   });
 
@@ -5094,7 +10372,7 @@
     }
     return normalizedPath === normalizedScopePrefix || normalizedPath.startsWith(normalizedScopePrefix + "/");
   }
-  function displayPathWithinScope2(path, scopePrefix) {
+  function displayPathWithinScope3(path, scopePrefix) {
     const normalizedPath = String(path || "").trim().replace(/^\/+|\/+$/g, "");
     const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
     if (!normalizedPath || !normalizedScopePrefix) {
@@ -5116,6 +10394,11 @@
   function filterFoldersByScope(folders, scopePrefix) {
     return (Array.isArray(folders) ? folders : []).filter(function(folder) {
       return pageWithinScope(String(folder || ""), scopePrefix);
+    });
+  }
+  function filterDocumentsByScope(documents, scopePrefix) {
+    return (Array.isArray(documents) ? documents : []).filter(function(document2) {
+      return pageWithinScope(String(document2.path || ""), scopePrefix);
     });
   }
   function formatReminderLabel(value) {
@@ -5205,7 +10488,7 @@
     if (!normalizedCanonicalPath) {
       return;
     }
-    const displayPath = displayPathWithinScope2(normalizedCanonicalPath, scopePrefix);
+    const displayPath = displayPathWithinScope3(normalizedCanonicalPath, scopePrefix);
     const segments = displayPath ? displayPath.split("/") : [];
     const canonicalSegments = normalizedCanonicalPath.split("/").filter(Boolean);
     const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
@@ -5215,13 +10498,13 @@
     segments.forEach(function(segment, index) {
       const canonicalKey = canonicalSegments.slice(0, offset + index + 1).join("/");
       if (!cursor.folders[segment]) {
-        cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [] };
+        cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [], documents: [] };
       }
       cursor = cursor.folders[segment];
     });
   }
-  function buildPageTree(pages, folders, scopePrefix) {
-    const root = { folders: {}, pages: [] };
+  function buildPageTree(pages, folders, documents, scopePrefix) {
+    const root = { folders: {}, pages: [], documents: [] };
     const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
     const scopeParts = normalizedScopePrefix ? normalizedScopePrefix.split("/") : [];
     folders.forEach(function(folderPath) {
@@ -5229,7 +10512,7 @@
     });
     pages.forEach(function(page) {
       const canonicalPath = String(page.path || "");
-      const displayPath = displayPathWithinScope2(canonicalPath, normalizedScopePrefix);
+      const displayPath = displayPathWithinScope3(canonicalPath, normalizedScopePrefix);
       const segments = displayPath ? displayPath.split("/") : [];
       const canonicalSegments = canonicalPath.split("/").filter(Boolean);
       const offset = normalizedScopePrefix && canonicalPath.startsWith(normalizedScopePrefix + "/") ? scopeParts.length : 0;
@@ -5242,19 +10525,40 @@
         const segment = segments[index];
         const canonicalKey = canonicalSegments.slice(0, offset + index + 1).join("/");
         if (!cursor.folders[segment]) {
-          cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [] };
+          cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [], documents: [] };
         }
         cursor = cursor.folders[segment];
       }
       cursor.pages.push(page);
     });
+    documents.forEach(function(document2) {
+      const canonicalPath = String(document2.path || "");
+      const displayPath = displayPathWithinScope3(canonicalPath, normalizedScopePrefix);
+      const segments = displayPath ? displayPath.split("/") : [];
+      const canonicalSegments = canonicalPath.split("/").filter(Boolean);
+      const offset = normalizedScopePrefix && canonicalPath.startsWith(normalizedScopePrefix + "/") ? scopeParts.length : 0;
+      if (segments.length <= 1) {
+        root.documents.push(document2);
+        return;
+      }
+      let cursor = root;
+      for (let index = 0; index < segments.length - 1; index += 1) {
+        const segment = segments[index];
+        const canonicalKey = canonicalSegments.slice(0, offset + index + 1).join("/");
+        if (!cursor.folders[segment]) {
+          cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [], documents: [] };
+        }
+        cursor = cursor.folders[segment];
+      }
+      cursor.documents.push(document2);
+    });
     return root;
   }
-  function renderPageTreeNode(node, depth, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder) {
+  function renderPageTreeNode(node, depth, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder) {
     const group = document.createElement("div");
     group.className = depth === 0 ? "page-tree-root" : "page-tree-children";
-    Object.keys(node.folders).sort().forEach(function(name) {
-      const folder = node.folders[name];
+    Object.keys(node.folders).sort().forEach(function(name2) {
+      const folder = node.folders[name2];
       const item = document.createElement("div");
       item.className = "page-tree-node page-tree-folder";
       makeDragSource(item, { kind: "folder", path: folder.key });
@@ -5317,7 +10621,7 @@
       row.appendChild(button);
       item.appendChild(row);
       if (expandedPageFolders[folder.key]) {
-        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
+        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
       }
       group.appendChild(item);
     });
@@ -5358,20 +10662,77 @@
       item.appendChild(row);
       group.appendChild(item);
     });
+    node.documents.slice().sort(function(left, right) {
+      return String(left.path).localeCompare(String(right.path));
+    }).forEach(function(doc) {
+      const leafName = String(doc.name || "").trim() || (String(doc.path || "").split("/").slice(-1)[0] || doc.path);
+      const item = document.createElement("div");
+      item.className = "page-tree-node page-tree-leaf page-tree-document-leaf";
+      const row = document.createElement("div");
+      row.className = "page-tree-row";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "page-tree-page page-tree-document";
+      button.addEventListener("click", function() {
+        onOpenDocument(doc);
+      });
+      button.addEventListener("contextmenu", function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenContextMenu({ kind: "document", path: doc.path, name: leafName, document: doc }, event.clientX, event.clientY);
+      });
+      const icon = document.createElement("span");
+      icon.className = "page-tree-icon";
+      icon.textContent = "\u2197";
+      const label = document.createElement("span");
+      label.className = "page-tree-label";
+      label.textContent = leafName;
+      label.title = leafName;
+      button.appendChild(icon);
+      button.appendChild(label);
+      row.appendChild(button);
+      item.appendChild(row);
+      group.appendChild(item);
+    });
     return group;
   }
-  function renderPagesTree(container, pages, folders, selectedPage, expandedPageFolders, pageSearchQuery, scopePrefix, rootFolderPath, rootLabelText, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder) {
+  function renderPagesTree(container, pages, folders, documents, selectedPage, expandedPageFolders, pageSearchQuery, scopePrefix, rootFolderPath, rootLabelText, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder) {
     clearNode(container);
     const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
     const normalizedRootFolderPath = String(rootFolderPath || "").trim().replace(/^\/+|\/+$/g, "");
-    const visibleFolders = pageSearchQuery ? [] : folders;
-    if (pageSearchQuery) {
+    const searchNeedle = String(pageSearchQuery || "").trim().toLowerCase();
+    const visiblePages = pages.filter(function(page) {
+      if (!searchNeedle) {
+        return true;
+      }
+      const haystack = [page.title, page.path, ...Array.isArray(page.tags) ? page.tags : []].join(" ").toLowerCase();
+      return haystack.includes(searchNeedle);
+    });
+    const visibleFolders = searchNeedle ? [] : folders;
+    const visibleDocuments = documents.filter(function(document2) {
+      if (!searchNeedle) {
+        return true;
+      }
+      const haystack = [document2.name, document2.path, document2.contentType].join(" ").toLowerCase();
+      return haystack.includes(searchNeedle);
+    });
+    if (searchNeedle) {
       const expanded = {};
-      pages.forEach(function(page) {
-        const displayPath = displayPathWithinScope2(String(page.path || ""), normalizedScopePrefix);
+      visiblePages.forEach(function(page) {
+        const displayPath = displayPathWithinScope3(String(page.path || ""), normalizedScopePrefix);
         const parts = displayPath ? displayPath.split("/") : [];
         const canonicalParts = String(page.path || "").split("/").filter(Boolean);
         const offset = normalizedScopePrefix && String(page.path || "").startsWith(normalizedScopePrefix + "/") ? normalizedScopePrefix.split("/").length : 0;
+        for (let index = 0; index < parts.length - 1; index += 1) {
+          const key = canonicalParts.slice(0, offset + index + 1).join("/");
+          expanded[key] = true;
+        }
+      });
+      visibleDocuments.forEach(function(document2) {
+        const displayPath = displayPathWithinScope3(String(document2.path || ""), normalizedScopePrefix);
+        const parts = displayPath ? displayPath.split("/") : [];
+        const canonicalParts = String(document2.path || "").split("/").filter(Boolean);
+        const offset = normalizedScopePrefix && String(document2.path || "").startsWith(normalizedScopePrefix + "/") ? normalizedScopePrefix.split("/").length : 0;
         for (let index = 0; index < parts.length - 1; index += 1) {
           const key = canonicalParts.slice(0, offset + index + 1).join("/");
           expanded[key] = true;
@@ -5472,10 +10833,10 @@
       element.addEventListener("drop", handleRootDrop);
     });
     container.appendChild(rootRow);
-    if (!pages.length && !visibleFolders.length) {
+    if (!visiblePages.length && !visibleFolders.length && !visibleDocuments.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = pageSearchQuery ? "No indexed pages match the current search." : "No notes yet. Use + to create the first note.";
+      empty.textContent = pageSearchQuery ? "No indexed notes or files match the current search." : "No notes or files yet. Use + to create the first note.";
       container.appendChild(empty);
       return;
     }
@@ -5514,7 +10875,7 @@
       }
       onMoveFolder(payload.path, "");
     };
-    container.appendChild(renderPageTreeNode(buildPageTree(pages, visibleFolders, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
+    container.appendChild(renderPageTreeNode(buildPageTree(visiblePages, visibleFolders, visibleDocuments, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
   }
   function filterTasks(tasks, filters, currentPagePath) {
     if (!tasks || !tasks.length) {
@@ -5582,8 +10943,8 @@
       title.className = "page-task-title";
       title.innerHTML = renderInline(task.text || task.ref, { currentPagePath: task.page || currentPagePath || "" });
       button.appendChild(title);
-      const meta = document.createElement("div");
-      meta.className = "page-task-meta";
+      const meta2 = document.createElement("div");
+      meta2.className = "page-task-meta";
       [
         task.due ? "due " + formatDateValue(task.due) : "no due",
         task.remind ? "remind " + formatReminderLabel(task.remind) : "",
@@ -5595,9 +10956,9 @@
           token.classList.add("warn");
         }
         token.textContent = part;
-        meta.appendChild(token);
+        meta2.appendChild(token);
       });
-      button.appendChild(meta);
+      button.appendChild(meta2);
       item.appendChild(button);
       container.appendChild(item);
     });
@@ -5711,10 +11072,10 @@
       const label = document.createElement("span");
       label.textContent = "#" + entry.tag;
       chip.appendChild(label);
-      const count = document.createElement("span");
-      count.className = "tag-chip-count";
-      count.textContent = String(entry.count);
-      chip.appendChild(count);
+      const count2 = document.createElement("span");
+      count2.className = "tag-chip-count";
+      count2.textContent = String(entry.count);
+      chip.appendChild(count2);
       container.appendChild(chip);
     });
   }
@@ -5799,10 +11160,10 @@
   function normalizeScopePrefix3(scopePrefix) {
     return normalizePageDraftPath(scopePrefix || "");
   }
-  function folderAncestorsForPages(pages) {
+  function folderAncestorsForPaths(paths) {
     const keep = /* @__PURE__ */ new Set();
-    (Array.isArray(pages) ? pages : []).forEach(function(page) {
-      const normalizedPath = normalizePageDraftPath(page.path || "");
+    (Array.isArray(paths) ? paths : []).forEach(function(path) {
+      const normalizedPath = normalizePageDraftPath(path || "");
       if (!normalizedPath) {
         return;
       }
@@ -5816,19 +11177,67 @@
   function pageTreeDisplayStateForScope(state) {
     const scopePrefix = normalizeScopePrefix3(state.scopePrefix || "");
     const selectedPage = state.selectedPage;
-    const pages = filterPagesByScope(state.pages, scopePrefix).map(function(page) {
+    const scopedPages = filterPagesByScope(state.pages, scopePrefix).map(function(page) {
       return {
         ...page,
         path: page.path
       };
     });
+    const scopedDocuments = filterDocumentsByScope(state.documents, scopePrefix);
+    let pages = scopedPages.filter(function(page) {
+      const isTemplate = isTemplatePagePath(page.path || "");
+      if (isTemplate) {
+        return state.showTemplates !== false;
+      }
+      return state.showPages !== false;
+    });
+    let documents = state.showDocuments === false ? [] : scopedDocuments;
     let folders = filterFoldersByScope(state.folders, scopePrefix);
     if (state.pruneFoldersToVisiblePages) {
-      const keptFolders = folderAncestorsForPages(pages);
+      const keptFolders = folderAncestorsForPaths(pages.map(function(page) {
+        return page.path;
+      }));
       folders = folders.filter(function(folder) {
         return keptFolders.has(normalizePageDraftPath(folder || ""));
       });
+      documents = documents.filter(function(document2) {
+        const normalizedPath = normalizePageDraftPath(document2.path || "");
+        const parts = normalizedPath.split("/").filter(Boolean);
+        if (parts.length <= 1) {
+          return false;
+        }
+        return keptFolders.has(parts.slice(0, -1).join("/"));
+      });
     }
+    const hiddenPages = scopedPages.filter(function(page) {
+      const isTemplate = isTemplatePagePath(page.path || "");
+      if (isTemplate) {
+        return state.showTemplates === false;
+      }
+      return state.showPages === false;
+    });
+    const hiddenDocuments = state.showDocuments === false ? scopedDocuments : [];
+    const visibleFolderKeys = folderAncestorsForPaths(
+      pages.map(function(page) {
+        return page.path;
+      }).concat(documents.map(function(document2) {
+        return document2.path;
+      }))
+    );
+    const hiddenFolderKeys = folderAncestorsForPaths(
+      hiddenPages.map(function(page) {
+        return page.path;
+      }).concat(hiddenDocuments.map(function(document2) {
+        return document2.path;
+      }))
+    );
+    folders = folders.filter(function(folder) {
+      const normalizedFolder = normalizePageDraftPath(folder || "");
+      if (!normalizedFolder) {
+        return false;
+      }
+      return !hiddenFolderKeys.has(normalizedFolder) || visibleFolderKeys.has(normalizedFolder);
+    });
     const expandedPageFolders = {};
     Object.keys(state.expandedPageFolders).forEach(function(key) {
       if (!state.expandedPageFolders[key]) {
@@ -5840,6 +11249,7 @@
       selectedPage,
       pages,
       folders,
+      documents,
       expandedPageFolders
     };
   }
@@ -5852,6 +11262,7 @@
       els.pageList,
       displayState.pages,
       displayState.folders,
+      displayState.documents,
       displayState.selectedPage,
       displayState.expandedPageFolders,
       els.pageSearch.value.trim(),
@@ -5864,6 +11275,9 @@
       },
       function(pagePath) {
         actions.navigateToPage(pagePath, false);
+      },
+      function(document2) {
+        actions.openDocument(document2);
       },
       function(folderKey) {
         actions.requestCreatePage(folderKey).catch(function(error) {
@@ -5989,7 +11403,7 @@
           actions.setNoteStatus("Delete page failed: " + actions.errorMessage(error));
         });
       }, true);
-    } else {
+    } else if (target.kind === "folder") {
       appendTreeContextMenuItem(treeContextMenu, "New note", "M8 2.5v11M2.5 8h11", function() {
         actions.requestCreatePage(target.path).catch(function(error) {
           actions.setNoteStatus("Create page failed: " + actions.errorMessage(error));
@@ -6011,6 +11425,24 @@
           actions.setNoteStatus("Delete folder failed: " + actions.errorMessage(error));
         });
       }, true);
+    } else {
+      appendTreeContextMenuItem(treeContextMenu, "Open file", "M3 2.5h5.7L13 6.8V13a1 1 0 0 1-1 1H3.9a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Zm5 .9v3.2h3.2M4.8 9.3h6.4M4.8 11.4h6.4", function() {
+        actions.openDocument(target.document);
+      });
+      appendTreeContextMenuItem(treeContextMenu, "Insert link into current note", "M3.8 8a2.7 2.7 0 0 1 2.7-2.7H9v1.3H6.5A1.4 1.4 0 1 0 6.5 9.4H9v1.3H6.5A2.7 2.7 0 0 1 3.8 8Zm3.6.7h1.2V7.3H7.4v1.4Zm2.7-3.4h2.4a2.7 2.7 0 1 1 0 5.4h-2.4V9.4h2.4a1.4 1.4 0 0 0 0-2.8h-2.4V5.3Z", function() {
+        actions.insertDocumentLink(target.document);
+      });
+      appendTreeContextMenuDivider(treeContextMenu);
+      appendTreeContextMenuItem(treeContextMenu, "Rename\u2026", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function() {
+        actions.requestRenameDocument(target.document).catch(function(error) {
+          actions.setNoteStatus("Rename file failed: " + actions.errorMessage(error));
+        });
+      });
+      appendTreeContextMenuItem(treeContextMenu, "Delete", "M5.2 3h5.6l.4 1.2H14v1.2H2V4.2h2.8L5.2 3Zm-1 3.2h7.6l-.5 6.1a1 1 0 0 1-1 .9H5.7a1 1 0 0 1-1-.9L4.2 6.2Z", function() {
+        actions.deleteDocument(target.document).catch(function(error) {
+          actions.setNoteStatus("Delete file failed: " + actions.errorMessage(error));
+        });
+      }, true);
     }
     treeContextMenu.classList.remove("hidden");
     window.requestAnimationFrame(function() {
@@ -6022,6 +11454,7 @@
       "use strict";
       init_commands();
       init_dom();
+      init_noteTemplates();
       init_pageViews();
     }
   });
@@ -6286,13 +11719,13 @@
   function isTagPropertyKey(key) {
     return String(key || "").trim().toLowerCase() === "tags";
   }
-  function isNotificationClickKey3(key) {
+  function isNotificationClickKey4(key) {
     const normalized = String(key || "").trim().toLowerCase();
     return normalized === "click" || normalized.endsWith("_click") || normalized.endsWith("-click");
   }
   function isNotificationPropertyKey(key) {
     const normalized = String(key || "").trim().toLowerCase();
-    if (!normalized || isNotificationClickKey3(normalized)) {
+    if (!normalized || isNotificationClickKey4(normalized)) {
       return false;
     }
     return normalized === "notification" || normalized === "notify" || normalized === "remind" || normalized === "reminder" || /(^|[_-])(notify|notification|remind|reminder)([_-]|$)/i.test(normalized);
@@ -6302,7 +11735,7 @@
     if (!normalized) {
       return "notification_click";
     }
-    if (isNotificationClickKey3(normalized)) {
+    if (isNotificationClickKey4(normalized)) {
       return normalized;
     }
     return normalized + "_click";
@@ -6493,7 +11926,7 @@
     if (key === "tags") {
       return "#";
     }
-    if (isNotificationClickKey3(key)) {
+    if (isNotificationClickKey4(key)) {
       return propertyTypeIcon(kind);
     }
     if (isNotificationPropertyKey(key)) {
@@ -7315,9 +12748,9 @@
       title.textContent = vault.name || vault.key || "Vault " + String(vault.id);
       button.appendChild(title);
       if (state.currentVault && vault.id === state.currentVault.id) {
-        const meta = document.createElement("span");
-        meta.textContent = "Current";
-        button.appendChild(meta);
+        const meta2 = document.createElement("span");
+        meta2.textContent = "Current";
+        button.appendChild(meta2);
       }
       els.vaultSwitcherList.appendChild(button);
     });
@@ -7515,9 +12948,9 @@
       const strong = document.createElement("strong");
       strong.textContent = template.name || "Untitled template";
       title.appendChild(strong);
-      const meta = document.createElement("span");
-      meta.textContent = template.folder ? "Creates notes under " + template.folder + "/" : "Creates notes wherever you type them.";
-      title.appendChild(meta);
+      const meta2 = document.createElement("span");
+      meta2.textContent = template.folder ? "Creates notes under " + template.folder + "/" : "Creates notes wherever you type them.";
+      title.appendChild(meta2);
       head.appendChild(title);
       const removeTemplate = document.createElement("button");
       removeTemplate.type = "button";
@@ -7669,6 +13102,7 @@
       els.settingsAIClearKey
     ];
     const userFields = [
+      els.settingsBrowserNotifications,
       els.settingsUserNtfyTopicUrl,
       els.settingsUserNtfyToken,
       els.settingsUserTopLevelVaults,
@@ -7753,6 +13187,11 @@
       els.settingsRuntimeRestartReasons.appendChild(item);
     });
     els.settingsRuntimeHealth.textContent = !state.serverMeta ? "(unknown)" : vaultHealth && vaultHealth.healthy ? "Healthy" : String(vaultHealth && vaultHealth.message ? vaultHealth.message : "Unavailable");
+    const browserNotificationsEnabled = Boolean(state.settings.preferences.notifications.browserEnabled);
+    const browserNotificationsPermission = browserNotificationPermission();
+    els.settingsBrowserNotifications.checked = browserNotificationsEnabled && browserNotificationsPermission !== "unsupported";
+    els.settingsBrowserNotifications.disabled = !browserNotificationsSupported();
+    els.settingsBrowserNotificationsStatus.textContent = browserNotificationStatus(browserNotificationsEnabled, browserNotificationsPermission);
     els.settingsUserNtfyTopicUrl.value = state.settings.userNotifications.ntfyTopicUrl || "";
     els.settingsUserNtfyToken.value = state.settings.userNotifications.ntfyToken || "";
     els.settingsAIEnabled.checked = Boolean(state.aiSettings.enabled);
@@ -7885,6 +13324,7 @@
     "frontend/settingsUi.ts"() {
       "use strict";
       init_dom();
+      init_browserNotifications();
       init_hotkeys();
     }
   });
@@ -9139,14 +14579,14 @@
       return null;
     }
     const id = String(source.id || "").trim();
-    const name = String(source.name || "").trim();
-    if (!id || !name) {
+    const name2 = String(source.name || "").trim();
+    if (!id || !name2) {
       return null;
     }
     return {
       version: Number(source.version) || 1,
       id,
-      name,
+      name: name2,
       source: source.source === "custom" ? "custom" : "builtin",
       kind: source.kind === "light" ? "light" : "dark",
       description: String(source.description || "").trim(),
@@ -9249,9 +14689,9 @@
     root.style.colorScheme = theme.kind;
     root.setAttribute("data-theme-id", theme.id);
     root.setAttribute("data-theme-kind", theme.kind);
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta && typeof meta === "object" && "content" in meta) {
-      meta.content = theme.tokens.themeColor || theme.tokens.bg || "#11131d";
+    const meta2 = document.querySelector('meta[name="theme-color"]');
+    if (meta2 && typeof meta2 === "object" && "content" in meta2) {
+      meta2.content = theme.tokens.themeColor || theme.tokens.bg || "#11131d";
     }
     try {
       window.localStorage.setItem(appliedThemeStorageKey, JSON.stringify(theme));
@@ -10742,8 +16182,10 @@
       init_backupValidation();
       init_backupScript();
       init_clientPreferences();
+      init_browserNotifications();
       init_details();
       init_pathAssist();
+      init_documentPathAssist();
       init_datetime();
       init_dom();
       init_editorState();
@@ -10776,6 +16218,8 @@
       init_systemHelp();
       init_themes();
       (function() {
+        const browserNotificationPollIntervalMs = 30 * 1e3;
+        const browserNotificationSessionSkewMs = 60 * 1e3;
         let pwaRegistrationPromise = null;
         function registerPWA() {
           if (pwaRegistrationPromise) {
@@ -10783,13 +16227,14 @@
           }
           const localHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname === "[::1]";
           if (!("serviceWorker" in navigator) || window.location.protocol !== "https:" && !localHost) {
-            pwaRegistrationPromise = Promise.resolve();
+            pwaRegistrationPromise = Promise.resolve(null);
             return pwaRegistrationPromise;
           }
-          pwaRegistrationPromise = navigator.serviceWorker.register("/sw.js").then(function() {
-            return;
+          pwaRegistrationPromise = navigator.serviceWorker.register("/sw.js").then(function(registration) {
+            return registration;
           }).catch(function(error) {
             console.warn("PWA registration failed", error);
+            return null;
           });
           return pwaRegistrationPromise;
         }
@@ -10807,6 +16252,7 @@
           commandTimer: null,
           quickSwitcherTimer: null,
           documentTimer: null,
+          browserNotificationTimer: null,
           searchSelectionIndex: -1,
           commandSelectionIndex: -1,
           quickSwitcherSelectionIndex: -1,
@@ -10816,6 +16262,12 @@
           currentMarkdown: "",
           originalMarkdown: "",
           pageTagFilter: "",
+          pageTagsExpanded: false,
+          fileTreeFilters: {
+            pages: true,
+            documents: false,
+            templates: false
+          },
           editingPropertyKey: "",
           propertyTypeMenuKey: "",
           propertyDraft: null,
@@ -10884,7 +16336,7 @@
           renamingPageTitle: false,
           taskFilters: {
             currentPage: false,
-            notDone: false,
+            notDone: true,
             hasDue: false,
             hasReminder: false
           },
@@ -10916,7 +16368,9 @@
           helpMarkdown: "",
           helpLoaded: false,
           helpLoading: false,
-          helpError: ""
+          helpError: "",
+          browserNotificationSyncInFlight: false,
+          browserNotificationSessionStartedAt: Date.now()
         };
         const els = {
           appShell: optionalQuery(".shell"),
@@ -10945,6 +16399,11 @@
           pageSearch: requiredElement("page-search"),
           pageSearchShell: requiredElement("page-search-shell"),
           togglePageSearch: requiredElement("toggle-page-search"),
+          fileTreeFilterPages: requiredElement("file-tree-filter-pages"),
+          fileTreeFilterDocuments: requiredElement("file-tree-filter-documents"),
+          fileTreeFilterTemplates: requiredElement("file-tree-filter-templates"),
+          pageTagsPanel: requiredElement("rail-tags-panel"),
+          togglePageTags: requiredElement("toggle-page-tags"),
           pageList: requiredElement("page-list"),
           pageTaskList: requiredElement("page-task-list"),
           taskFilters: requiredElement("task-filters"),
@@ -11105,6 +16564,8 @@
           settingsRuntimeRestartRequired: requiredElement("settings-runtime-restart-required"),
           settingsRuntimeRestartReasons: requiredElement("settings-runtime-restart-reasons"),
           settingsRuntimeHealth: requiredElement("settings-runtime-health"),
+          settingsBrowserNotifications: requiredElement("settings-browser-notifications"),
+          settingsBrowserNotificationsStatus: requiredElement("settings-browser-notifications-status"),
           settingsUserNtfyTopicUrl: requiredElement("settings-user-ntfy-topic-url"),
           settingsUserNtfyToken: requiredElement("settings-user-ntfy-token"),
           settingsAIEnabled: requiredElement("settings-ai-enabled"),
@@ -11265,16 +16726,16 @@
             metaStrip.appendChild(pill);
           });
         }
-        function renderVaultHealth(meta) {
-          if (!meta || !meta.vaultHealth || meta.vaultHealth.healthy) {
+        function renderVaultHealth(meta2) {
+          if (!meta2 || !meta2.vaultHealth || meta2.vaultHealth.healthy) {
             els.vaultHealthBanner.classList.add("hidden");
             els.vaultHealthTitle.textContent = "Vault Warning";
             els.vaultHealthMessage.textContent = "";
             return;
           }
-          const reason = String(meta.vaultHealth.reason || "").toLowerCase();
+          const reason = String(meta2.vaultHealth.reason || "").toLowerCase();
           els.vaultHealthTitle.textContent = reason === "missing" ? "Vault Missing" : "Vault Unavailable";
-          els.vaultHealthMessage.textContent = (meta.vaultHealth.message || "The configured vault is currently unavailable.") + " The app may only be showing previously indexed data until the vault becomes readable again.";
+          els.vaultHealthMessage.textContent = (meta2.vaultHealth.message || "The configured vault is currently unavailable.") + " The app may only be showing previously indexed data until the vault becomes readable again.";
           els.vaultHealthBanner.classList.remove("hidden");
         }
         function nextDailyNotePath() {
@@ -11352,6 +16813,112 @@
           if (pagePath && state.selectedPage === pagePath) {
             refreshCurrentDetail(true);
           }
+        }
+        function browserNotificationsEnabled() {
+          return Boolean(
+            state.authenticated && state.settings.preferences.notifications.browserEnabled && browserNotificationPermission() === "granted"
+          );
+        }
+        function clearBrowserNotificationTimer() {
+          window.clearTimeout(state.browserNotificationTimer ?? void 0);
+          state.browserNotificationTimer = null;
+        }
+        async function showBrowserNotification(title, body, key, targetURL) {
+          const notificationOptions = {
+            body,
+            tag: key,
+            icon: "/assets/pwa-icon-192.png",
+            badge: "/assets/favicon-32.png",
+            data: {
+              url: targetURL
+            }
+          };
+          const registration = await registerPWA();
+          if (registration && typeof registration.showNotification === "function") {
+            await registration.showNotification(title, notificationOptions);
+            return;
+          }
+          if (typeof Notification === "undefined") {
+            return;
+          }
+          const notification = new Notification(title, notificationOptions);
+          notification.onclick = function() {
+            try {
+              window.focus();
+            } catch (_error) {
+            }
+            if (targetURL) {
+              window.location.href = targetURL;
+            }
+            notification.close();
+          };
+        }
+        async function syncBrowserNotifications() {
+          if (!browserNotificationsEnabled() || state.browserNotificationSyncInFlight) {
+            return;
+          }
+          state.browserNotificationSyncInFlight = true;
+          try {
+            const [taskPayload, pagePayload] = await Promise.all([
+              fetchJSONUnscoped("/api/tasks", void 0, true),
+              fetchJSONUnscoped("/api/pages", void 0, true)
+            ]);
+            const now = Date.now();
+            const recentWindowMs = Math.max(
+              15 * 60 * 1e3,
+              now - state.browserNotificationSessionStartedAt + browserNotificationSessionSkewMs
+            );
+            const sessionCutoff = state.browserNotificationSessionStartedAt - browserNotificationSessionSkewMs;
+            const candidates = collectDueBrowserNotifications(
+              Array.isArray(taskPayload.tasks) ? taskPayload.tasks : [],
+              Array.isArray(pagePayload.pages) ? pagePayload.pages : [],
+              now,
+              recentWindowMs
+            ).filter(function(candidate) {
+              return candidate.at >= sessionCutoff;
+            });
+            let deliveredState = pruneStoredBrowserNotificationState(loadStoredBrowserNotificationState(), now);
+            let deliveredChanged = false;
+            for (const candidate of candidates) {
+              if (candidateAlreadyDelivered(deliveredState, candidate)) {
+                continue;
+              }
+              await showBrowserNotification(
+                candidate.title,
+                candidate.body,
+                candidate.key,
+                notificationTargetURL(candidate, window.location.href)
+              );
+              deliveredState = markDeliveredBrowserNotification(deliveredState, candidate, new Date(now).toISOString());
+              deliveredChanged = true;
+            }
+            if (deliveredChanged) {
+              saveStoredBrowserNotificationState(deliveredState);
+            } else {
+              const prunedState = pruneStoredBrowserNotificationState(deliveredState, now);
+              if (JSON.stringify(prunedState.sent) !== JSON.stringify(deliveredState.sent)) {
+                saveStoredBrowserNotificationState(prunedState);
+              }
+            }
+          } catch (_error) {
+          } finally {
+            state.browserNotificationSyncInFlight = false;
+          }
+        }
+        function restartBrowserNotificationLoop(resetSessionStart) {
+          clearBrowserNotificationTimer();
+          if (resetSessionStart) {
+            state.browserNotificationSessionStartedAt = Date.now();
+          }
+          if (!browserNotificationsEnabled()) {
+            return;
+          }
+          void syncBrowserNotifications();
+          state.browserNotificationTimer = window.setTimeout(function tick() {
+            void syncBrowserNotifications().finally(function() {
+              restartBrowserNotificationLoop(false);
+            });
+          }, browserNotificationPollIntervalMs);
         }
         function applyLoadedPageDetailState(pagePath, loaded, nextMarkdown) {
           const page = loaded.page;
@@ -11615,6 +17182,7 @@
           state.rootVault = state.authenticated && session.vault ? session.vault : null;
           renderSessionState2();
           renderAuthGate2();
+          restartBrowserNotificationLoop(true);
         }
         function setAuthGateOpen2(open, status) {
           setAuthGateOpen(state, els, open, status);
@@ -11752,6 +17320,7 @@
           ]);
           applyURLState2();
           connectEvents();
+          restartBrowserNotificationLoop(true);
         }
         async function loadHelpPage(force) {
           if (state.helpLoading) {
@@ -12216,8 +17785,8 @@
           const suffixes = [".", "..", "...", ".."];
           return "> Generating query" + suffixes[frame % suffixes.length];
         }
-        function replaceTransientEditorLine(originalValue, lineStart, lineEnd, replacement, scrollTop) {
-          const nextValue = originalValue.slice(0, lineStart) + replacement + originalValue.slice(lineEnd);
+        function replaceTransientEditorLine(originalValue, lineStart, lineEnd2, replacement, scrollTop) {
+          const nextValue = originalValue.slice(0, lineStart) + replacement + originalValue.slice(lineEnd2);
           setMarkdownEditorValue(state, els, nextValue);
           state.currentMarkdown = nextValue;
           els.rawView.textContent = nextValue;
@@ -12412,15 +17981,15 @@
             return;
           }
           const slash = currentPath.lastIndexOf("/");
-          const parentFolder2 = slash >= 0 ? currentPath.slice(0, slash) : "";
-          const targetPath = normalizedDraftPath.indexOf("/") >= 0 ? normalizedDraftPath : parentFolder2 ? parentFolder2 + "/" + normalizedDraftPath : normalizedDraftPath;
+          const parentFolder3 = slash >= 0 ? currentPath.slice(0, slash) : "";
+          const targetPath = normalizedDraftPath.indexOf("/") >= 0 ? normalizedDraftPath : parentFolder3 ? parentFolder3 + "/" + normalizedDraftPath : normalizedDraftPath;
           if (targetPath === currentPath) {
             setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
             return;
           }
           const targetLeaf = pageTitleFromPath(targetPath);
           const targetParent = targetPath.lastIndexOf("/") >= 0 ? targetPath.slice(0, targetPath.lastIndexOf("/")) : "";
-          const movedFolders = targetParent !== parentFolder2;
+          const movedFolders = targetParent !== parentFolder3;
           state.renamingPageTitle = true;
           try {
             if (hasUnsavedPageChanges()) {
@@ -12593,6 +18162,7 @@
           }, 700);
         }
         function renderPageTasks2() {
+          syncTaskFilterButtons();
           renderPageTasks(els.pageTaskList, Array.isArray(state.tasks) ? state.tasks : [], function(task) {
             if (!task || !task.page) {
               return;
@@ -12603,6 +18173,15 @@
               setNoteStatus("Task toggle failed: " + errorMessage(error));
             });
           }, state.taskFilters, state.appScreen === "notes" && state.currentPage ? state.currentPage.page || state.currentPage.path || "" : "");
+        }
+        function syncTaskFilterButtons() {
+          els.taskFilters.querySelectorAll(".task-filter").forEach(function(btn) {
+            const key = btn.getAttribute("data-task-filter") || "";
+            btn.classList.toggle(
+              "active",
+              key === "current-page" && state.taskFilters.currentPage || key === "not-done" && state.taskFilters.notDone || key === "has-due" && state.taskFilters.hasDue || key === "has-reminder" && state.taskFilters.hasReminder
+            );
+          });
         }
         function renderPageContext2() {
           if (state.appScreen === "help") {
@@ -12632,7 +18211,27 @@
         function visiblePagesForRail() {
           return filterPagesByTag(filterPagesByScope(state.pages, currentScopePrefix()), state.pageTagFilter);
         }
+        function visibleDocumentsForRail() {
+          return filterDocumentsByScope(state.documents, currentScopePrefix());
+        }
+        function renderFileTreeFilterButtons() {
+          els.fileTreeFilterPages.classList.toggle("active", state.fileTreeFilters.pages);
+          els.fileTreeFilterDocuments.classList.toggle("active", state.fileTreeFilters.documents);
+          els.fileTreeFilterTemplates.classList.toggle("active", state.fileTreeFilters.templates);
+          els.fileTreeFilterPages.setAttribute("aria-pressed", state.fileTreeFilters.pages ? "true" : "false");
+          els.fileTreeFilterDocuments.setAttribute("aria-pressed", state.fileTreeFilters.documents ? "true" : "false");
+          els.fileTreeFilterTemplates.setAttribute("aria-pressed", state.fileTreeFilters.templates ? "true" : "false");
+        }
+        function renderPageTagsPanel() {
+          const expanded = Boolean(state.pageTagsExpanded);
+          els.pageTagsPanel.classList.toggle("collapsed", !expanded);
+          els.pageTags.classList.toggle("hidden", !expanded);
+          els.togglePageTags.setAttribute("aria-expanded", expanded ? "true" : "false");
+          els.togglePageTags.textContent = expanded ? "Hide" : "Show";
+          els.togglePageTags.title = expanded ? "Collapse tag filters" : "Expand tag filters";
+        }
         function renderPageTags2() {
+          renderPageTagsPanel();
           renderPageTags(els.pageTags, filterPagesByScope(state.pages, currentScopePrefix()), state.pageTagFilter, function(tag) {
             const nextTag = String(tag || "").trim();
             state.pageTagFilter = state.pageTagFilter.toLowerCase() === nextTag.toLowerCase() ? "" : nextTag;
@@ -13272,24 +18871,24 @@
         }
         async function loadMeta() {
           try {
-            const meta = await fetchJSON("/api/meta");
-            state.serverMeta = meta;
+            const meta2 = await fetchJSON("/api/meta");
+            state.serverMeta = meta2;
             refreshBackupManifestValidation();
-            const runtimeVaultPath = meta.runtimeVault && meta.runtimeVault.vaultPath ? meta.runtimeVault.vaultPath : "(none)";
+            const runtimeVaultPath = meta2.runtimeVault && meta2.runtimeVault.vaultPath ? meta2.runtimeVault.vaultPath : "(none)";
             const pills = [
-              "Listening " + meta.listenAddr,
+              "Listening " + meta2.listenAddr,
               "Runtime vault " + runtimeVaultPath,
-              "DB " + meta.database,
-              "Time " + formatDateTimeValue(meta.serverTime)
+              "DB " + meta2.database,
+              "Time " + formatDateTimeValue(meta2.serverTime)
             ];
-            if (meta.currentVault && meta.currentVault.vaultPath && meta.currentVault.vaultPath !== runtimeVaultPath) {
-              pills.splice(2, 0, "Current vault " + meta.currentVault.vaultPath);
+            if (meta2.currentVault && meta2.currentVault.vaultPath && meta2.currentVault.vaultPath !== runtimeVaultPath) {
+              pills.splice(2, 0, "Current vault " + meta2.currentVault.vaultPath);
             }
-            if (meta.restartRequired) {
+            if (meta2.restartRequired) {
               pills.splice(2, 0, "Restart required");
             }
             setMetaPills(pills);
-            renderVaultHealth(meta);
+            renderVaultHealth(meta2);
             if (els.settingsModalShell && !els.settingsModalShell.classList.contains("hidden")) {
               renderSettingsForm2();
             }
@@ -13338,15 +18937,33 @@
           }
         }
         function renderPages() {
+          renderFileTreeFilterButtons();
           renderPagesSection({
             selectedPage: state.appScreen === "notes" ? state.selectedPage : "",
             pages: visiblePagesForRail(),
             folders: state.folders,
+            documents: visibleDocumentsForRail(),
             expandedPageFolders: state.expandedPageFolders,
             scopePrefix: currentScopePrefix(),
-            pruneFoldersToVisiblePages: Boolean(state.pageTagFilter)
+            pruneFoldersToVisiblePages: Boolean(state.pageTagFilter),
+            showPages: state.fileTreeFilters.pages,
+            showDocuments: state.fileTreeFilters.documents,
+            showTemplates: state.fileTreeFilters.templates
           }, els, {
             navigateToPage,
+            openDocument: function(document2) {
+              window.open(document2.downloadURL, "_blank", "noopener");
+            },
+            insertDocumentLink: function(document2) {
+              if (state.selectedPage && state.currentPage) {
+                insertTextAtEditorSelection(documentLinkForSelection(document2, state.selectedPage));
+                setNoteStatus("Inserted document link for " + document2.name + ".");
+                return;
+              }
+              setNoteStatus("Open a note to insert a document link.");
+            },
+            requestRenameDocument: requestRenameDocumentInTree,
+            deleteDocument,
             requestCreatePage: requestCreatePageInFolder,
             requestCreateSubfolder: requestCreateSubfolderInFolder,
             requestRenameFolder: requestRenameFolderInTree,
@@ -13385,6 +19002,19 @@
           treeContextMenuState.top = top;
           openTreeContextMenu(els.treeContextMenu, target, left, top, {
             navigateToPage,
+            openDocument: function(document2) {
+              window.open(document2.downloadURL, "_blank", "noopener");
+            },
+            insertDocumentLink: function(document2) {
+              if (state.selectedPage && state.currentPage) {
+                insertTextAtEditorSelection(documentLinkForSelection(document2, state.selectedPage));
+                setNoteStatus("Inserted document link for " + document2.name + ".");
+                return;
+              }
+              setNoteStatus("Open a note to insert a document link.");
+            },
+            requestRenameDocument: requestRenameDocumentInTree,
+            deleteDocument,
             requestCreatePage: requestCreatePageInFolder,
             requestCreateSubfolder: requestCreateSubfolderInFolder,
             requestRenameFolder: requestRenameFolderInTree,
@@ -13690,10 +19320,10 @@
                 title.textContent = suggestion.label || suggestion.value;
                 head.appendChild(title);
                 if (suggestion.meta) {
-                  const meta = document.createElement("span");
-                  meta.className = "search-result-hint";
-                  meta.textContent = suggestion.meta;
-                  head.appendChild(meta);
+                  const meta2 = document.createElement("span");
+                  meta2.className = "search-result-hint";
+                  meta2.textContent = suggestion.meta;
+                  head.appendChild(meta2);
                 }
                 button.appendChild(head);
                 suggestionResults.appendChild(button);
@@ -14327,7 +19957,7 @@
                 return;
               }
               if (state.settingsSection === "notifications") {
-                focusWithoutScroll(els.settingsUserNtfyTopicUrl);
+                focusWithoutScroll(els.settingsBrowserNotifications);
                 return;
               }
               if (state.settingsSection === "templates") {
@@ -14421,6 +20051,9 @@
               rootHomePage: state.settings.preferences.vaults.rootHomePage,
               scopeHomePages: state.settings.preferences.vaults.scopeHomePages
             },
+            notifications: {
+              browserEnabled: Boolean(els.settingsBrowserNotifications.checked)
+            },
             hotkeys: {
               quickSwitcher: String(els.settingsQuickSwitcher.value || "").trim(),
               globalSearch: String(els.settingsGlobalSearch.value || "").trim(),
@@ -14453,6 +20086,7 @@
             renderPageContext2();
             renderPageProperties2();
           }
+          restartBrowserNotificationLoop(true);
         }
         async function persistSettings() {
           if (!state.settingsLoaded) {
@@ -14460,6 +20094,19 @@
             return;
           }
           const previousTopLevelFoldersAsVaults = state.topLevelFoldersAsVaults;
+          let browserNotificationMessage = "";
+          if (els.settingsBrowserNotifications.checked) {
+            const permission = browserNotificationPermission();
+            if (permission !== "granted") {
+              const requestedPermission = await requestBrowserNotificationPermission();
+              if (requestedPermission === "granted") {
+                browserNotificationMessage = "Browser notifications enabled for this browser.";
+              } else {
+                els.settingsBrowserNotifications.checked = false;
+                browserNotificationMessage = requestedPermission === "denied" ? "Browser notifications stayed off because this browser blocked them for this site." : "Browser notifications stayed off because permission was not granted.";
+              }
+            }
+          }
           const nextSettings = prepareSettingsSaveWithExtra(
             collectClientPreferencesForm,
             collectUserSettingsForm,
@@ -14499,7 +20146,8 @@
             }
             closeSettingsModal();
             restoreNoteFocus();
-            setNoteStatus(settingsSnapshot.restartRequired ? "Settings saved. Restart required to apply runtime changes." + (state.settingsRestartRequiredReasons.length ? " " + state.settingsRestartRequiredReasons.join(" ") : "") : "Settings saved.");
+            const savedMessage = settingsSnapshot.restartRequired ? "Settings saved. Restart required to apply runtime changes." + (state.settingsRestartRequiredReasons.length ? " " + state.settingsRestartRequiredReasons.join(" ") : "") : "Settings saved.";
+            setNoteStatus(savedMessage + (browserNotificationMessage ? " " + browserNotificationMessage : ""));
           } catch (error) {
             els.settingsStatus.textContent = "Settings save failed: " + errorMessage(error);
           }
@@ -14595,8 +20243,8 @@
             document.body.removeChild(textarea);
           }
         }
-        function downloadTextFile(filename, content, contentType) {
-          const blob = new Blob([content], { type: contentType });
+        function downloadTextFile(filename, content2, contentType) {
+          const blob = new Blob([content2], { type: contentType });
           const url = URL.createObjectURL(blob);
           const link = document.createElement("a");
           link.href = url;
@@ -14667,20 +20315,14 @@
           });
         }
         async function loadDocuments() {
-          const query = String(els.documentsInput ? els.documentsInput.value : "").trim();
           if (els.documentsResults) {
             els.documentsResults.textContent = "Loading\u2026";
           }
           try {
-            const params = new URLSearchParams();
-            if (query) {
-              params.set("q", query);
-            } else {
-              params.set("withUsage", "1");
-            }
-            const payload = await fetchJSON("/api/documents" + (params.size ? "?" + params.toString() : ""));
+            const payload = await fetchJSON("/api/documents?withUsage=1");
             state.documents = Array.isArray(payload.documents) ? payload.documents : [];
             renderDocumentResults2();
+            renderPages();
           } catch (error) {
             if (els.documentsResults) {
               els.documentsResults.textContent = errorMessage(error);
@@ -14693,7 +20335,7 @@
         }
         function scheduleDocumentsRefresh() {
           window.clearTimeout(state.documentTimer ?? void 0);
-          state.documentTimer = window.setTimeout(loadDocuments, 80);
+          state.documentTimer = window.setTimeout(renderDocumentResults2, 50);
         }
         function scheduleGlobalSearch() {
           window.clearTimeout(state.searchTimer ?? void 0);
@@ -14749,6 +20391,11 @@
             return normalizePageDraftPath(folder || "");
           }).filter(Boolean);
         }
+        function currentDocumentPathInventory() {
+          return state.documents.map(function(document2) {
+            return String(document2.path || "").trim().replace(/^\/+|\/+$/g, "");
+          }).filter(Boolean);
+        }
         function scopedPropertyValueSuggestions(key, kind) {
           return collectPropertyValueSuggestions(
             state.pages,
@@ -14785,6 +20432,30 @@
             baseFolder: options.baseFolder,
             scopePrefix: currentScopePrefix(),
             pages: currentPagePathInventory(),
+            folders: currentFolderPathInventory()
+          }).error;
+        }
+        function documentPathFieldState(input, sourcePath) {
+          const assist = buildDocumentPathDialogAssist({
+            input,
+            sourcePath,
+            scopePrefix: currentScopePrefix(),
+            documents: currentDocumentPathInventory(),
+            folders: currentFolderPathInventory()
+          });
+          return {
+            error: assist.error || "",
+            helper: assist.error ? "" : assist.helper,
+            helperTone: assist.helperTone,
+            suggestions: assist.suggestions
+          };
+        }
+        function documentPathValidation(input, sourcePath) {
+          return buildDocumentPathDialogAssist({
+            input,
+            sourcePath,
+            scopePrefix: currentScopePrefix(),
+            documents: currentDocumentPathInventory(),
             folders: currentFolderPathInventory()
           }).error;
         }
@@ -14946,6 +20617,48 @@
           }
           await renameFolder2(folderKey, nextName);
         }
+        async function requestRenameDocumentInTree(document2) {
+          const currentName = String(document2.name || pageTitleFromPath(document2.path || ""));
+          const values = await promptForActionInput({
+            eyebrow: "Files",
+            title: "Rename File",
+            message: 'Rename "' + currentName + '". You can also move it by entering a nested path.',
+            confirmLabel: "Save Name",
+            fields: [{
+              key: "name",
+              label: "File name or path",
+              value: currentName,
+              placeholder: currentName,
+              autocapitalize: "none",
+              spellcheck: false,
+              describe: function(value) {
+                return documentPathFieldState(value, document2.path);
+              }
+            }],
+            validate: function(nextValues) {
+              return documentPathValidation(nextValues.name || "", document2.path);
+            }
+          });
+          if (!values) {
+            return;
+          }
+          const assist = buildDocumentPathDialogAssist({
+            input: values.name || "",
+            sourcePath: document2.path,
+            scopePrefix: currentScopePrefix(),
+            documents: currentDocumentPathInventory(),
+            folders: currentFolderPathInventory()
+          });
+          if (!assist.targetPath || assist.error) {
+            return;
+          }
+          const movedDocument = await moveDocument(document2.path, assist.targetPath);
+          const previousParent = String(document2.path || "").includes("/") ? String(document2.path).slice(0, String(document2.path).lastIndexOf("/")) : "";
+          const nextParent = String(movedDocument.path || "").includes("/") ? String(movedDocument.path).slice(0, String(movedDocument.path).lastIndexOf("/")) : "";
+          setNoteStatus(
+            previousParent !== nextParent ? 'Moved file to "' + movedDocument.path + '".' : 'Renamed file to "' + movedDocument.name + '".'
+          );
+        }
         async function uploadDocument(file) {
           const formData = new FormData();
           formData.append("file", file);
@@ -14962,6 +20675,70 @@
             return item.id !== document2.id;
           }));
           return document2;
+        }
+        async function moveDocument(documentPath, targetPath) {
+          const payload = await fetchJSON("/api/documents/move/" + encodePath(documentPath), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ targetPath })
+          });
+          const rewrittenPages = Array.isArray(payload.rewrittenPages) ? payload.rewrittenPages : [];
+          if (state.selectedPage && state.currentPage && rewrittenPages.indexOf(state.selectedPage) >= 0) {
+            const currentSelectionStart = markdownEditorSelectionStart(state, els);
+            const currentSelectionEnd = markdownEditorSelectionEnd(state, els);
+            const currentScrollTop = markdownEditorScrollTop(state, els);
+            const rewrittenCurrent = rewriteDocumentLinksInMarkdown(state.currentMarkdown, state.selectedPage, documentPath, payload.targetPath || targetPath);
+            const rewrittenOriginal = rewriteDocumentLinksInMarkdown(state.originalMarkdown, state.selectedPage, documentPath, payload.targetPath || targetPath);
+            if (rewrittenCurrent.changed || rewrittenOriginal.changed) {
+              state.currentMarkdown = rewrittenCurrent.markdown;
+              state.originalMarkdown = rewrittenOriginal.markdown;
+              if (state.currentPage) {
+                state.currentPage.rawMarkdown = rewrittenOriginal.markdown;
+              }
+              setMarkdownEditorValue(state, els, state.currentMarkdown);
+              els.rawView.textContent = state.currentMarkdown;
+              refreshLivePageChrome();
+              setMarkdownEditorSelection(
+                state,
+                els,
+                Math.max(0, Math.min(currentSelectionStart, state.currentMarkdown.length)),
+                Math.max(0, Math.min(currentSelectionEnd, state.currentMarkdown.length))
+              );
+              setMarkdownEditorScrollTop(state, els, currentScrollTop);
+            } else if (!hasUnsavedPageChanges()) {
+              await loadPageDetail(state.selectedPage, true, false);
+            }
+          }
+          await Promise.all([loadPages(), loadDocuments()]);
+          renderPages();
+          return payload.document || {
+            id: payload.targetPath || targetPath,
+            path: payload.targetPath || targetPath,
+            name: pageTitleFromPath(payload.targetPath || targetPath),
+            contentType: "",
+            size: 0,
+            createdAt: "",
+            downloadURL: ""
+          };
+        }
+        async function deleteDocument(document2) {
+          const references = Number(document2.referenceCount || 0);
+          const referenceCopy = document2.usageKnown ? references > 0 ? "\n\nReferenced in " + String(references) + " note" + (references === 1 ? "" : "s") + "." : "\n\nThis file is not referenced by any note." : "";
+          const confirmed = await confirmAction({
+            title: "Delete File",
+            message: 'Delete "' + document2.path + '"?' + referenceCopy,
+            confirmLabel: "Delete File",
+            danger: true
+          });
+          if (!confirmed) {
+            return;
+          }
+          await fetchJSON("/api/documents/" + encodePath(document2.path), {
+            method: "DELETE"
+          });
+          await Promise.all([loadPages(), loadDocuments()]);
+          renderPages();
+          setNoteStatus("Deleted file " + document2.path + ".");
         }
         async function uploadDroppedFiles(fileList) {
           if (!fileList || !fileList.length) {
@@ -15101,7 +20878,9 @@
             onOpenDocuments: function() {
               closeCommandPalette();
               setDocumentsOpen2(true);
-              scheduleDocumentsRefresh();
+              loadDocuments().catch(function(error) {
+                setNoteStatus("Documents failed: " + errorMessage(error));
+              });
             },
             onOpenQuickSwitcher: function() {
               closeCommandPalette();
@@ -15405,6 +21184,22 @@
           on(els.togglePageSearch, "click", function() {
             setPageSearchOpen(els.pageSearchShell.classList.contains("hidden"));
           });
+          on(els.fileTreeFilterPages, "click", function() {
+            state.fileTreeFilters.pages = !state.fileTreeFilters.pages;
+            renderPages();
+          });
+          on(els.fileTreeFilterDocuments, "click", function() {
+            state.fileTreeFilters.documents = !state.fileTreeFilters.documents;
+            renderPages();
+          });
+          on(els.fileTreeFilterTemplates, "click", function() {
+            state.fileTreeFilters.templates = !state.fileTreeFilters.templates;
+            renderPages();
+          });
+          on(els.togglePageTags, "click", function() {
+            state.pageTagsExpanded = !state.pageTagsExpanded;
+            renderPageTagsPanel();
+          });
           on(els.openSessionMenu, "click", function() {
             if (!state.authenticated) {
               setAuthGateOpen2(true, "Sign in to continue.");
@@ -15622,7 +21417,9 @@
           on(els.openDocuments, "click", function() {
             setSessionMenuOpen2(false);
             setDocumentsOpen2(true);
-            scheduleDocumentsRefresh();
+            loadDocuments().catch(function(error) {
+              setNoteStatus("Documents failed: " + errorMessage(error));
+            });
           });
           on(els.openSearch, "click", function() {
             setSessionMenuOpen2(false);
@@ -15746,13 +21543,7 @@
             } else if (filter === "has-reminder") {
               state.taskFilters.hasReminder = !state.taskFilters.hasReminder;
             }
-            els.taskFilters.querySelectorAll(".task-filter").forEach(function(btn) {
-              const key = btn.getAttribute("data-task-filter") || "";
-              btn.classList.toggle(
-                "active",
-                key === "current-page" && state.taskFilters.currentPage || key === "not-done" && state.taskFilters.notDone || key === "has-due" && state.taskFilters.hasDue || key === "has-reminder" && state.taskFilters.hasReminder
-              );
-            });
+            syncTaskFilterButtons();
             renderPageTasks2();
           });
           on(els.noteSurface, "dragenter", function(event) {

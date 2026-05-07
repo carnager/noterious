@@ -20,6 +20,17 @@ import {
   saveStoredClientPreferences,
 } from "./clientPreferences";
 import {
+  candidateAlreadyDelivered,
+  browserNotificationPermission,
+  collectDueBrowserNotifications,
+  loadStoredBrowserNotificationState,
+  markDeliveredBrowserNotification,
+  notificationTargetURL,
+  pruneStoredBrowserNotificationState,
+  requestBrowserNotificationPermission,
+  saveStoredBrowserNotificationState,
+} from "./browserNotifications";
+import {
   deleteTask as deleteTaskRequest,
   loadPageDetailData,
   type LoadedPageDetail,
@@ -32,6 +43,7 @@ import {
   buildPathDialogAssist,
   type PathDialogSuggestion,
 } from "./pathAssist";
+import { buildDocumentPathDialogAssist } from "./documentPathAssist";
 import {
   formatDateTimeValue,
   formatTimeValue,
@@ -60,7 +72,7 @@ import {
   setMarkdownEditorSelection,
   setMarkdownEditorValue,
 } from "./editorState";
-import { currentClientInstanceId, fetchJSON, HTTPError, requireOK, scopedEventSourceURL, scopedRequestInit, setActiveScopePrefix } from "./http";
+import { currentClientInstanceId, fetchJSON, fetchJSONUnscoped, HTTPError, requireOK, scopedEventSourceURL, scopedRequestInit, setActiveScopePrefix } from "./http";
 import {
   applyInlineTableEditor as applyInlineTableEditorUI,
   anchorInlineTableEditorToRenderedTable as anchorInlineTableEditorToRenderedTableUI,
@@ -116,6 +128,7 @@ import {
 import {
   documentUploadHint,
   documentUploadTargetLabel,
+  rewriteDocumentLinksInMarkdown,
 } from "./documents";
 import {
   documentLinkForSelection,
@@ -142,6 +155,7 @@ import {
 } from "./palette";
 import {
   ensureExpandedPageAncestors,
+  filterDocumentsByScope,
   filterPagesByScope,
   filterPagesByTag,
   type PageTreeMenuTarget,
@@ -340,6 +354,7 @@ interface AppState {
   commandTimer: number | null;
   quickSwitcherTimer: number | null;
   documentTimer: number | null;
+  browserNotificationTimer: number | null;
   searchSelectionIndex: number;
   commandSelectionIndex: number;
   quickSwitcherSelectionIndex: number;
@@ -349,6 +364,12 @@ interface AppState {
   currentMarkdown: string;
   originalMarkdown: string;
   pageTagFilter: string;
+  pageTagsExpanded: boolean;
+  fileTreeFilters: {
+    pages: boolean;
+    documents: boolean;
+    templates: boolean;
+  };
   editingPropertyKey: string;
   propertyTypeMenuKey: string;
   propertyDraft: PropertyDraft | null;
@@ -422,6 +443,8 @@ interface AppState {
   helpLoaded: boolean;
   helpLoading: boolean;
   helpError: string;
+  browserNotificationSyncInFlight: boolean;
+  browserNotificationSessionStartedAt: number;
 }
 
 interface TemplateFillSession {
@@ -473,9 +496,11 @@ interface ActionDialogSession {
 }
 
 (function () {
-  let pwaRegistrationPromise: Promise<void> | null = null;
+  const browserNotificationPollIntervalMs = 30 * 1000;
+  const browserNotificationSessionSkewMs = 60 * 1000;
+  let pwaRegistrationPromise: Promise<ServiceWorkerRegistration | null> | null = null;
 
-  function registerPWA(): Promise<void> {
+  function registerPWA(): Promise<ServiceWorkerRegistration | null> {
     if (pwaRegistrationPromise) {
       return pwaRegistrationPromise;
     }
@@ -484,13 +509,14 @@ interface ActionDialogSession {
       || window.location.hostname === "127.0.0.1"
       || window.location.hostname === "[::1]";
     if (!("serviceWorker" in navigator) || (window.location.protocol !== "https:" && !localHost)) {
-      pwaRegistrationPromise = Promise.resolve();
+      pwaRegistrationPromise = Promise.resolve(null);
       return pwaRegistrationPromise;
     }
-    pwaRegistrationPromise = navigator.serviceWorker.register("/sw.js").then(function () {
-      return;
+    pwaRegistrationPromise = navigator.serviceWorker.register("/sw.js").then(function (registration) {
+      return registration;
     }).catch(function (error) {
       console.warn("PWA registration failed", error);
+      return null;
     });
     return pwaRegistrationPromise;
   }
@@ -509,6 +535,7 @@ interface ActionDialogSession {
     commandTimer: null,
     quickSwitcherTimer: null,
     documentTimer: null,
+    browserNotificationTimer: null,
     searchSelectionIndex: -1,
     commandSelectionIndex: -1,
     quickSwitcherSelectionIndex: -1,
@@ -518,6 +545,12 @@ interface ActionDialogSession {
     currentMarkdown: "",
     originalMarkdown: "",
     pageTagFilter: "",
+    pageTagsExpanded: false,
+    fileTreeFilters: {
+      pages: true,
+      documents: false,
+      templates: false,
+    },
     editingPropertyKey: "",
     propertyTypeMenuKey: "",
     propertyDraft: null,
@@ -586,7 +619,7 @@ interface ActionDialogSession {
     renamingPageTitle: false,
     taskFilters: {
       currentPage: false,
-      notDone: false,
+      notDone: true,
       hasDue: false,
       hasReminder: false,
     } as TaskPanelFilters,
@@ -619,6 +652,8 @@ interface ActionDialogSession {
     helpLoaded: false,
     helpLoading: false,
     helpError: "",
+    browserNotificationSyncInFlight: false,
+    browserNotificationSessionStartedAt: Date.now(),
   };
 
   const els = {
@@ -648,6 +683,11 @@ interface ActionDialogSession {
     pageSearch: requiredElement<HTMLInputElement>("page-search"),
     pageSearchShell: requiredElement<HTMLElement>("page-search-shell"),
     togglePageSearch: requiredElement<HTMLButtonElement>("toggle-page-search"),
+    fileTreeFilterPages: requiredElement<HTMLButtonElement>("file-tree-filter-pages"),
+    fileTreeFilterDocuments: requiredElement<HTMLButtonElement>("file-tree-filter-documents"),
+    fileTreeFilterTemplates: requiredElement<HTMLButtonElement>("file-tree-filter-templates"),
+    pageTagsPanel: requiredElement<HTMLElement>("rail-tags-panel"),
+    togglePageTags: requiredElement<HTMLButtonElement>("toggle-page-tags"),
     pageList: requiredElement<HTMLDivElement>("page-list"),
     pageTaskList: requiredElement<HTMLDivElement>("page-task-list"),
     taskFilters: requiredElement<HTMLDivElement>("task-filters"),
@@ -808,6 +848,8 @@ interface ActionDialogSession {
     settingsRuntimeRestartRequired: requiredElement<HTMLElement>("settings-runtime-restart-required"),
     settingsRuntimeRestartReasons: requiredElement<HTMLElement>("settings-runtime-restart-reasons"),
     settingsRuntimeHealth: requiredElement<HTMLElement>("settings-runtime-health"),
+    settingsBrowserNotifications: requiredElement<HTMLInputElement>("settings-browser-notifications"),
+    settingsBrowserNotificationsStatus: requiredElement<HTMLElement>("settings-browser-notifications-status"),
     settingsUserNtfyTopicUrl: requiredElement<HTMLInputElement>("settings-user-ntfy-topic-url"),
     settingsUserNtfyToken: requiredElement<HTMLInputElement>("settings-user-ntfy-token"),
     settingsAIEnabled: requiredElement<HTMLInputElement>("settings-ai-enabled"),
@@ -1087,6 +1129,128 @@ interface ActionDialogSession {
     if (pagePath && state.selectedPage === pagePath) {
       refreshCurrentDetail(true);
     }
+  }
+
+  function browserNotificationsEnabled(): boolean {
+    return Boolean(
+      state.authenticated
+      && state.settings.preferences.notifications.browserEnabled
+      && browserNotificationPermission() === "granted"
+    );
+  }
+
+  function clearBrowserNotificationTimer(): void {
+    window.clearTimeout(state.browserNotificationTimer ?? undefined);
+    state.browserNotificationTimer = null;
+  }
+
+  async function showBrowserNotification(title: string, body: string, key: string, targetURL: string): Promise<void> {
+    const notificationOptions: NotificationOptions = {
+      body,
+      tag: key,
+      icon: "/assets/pwa-icon-192.png",
+      badge: "/assets/favicon-32.png",
+      data: {
+        url: targetURL,
+      },
+    };
+
+    const registration = await registerPWA();
+    if (registration && typeof registration.showNotification === "function") {
+      await registration.showNotification(title, notificationOptions);
+      return;
+    }
+
+    if (typeof Notification === "undefined") {
+      return;
+    }
+
+    const notification = new Notification(title, notificationOptions);
+    notification.onclick = function () {
+      try {
+        window.focus();
+      } catch (_error) {
+        // Ignore focus failures.
+      }
+      if (targetURL) {
+        window.location.href = targetURL;
+      }
+      notification.close();
+    };
+  }
+
+  async function syncBrowserNotifications(): Promise<void> {
+    if (!browserNotificationsEnabled() || state.browserNotificationSyncInFlight) {
+      return;
+    }
+
+    state.browserNotificationSyncInFlight = true;
+    try {
+      const [taskPayload, pagePayload] = await Promise.all([
+        fetchJSONUnscoped<TaskListResponse>("/api/tasks", undefined, true),
+        fetchJSONUnscoped<PageListResponse>("/api/pages", undefined, true),
+      ]);
+      const now = Date.now();
+      const recentWindowMs = Math.max(
+        15 * 60 * 1000,
+        now - state.browserNotificationSessionStartedAt + browserNotificationSessionSkewMs,
+      );
+      const sessionCutoff = state.browserNotificationSessionStartedAt - browserNotificationSessionSkewMs;
+      const candidates = collectDueBrowserNotifications(
+        Array.isArray(taskPayload.tasks) ? taskPayload.tasks : [],
+        Array.isArray(pagePayload.pages) ? pagePayload.pages : [],
+        now,
+        recentWindowMs,
+      ).filter(function (candidate) {
+        return candidate.at >= sessionCutoff;
+      });
+
+      let deliveredState = pruneStoredBrowserNotificationState(loadStoredBrowserNotificationState(), now);
+      let deliveredChanged = false;
+
+      for (const candidate of candidates) {
+        if (candidateAlreadyDelivered(deliveredState, candidate)) {
+          continue;
+        }
+        await showBrowserNotification(
+          candidate.title,
+          candidate.body,
+          candidate.key,
+          notificationTargetURL(candidate, window.location.href),
+        );
+        deliveredState = markDeliveredBrowserNotification(deliveredState, candidate, new Date(now).toISOString());
+        deliveredChanged = true;
+      }
+
+      if (deliveredChanged) {
+        saveStoredBrowserNotificationState(deliveredState);
+      } else {
+        const prunedState = pruneStoredBrowserNotificationState(deliveredState, now);
+        if (JSON.stringify(prunedState.sent) !== JSON.stringify(deliveredState.sent)) {
+          saveStoredBrowserNotificationState(prunedState);
+        }
+      }
+    } catch (_error) {
+      // Keep browser-local notifications best-effort and silent.
+    } finally {
+      state.browserNotificationSyncInFlight = false;
+    }
+  }
+
+  function restartBrowserNotificationLoop(resetSessionStart?: boolean): void {
+    clearBrowserNotificationTimer();
+    if (resetSessionStart) {
+      state.browserNotificationSessionStartedAt = Date.now();
+    }
+    if (!browserNotificationsEnabled()) {
+      return;
+    }
+    void syncBrowserNotifications();
+    state.browserNotificationTimer = window.setTimeout(function tick() {
+      void syncBrowserNotifications().finally(function () {
+        restartBrowserNotificationLoop(false);
+      });
+    }, browserNotificationPollIntervalMs);
   }
 
   function applyLoadedPageDetailState(pagePath: string, loaded: LoadedPageDetail, nextMarkdown: string): boolean {
@@ -1387,6 +1551,7 @@ interface ActionDialogSession {
       : null;
     renderSessionState();
     renderAuthGate();
+    restartBrowserNotificationLoop(true);
   }
 
   function setAuthGateOpen(open: boolean, status?: string): void {
@@ -1534,6 +1699,7 @@ interface ActionDialogSession {
     ]);
     applyURLState();
     connectEvents();
+    restartBrowserNotificationLoop(true);
   }
 
   async function loadHelpPage(force?: boolean): Promise<void> {
@@ -2464,6 +2630,7 @@ interface ActionDialogSession {
   }
 
   function renderPageTasks(): void {
+    syncTaskFilterButtons();
     renderPageTasksUI(els.pageTaskList, Array.isArray(state.tasks) ? state.tasks : [], function (task) {
       if (!task || !task.page) {
         return;
@@ -2474,6 +2641,18 @@ interface ActionDialogSession {
         setNoteStatus("Task toggle failed: " + errorMessage(error));
       });
     }, state.taskFilters, state.appScreen === "notes" && state.currentPage ? (state.currentPage.page || state.currentPage.path || "") : "");
+  }
+
+  function syncTaskFilterButtons(): void {
+    els.taskFilters.querySelectorAll(".task-filter").forEach(function (btn) {
+      const key = btn.getAttribute("data-task-filter") || "";
+      btn.classList.toggle("active",
+        (key === "current-page" && state.taskFilters.currentPage)
+        || (key === "not-done" && state.taskFilters.notDone)
+        || (key === "has-due" && state.taskFilters.hasDue)
+        || (key === "has-reminder" && state.taskFilters.hasReminder)
+      );
+    });
   }
 
   function renderPageContext() {
@@ -2507,7 +2686,30 @@ interface ActionDialogSession {
     return filterPagesByTag(filterPagesByScope(state.pages, currentScopePrefix()), state.pageTagFilter);
   }
 
+  function visibleDocumentsForRail(): DocumentRecord[] {
+    return filterDocumentsByScope(state.documents, currentScopePrefix());
+  }
+
+  function renderFileTreeFilterButtons(): void {
+    els.fileTreeFilterPages.classList.toggle("active", state.fileTreeFilters.pages);
+    els.fileTreeFilterDocuments.classList.toggle("active", state.fileTreeFilters.documents);
+    els.fileTreeFilterTemplates.classList.toggle("active", state.fileTreeFilters.templates);
+    els.fileTreeFilterPages.setAttribute("aria-pressed", state.fileTreeFilters.pages ? "true" : "false");
+    els.fileTreeFilterDocuments.setAttribute("aria-pressed", state.fileTreeFilters.documents ? "true" : "false");
+    els.fileTreeFilterTemplates.setAttribute("aria-pressed", state.fileTreeFilters.templates ? "true" : "false");
+  }
+
+  function renderPageTagsPanel(): void {
+    const expanded = Boolean(state.pageTagsExpanded);
+    els.pageTagsPanel.classList.toggle("collapsed", !expanded);
+    els.pageTags.classList.toggle("hidden", !expanded);
+    els.togglePageTags.setAttribute("aria-expanded", expanded ? "true" : "false");
+    els.togglePageTags.textContent = expanded ? "Hide" : "Show";
+    els.togglePageTags.title = expanded ? "Collapse tag filters" : "Expand tag filters";
+  }
+
   function renderPageTags() {
+    renderPageTagsPanel();
     renderPageTagsUI(els.pageTags, filterPagesByScope(state.pages, currentScopePrefix()), state.pageTagFilter, function (tag) {
       const nextTag = String(tag || "").trim();
       state.pageTagFilter = state.pageTagFilter.toLowerCase() === nextTag.toLowerCase() ? "" : nextTag;
@@ -3311,15 +3513,33 @@ interface ActionDialogSession {
   }
 
   function renderPages() {
+    renderFileTreeFilterButtons();
     renderPagesSection({
       selectedPage: state.appScreen === "notes" ? state.selectedPage : "",
       pages: visiblePagesForRail(),
       folders: state.folders,
+      documents: visibleDocumentsForRail(),
       expandedPageFolders: state.expandedPageFolders,
       scopePrefix: currentScopePrefix(),
       pruneFoldersToVisiblePages: Boolean(state.pageTagFilter),
+      showPages: state.fileTreeFilters.pages,
+      showDocuments: state.fileTreeFilters.documents,
+      showTemplates: state.fileTreeFilters.templates,
     }, els, {
       navigateToPage: navigateToPage,
+      openDocument: function (document) {
+        window.open(document.downloadURL, "_blank", "noopener");
+      },
+      insertDocumentLink: function (document) {
+        if (state.selectedPage && state.currentPage) {
+          insertTextAtEditorSelection(documentLinkForSelection(document, state.selectedPage));
+          setNoteStatus("Inserted document link for " + document.name + ".");
+          return;
+        }
+        setNoteStatus("Open a note to insert a document link.");
+      },
+      requestRenameDocument: requestRenameDocumentInTree,
+      deleteDocument: deleteDocument,
       requestCreatePage: requestCreatePageInFolder,
       requestCreateSubfolder: requestCreateSubfolderInFolder,
       requestRenameFolder: requestRenameFolderInTree,
@@ -3361,6 +3581,19 @@ interface ActionDialogSession {
     treeContextMenuState.top = top;
     openTreeContextMenuUI(els.treeContextMenu, target, left, top, {
       navigateToPage: navigateToPage,
+      openDocument: function (document) {
+        window.open(document.downloadURL, "_blank", "noopener");
+      },
+      insertDocumentLink: function (document) {
+        if (state.selectedPage && state.currentPage) {
+          insertTextAtEditorSelection(documentLinkForSelection(document, state.selectedPage));
+          setNoteStatus("Inserted document link for " + document.name + ".");
+          return;
+        }
+        setNoteStatus("Open a note to insert a document link.");
+      },
+      requestRenameDocument: requestRenameDocumentInTree,
+      deleteDocument: deleteDocument,
       requestCreatePage: requestCreatePageInFolder,
       requestCreateSubfolder: requestCreateSubfolderInFolder,
       requestRenameFolder: requestRenameFolderInTree,
@@ -4418,7 +4651,7 @@ interface ActionDialogSession {
           return;
         }
         if (state.settingsSection === "notifications") {
-          focusWithoutScroll(els.settingsUserNtfyTopicUrl);
+          focusWithoutScroll(els.settingsBrowserNotifications);
           return;
         }
         if (state.settingsSection === "templates") {
@@ -4519,6 +4752,9 @@ interface ActionDialogSession {
         rootHomePage: state.settings.preferences.vaults.rootHomePage,
         scopeHomePages: state.settings.preferences.vaults.scopeHomePages,
       },
+      notifications: {
+        browserEnabled: Boolean(els.settingsBrowserNotifications.checked),
+      },
       hotkeys: {
         quickSwitcher: String(els.settingsQuickSwitcher.value || "").trim(),
         globalSearch: String(els.settingsGlobalSearch.value || "").trim(),
@@ -4552,6 +4788,7 @@ interface ActionDialogSession {
       renderPageContext();
       renderPageProperties();
     }
+    restartBrowserNotificationLoop(true);
   }
 
   async function persistSettings() {
@@ -4560,6 +4797,21 @@ interface ActionDialogSession {
       return;
     }
     const previousTopLevelFoldersAsVaults = state.topLevelFoldersAsVaults;
+    let browserNotificationMessage = "";
+    if (els.settingsBrowserNotifications.checked) {
+      const permission = browserNotificationPermission();
+      if (permission !== "granted") {
+        const requestedPermission = await requestBrowserNotificationPermission();
+        if (requestedPermission === "granted") {
+          browserNotificationMessage = "Browser notifications enabled for this browser.";
+        } else {
+          els.settingsBrowserNotifications.checked = false;
+          browserNotificationMessage = requestedPermission === "denied"
+            ? "Browser notifications stayed off because this browser blocked them for this site."
+            : "Browser notifications stayed off because permission was not granted.";
+        }
+      }
+    }
     const nextSettings = prepareSettingsSaveWithExtra(
       collectClientPreferencesForm,
       collectUserSettingsForm,
@@ -4599,12 +4851,13 @@ interface ActionDialogSession {
       }
       closeSettingsModal();
       restoreNoteFocus();
-      setNoteStatus(settingsSnapshot.restartRequired
+      const savedMessage = settingsSnapshot.restartRequired
         ? ("Settings saved. Restart required to apply runtime changes."
           + (state.settingsRestartRequiredReasons.length
             ? " " + state.settingsRestartRequiredReasons.join(" ")
             : ""))
-        : "Settings saved.");
+        : "Settings saved.";
+      setNoteStatus(savedMessage + (browserNotificationMessage ? " " + browserNotificationMessage : ""));
     } catch (error) {
       els.settingsStatus.textContent = "Settings save failed: " + errorMessage(error);
     }
@@ -4786,20 +5039,14 @@ interface ActionDialogSession {
   }
 
   async function loadDocuments() {
-    const query = String(els.documentsInput ? els.documentsInput.value : "").trim();
     if (els.documentsResults) {
       els.documentsResults.textContent = "Loading…";
     }
     try {
-      const params = new URLSearchParams();
-      if (query) {
-        params.set("q", query);
-      } else {
-        params.set("withUsage", "1");
-      }
-      const payload = await fetchJSON<DocumentListResponse>("/api/documents" + (params.size ? ("?" + params.toString()) : ""));
+      const payload = await fetchJSON<DocumentListResponse>("/api/documents?withUsage=1");
       state.documents = Array.isArray(payload.documents) ? payload.documents : [];
       renderDocumentResults();
+      renderPages();
     } catch (error) {
       if (els.documentsResults) {
         els.documentsResults.textContent = errorMessage(error);
@@ -4814,7 +5061,7 @@ interface ActionDialogSession {
 
   function scheduleDocumentsRefresh() {
     window.clearTimeout(state.documentTimer ?? undefined);
-    state.documentTimer = window.setTimeout(loadDocuments, 80);
+    state.documentTimer = window.setTimeout(renderDocumentResults, 50);
   }
 
   function scheduleGlobalSearch() {
@@ -4877,6 +5124,12 @@ interface ActionDialogSession {
     }).filter(Boolean);
   }
 
+  function currentDocumentPathInventory(): string[] {
+    return state.documents.map(function (document) {
+      return String(document.path || "").trim().replace(/^\/+|\/+$/g, "");
+    }).filter(Boolean);
+  }
+
   function scopedPropertyValueSuggestions(key: string, kind: FrontmatterKind): string[] {
     return collectPropertyValueSuggestions(
       state.pages,
@@ -4925,6 +5178,32 @@ interface ActionDialogSession {
       baseFolder: options.baseFolder,
       scopePrefix: currentScopePrefix(),
       pages: currentPagePathInventory(),
+      folders: currentFolderPathInventory(),
+    }).error;
+  }
+
+  function documentPathFieldState(input: string, sourcePath: string): ActionDialogFieldState {
+    const assist = buildDocumentPathDialogAssist({
+      input: input,
+      sourcePath: sourcePath,
+      scopePrefix: currentScopePrefix(),
+      documents: currentDocumentPathInventory(),
+      folders: currentFolderPathInventory(),
+    });
+    return {
+      error: assist.error || "",
+      helper: assist.error ? "" : assist.helper,
+      helperTone: assist.helperTone,
+      suggestions: assist.suggestions,
+    };
+  }
+
+  function documentPathValidation(input: string, sourcePath: string): string {
+    return buildDocumentPathDialogAssist({
+      input: input,
+      sourcePath: sourcePath,
+      scopePrefix: currentScopePrefix(),
+      documents: currentDocumentPathInventory(),
       folders: currentFolderPathInventory(),
     }).error;
   }
@@ -5091,6 +5370,53 @@ interface ActionDialogSession {
     await renameFolder(folderKey, nextName);
   }
 
+  async function requestRenameDocumentInTree(document: DocumentRecord): Promise<void> {
+    const currentName = String(document.name || pageTitleFromPath(document.path || ""));
+    const values = await promptForActionInput({
+      eyebrow: "Files",
+      title: "Rename File",
+      message: 'Rename "' + currentName + '". You can also move it by entering a nested path.',
+      confirmLabel: "Save Name",
+      fields: [{
+        key: "name",
+        label: "File name or path",
+        value: currentName,
+        placeholder: currentName,
+        autocapitalize: "none",
+        spellcheck: false,
+        describe: function (value) {
+          return documentPathFieldState(value, document.path);
+        },
+      }],
+      validate: function (nextValues) {
+        return documentPathValidation(nextValues.name || "", document.path);
+      },
+    });
+    if (!values) {
+      return;
+    }
+
+    const assist = buildDocumentPathDialogAssist({
+      input: values.name || "",
+      sourcePath: document.path,
+      scopePrefix: currentScopePrefix(),
+      documents: currentDocumentPathInventory(),
+      folders: currentFolderPathInventory(),
+    });
+    if (!assist.targetPath || assist.error) {
+      return;
+    }
+
+    const movedDocument = await moveDocument(document.path, assist.targetPath);
+    const previousParent = String(document.path || "").includes("/") ? String(document.path).slice(0, String(document.path).lastIndexOf("/")) : "";
+    const nextParent = String(movedDocument.path || "").includes("/") ? String(movedDocument.path).slice(0, String(movedDocument.path).lastIndexOf("/")) : "";
+    setNoteStatus(
+      previousParent !== nextParent
+        ? ('Moved file to "' + movedDocument.path + '".')
+        : ('Renamed file to "' + movedDocument.name + '".')
+    );
+  }
+
   async function uploadDocument(file: File): Promise<DocumentRecord> {
     const formData = new FormData();
     formData.append("file", file);
@@ -5107,6 +5433,76 @@ interface ActionDialogSession {
       return item.id !== document.id;
     }));
     return document;
+  }
+
+  async function moveDocument(documentPath: string, targetPath: string): Promise<DocumentRecord> {
+    const payload = await fetchJSON<{ document?: DocumentRecord; targetPath?: string; rewrittenPages?: string[] }>("/api/documents/move/" + encodePath(documentPath), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetPath: targetPath }),
+    });
+    const rewrittenPages = Array.isArray(payload.rewrittenPages) ? payload.rewrittenPages : [];
+    if (state.selectedPage && state.currentPage && rewrittenPages.indexOf(state.selectedPage) >= 0) {
+      const currentSelectionStart = markdownEditorSelectionStart(state, els);
+      const currentSelectionEnd = markdownEditorSelectionEnd(state, els);
+      const currentScrollTop = markdownEditorScrollTop(state, els);
+      const rewrittenCurrent = rewriteDocumentLinksInMarkdown(state.currentMarkdown, state.selectedPage, documentPath, payload.targetPath || targetPath);
+      const rewrittenOriginal = rewriteDocumentLinksInMarkdown(state.originalMarkdown, state.selectedPage, documentPath, payload.targetPath || targetPath);
+      if (rewrittenCurrent.changed || rewrittenOriginal.changed) {
+        state.currentMarkdown = rewrittenCurrent.markdown;
+        state.originalMarkdown = rewrittenOriginal.markdown;
+        if (state.currentPage) {
+          state.currentPage.rawMarkdown = rewrittenOriginal.markdown;
+        }
+        setMarkdownEditorValue(state, els, state.currentMarkdown);
+        els.rawView.textContent = state.currentMarkdown;
+        refreshLivePageChrome();
+        setMarkdownEditorSelection(
+          state,
+          els,
+          Math.max(0, Math.min(currentSelectionStart, state.currentMarkdown.length)),
+          Math.max(0, Math.min(currentSelectionEnd, state.currentMarkdown.length))
+        );
+        setMarkdownEditorScrollTop(state, els, currentScrollTop);
+      } else if (!hasUnsavedPageChanges()) {
+        await loadPageDetail(state.selectedPage, true, false);
+      }
+    }
+    await Promise.all([loadPages(), loadDocuments()]);
+    renderPages();
+    return payload.document || {
+      id: payload.targetPath || targetPath,
+      path: payload.targetPath || targetPath,
+      name: pageTitleFromPath(payload.targetPath || targetPath),
+      contentType: "",
+      size: 0,
+      createdAt: "",
+      downloadURL: "",
+    };
+  }
+
+  async function deleteDocument(document: DocumentRecord): Promise<void> {
+    const references = Number(document.referenceCount || 0);
+    const referenceCopy = document.usageKnown
+      ? (references > 0
+        ? ("\n\nReferenced in " + String(references) + " note" + (references === 1 ? "" : "s") + ".")
+        : "\n\nThis file is not referenced by any note.")
+      : "";
+    const confirmed = await confirmAction({
+      title: "Delete File",
+      message: 'Delete "' + document.path + '"?' + referenceCopy,
+      confirmLabel: "Delete File",
+      danger: true,
+    });
+    if (!confirmed) {
+      return;
+    }
+    await fetchJSON<unknown>("/api/documents/" + encodePath(document.path), {
+      method: "DELETE",
+    });
+    await Promise.all([loadPages(), loadDocuments()]);
+    renderPages();
+    setNoteStatus("Deleted file " + document.path + ".");
   }
 
   async function uploadDroppedFiles(fileList: FileList | null): Promise<void> {
@@ -5258,7 +5654,9 @@ interface ActionDialogSession {
       onOpenDocuments: function () {
         closeCommandPalette();
         setDocumentsOpen(true);
-        scheduleDocumentsRefresh();
+        loadDocuments().catch(function (error) {
+          setNoteStatus("Documents failed: " + errorMessage(error));
+        });
       },
       onOpenQuickSwitcher: function () {
         closeCommandPalette();
@@ -5573,6 +5971,22 @@ interface ActionDialogSession {
     on(els.togglePageSearch, "click", function () {
       setPageSearchOpen(els.pageSearchShell.classList.contains("hidden"));
     });
+    on(els.fileTreeFilterPages, "click", function () {
+      state.fileTreeFilters.pages = !state.fileTreeFilters.pages;
+      renderPages();
+    });
+    on(els.fileTreeFilterDocuments, "click", function () {
+      state.fileTreeFilters.documents = !state.fileTreeFilters.documents;
+      renderPages();
+    });
+    on(els.fileTreeFilterTemplates, "click", function () {
+      state.fileTreeFilters.templates = !state.fileTreeFilters.templates;
+      renderPages();
+    });
+    on(els.togglePageTags, "click", function () {
+      state.pageTagsExpanded = !state.pageTagsExpanded;
+      renderPageTagsPanel();
+    });
     on(els.openSessionMenu, "click", function () {
       if (!state.authenticated) {
         setAuthGateOpen(true, "Sign in to continue.");
@@ -5799,7 +6213,9 @@ interface ActionDialogSession {
     on(els.openDocuments, "click", function () {
       setSessionMenuOpen(false);
       setDocumentsOpen(true);
-      scheduleDocumentsRefresh();
+      loadDocuments().catch(function (error) {
+        setNoteStatus("Documents failed: " + errorMessage(error));
+      });
     });
     on(els.openSearch, "click", function () {
       setSessionMenuOpen(false);
@@ -5927,15 +6343,7 @@ interface ActionDialogSession {
       } else if (filter === "has-reminder") {
         state.taskFilters.hasReminder = !state.taskFilters.hasReminder;
       }
-      els.taskFilters.querySelectorAll(".task-filter").forEach(function (btn) {
-        const key = btn.getAttribute("data-task-filter") || "";
-        btn.classList.toggle("active",
-          (key === "current-page" && state.taskFilters.currentPage)
-          || (key === "not-done" && state.taskFilters.notDone)
-          || (key === "has-due" && state.taskFilters.hasDue)
-          || (key === "has-reminder" && state.taskFilters.hasReminder)
-        );
-      });
+      syncTaskFilterButtons();
       renderPageTasks();
     });
     on(els.noteSurface, "dragenter", function (event) {

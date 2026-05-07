@@ -1,23 +1,26 @@
 import { clearNode, renderEmpty } from "./dom";
 import { formatDateTimeValue, formatDateValue, formatTimeValue } from "./datetime";
 import { renderInline } from "./markdown";
-import type { BacklinkRecord, DerivedPage, PageRecord, PageSummary, TaskRecord } from "./types";
+import type { BacklinkRecord, DerivedPage, DocumentRecord, PageRecord, PageSummary, TaskRecord } from "./types";
 
 interface PageTreeFolder {
   key: string;
   name: string;
   folders: Record<string, PageTreeFolder>;
   pages: PageSummary[];
+  documents: DocumentRecord[];
 }
 
 interface PageTreeRoot {
   folders: Record<string, PageTreeFolder>;
   pages: PageSummary[];
+  documents: DocumentRecord[];
 }
 
 export type PageTreeMenuTarget =
   | { kind: "page"; path: string; name: string }
-  | { kind: "folder"; path: string; name: string };
+  | { kind: "folder"; path: string; name: string }
+  | { kind: "document"; path: string; name: string; document: DocumentRecord };
 
 type TreeDragItem =
   | { kind: "page"; path: string }
@@ -65,6 +68,12 @@ export function filterPagesByScope(pages: PageSummary[], scopePrefix: string): P
 export function filterFoldersByScope(folders: string[], scopePrefix: string): string[] {
   return (Array.isArray(folders) ? folders : []).filter(function (folder) {
     return pageWithinScope(String(folder || ""), scopePrefix);
+  });
+}
+
+export function filterDocumentsByScope(documents: DocumentRecord[], scopePrefix: string): DocumentRecord[] {
+  return (Array.isArray(documents) ? documents : []).filter(function (document) {
+    return pageWithinScope(String(document.path || ""), scopePrefix);
   });
 }
 
@@ -175,14 +184,14 @@ function ensureFolderPath(root: PageTreeRoot, canonicalPath: string, scopePrefix
   segments.forEach(function (segment, index) {
     const canonicalKey = canonicalSegments.slice(0, offset + index + 1).join("/");
     if (!cursor.folders[segment]) {
-      cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [] };
+      cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [], documents: [] };
     }
     cursor = cursor.folders[segment];
   });
 }
 
-function buildPageTree(pages: PageSummary[], folders: string[], scopePrefix: string): PageTreeRoot {
-  const root: PageTreeRoot = { folders: {}, pages: [] };
+function buildPageTree(pages: PageSummary[], folders: string[], documents: DocumentRecord[], scopePrefix: string): PageTreeRoot {
+  const root: PageTreeRoot = { folders: {}, pages: [], documents: [] };
   const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
   const scopeParts = normalizedScopePrefix ? normalizedScopePrefix.split("/") : [];
 
@@ -209,11 +218,37 @@ function buildPageTree(pages: PageSummary[], folders: string[], scopePrefix: str
       const segment = segments[index];
       const canonicalKey = canonicalSegments.slice(0, offset + index + 1).join("/");
       if (!cursor.folders[segment]) {
-        cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [] };
+        cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [], documents: [] };
       }
       cursor = cursor.folders[segment];
     }
     cursor.pages.push(page);
+  });
+
+  documents.forEach(function (document) {
+    const canonicalPath = String(document.path || "");
+    const displayPath = displayPathWithinScope(canonicalPath, normalizedScopePrefix);
+    const segments = displayPath ? displayPath.split("/") : [];
+    const canonicalSegments = canonicalPath.split("/").filter(Boolean);
+    const offset = normalizedScopePrefix && canonicalPath.startsWith(normalizedScopePrefix + "/")
+      ? scopeParts.length
+      : 0;
+
+    if (segments.length <= 1) {
+      root.documents.push(document);
+      return;
+    }
+
+    let cursor: PageTreeRoot | PageTreeFolder = root;
+    for (let index = 0; index < segments.length - 1; index += 1) {
+      const segment = segments[index];
+      const canonicalKey = canonicalSegments.slice(0, offset + index + 1).join("/");
+      if (!cursor.folders[segment]) {
+        cursor.folders[segment] = { key: canonicalKey, name: segment, folders: {}, pages: [], documents: [] };
+      }
+      cursor = cursor.folders[segment];
+    }
+    cursor.documents.push(document);
   });
 
   return root;
@@ -237,6 +272,7 @@ function renderPageTreeNode(
   selectedPage: string,
   onToggleFolder: (folderKey: string) => void,
   onSelectPage: (pagePath: string) => void,
+  onOpenDocument: (document: DocumentRecord) => void,
   onCreatePage: (pagePath: string) => void,
   onCreateSubfolder: (folderKey: string) => void,
   onRenameFolder: (folderKey: string) => void,
@@ -321,7 +357,7 @@ function renderPageTreeNode(
       item.appendChild(row);
 
       if (expandedPageFolders[folder.key]) {
-        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
+        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
       }
 
       group.appendChild(item);
@@ -373,6 +409,46 @@ function renderPageTreeNode(
       group.appendChild(item);
     });
 
+  node.documents
+    .slice()
+    .sort(function (left, right) {
+      return String(left.path).localeCompare(String(right.path));
+    })
+    .forEach(function (doc) {
+      const leafName = String(doc.name || "").trim() || (String(doc.path || "").split("/").slice(-1)[0] || doc.path);
+      const item = document.createElement("div");
+      item.className = "page-tree-node page-tree-leaf page-tree-document-leaf";
+
+      const row = document.createElement("div");
+      row.className = "page-tree-row";
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "page-tree-page page-tree-document";
+      button.addEventListener("click", function () {
+        onOpenDocument(doc);
+      });
+      button.addEventListener("contextmenu", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenContextMenu({ kind: "document", path: doc.path, name: leafName, document: doc }, event.clientX, event.clientY);
+      });
+
+      const icon = document.createElement("span");
+      icon.className = "page-tree-icon";
+      icon.textContent = "↗";
+      const label = document.createElement("span");
+      label.className = "page-tree-label";
+      label.textContent = leafName;
+      label.title = leafName;
+      button.appendChild(icon);
+      button.appendChild(label);
+      row.appendChild(button);
+
+      item.appendChild(row);
+      group.appendChild(item);
+    });
+
   return group;
 }
 
@@ -380,6 +456,7 @@ export function renderPagesTree(
   container: HTMLDivElement,
   pages: PageSummary[],
   folders: string[],
+  documents: DocumentRecord[],
   selectedPage: string,
   expandedPageFolders: Record<string, boolean>,
   pageSearchQuery: string,
@@ -388,6 +465,7 @@ export function renderPagesTree(
   rootLabelText: string,
   onToggleFolder: (folderKey: string) => void,
   onSelectPage: (pagePath: string) => void,
+  onOpenDocument: (document: DocumentRecord) => void,
   onCreatePage: (folderKey: string) => void,
   onCreateSubfolder: (folderKey: string) => void,
   onRenameFolder: (folderKey: string) => void,
@@ -401,15 +479,42 @@ export function renderPagesTree(
   clearNode(container);
   const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
   const normalizedRootFolderPath = String(rootFolderPath || "").trim().replace(/^\/+|\/+$/g, "");
-  const visibleFolders = pageSearchQuery ? [] : folders;
+  const searchNeedle = String(pageSearchQuery || "").trim().toLowerCase();
+  const visiblePages = pages.filter(function (page) {
+    if (!searchNeedle) {
+      return true;
+    }
+    const haystack = [page.title, page.path, ...(Array.isArray(page.tags) ? page.tags : [])].join(" ").toLowerCase();
+    return haystack.includes(searchNeedle);
+  });
+  const visibleFolders = searchNeedle ? [] : folders;
+  const visibleDocuments = documents.filter(function (document) {
+    if (!searchNeedle) {
+      return true;
+    }
+    const haystack = [document.name, document.path, document.contentType].join(" ").toLowerCase();
+    return haystack.includes(searchNeedle);
+  });
 
-  if (pageSearchQuery) {
+  if (searchNeedle) {
     const expanded: Record<string, boolean> = {};
-    pages.forEach(function (page) {
+    visiblePages.forEach(function (page) {
       const displayPath = displayPathWithinScope(String(page.path || ""), normalizedScopePrefix);
       const parts = displayPath ? displayPath.split("/") : [];
       const canonicalParts = String(page.path || "").split("/").filter(Boolean);
       const offset = normalizedScopePrefix && String(page.path || "").startsWith(normalizedScopePrefix + "/")
+        ? normalizedScopePrefix.split("/").length
+        : 0;
+      for (let index = 0; index < parts.length - 1; index += 1) {
+        const key = canonicalParts.slice(0, offset + index + 1).join("/");
+        expanded[key] = true;
+      }
+    });
+    visibleDocuments.forEach(function (document) {
+      const displayPath = displayPathWithinScope(String(document.path || ""), normalizedScopePrefix);
+      const parts = displayPath ? displayPath.split("/") : [];
+      const canonicalParts = String(document.path || "").split("/").filter(Boolean);
+      const offset = normalizedScopePrefix && String(document.path || "").startsWith(normalizedScopePrefix + "/")
         ? normalizedScopePrefix.split("/").length
         : 0;
       for (let index = 0; index < parts.length - 1; index += 1) {
@@ -519,12 +624,12 @@ export function renderPagesTree(
   });
   container.appendChild(rootRow);
 
-  if (!pages.length && !visibleFolders.length) {
+  if (!visiblePages.length && !visibleFolders.length && !visibleDocuments.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
     empty.textContent = pageSearchQuery
-      ? "No indexed pages match the current search."
-      : "No notes yet. Use + to create the first note.";
+      ? "No indexed notes or files match the current search."
+      : "No notes or files yet. Use + to create the first note.";
     container.appendChild(empty);
     return;
   }
@@ -565,7 +670,7 @@ export function renderPagesTree(
     onMoveFolder(payload.path, "");
   };
 
-  container.appendChild(renderPageTreeNode(buildPageTree(pages, visibleFolders, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
+  container.appendChild(renderPageTreeNode(buildPageTree(visiblePages, visibleFolders, visibleDocuments, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
 }
 
 export interface TaskPanelFilters {

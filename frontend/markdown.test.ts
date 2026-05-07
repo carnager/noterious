@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { markdownReferenceDefinitions } from "./markdownInline";
 
 import {
   bodyPositionFromRawOffset,
@@ -69,6 +70,53 @@ describe("markdown helpers", function () {
     const html = renderInline("[spec.pdf](../Docs/spec.pdf)", {currentPagePath: "Notes/today"});
     expect(html).toContain('class="markdown-document-link"');
     expect(html).toContain("/api/documents/download?path=Docs%2Fspec.pdf");
+  });
+
+  it("renders bare URLs as anchors", function () {
+    expect(renderInline("Visit https://example.com/docs for details.")).toBe(
+      'Visit <a href="https://example.com/docs" target="_blank" rel="noopener">https://example.com/docs</a> for details.'
+    );
+  });
+
+  it("renders nested markdown inside standard link labels", function () {
+    expect(renderInline("[**Bold** and _italic_](https://example.com)")).toBe(
+      '<a href="https://example.com" target="_blank" rel="noopener"><strong>Bold</strong> and <em>italic</em></a>'
+    );
+  });
+
+  it("renders internal markdown links as wiki buttons with formatted labels", function () {
+    expect(renderInline("[**Alpha**](notes/alpha.md)")).toBe(
+      '<button type="button" class="wiki-link" data-page-link="notes/alpha.md"><strong>Alpha</strong></button>'
+    );
+  });
+
+  it("renders autolinks and escaped markdown markers", function () {
+    expect(renderInline("<https://example.com> and escaped \\*stars\\*")).toBe(
+      '<a href="https://example.com" target="_blank" rel="noopener">https://example.com</a> and escaped *stars*'
+    );
+  });
+
+  it("renders nested emphasis and strikethrough", function () {
+    expect(renderInline("***both*** ~~gone~~")).toBe(
+      '<em><strong>both</strong></em> <del>gone</del>'
+    );
+  });
+
+  it("renders reference-style links when definitions are provided", function () {
+    const referenceDefinitions = markdownReferenceDefinitions([
+      "[ref-link]: https://example.com/reference \"Reference Link\"",
+      "[1]: https://example.com/numbered \"Numbered Reference\"",
+    ].join("\n"));
+
+    expect(renderInline("Use [this one][ref-link] or [this][1].", {referenceDefinitions})).toBe(
+      'Use <a href="https://example.com/reference" target="_blank" rel="noopener">this one</a> or <a href="https://example.com/numbered" target="_blank" rel="noopener">this</a>.'
+    );
+  });
+
+  it("renders allowed inline html tags and inline math", function () {
+    expect(renderInline("This is <sub>sub</sub>, <sup>sup</sup>, <kbd>Ctrl</kbd>, <mark>hi</mark>, and $E = mc^2$.")).toBe(
+      'This is <sub class="markdown-inline-sub">sub</sub>, <sup class="markdown-inline-sup">sup</sup>, <kbd class="markdown-inline-kbd">Ctrl</kbd>, <mark class="markdown-inline-mark">hi</mark>, and <span class="markdown-inline-math">E = mc^2</span>.'
+    );
   });
 
   it("finds a wiki link at the caret position", function () {

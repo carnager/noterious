@@ -316,6 +316,10 @@ function templatePathInfo(pagePath: string): { scopePrefix: string; relativePath
   return null;
 }
 
+export function isTemplatePagePath(pagePath: string): boolean {
+  return Boolean(templatePathInfo(pagePath));
+}
+
 function defaultTemplateFolderFromPath(pagePath: string): string {
   const info = templatePathInfo(pagePath);
   if (!info) {

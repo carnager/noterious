@@ -27419,6 +27419,242 @@
     }
   });
 
+  // frontend/markdownInline.ts
+  function buildInlineNode(cursor) {
+    const node = {
+      name: cursor.name,
+      from: cursor.from,
+      to: cursor.to,
+      children: []
+    };
+    if (cursor.firstChild()) {
+      do {
+        node.children.push(buildInlineNode(cursor));
+      } while (cursor.nextSibling());
+      cursor.parent();
+    }
+    return node;
+  }
+  function parseInlineMarkdownTree(source) {
+    return buildInlineNode(configuredMarkdownParser.parse(String(source || "")).cursor());
+  }
+  function walkMarkdownNodes(node, visit) {
+    visit(node);
+    for (let index = 0; index < node.children.length; index += 1) {
+      walkMarkdownNodes(node.children[index], visit);
+    }
+  }
+  function normalizeMarkdownLinkLabel(label) {
+    return String(label || "").trim().replace(/\s+/g, " ").toLowerCase();
+  }
+  function markdownLabelText(source, node) {
+    const text = String(source || "");
+    const from = node.from < node.to && text[node.from] === "[" ? node.from + 1 : node.from;
+    const to = node.to > from && text[node.to - 1] === "]" ? node.to - 1 : node.to;
+    return text.slice(from, to);
+  }
+  function markdownReferenceDefinitions(source) {
+    const text = String(source || "");
+    const root = parseInlineMarkdownTree(text);
+    const definitions = /* @__PURE__ */ new Map();
+    walkMarkdownNodes(root, function(node) {
+      if (node.name !== "LinkReference") {
+        return;
+      }
+      const labelNode = node.children.find(function(child) {
+        return child.name === "LinkLabel";
+      });
+      const urlNode = node.children.find(function(child) {
+        return child.name === "URL";
+      });
+      const titleNode = node.children.find(function(child) {
+        return child.name === "LinkTitle";
+      });
+      if (!labelNode || !urlNode) {
+        return;
+      }
+      const label = markdownLabelText(text, labelNode);
+      const normalized = normalizeMarkdownLinkLabel(label);
+      if (!normalized) {
+        return;
+      }
+      definitions.set(normalized, {
+        label,
+        target: text.slice(urlNode.from, urlNode.to).trim(),
+        title: titleNode ? text.slice(titleNode.from + 1, Math.max(titleNode.from + 1, titleNode.to - 1)).trim() : "",
+        from: node.from,
+        to: node.to
+      });
+    });
+    return definitions;
+  }
+  function findMarkdownInlineSpecialSpans(source) {
+    const text = String(source || "");
+    const spans = [];
+    const pattern = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+    let match = null;
+    while ((match = pattern.exec(text)) !== null) {
+      if (match[1] !== void 0) {
+        spans.push({
+          kind: "wiki_image",
+          from: match.index,
+          to: match.index + match[0].length,
+          raw: match[0],
+          target: String(match[1] || "").trim(),
+          label: String(match[2] || "").trim()
+        });
+        continue;
+      }
+      spans.push({
+        kind: "wiki_link",
+        from: match.index,
+        to: match.index + match[0].length,
+        raw: match[0],
+        target: String(match[3] || "").trim(),
+        label: String(match[4] || "").trim()
+      });
+    }
+    return spans;
+  }
+  function markdownInlineLinkInfo(node) {
+    if (node.name !== "Link" && node.name !== "Image") {
+      return null;
+    }
+    const urlNode = node.children.find(function(child) {
+      return child.name === "URL";
+    });
+    if (!urlNode) {
+      return null;
+    }
+    const marksBeforeUrl = node.children.filter(function(child) {
+      return child.name === "LinkMark" && child.to <= urlNode.from;
+    });
+    if (marksBeforeUrl.length < 2) {
+      return null;
+    }
+    const openingMark = marksBeforeUrl[0];
+    const closingLabelMark = marksBeforeUrl[marksBeforeUrl.length - 2];
+    if (closingLabelMark.from < openingMark.to) {
+      return null;
+    }
+    return {
+      labelFrom: openingMark.to,
+      labelTo: closingLabelMark.from,
+      urlFrom: urlNode.from,
+      urlTo: urlNode.to
+    };
+  }
+  function markdownResolvedLinkInfo(node, source, referenceDefinitions) {
+    const direct = markdownInlineLinkInfo(node);
+    if (direct) {
+      return {
+        labelFrom: direct.labelFrom,
+        labelTo: direct.labelTo,
+        target: String(source || "").slice(direct.urlFrom, direct.urlTo).trim(),
+        title: "",
+        urlFrom: direct.urlFrom,
+        urlTo: direct.urlTo
+      };
+    }
+    if (node.name !== "Link" && node.name !== "Image") {
+      return null;
+    }
+    const labelNode = node.children.find(function(child) {
+      return child.name === "LinkLabel";
+    });
+    const linkMarks = node.children.filter(function(child) {
+      return child.name === "LinkMark";
+    });
+    if (!labelNode || linkMarks.length < 2 || !referenceDefinitions) {
+      return null;
+    }
+    const openingMark = linkMarks[0];
+    const closingLabelMark = linkMarks[linkMarks.length - 1];
+    if (closingLabelMark.from < openingMark.to) {
+      return null;
+    }
+    const referenceLabel = markdownLabelText(source, labelNode);
+    const definition = referenceDefinitions.get(normalizeMarkdownLinkLabel(referenceLabel));
+    if (!definition || !definition.target) {
+      return null;
+    }
+    return {
+      labelFrom: openingMark.to,
+      labelTo: closingLabelMark.from,
+      target: definition.target,
+      title: definition.title,
+      referenceLabel
+    };
+  }
+  function visibleTextFromNode(node, source, rangeFrom2, rangeTo2) {
+    if (rangeTo2 <= rangeFrom2) {
+      return "";
+    }
+    switch (node.name) {
+      case "LinkMark":
+      case "EmphasisMark":
+      case "StrikethroughMark":
+      case "CodeMark":
+      case "HeaderMark":
+      case "QuoteMark":
+      case "ListMark":
+      case "TaskMarker":
+        return "";
+      case "Escape":
+        return String(source || "").slice(rangeFrom2 + 1, rangeTo2);
+      case "Link": {
+        const info = markdownInlineLinkInfo(node);
+        if (!info) {
+          break;
+        }
+        return visibleTextFromChildren(node, source, info.labelFrom, info.labelTo);
+      }
+      case "Image": {
+        const info = markdownInlineLinkInfo(node);
+        if (!info) {
+          break;
+        }
+        return visibleTextFromChildren(node, source, info.labelFrom, info.labelTo);
+      }
+    }
+    if (!node.children.length) {
+      return String(source || "").slice(rangeFrom2, rangeTo2);
+    }
+    return visibleTextFromChildren(node, source, rangeFrom2, rangeTo2);
+  }
+  function visibleTextFromChildren(node, source, rangeFrom2, rangeTo2) {
+    if (rangeTo2 <= rangeFrom2) {
+      return "";
+    }
+    let result = "";
+    let cursor = rangeFrom2;
+    for (let index = 0; index < node.children.length; index += 1) {
+      const child = node.children[index];
+      if (child.to <= rangeFrom2 || child.from >= rangeTo2) {
+        continue;
+      }
+      if (cursor < child.from) {
+        result += String(source || "").slice(cursor, Math.min(child.from, rangeTo2));
+      }
+      const childFrom = Math.max(child.from, rangeFrom2);
+      const childTo = Math.min(child.to, rangeTo2);
+      result += visibleTextFromNode(child, source, childFrom, childTo);
+      cursor = child.to;
+    }
+    if (cursor < rangeTo2) {
+      result += String(source || "").slice(cursor, rangeTo2);
+    }
+    return result;
+  }
+  var configuredMarkdownParser;
+  var init_markdownInline = __esm({
+    "frontend/markdownInline.ts"() {
+      "use strict";
+      init_dist8();
+      configuredMarkdownParser = parser.configure([GFM]);
+    }
+  });
+
   // frontend/markdown.ts
   function escapePattern(value) {
     return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -27479,7 +27715,7 @@
     const source = String(line || "").trim();
     return source.indexOf("|") >= 0 && splitMarkdownTableRow(source).length >= 2;
   }
-  function markdownTableBlockAt(lines, startLineIndex) {
+  function markdownTableBlockAt(lines, startLineIndex, options) {
     if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex + 1 >= lines.length) {
       return null;
     }
@@ -27516,7 +27752,7 @@
     }
     const renderCell = function(cell, rowIndex, index, tag) {
       const alignment = alignments[index] || "left";
-      return "<" + tag + ' class="markdown-table-cell" style="text-align:' + alignment + ';" data-table-cell="true" data-table-start-line="' + String(startLineIndex + 1) + '" data-table-row="' + String(rowIndex) + '" data-table-col="' + String(index) + '">' + renderInline(cell) + "</" + tag + ">";
+      return "<" + tag + ' class="markdown-table-cell" style="text-align:' + alignment + ';" data-table-cell="true" data-table-start-line="' + String(startLineIndex + 1) + '" data-table-row="' + String(rowIndex) + '" data-table-col="' + String(index) + '">' + renderInline(cell, options) + "</" + tag + ">";
     };
     const html2 = '<div class="markdown-table-block" data-table-start-line="' + String(startLineIndex + 1) + '"><table><thead><tr>' + headerCells.map(function(cell, index) {
       return renderCell(cell, 0, index, "th");
@@ -27573,8 +27809,41 @@
     }
     return resolveDocumentPath(options && options.currentPagePath ? String(options.currentPagePath) : "", text);
   }
-  function renderDocumentAnchor(href, label) {
-    return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
+  function findInlineMathSpans(source) {
+    const text = String(source || "");
+    const spans = [];
+    let index = 0;
+    while (index < text.length) {
+      if (text[index] !== "$" || text[index + 1] === "$" || index > 0 && text[index - 1] === "\\") {
+        index += 1;
+        continue;
+      }
+      let end = index + 1;
+      while (end < text.length) {
+        if (text[end] === "$" && text[end - 1] !== "\\") {
+          break;
+        }
+        end += 1;
+      }
+      if (end >= text.length || text[end] !== "$") {
+        break;
+      }
+      const content2 = text.slice(index + 1, end);
+      if (!content2 || /^\s|\s$/.test(content2)) {
+        index = end + 1;
+        continue;
+      }
+      spans.push({
+        from: index,
+        to: end + 1,
+        content: content2
+      });
+      index = end + 1;
+    }
+    return spans;
+  }
+  function renderDocumentAnchor(href, labelHTML) {
+    return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
   }
   function renderImageAnchor(href, src, alt) {
     return '<a class="markdown-inline-image-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener"><img class="markdown-inline-image" src="' + escapeHTML(src) + '" alt="' + escapeHTML(alt) + '"></a>';
@@ -27597,81 +27866,271 @@
     }
     return trimmedLabel === documentPathLeaf(target);
   }
-  function renderInline(value, options) {
-    const source = String(value || "");
-    const inlinePattern = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|!\[([^\]]*)\]\(([^)\s]+)\)|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
+  function renderExternalAnchor(href, labelHTML) {
+    return '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
+  }
+  function renderWikiButton(target, labelHTML) {
+    return '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + labelHTML + "</button>";
+  }
+  function renderInlineMathSpan(span) {
+    return '<span class="markdown-inline-math">' + escapeHTML(span.content) + "</span>";
+  }
+  function renderPlainTextSegment(source) {
+    const text = String(source || "");
+    const mathSpans = findInlineMathSpans(text);
+    if (!mathSpans.length) {
+      return escapeHTML(text);
+    }
     let result = "";
     let cursor = 0;
-    let match = null;
-    while ((match = inlinePattern.exec(source)) !== null) {
-      result += escapeHTML(source.slice(cursor, match.index));
-      if (match[1] !== void 0) {
-        const target = String(match[1] || "").trim();
-        const label = embeddedWikiLabel(target, String(match[2] || ""));
-        const resolvedPath = resolveInlineDocumentTarget(target, options);
-        const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
-        if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath)) {
-          if (isImagePath(resolvedPath)) {
-            const href = inlineDocumentURL(resolvedPath);
-            result += renderImageAnchor(href, href, label || documentPathLeaf(resolvedPath) || "image");
-          } else {
-            result += renderDocumentAnchor(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath));
-          }
-        } else {
-          result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
-        }
-      } else if (match[3] !== void 0) {
-        const alt = String(match[3] || "").trim();
-        const target = String(match[4] || "").trim();
-        if (/^[a-z]+:/i.test(target)) {
-          result += renderImageAnchor(target, target, alt || documentPathLeaf(target) || "image");
-        } else {
-          const resolvedPath = resolveInlineDocumentTarget(target, options);
-          if (resolvedPath && !/\.md$/i.test(resolvedPath)) {
-            const href = inlineDocumentURL(resolvedPath);
-            result += renderImageAnchor(href, href, alt || documentPathLeaf(resolvedPath) || "image");
-          } else {
-            result += escapeHTML(match[0]);
-          }
-        }
-      } else if (match[5] !== void 0) {
-        const target = String(match[5] || "").trim();
-        const label = String(match[6] || match[5] || "").trim();
-        result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + escapeHTML(label) + "</button>";
-      } else if (match[7] !== void 0) {
-        const label = String(match[7] || "").trim();
-        const href = String(match[8] || "").trim();
-        if (/^[a-z]+:/i.test(href)) {
-          if (isImagePath(href) && shouldRenderMarkdownLinkAsImage(label, href)) {
-            result += renderImageAnchor(href, href, label || documentPathLeaf(href) || "image");
-          } else {
-            result += '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + escapeHTML(label) + "</a>";
-          }
-        } else {
-          const resolvedPath = resolveInlineDocumentTarget(href, options);
-          if (resolvedPath && !/\.md$/i.test(resolvedPath)) {
-            if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage(label, href)) {
-              const imageHref = inlineDocumentURL(resolvedPath);
-              result += renderImageAnchor(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image");
-            } else {
-              result += renderDocumentAnchor(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath));
-            }
-          } else {
-            result += '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(href) + '">' + escapeHTML(label) + "</button>";
-          }
-        }
-      } else if (match[9] !== void 0) {
-        result += "<code>" + escapeHTML(match[9]) + "</code>";
-      } else if (match[10] !== void 0 || match[11] !== void 0) {
-        result += "<strong>" + escapeHTML(match[10] || match[11]) + "</strong>";
-      } else if (match[12] !== void 0 || match[13] !== void 0) {
-        result += "<em>" + escapeHTML(match[12] || match[13]) + "</em>";
-      } else if (match[14] !== void 0) {
-        result += "<del>" + escapeHTML(match[14]) + "</del>";
+    for (let index = 0; index < mathSpans.length; index += 1) {
+      const span = mathSpans[index];
+      if (cursor < span.from) {
+        result += escapeHTML(text.slice(cursor, span.from));
       }
-      cursor = match.index + match[0].length;
+      result += renderInlineMathSpan(span);
+      cursor = span.to;
     }
-    result += escapeHTML(source.slice(cursor));
+    if (cursor < text.length) {
+      result += escapeHTML(text.slice(cursor));
+    }
+    return result;
+  }
+  function parseAllowedInlineHtmlTag(raw) {
+    const text = String(raw || "").trim().toLowerCase();
+    if (/^<br\s*\/?>$/.test(text)) {
+      return {
+        tagName: "br",
+        kind: "self"
+      };
+    }
+    const match = text.match(/^<(\/?)(sub|sup|kbd|mark)>$/);
+    if (!match) {
+      return null;
+    }
+    return {
+      tagName: match[2],
+      kind: match[1] ? "close" : "open"
+    };
+  }
+  function renderParsedInlineChildren(node, source, options, rangeFrom2, rangeTo2) {
+    if (rangeTo2 <= rangeFrom2) {
+      return "";
+    }
+    let result = "";
+    let cursor = rangeFrom2;
+    for (let index = 0; index < node.children.length; index += 1) {
+      const child = node.children[index];
+      if (child.to <= rangeFrom2 || child.from >= rangeTo2) {
+        continue;
+      }
+      if (cursor < child.from) {
+        result += renderPlainTextSegment(source.slice(cursor, Math.min(child.from, rangeTo2)));
+      }
+      if (child.name === "HTMLTag") {
+        const tagInfo = parseAllowedInlineHtmlTag(source.slice(child.from, child.to));
+        if (tagInfo && tagInfo.kind === "self") {
+          result += "<br>";
+          cursor = child.to;
+          continue;
+        }
+        if (tagInfo && tagInfo.kind === "open") {
+          let depth = 1;
+          let closeNode = null;
+          let closeIndex = index;
+          for (let scanIndex = index + 1; scanIndex < node.children.length; scanIndex += 1) {
+            const candidate = node.children[scanIndex];
+            if (candidate.to <= rangeFrom2 || candidate.from >= rangeTo2 || candidate.name !== "HTMLTag") {
+              continue;
+            }
+            const candidateInfo = parseAllowedInlineHtmlTag(source.slice(candidate.from, candidate.to));
+            if (!candidateInfo || candidateInfo.tagName !== tagInfo.tagName) {
+              continue;
+            }
+            if (candidateInfo.kind === "open") {
+              depth += 1;
+            } else if (candidateInfo.kind === "close") {
+              depth -= 1;
+              if (!depth) {
+                closeNode = candidate;
+                closeIndex = scanIndex;
+                break;
+              }
+            }
+          }
+          if (closeNode) {
+            const innerHTML = renderParsedInlineChildren(node, source, options, child.to, closeNode.from);
+            switch (tagInfo.tagName) {
+              case "sub":
+                result += '<sub class="markdown-inline-sub">' + innerHTML + "</sub>";
+                break;
+              case "sup":
+                result += '<sup class="markdown-inline-sup">' + innerHTML + "</sup>";
+                break;
+              case "kbd":
+                result += '<kbd class="markdown-inline-kbd">' + innerHTML + "</kbd>";
+                break;
+              case "mark":
+                result += '<mark class="markdown-inline-mark">' + innerHTML + "</mark>";
+                break;
+            }
+            cursor = closeNode.to;
+            index = closeIndex;
+            continue;
+          }
+        }
+        result += escapeHTML(source.slice(child.from, child.to));
+        cursor = child.to;
+        continue;
+      }
+      result += renderParsedInlineNode(child, source, options);
+      cursor = child.to;
+    }
+    if (cursor < rangeTo2) {
+      result += renderPlainTextSegment(source.slice(cursor, rangeTo2));
+    }
+    return result;
+  }
+  function renderParsedLinkNode(node, source, options) {
+    const info = markdownResolvedLinkInfo(node, source, options && options.referenceDefinitions ? options.referenceDefinitions : null);
+    if (!info) {
+      return escapeHTML(source.slice(node.from, node.to));
+    }
+    const target = String(info.target || "").trim();
+    const labelHTML = renderParsedInlineChildren(node, source, options, info.labelFrom, info.labelTo);
+    const labelText = visibleTextFromChildren(node, source, info.labelFrom, info.labelTo).trim();
+    if (/^[a-z]+:/i.test(target)) {
+      if (isImagePath(target) && shouldRenderMarkdownLinkAsImage(labelText, target)) {
+        return renderImageAnchor(target, target, labelText || documentPathLeaf(target) || "image");
+      }
+      return renderExternalAnchor(target, labelHTML || escapeHTML(labelText || target));
+    }
+    const resolvedPath = resolveInlineDocumentTarget(target, options);
+    if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+      if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage(labelText, target)) {
+        const imageHref = inlineDocumentURL(resolvedPath);
+        return renderImageAnchor(imageHref, imageHref, labelText || documentPathLeaf(resolvedPath) || "image");
+      }
+      return renderDocumentAnchor(
+        documentDownloadURL(resolvedPath),
+        labelHTML || escapeHTML(labelText || documentPathLeaf(resolvedPath) || documentPathLeaf(target) || target)
+      );
+    }
+    return renderWikiButton(target, labelHTML || escapeHTML(labelText || pageTitleFromPath(target)));
+  }
+  function renderParsedImageNode(node, source, options) {
+    const info = markdownResolvedLinkInfo(node, source, options && options.referenceDefinitions ? options.referenceDefinitions : null);
+    if (!info) {
+      return escapeHTML(source.slice(node.from, node.to));
+    }
+    const target = String(info.target || "").trim();
+    const alt = visibleTextFromChildren(node, source, info.labelFrom, info.labelTo).trim();
+    if (/^[a-z]+:/i.test(target)) {
+      return renderImageAnchor(target, target, alt || documentPathLeaf(target) || "image");
+    }
+    const resolvedPath = resolveInlineDocumentTarget(target, options);
+    if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+      const href = inlineDocumentURL(resolvedPath);
+      return renderImageAnchor(href, href, alt || documentPathLeaf(resolvedPath) || "image");
+    }
+    return escapeHTML(source.slice(node.from, node.to));
+  }
+  function renderParsedAutolinkNode(node, source) {
+    const urlNode = node.children.find(function(child) {
+      return child.name === "URL";
+    });
+    const href = String(urlNode ? source.slice(urlNode.from, urlNode.to) : source.slice(node.from, node.to)).trim();
+    if (!href) {
+      return escapeHTML(source.slice(node.from, node.to));
+    }
+    return renderExternalAnchor(href, escapeHTML(href));
+  }
+  function renderParsedInlineNode(node, source, options) {
+    switch (node.name) {
+      case "Document":
+      case "Paragraph":
+        return renderParsedInlineChildren(node, source, options, node.from, node.to);
+      case "StrongEmphasis":
+        return "<strong>" + renderParsedInlineChildren(node, source, options, node.from, node.to) + "</strong>";
+      case "Emphasis":
+        return "<em>" + renderParsedInlineChildren(node, source, options, node.from, node.to) + "</em>";
+      case "Strikethrough":
+        return "<del>" + renderParsedInlineChildren(node, source, options, node.from, node.to) + "</del>";
+      case "InlineCode":
+        return "<code>" + renderParsedInlineChildren(node, source, options, node.from, node.to) + "</code>";
+      case "Link":
+        return renderParsedLinkNode(node, source, options);
+      case "Image":
+        return renderParsedImageNode(node, source, options);
+      case "Autolink":
+        return renderParsedAutolinkNode(node, source);
+      case "URL":
+        return renderExternalAnchor(source.slice(node.from, node.to), escapeHTML(source.slice(node.from, node.to)));
+      case "Escape":
+        return escapeHTML(source.slice(node.from + 1, node.to));
+      case "HTMLTag":
+        return escapeHTML(source.slice(node.from, node.to));
+      case "LinkMark":
+      case "EmphasisMark":
+      case "StrikethroughMark":
+      case "CodeMark":
+      case "HeaderMark":
+      case "QuoteMark":
+      case "ListMark":
+      case "TaskMarker":
+        return "";
+    }
+    if (node.children.length) {
+      return renderParsedInlineChildren(node, source, options, node.from, node.to);
+    }
+    return renderPlainTextSegment(source.slice(node.from, node.to));
+  }
+  function renderStandardInlineSegment(source, options) {
+    const text = String(source || "");
+    if (!text) {
+      return "";
+    }
+    const root = parseInlineMarkdownTree(text);
+    return renderParsedInlineNode(root, text, options);
+  }
+  function renderSpecialInlineSpan(span, options) {
+    const target = String(span.target || "").trim();
+    const label = String(span.label || "").trim();
+    const resolvedPath = resolveInlineDocumentTarget(target, options);
+    const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
+    const visibleLabel = label || embeddedWikiLabel(target, "");
+    const labelHTML = escapeHTML(visibleLabel);
+    if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+      if (isImagePath(resolvedPath)) {
+        const href = inlineDocumentURL(resolvedPath);
+        return renderImageAnchor(href, href, visibleLabel || documentPathLeaf(resolvedPath) || "image");
+      }
+      return renderDocumentAnchor(
+        documentDownloadURL(resolvedPath),
+        labelHTML || escapeHTML(documentPathLeaf(resolvedPath) || visibleLabel || target)
+      );
+    }
+    return renderWikiButton(target, labelHTML || escapeHTML(pageTitleFromPath(target)));
+  }
+  function renderInline(value, options) {
+    const source = String(value || "");
+    const specialSpans = findMarkdownInlineSpecialSpans(source);
+    if (!specialSpans.length) {
+      return renderStandardInlineSegment(source, options);
+    }
+    let result = "";
+    let cursor = 0;
+    for (let index = 0; index < specialSpans.length; index += 1) {
+      const span = specialSpans[index];
+      if (cursor < span.from) {
+        result += renderStandardInlineSegment(source.slice(cursor, span.from), options);
+      }
+      result += renderSpecialInlineSpan(span, options);
+      cursor = span.to;
+    }
+    if (cursor < source.length) {
+      result += renderStandardInlineSegment(source.slice(cursor), options);
+    }
     return result;
   }
   var init_markdown = __esm({
@@ -27679,6 +28138,7 @@
       "use strict";
       init_documents();
       init_commands();
+      init_markdownInline();
     }
   });
 
@@ -27734,7 +28194,9 @@
       init_commands();
       init_documents();
       init_markdown();
+      init_markdownInline();
       init_taskNavigation();
+      var collapsedCodeBlockVisibleLines = 12;
       var measureCanvas = document.createElement("canvas");
       var measureContext = measureCanvas.getContext("2d");
       function bindTransientScrollClass(element, className) {
@@ -27776,9 +28238,22 @@
       var setTasksEffect = StateEffect.define();
       var setPagePathEffect = StateEffect.define();
       var setHighlightedLineEffect = StateEffect.define();
+      var toggleCodeBlockExpandedEffect = StateEffect.define();
       var editableCompartment = new Compartment();
       var readOnlyCompartment = new Compartment();
       var taskInlineDatePattern2 = /\[(due|remind):\s*[^\]]+?\]|\b(due|remind)::\s*[^\s]+(?:\s+\d{2}:\d{2})?/g;
+      function hashString(input) {
+        let hash3 = 2166136261;
+        const text = String(input || "");
+        for (let index = 0; index < text.length; index += 1) {
+          hash3 ^= text.charCodeAt(index);
+          hash3 = Math.imul(hash3, 16777619);
+        }
+        return (hash3 >>> 0).toString(36);
+      }
+      function codeBlockStateKey(startLineNumber, content2, language2) {
+        return String(startLineNumber) + ":" + hashString(String(language2 || "") + "\n" + String(content2 || ""));
+      }
       var codeLanguages = [
         LanguageDescription.of({ name: "JavaScript", alias: ["js", "javascript"], extensions: ["js", "mjs", "cjs"], support: javascript() }),
         LanguageDescription.of({ name: "TypeScript", alias: ["ts", "typescript"], extensions: ["ts", "tsx"], support: javascript({ typescript: true }) }),
@@ -27905,13 +28380,17 @@
         }
       };
       var CodeToolbarWidget = class extends WidgetType {
-        constructor(content2, language2) {
+        constructor(content2, language2, toggleKey, canCollapse, expanded, hiddenLineCount) {
           super();
           this.content = content2;
           this.language = language2;
+          this.toggleKey = toggleKey;
+          this.canCollapse = Boolean(canCollapse);
+          this.expanded = expanded;
+          this.hiddenLineCount = Math.max(0, Number(hiddenLineCount) || 0);
         }
         eq(other) {
-          return other.content === this.content && other.language === this.language;
+          return other.content === this.content && other.language === this.language && other.toggleKey === this.toggleKey && other.canCollapse === this.canCollapse && other.expanded === this.expanded && other.hiddenLineCount === this.hiddenLineCount;
         }
         toDOM() {
           const toolbar = document.createElement("span");
@@ -27920,12 +28399,26 @@
           language2.className = "cm-md-code-language";
           language2.textContent = this.language || "plain text";
           toolbar.appendChild(language2);
+          const actions = document.createElement("span");
+          actions.className = "cm-md-code-actions";
+          if (this.canCollapse) {
+            const toggleButton = document.createElement("button");
+            toggleButton.type = "button";
+            toggleButton.className = "cm-md-code-toggle";
+            toggleButton.setAttribute("data-code-toggle", this.toggleKey);
+            toggleButton.textContent = this.expanded ? "Collapse" : "Expand";
+            if (!this.expanded) {
+              toggleButton.title = "Show " + String(this.hiddenLineCount) + " more line" + (this.hiddenLineCount === 1 ? "" : "s");
+            }
+            actions.appendChild(toggleButton);
+          }
           const copyButton = document.createElement("button");
           copyButton.type = "button";
           copyButton.className = "cm-md-code-copy";
           copyButton.setAttribute("data-code-copy", encodeURIComponent(this.content));
           copyButton.textContent = "Copy";
-          toolbar.appendChild(copyButton);
+          actions.appendChild(copyButton);
+          toolbar.appendChild(actions);
           return toolbar;
         }
         ignoreEvent() {
@@ -27989,6 +28482,85 @@
         }
         ignoreEvent() {
           return false;
+        }
+      };
+      var ListMarkerWidget = class extends WidgetType {
+        constructor(marker, prefixLength, indentLength, ordered) {
+          super();
+          this.marker = String(marker || "");
+          this.prefixLength = Math.max(1, Number(prefixLength) || 0);
+          this.indentLength = Math.max(0, Number(indentLength) || 0);
+          this.ordered = Boolean(ordered);
+        }
+        eq(other) {
+          return other.marker === this.marker && other.prefixLength === this.prefixLength && other.indentLength === this.indentLength && other.ordered === this.ordered;
+        }
+        toDOM() {
+          const marker = document.createElement("span");
+          marker.className = "cm-md-list-marker" + (this.ordered ? " cm-md-list-marker-ordered" : "");
+          marker.style.setProperty("--list-prefix-width", String(this.prefixLength * 0.62) + "rem");
+          marker.style.setProperty("--list-indent-width", String(this.indentLength * 0.62) + "rem");
+          marker.textContent = this.marker;
+          marker.setAttribute("aria-hidden", "true");
+          return marker;
+        }
+        ignoreEvent() {
+          return true;
+        }
+      };
+      var QuotePrefixWidget = class extends WidgetType {
+        constructor(prefixLength, depth) {
+          super();
+          this.prefixLength = Math.max(1, Number(prefixLength) || 0);
+          this.depth = Math.max(1, Number(depth) || 1);
+        }
+        eq(other) {
+          return other.prefixLength === this.prefixLength && other.depth === this.depth;
+        }
+        toDOM() {
+          const prefix = document.createElement("span");
+          prefix.className = "cm-md-quote-prefix";
+          prefix.style.setProperty("--quote-prefix-width", String(this.prefixLength * 0.62) + "rem");
+          prefix.style.setProperty("--quote-stride-width", String(this.prefixLength / this.depth * 0.62) + "rem");
+          prefix.style.setProperty("--quote-depth", String(this.depth));
+          prefix.setAttribute("aria-hidden", "true");
+          return prefix;
+        }
+        ignoreEvent() {
+          return true;
+        }
+      };
+      var ThematicBreakWidget = class _ThematicBreakWidget extends WidgetType {
+        eq(other) {
+          return other instanceof _ThematicBreakWidget;
+        }
+        toDOM() {
+          const rule = document.createElement("span");
+          rule.className = "cm-md-rule";
+          rule.setAttribute("aria-hidden", "true");
+          return rule;
+        }
+        ignoreEvent() {
+          return true;
+        }
+      };
+      var HtmlLineWidget = class extends WidgetType {
+        constructor(className, html2) {
+          super();
+          this.className = className;
+          this.html = html2;
+        }
+        eq(other) {
+          return other.className === this.className && other.html === this.html;
+        }
+        toDOM() {
+          const wrapper = document.createElement("span");
+          wrapper.className = this.className;
+          wrapper.innerHTML = this.html;
+          return wrapper;
+        }
+        ignoreEvent() {
+          return true;
         }
       };
       var QueryBlockWidget = class extends WidgetType {
@@ -28087,6 +28659,27 @@
           return value;
         }
       });
+      var expandedCodeBlocksField = StateField.define({
+        create() {
+          return {};
+        },
+        update(value, transaction) {
+          let next = value;
+          for (const effect of transaction.effects) {
+            if (effect.is(toggleCodeBlockExpandedEffect)) {
+              const key = String(effect.value || "");
+              if (!key) {
+                continue;
+              }
+              if (next === value) {
+                next = { ...value };
+              }
+              next[key] = !Boolean(next[key]);
+            }
+          }
+          return next;
+        }
+      });
       var highlightedLineField = StateField.define({
         create() {
           return null;
@@ -28163,6 +28756,156 @@
         }
         return null;
       }
+      function markdownBlockquotePrefixMatch(text) {
+        const match = String(text || "").match(/^((?: {0,3}>\s*)+)/);
+        if (!match) {
+          return null;
+        }
+        const prefix = String(match[1] || "");
+        const depth = (prefix.match(/>/g) || []).length;
+        if (!depth) {
+          return null;
+        }
+        return {
+          prefixLength: prefix.length,
+          depth
+        };
+      }
+      function markdownListPrefixMatch(text, startOffset = 0) {
+        const source = String(text || "").slice(Math.max(0, Number(startOffset) || 0));
+        let match = source.match(/^(\s*)([-+*])(\s+)/);
+        if (match) {
+          return {
+            prefixLength: match[0].length,
+            indentLength: match[1].length,
+            markerText: "\u2022",
+            ordered: false
+          };
+        }
+        match = source.match(/^(\s*)(\d+)([.)])(\s+)/);
+        if (match) {
+          return {
+            prefixLength: match[0].length,
+            indentLength: match[1].length,
+            markerText: String(match[2] || "") + String(match[3] || "."),
+            ordered: true
+          };
+        }
+        return null;
+      }
+      function isMarkdownThematicBreak(text) {
+        const source = String(text || "").trim();
+        return /^((-\s*){3,}|(\*\s*){3,}|(_\s*){3,})$/.test(source);
+      }
+      function markdownMathBlockAt(lines, startLineIndex) {
+        if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex >= lines.length) {
+          return null;
+        }
+        if (String(lines[startLineIndex] || "").trim() !== "$$") {
+          return null;
+        }
+        let endLineIndex = lines.length - 1;
+        for (let index = startLineIndex + 1; index < lines.length; index += 1) {
+          if (String(lines[index] || "").trim() === "$$") {
+            endLineIndex = index;
+            break;
+          }
+        }
+        return {
+          startLineIndex,
+          endLineIndex
+        };
+      }
+      function markdownHtmlLineMatch(text) {
+        const source = String(text || "").trim();
+        if (/^<details(?:\s+open)?\s*>$/i.test(source)) {
+          return { kind: "details_open" };
+        }
+        if (/^<\/details>$/i.test(source)) {
+          return { kind: "details_close" };
+        }
+        if (/^<dl>$/i.test(source)) {
+          return { kind: "dl_open" };
+        }
+        if (/^<\/dl>$/i.test(source)) {
+          return { kind: "dl_close" };
+        }
+        let match = source.match(/^<summary>([\s\S]*?)<\/summary>$/i);
+        if (match) {
+          return {
+            kind: "summary",
+            inner: String(match[1] || "")
+          };
+        }
+        match = source.match(/^<dt>([\s\S]*?)<\/dt>$/i);
+        if (match) {
+          return {
+            kind: "dt",
+            inner: String(match[1] || "")
+          };
+        }
+        match = source.match(/^<dd>([\s\S]*?)<\/dd>$/i);
+        if (match) {
+          return {
+            kind: "dd",
+            inner: String(match[1] || "")
+          };
+        }
+        return null;
+      }
+      function findAllowedInlineHtmlSpans(source) {
+        const text = String(source || "");
+        const spans = [];
+        const pattern = /<(sub|sup|kbd|mark)>([\s\S]*?)<\/\1>/gi;
+        let match = null;
+        while ((match = pattern.exec(text)) !== null) {
+          const tagName = String(match[1] || "").toLowerCase();
+          const openingTag = "<" + tagName + ">";
+          const closingTag = "</" + tagName + ">";
+          spans.push({
+            from: match.index,
+            to: match.index + match[0].length,
+            tagName,
+            innerFrom: match.index + openingTag.length,
+            innerTo: match.index + match[0].length - closingTag.length
+          });
+        }
+        return spans;
+      }
+      function findInlineMathSpans2(source) {
+        const text = String(source || "");
+        const spans = [];
+        let index = 0;
+        while (index < text.length) {
+          if (text[index] !== "$" || text[index + 1] === "$" || index > 0 && text[index - 1] === "\\") {
+            index += 1;
+            continue;
+          }
+          let end = index + 1;
+          while (end < text.length) {
+            if (text[end] === "$" && text[end - 1] !== "\\") {
+              break;
+            }
+            end += 1;
+          }
+          if (end >= text.length || text[end] !== "$") {
+            break;
+          }
+          const content2 = text.slice(index + 1, end);
+          if (!content2 || /^\s|\s$/.test(content2)) {
+            index = end + 1;
+            continue;
+          }
+          spans.push({
+            from: index,
+            to: end + 1,
+            innerFrom: index + 1,
+            innerTo: end
+          });
+          index = end + 1;
+        }
+        return spans;
+      }
       function renderedBodyStartOffset(state) {
         if (!state.field(renderModeField, false)) {
           return 0;
@@ -28194,6 +28937,35 @@
         });
         return EditorSelection.create(ranges, selection.mainIndex);
       }
+      function clampSelectionToRenderedVisibleOffsets(state, selection) {
+        if (!state.field(renderModeField, false)) {
+          return selection;
+        }
+        const ranges = selection.ranges.map(function(range) {
+          const anchorLine = state.doc.lineAt(range.anchor);
+          const anchorVisibleStart = Math.min(anchorLine.to, anchorLine.from + renderedHiddenPrefixLength(anchorLine.text));
+          const anchor = range.anchor < anchorVisibleStart ? anchorVisibleStart : range.anchor;
+          const headLine = state.doc.lineAt(range.head);
+          const headVisibleStart = Math.min(headLine.to, headLine.from + renderedHiddenPrefixLength(headLine.text));
+          const head = range.head < headVisibleStart ? headVisibleStart : range.head;
+          if (anchor === head) {
+            return EditorSelection.cursor(
+              anchor,
+              range.assoc,
+              range.bidiLevel === null ? void 0 : range.bidiLevel,
+              range.goalColumn
+            );
+          }
+          return EditorSelection.range(
+            anchor,
+            head,
+            range.goalColumn,
+            range.bidiLevel === null ? void 0 : range.bidiLevel,
+            range.assoc
+          );
+        });
+        return EditorSelection.create(ranges, selection.mainIndex);
+      }
       function changesTouchProtectedRange(transaction, protectedUntil) {
         if (!transaction.docChanged || protectedUntil <= 0) {
           return false;
@@ -28206,93 +28978,137 @@
         });
         return touched;
       }
-      function revealRenderedCodeBlockByArrow(view, key) {
+      function renderedVisibleLineStart(line) {
+        return Math.min(line.to, line.from + renderedHiddenPrefixLength(line.text));
+      }
+      function dispatchRenderedSelection(view, head, extend = false) {
+        const protectedUntil = renderedBodyStartOffset(view.state);
+        let nextSelection = extend ? EditorSelection.single(view.state.selection.main.anchor, head) : EditorSelection.single(head);
+        nextSelection = clampSelectionToOffset(nextSelection, protectedUntil);
+        nextSelection = clampSelectionToRenderedVisibleOffsets(view.state, nextSelection);
+        view.dispatch({
+          selection: nextSelection,
+          scrollIntoView: true
+        });
+        return true;
+      }
+      function moveHeadToLine(state, sourceHead, lineNumber) {
+        if (lineNumber < 1 || lineNumber > state.doc.lines) {
+          return null;
+        }
+        const currentLine = state.doc.lineAt(sourceHead);
+        const column = Math.max(0, sourceHead - currentLine.from);
+        const targetLine = state.doc.line(lineNumber);
+        const visibleStart = state.field(renderModeField, false) ? renderedVisibleLineStart(targetLine) : targetLine.from;
+        const targetHead = Math.min(targetLine.from + column, targetLine.to);
+        return Math.max(visibleStart, targetHead);
+      }
+      function renderedTableArrowTarget(view, key, sourceHead) {
         if (!view.state.field(renderModeField, false)) {
-          return false;
+          return null;
         }
-        const selection = view.state.selection.main;
-        if (!selection.empty) {
-          return false;
+        const currentLine = view.state.doc.lineAt(sourceHead);
+        const lines = view.state.doc.toString().split("\n");
+        if (key === "ArrowUp") {
+          if (currentLine.number <= 1) {
+            return null;
+          }
+          const tableEndingOnPreviousLine = tableBlockEndingAtLine(lines, currentLine.number - 2);
+          if (tableEndingOnPreviousLine) {
+            return moveHeadToLine(view.state, sourceHead, tableEndingOnPreviousLine.endLineIndex + 1);
+          }
+          const tableEndingTwoLinesAbove = tableBlockEndingAtLine(lines, currentLine.number - 3);
+          if (tableEndingTwoLinesAbove) {
+            return moveHeadToLine(view.state, sourceHead, currentLine.number - 1);
+          }
+          return null;
         }
-        const currentLine = view.state.doc.lineAt(selection.head);
-        const column = Math.max(0, selection.head - currentLine.from);
+        if (currentLine.number >= view.state.doc.lines) {
+          return null;
+        }
+        const tableStartingOnNextLine = markdownTableBlockAt(lines, currentLine.number);
+        if (tableStartingOnNextLine) {
+          return moveHeadToLine(view.state, sourceHead, tableStartingOnNextLine.startLineIndex + 1);
+        }
+        const tableStartingTwoLinesBelow = markdownTableBlockAt(lines, currentLine.number + 1);
+        if (tableStartingTwoLinesBelow) {
+          return moveHeadToLine(view.state, sourceHead, currentLine.number + 1);
+        }
+        return null;
+      }
+      function renderedTaskArrowTarget(view, key, sourceHead) {
+        if (!view.state.field(renderModeField, false)) {
+          return null;
+        }
+        const currentLine = view.state.doc.lineAt(sourceHead);
+        const targetLineNumber = key === "ArrowDown" ? currentLine.number + 1 : currentLine.number - 1;
+        if (targetLineNumber < 1 || targetLineNumber > view.state.doc.lines) {
+          return null;
+        }
+        const targetLine = view.state.doc.line(targetLineNumber);
+        const currentTaskPrefix = taskPrefixLength(currentLine.text);
+        const targetTaskPrefix = taskPrefixLength(targetLine.text);
+        if (!currentTaskPrefix && !targetTaskPrefix && !taskLineHasInlineDate(currentLine.text) && !taskLineHasInlineDate(targetLine.text)) {
+          return null;
+        }
+        const rawColumn = Math.max(0, sourceHead - currentLine.from);
+        const visibleColumn = renderedTaskVisibleColumn(currentLine.text, rawColumn);
+        const targetRawColumn = renderedTaskRawColumn(targetLine.text, visibleColumn);
+        return Math.min(targetLine.from + targetRawColumn, targetLine.to);
+      }
+      function renderedCodeBlockArrowTarget(view, key, sourceHead) {
+        if (!view.state.field(renderModeField, false)) {
+          return null;
+        }
+        const currentLine = view.state.doc.lineAt(sourceHead);
+        const column = Math.max(0, sourceHead - currentLine.from);
         const lines = view.state.doc.toString().split("\n");
         if (key === "ArrowDown") {
           if (currentLine.number >= view.state.doc.lines) {
-            return false;
+            return null;
           }
-          const block = markdownCodeFenceBlockAt(lines, currentLine.number);
-          if (!block) {
-            return false;
+          const block2 = markdownCodeFenceBlockAt(lines, currentLine.number);
+          if (!block2) {
+            return null;
           }
-          const targetLine = view.state.doc.line(block.startLineIndex + 1);
-          view.dispatch({
-            selection: {
-              anchor: Math.min(targetLine.from + column, targetLine.to)
-            },
-            scrollIntoView: true
-          });
-          return true;
+          const targetLine2 = view.state.doc.line(block2.startLineIndex + 1);
+          return Math.min(targetLine2.from + column, targetLine2.to);
         }
-        if (key === "ArrowUp") {
-          if (currentLine.number <= 1) {
-            return false;
-          }
-          const block = codeBlockEndingAtLine(lines, currentLine.number - 2);
-          if (!block) {
-            return false;
-          }
-          const targetLine = view.state.doc.line(block.endLineIndex + 1);
-          view.dispatch({
-            selection: {
-              anchor: Math.min(targetLine.from + column, targetLine.to)
-            },
-            scrollIntoView: true
-          });
-          return true;
-        }
-        return false;
-      }
-      function moveCursorToLine(view, lineNumber) {
-        if (lineNumber < 1 || lineNumber > view.state.doc.lines) {
-          return false;
-        }
-        const selection = view.state.selection.main;
-        const currentLine = view.state.doc.lineAt(selection.head);
-        const column = Math.max(0, selection.head - currentLine.from);
-        const targetLine = view.state.doc.line(lineNumber);
-        view.dispatch({
-          selection: {
-            anchor: Math.min(targetLine.from + column, targetLine.to)
-          },
-          scrollIntoView: true
-        });
-        return true;
-      }
-      function handleRenderedTableArrowUp(view) {
-        if (!view.state.field(renderModeField, false)) {
-          return false;
-        }
-        const selection = view.state.selection.main;
-        if (!selection.empty) {
-          return false;
-        }
-        const currentLine = view.state.doc.lineAt(selection.head);
-        const lines = view.state.doc.toString().split("\n");
         if (currentLine.number <= 1) {
+          return null;
+        }
+        const block = codeBlockEndingAtLine(lines, currentLine.number - 2);
+        if (!block) {
+          return null;
+        }
+        const targetLineNumber = block.closed && block.endLineIndex > block.startLineIndex + 1 ? block.endLineIndex : block.endLineIndex + 1;
+        const targetLine = view.state.doc.line(targetLineNumber);
+        return Math.min(targetLine.from + column, targetLine.to);
+      }
+      function renderedHiddenPrefixLength(text) {
+        const taskPrefix = taskPrefixLength(text);
+        if (taskPrefix) {
+          return taskPrefix;
+        }
+        const headingMatch = String(text || "").match(/^(#{1,6})(\s+)/);
+        if (headingMatch) {
+          return headingMatch[0].length;
+        }
+        const quoteMatch = markdownBlockquotePrefixMatch(text);
+        const quotePrefix = quoteMatch ? quoteMatch.prefixLength : 0;
+        const listPrefix = markdownListPrefixMatch(text, quotePrefix);
+        return quotePrefix + (listPrefix ? listPrefix.prefixLength : 0);
+      }
+      function handleRenderedLineBoundary(view, key, extend = false) {
+        if (!view.state.field(renderModeField, false)) {
           return false;
         }
-        const tableEndingOnPreviousLine = tableBlockEndingAtLine(lines, currentLine.number - 2);
-        if (tableEndingOnPreviousLine) {
-          return moveCursorToLine(view, tableEndingOnPreviousLine.startLineIndex);
-        }
-        const tableEndingTwoLinesAbove = tableBlockEndingAtLine(lines, currentLine.number - 3);
-        if (tableEndingTwoLinesAbove) {
-          return moveCursorToLine(view, currentLine.number - 1);
-        }
-        return false;
+        const selection = view.state.selection.main;
+        const currentLine = view.state.doc.lineAt(selection.head);
+        const targetHead = key === "End" ? currentLine.to : renderedVisibleLineStart(currentLine);
+        return dispatchRenderedSelection(view, targetHead, extend);
       }
-      function handleRenderedTaskArrow(view, key) {
+      function handleRenderedHiddenPrefixHorizontalBoundary(view, key) {
         if (!view.state.field(renderModeField, false)) {
           return false;
         }
@@ -28301,24 +29117,59 @@
           return false;
         }
         const currentLine = view.state.doc.lineAt(selection.head);
-        const targetLineNumber = key === "ArrowDown" ? currentLine.number + 1 : currentLine.number - 1;
-        if (targetLineNumber < 1 || targetLineNumber > view.state.doc.lines) {
-          return false;
-        }
-        const targetLine = view.state.doc.line(targetLineNumber);
-        if (!taskLineHasInlineDate(currentLine.text) && !taskLineHasInlineDate(targetLine.text)) {
-          return false;
-        }
+        const currentPrefix = renderedHiddenPrefixLength(currentLine.text);
         const rawColumn = Math.max(0, selection.head - currentLine.from);
-        const visibleColumn = renderedTaskVisibleColumn(currentLine.text, rawColumn);
-        const targetRawColumn = renderedTaskRawColumn(targetLine.text, visibleColumn);
-        view.dispatch({
-          selection: {
-            anchor: Math.min(targetLine.from + targetRawColumn, targetLine.to)
-          },
-          scrollIntoView: true
-        });
-        return true;
+        if (key === "ArrowLeft") {
+          if (!currentPrefix || rawColumn > currentPrefix) {
+            return false;
+          }
+          if (currentLine.number <= 1) {
+            return dispatchRenderedSelection(view, currentLine.from + currentPrefix);
+          }
+          const previousLine = view.state.doc.line(currentLine.number - 1);
+          return dispatchRenderedSelection(view, previousLine.to);
+        }
+        if (currentPrefix && rawColumn < currentPrefix) {
+          return dispatchRenderedSelection(view, currentLine.from + currentPrefix);
+        }
+        if (rawColumn !== currentLine.length || currentLine.number >= view.state.doc.lines) {
+          return false;
+        }
+        const nextLine = view.state.doc.line(currentLine.number + 1);
+        const nextPrefix = renderedHiddenPrefixLength(nextLine.text);
+        if (!nextPrefix) {
+          return false;
+        }
+        return dispatchRenderedSelection(view, nextLine.from + nextPrefix);
+      }
+      function handleRenderedVerticalArrow(view, key, extend = false) {
+        if (!view.state.field(renderModeField, false)) {
+          return false;
+        }
+        const selection = view.state.selection.main;
+        if (!extend && !selection.empty) {
+          return false;
+        }
+        const sourceHead = selection.head;
+        const taskTarget = renderedTaskArrowTarget(view, key, sourceHead);
+        if (taskTarget !== null) {
+          return dispatchRenderedSelection(view, taskTarget, extend);
+        }
+        const tableTarget = renderedTableArrowTarget(view, key, sourceHead);
+        if (tableTarget !== null) {
+          return dispatchRenderedSelection(view, tableTarget, extend);
+        }
+        const codeBlockTarget = renderedCodeBlockArrowTarget(view, key, sourceHead);
+        if (codeBlockTarget !== null) {
+          return dispatchRenderedSelection(view, codeBlockTarget, extend);
+        }
+        const currentLine = view.state.doc.lineAt(sourceHead);
+        const targetLineNumber = key === "ArrowDown" ? currentLine.number + 1 : currentLine.number - 1;
+        const targetHead = moveHeadToLine(view.state, sourceHead, targetLineNumber);
+        if (targetHead === null) {
+          return false;
+        }
+        return dispatchRenderedSelection(view, targetHead, extend);
       }
       var atomicRangeDecoration = Decoration.mark({});
       function addAtomicRange(builder, from, to) {
@@ -28326,9 +29177,9 @@
           builder.add(from, to, atomicRangeDecoration);
         }
       }
-      function inlineDecorationOverlaps(decos, from, to) {
-        return decos.some(function(deco) {
-          return from < deco.to && deco.from < to;
+      function inlineRangesOverlap(from, to, ranges) {
+        return ranges.some(function(range) {
+          return from < range.to && range.from < to;
         });
       }
       function embeddedLinkLabel(target, label) {
@@ -28349,155 +29200,376 @@
         }
         return trimmedLabel === documentPathLeaf(target);
       }
-      function addInlineDecorations(builder, atomicBuilder, lineFrom, text, startOffset, editingLine, selection, currentPagePath, extraDecos) {
-        const decos = extraDecos.slice();
-        const body = text.slice(startOffset);
-        const bodyFrom = lineFrom + startOffset;
-        const imagePattern = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|!\[([^\]]*)\]\(([^)\s]+)\)/g;
-        const pattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|(?<![(\[])https?:\/\/[^\s)\]>]+|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
-        let imageMatch = null;
-        while ((imageMatch = imagePattern.exec(body)) !== null) {
-          const mFrom = bodyFrom + imageMatch.index;
-          const mEnd = mFrom + imageMatch[0].length;
-          const editing = selection.from <= mEnd && selection.to >= mFrom;
-          if (editing) {
-            decos.push({ from: mFrom, to: mEnd, deco: Decoration.mark({ class: "cm-md-link-raw" }) });
-            continue;
-          }
-          if (imageMatch[1] !== void 0) {
-            const target2 = String(imageMatch[1] || "").trim();
-            const label = embeddedLinkLabel(target2, String(imageMatch[2] || ""));
-            const resolvedPath2 = resolveDocumentPath(currentPagePath || "", target2);
-            const looksLikeDocument = resolvedPath2 ? documentPathLeaf(resolvedPath2).indexOf(".") >= 0 : false;
-            if (resolvedPath2 && looksLikeDocument && !/\.md$/i.test(resolvedPath2) && !target2.startsWith("#")) {
-              if (isImagePath(resolvedPath2)) {
-                const href = inlineDocumentURL(resolvedPath2);
-                decos.push({
-                  from: mFrom,
-                  to: mEnd,
-                  deco: Decoration.replace({ widget: new MarkdownImageWidget(href, href, label || documentPathLeaf(resolvedPath2) || "image") }),
-                  atomic: true
-                });
-              } else {
-                decos.push({
-                  from: mFrom,
-                  to: mEnd,
-                  deco: Decoration.replace({ widget: new MarkdownLinkWidget(documentDownloadURL(resolvedPath2), label || documentPathLeaf(resolvedPath2)) }),
-                  atomic: true
-                });
-              }
-              continue;
-            }
-            decos.push({
-              from: mFrom,
-              to: mEnd,
-              deco: Decoration.replace({ widget: new WikiLinkWidget(target2, label) }),
-              atomic: true
-            });
-            continue;
-          }
-          const alt = String(imageMatch[3] || "").trim();
-          const target = String(imageMatch[4] || "").trim();
-          if (/^[a-z]+:/i.test(target)) {
-            decos.push({
-              from: mFrom,
-              to: mEnd,
-              deco: Decoration.replace({ widget: new MarkdownImageWidget(target, target, alt || documentPathLeaf(target) || "image") }),
-              atomic: true
-            });
-            continue;
-          }
-          const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
-          if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
-            const href = inlineDocumentURL(resolvedPath);
-            decos.push({
-              from: mFrom,
-              to: mEnd,
-              deco: Decoration.replace({ widget: new MarkdownImageWidget(href, href, alt || documentPathLeaf(resolvedPath) || "image") }),
-              atomic: true
-            });
-          }
+      function addHiddenInlineMarker(decos, from, to) {
+        if (to > from) {
+          decos.push({
+            from,
+            to,
+            deco: Decoration.replace({}),
+            atomic: true
+          });
         }
-        let m = null;
-        while ((m = pattern.exec(body)) !== null) {
-          const mFrom = bodyFrom + m.index;
-          const mEnd = mFrom + m[0].length;
-          if (inlineDecorationOverlaps(decos, mFrom, mEnd)) {
+      }
+      function addInlineStyle(decos, from, to, className) {
+        if (to > from) {
+          decos.push({
+            from,
+            to,
+            deco: Decoration.mark({ class: className })
+          });
+        }
+      }
+      function nodeChildrenByName(node, name2) {
+        return node.children.filter(function(child) {
+          return child.name === name2;
+        });
+      }
+      function addInlineStyledNode(decos, blockedRanges, node, bodyFrom, className, markNodeName) {
+        const nodeFrom = bodyFrom + node.from;
+        const nodeTo = bodyFrom + node.to;
+        if (inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges)) {
+          return;
+        }
+        const markNodes = nodeChildrenByName(node, markNodeName);
+        if (markNodes.length < 2) {
+          return;
+        }
+        const firstMark = markNodes[0];
+        const lastMark = markNodes[markNodes.length - 1];
+        addHiddenInlineMarker(decos, bodyFrom + firstMark.from, bodyFrom + firstMark.to);
+        addHiddenInlineMarker(decos, bodyFrom + lastMark.from, bodyFrom + lastMark.to);
+        addInlineStyle(decos, bodyFrom + firstMark.to, bodyFrom + lastMark.from, className);
+      }
+      function addSpecialInlineSpanDecoration(decos, blockedRanges, body, bodyFrom, currentPagePath, selection) {
+        const spans = findMarkdownInlineSpecialSpans(body);
+        for (let index = 0; index < spans.length; index += 1) {
+          const span = spans[index];
+          const spanFrom = bodyFrom + span.from;
+          const spanTo = bodyFrom + span.to;
+          const editing = selection.from <= spanTo && selection.to >= spanFrom;
+          if (editing) {
+            decos.push({
+              from: spanFrom,
+              to: spanTo,
+              deco: Decoration.mark({ class: "cm-md-link-raw" }),
+              atomic: true
+            });
+            blockedRanges.push({ from: spanFrom, to: spanTo });
             continue;
           }
-          if (m[1] !== void 0) {
-            const target = String(m[1]).trim();
-            const label = String(m[2] || "").trim() || pageTitleFromPath(target);
-            const editing = selection.from <= mEnd && selection.to >= mFrom;
-            if (editing) {
-              decos.push({ from: mFrom, to: mEnd, deco: Decoration.mark({ class: "cm-md-link-raw" }) });
+          const target = String(span.target || "").trim();
+          const label = embeddedLinkLabel(target, String(span.label || ""));
+          const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
+          const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
+          if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+            if (isImagePath(resolvedPath)) {
+              const href = inlineDocumentURL(resolvedPath);
+              decos.push({
+                from: spanFrom,
+                to: spanTo,
+                deco: Decoration.replace({ widget: new MarkdownImageWidget(href, href, label || documentPathLeaf(resolvedPath) || "image") }),
+                atomic: true
+              });
             } else {
-              decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new WikiLinkWidget(target, label) }), atomic: true });
+              decos.push({
+                from: spanFrom,
+                to: spanTo,
+                deco: Decoration.replace({ widget: new MarkdownLinkWidget(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath)) }),
+                atomic: true
+              });
             }
-          } else if (m[3] !== void 0) {
-            const label = String(m[3]).trim();
-            const target = String(m[4] || "").trim();
-            const editing = selection.from <= mEnd && selection.to >= mFrom;
+            blockedRanges.push({ from: spanFrom, to: spanTo });
+            continue;
+          }
+          decos.push({
+            from: spanFrom,
+            to: spanTo,
+            deco: Decoration.replace({ widget: new WikiLinkWidget(target, label) }),
+            atomic: true
+          });
+          blockedRanges.push({ from: spanFrom, to: spanTo });
+        }
+      }
+      function addAllowedInlineHtmlSpanDecorations(decos, blockedRanges, body, bodyFrom, selection) {
+        const classNames = {
+          sub: "cm-md-html-sub",
+          sup: "cm-md-html-sup",
+          kbd: "cm-md-html-kbd",
+          mark: "cm-md-html-mark"
+        };
+        const spans = findAllowedInlineHtmlSpans(body);
+        for (let index = 0; index < spans.length; index += 1) {
+          const span = spans[index];
+          const spanFrom = bodyFrom + span.from;
+          const spanTo = bodyFrom + span.to;
+          const editing = selection.from <= spanTo && selection.to >= spanFrom;
+          if (editing) {
+            decos.push({
+              from: spanFrom,
+              to: spanTo,
+              deco: Decoration.mark({ class: "cm-md-html-raw" }),
+              atomic: true
+            });
+            blockedRanges.push({ from: spanFrom, to: spanTo });
+            continue;
+          }
+          const openingTagLength = span.innerFrom - span.from;
+          const closingTagLength = span.to - span.innerTo;
+          addHiddenInlineMarker(decos, spanFrom, spanFrom + openingTagLength);
+          addHiddenInlineMarker(decos, spanTo - closingTagLength, spanTo);
+          addInlineStyle(decos, bodyFrom + span.innerFrom, bodyFrom + span.innerTo, classNames[span.tagName]);
+          blockedRanges.push({ from: spanFrom, to: spanTo });
+        }
+      }
+      function addInlineMathSpanDecorations(decos, blockedRanges, body, bodyFrom, selection) {
+        const spans = findInlineMathSpans2(body);
+        for (let index = 0; index < spans.length; index += 1) {
+          const span = spans[index];
+          const spanFrom = bodyFrom + span.from;
+          const spanTo = bodyFrom + span.to;
+          const editing = selection.from <= spanTo && selection.to >= spanFrom;
+          if (editing) {
+            decos.push({
+              from: spanFrom,
+              to: spanTo,
+              deco: Decoration.mark({ class: "cm-md-math-raw" }),
+              atomic: true
+            });
+            blockedRanges.push({ from: spanFrom, to: spanTo });
+            continue;
+          }
+          addHiddenInlineMarker(decos, spanFrom, spanFrom + 1);
+          addHiddenInlineMarker(decos, spanTo - 1, spanTo);
+          addInlineStyle(decos, bodyFrom + span.innerFrom, bodyFrom + span.innerTo, "cm-md-math-inline");
+          blockedRanges.push({ from: spanFrom, to: spanTo });
+        }
+      }
+      function addParsedInlineDecorationNode(decos, blockedRanges, node, parentName, body, bodyFrom, editingLine, selection, currentPagePath, referenceDefinitions) {
+        const nodeFrom = bodyFrom + node.from;
+        const nodeTo = bodyFrom + node.to;
+        switch (node.name) {
+          case "Link": {
+            if (inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges)) {
+              return;
+            }
+            const info = markdownResolvedLinkInfo(node, body, referenceDefinitions);
+            if (!info) {
+              return;
+            }
+            const target = String(info.target || "").trim();
+            const label = visibleTextFromChildren(node, body, info.labelFrom, info.labelTo).trim() || pageTitleFromPath(target);
+            const editing = selection.from <= nodeTo && selection.to >= nodeFrom;
+            if (editing) {
+              decos.push({
+                from: nodeFrom,
+                to: nodeTo,
+                deco: Decoration.mark({ class: "cm-md-link-raw" }),
+                atomic: true
+              });
+              blockedRanges.push({ from: nodeFrom, to: nodeTo });
+              return;
+            }
             if (/^[a-z]+:/i.test(target)) {
-              if (editing) {
-                decos.push({ from: mFrom, to: mEnd, deco: Decoration.mark({ class: "cm-md-link-raw" }) });
-              } else if (isImagePath(target) && shouldRenderMarkdownLinkAsImage2(label, target)) {
+              if (isImagePath(target) && shouldRenderMarkdownLinkAsImage2(label, target)) {
                 decos.push({
-                  from: mFrom,
-                  to: mEnd,
+                  from: nodeFrom,
+                  to: nodeTo,
                   deco: Decoration.replace({ widget: new MarkdownImageWidget(target, target, label || documentPathLeaf(target) || "image") }),
                   atomic: true
                 });
               } else {
-                decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new ExternalLinkWidget(target, label || target) }), atomic: true });
+                decos.push({
+                  from: nodeFrom,
+                  to: nodeTo,
+                  deco: Decoration.replace({ widget: new ExternalLinkWidget(target, label || target) }),
+                  atomic: true
+                });
               }
-            } else {
-              const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
-              if (!resolvedPath || /\.md$/i.test(resolvedPath) || target.startsWith("#")) {
-                continue;
-              }
-              const href = documentDownloadURL(resolvedPath);
-              if (editing) {
-                decos.push({ from: mFrom, to: mEnd, deco: Decoration.mark({ class: "cm-md-link-raw" }) });
-              } else if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage2(label, target)) {
+              blockedRanges.push({ from: nodeFrom, to: nodeTo });
+              return;
+            }
+            const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
+            if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+              if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage2(label, target)) {
                 const imageHref = inlineDocumentURL(resolvedPath);
                 decos.push({
-                  from: mFrom,
-                  to: mEnd,
+                  from: nodeFrom,
+                  to: nodeTo,
                   deco: Decoration.replace({ widget: new MarkdownImageWidget(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image") }),
                   atomic: true
                 });
               } else {
-                decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new MarkdownLinkWidget(href, label || href) }), atomic: true });
+                decos.push({
+                  from: nodeFrom,
+                  to: nodeTo,
+                  deco: Decoration.replace({ widget: new MarkdownLinkWidget(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath) || documentPathLeaf(target) || target) }),
+                  atomic: true
+                });
               }
+              blockedRanges.push({ from: nodeFrom, to: nodeTo });
+              return;
             }
-          } else if (m[0][0] === "h" && /^https?:\/\//.test(m[0])) {
-            const editing = selection.from <= mEnd && selection.to >= mFrom;
-            if (editing) {
-              decos.push({ from: mFrom, to: mEnd, deco: Decoration.mark({ class: "cm-md-link-raw" }) });
-            } else if (!editingLine) {
-              decos.push({ from: mFrom, to: mEnd, deco: Decoration.replace({ widget: new ExternalLinkWidget(m[0], m[0]) }), atomic: true });
-            }
-          } else if (!editingLine) {
-            if (m[5] !== void 0) {
-              decos.push({ from: mFrom, to: mFrom + 1, deco: Decoration.replace({}), atomic: true });
-              decos.push({ from: mFrom + 1, to: mEnd - 1, deco: Decoration.mark({ class: "cm-md-inline-code" }) });
-              decos.push({ from: mEnd - 1, to: mEnd, deco: Decoration.replace({}), atomic: true });
-            } else if (m[6] !== void 0 || m[7] !== void 0) {
-              decos.push({ from: mFrom, to: mFrom + 2, deco: Decoration.replace({}), atomic: true });
-              decos.push({ from: mFrom + 2, to: mEnd - 2, deco: Decoration.mark({ class: "cm-md-bold" }) });
-              decos.push({ from: mEnd - 2, to: mEnd, deco: Decoration.replace({}), atomic: true });
-            } else if (m[8] !== void 0 || m[9] !== void 0) {
-              decos.push({ from: mFrom, to: mFrom + 1, deco: Decoration.replace({}), atomic: true });
-              decos.push({ from: mFrom + 1, to: mEnd - 1, deco: Decoration.mark({ class: "cm-md-italic" }) });
-              decos.push({ from: mEnd - 1, to: mEnd, deco: Decoration.replace({}), atomic: true });
-            } else if (m[10] !== void 0) {
-              decos.push({ from: mFrom, to: mFrom + 2, deco: Decoration.replace({}), atomic: true });
-              decos.push({ from: mFrom + 2, to: mEnd - 2, deco: Decoration.mark({ class: "cm-md-strikethrough" }) });
-              decos.push({ from: mEnd - 2, to: mEnd, deco: Decoration.replace({}), atomic: true });
-            }
+            decos.push({
+              from: nodeFrom,
+              to: nodeTo,
+              deco: Decoration.replace({ widget: new WikiLinkWidget(target, label || pageTitleFromPath(target)) }),
+              atomic: true
+            });
+            blockedRanges.push({ from: nodeFrom, to: nodeTo });
+            return;
           }
+          case "Image": {
+            if (inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges)) {
+              return;
+            }
+            const info = markdownResolvedLinkInfo(node, body, referenceDefinitions);
+            if (!info) {
+              return;
+            }
+            const target = String(info.target || "").trim();
+            const alt = visibleTextFromChildren(node, body, info.labelFrom, info.labelTo).trim();
+            const editing = selection.from <= nodeTo && selection.to >= nodeFrom;
+            if (editing) {
+              decos.push({
+                from: nodeFrom,
+                to: nodeTo,
+                deco: Decoration.mark({ class: "cm-md-link-raw" }),
+                atomic: true
+              });
+              blockedRanges.push({ from: nodeFrom, to: nodeTo });
+              return;
+            }
+            if (/^[a-z]+:/i.test(target)) {
+              decos.push({
+                from: nodeFrom,
+                to: nodeTo,
+                deco: Decoration.replace({ widget: new MarkdownImageWidget(target, target, alt || documentPathLeaf(target) || "image") }),
+                atomic: true
+              });
+              blockedRanges.push({ from: nodeFrom, to: nodeTo });
+              return;
+            }
+            const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
+            if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+              const href = inlineDocumentURL(resolvedPath);
+              decos.push({
+                from: nodeFrom,
+                to: nodeTo,
+                deco: Decoration.replace({ widget: new MarkdownImageWidget(href, href, alt || documentPathLeaf(resolvedPath) || "image") }),
+                atomic: true
+              });
+              blockedRanges.push({ from: nodeFrom, to: nodeTo });
+            }
+            return;
+          }
+          case "Autolink": {
+            if (inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges)) {
+              return;
+            }
+            const urlNode = node.children.find(function(child) {
+              return child.name === "URL";
+            });
+            const target = String(urlNode ? body.slice(urlNode.from, urlNode.to) : body.slice(node.from, node.to)).trim();
+            if (!target) {
+              return;
+            }
+            const editing = selection.from <= nodeTo && selection.to >= nodeFrom;
+            if (editing) {
+              decos.push({
+                from: nodeFrom,
+                to: nodeTo,
+                deco: Decoration.mark({ class: "cm-md-link-raw" }),
+                atomic: true
+              });
+            } else if (!editingLine) {
+              decos.push({
+                from: nodeFrom,
+                to: nodeTo,
+                deco: Decoration.replace({ widget: new ExternalLinkWidget(target, target) }),
+                atomic: true
+              });
+            }
+            blockedRanges.push({ from: nodeFrom, to: nodeTo });
+            return;
+          }
+          case "URL": {
+            if (parentName === "Link" || parentName === "Image" || parentName === "Autolink" || inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges)) {
+              return;
+            }
+            const target = String(body.slice(node.from, node.to) || "").trim();
+            if (!target) {
+              return;
+            }
+            const editing = selection.from <= nodeTo && selection.to >= nodeFrom;
+            if (editing) {
+              decos.push({
+                from: nodeFrom,
+                to: nodeTo,
+                deco: Decoration.mark({ class: "cm-md-link-raw" }),
+                atomic: true
+              });
+            } else if (!editingLine) {
+              decos.push({
+                from: nodeFrom,
+                to: nodeTo,
+                deco: Decoration.replace({ widget: new ExternalLinkWidget(target, target) }),
+                atomic: true
+              });
+            }
+            blockedRanges.push({ from: nodeFrom, to: nodeTo });
+            return;
+          }
+          case "InlineCode":
+            if (!editingLine) {
+              addInlineStyledNode(decos, blockedRanges, node, bodyFrom, "cm-md-inline-code", "CodeMark");
+            }
+            return;
+          case "StrongEmphasis":
+            if (!editingLine) {
+              addInlineStyledNode(decos, blockedRanges, node, bodyFrom, "cm-md-bold", "EmphasisMark");
+            }
+            break;
+          case "Emphasis":
+            if (!editingLine) {
+              addInlineStyledNode(decos, blockedRanges, node, bodyFrom, "cm-md-italic", "EmphasisMark");
+            }
+            break;
+          case "Strikethrough":
+            if (!editingLine) {
+              addInlineStyledNode(decos, blockedRanges, node, bodyFrom, "cm-md-strikethrough", "StrikethroughMark");
+            }
+            break;
+          case "Escape":
+            if (!editingLine && !inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges) && node.to > node.from) {
+              addHiddenInlineMarker(decos, nodeFrom, nodeFrom + 1);
+            }
+            return;
         }
+        for (let index = 0; index < node.children.length; index += 1) {
+          addParsedInlineDecorationNode(
+            decos,
+            blockedRanges,
+            node.children[index],
+            node.name,
+            body,
+            bodyFrom,
+            editingLine,
+            selection,
+            currentPagePath,
+            referenceDefinitions
+          );
+        }
+      }
+      function addInlineDecorations(builder, atomicBuilder, lineFrom, text, startOffset, editingLine, selection, currentPagePath, referenceDefinitions, extraDecos) {
+        const decos = extraDecos.slice();
+        const blockedRanges = [];
+        const body = text.slice(startOffset);
+        const bodyFrom = lineFrom + startOffset;
+        addSpecialInlineSpanDecoration(decos, blockedRanges, body, bodyFrom, currentPagePath, selection);
+        addAllowedInlineHtmlSpanDecorations(decos, blockedRanges, body, bodyFrom, selection);
+        addInlineMathSpanDecorations(decos, blockedRanges, body, bodyFrom, selection);
+        const root = parseInlineMarkdownTree(body);
+        addParsedInlineDecorationNode(decos, blockedRanges, root, "", body, bodyFrom, editingLine, selection, currentPagePath, referenceDefinitions);
         decos.sort(function(a, b) {
           return a.from - b.from || a.to - b.to;
         });
@@ -28519,10 +29591,20 @@
         const atomicBuilder = new RangeSetBuilder();
         const queryBlocks = state.field(queryBlocksField);
         const tasks = state.field(tasksField);
+        const expandedCodeBlocks = state.field(expandedCodeBlocksField);
         const selection = state.selection.main;
         const currentPagePath = state.field(pagePathField);
         const markdown2 = state.doc.toString();
         const lines = markdown2.split("\n");
+        const referenceDefinitions = markdownReferenceDefinitions(markdown2);
+        const hiddenReferenceDefinitionLines = /* @__PURE__ */ new Set();
+        referenceDefinitions.forEach(function(definition) {
+          const fromLine = state.doc.lineAt(definition.from).number;
+          const toLine = state.doc.lineAt(Math.max(definition.from, definition.to - 1)).number;
+          for (let lineNumber = fromLine; lineNumber <= toLine; lineNumber += 1) {
+            hiddenReferenceDefinitionLines.add(lineNumber);
+          }
+        });
         let hiddenFrontmatterUntil = 0;
         const frontmatter = splitFrontmatter(markdown2).frontmatter;
         if (frontmatter) {
@@ -28544,7 +29626,15 @@
           const text = line.text;
           const from = line.from;
           const editingLine = selection.from <= line.to && selection.to >= line.from;
-          const tableBlock = markdownTableBlockAt(lines, lineNumber - 1);
+          if (hiddenReferenceDefinitionLines.has(lineNumber) && !editingLine) {
+            builder.add(line.from, line.to, Decoration.replace({}));
+            addAtomicRange(atomicBuilder, line.from, line.to);
+            continue;
+          }
+          const tableBlock = markdownTableBlockAt(lines, lineNumber - 1, {
+            currentPagePath,
+            referenceDefinitions
+          });
           if (tableBlock) {
             const tableEndLine = state.doc.line(tableBlock.endLineIndex + 1);
             const editingTable = selection.from <= tableEndLine.to && selection.to >= line.from;
@@ -28594,6 +29684,27 @@
             lineNumber = endLineNumber;
             continue;
           }
+          const mathBlock = markdownMathBlockAt(lines, lineNumber - 1);
+          if (mathBlock) {
+            const endLine = state.doc.line(mathBlock.endLineIndex + 1);
+            const editingMathBlock = selection.from <= endLine.to && selection.to >= line.from;
+            if (editingMathBlock) {
+              lineNumber = mathBlock.endLineIndex + 1;
+              continue;
+            }
+            for (let mathLineNumber = lineNumber; mathLineNumber <= mathBlock.endLineIndex + 1; mathLineNumber += 1) {
+              const mathLine = state.doc.line(mathLineNumber);
+              if (mathLineNumber === lineNumber || mathLineNumber === mathBlock.endLineIndex + 1) {
+                builder.add(mathLine.from, mathLine.from, Decoration.line({ class: "cm-md-math-block-fence" }));
+                builder.add(mathLine.from, mathLine.to, Decoration.replace({}));
+                addAtomicRange(atomicBuilder, mathLine.from, mathLine.to);
+              } else {
+                builder.add(mathLine.from, mathLine.from, Decoration.line({ class: "cm-md-math-block-body" }));
+              }
+            }
+            lineNumber = mathBlock.endLineIndex + 1;
+            continue;
+          }
           const codeBlock = markdownCodeFenceBlockAt(lines, lineNumber - 1);
           if (codeBlock) {
             const endLine = state.doc.line(codeBlock.endLineIndex + 1);
@@ -28602,6 +29713,11 @@
               lineNumber = codeBlock.endLineIndex + 1;
               continue;
             }
+            const bodyLineCount = Math.max(0, codeBlock.content ? codeBlock.content.split("\n").length : 0);
+            const codeBlockKey = codeBlockStateKey(lineNumber, codeBlock.content, codeBlock.language);
+            const canCollapse = bodyLineCount > collapsedCodeBlockVisibleLines;
+            const expanded = canCollapse ? Boolean(expandedCodeBlocks[codeBlockKey]) : false;
+            const hiddenLineCount = canCollapse && !expanded ? bodyLineCount - collapsedCodeBlockVisibleLines : 0;
             for (let codeLineNumber = lineNumber; codeLineNumber <= codeBlock.endLineIndex + 1; codeLineNumber += 1) {
               const codeLine = state.doc.line(codeLineNumber);
               const classNames = ["cm-md-code-block"];
@@ -28609,13 +29725,20 @@
               if (codeLineNumber === lineNumber) {
                 classNames.push("cm-md-code-block-start");
                 replaceDecoration = Decoration.replace({
-                  widget: new CodeToolbarWidget(codeBlock.content, codeBlock.language)
+                  widget: new CodeToolbarWidget(codeBlock.content, codeBlock.language, codeBlockKey, canCollapse, expanded, hiddenLineCount)
                 });
               } else if (codeLineNumber === codeBlock.endLineIndex + 1) {
                 classNames.push("cm-md-code-block-end", "cm-md-code-fence-hidden");
                 replaceDecoration = Decoration.replace({});
               } else {
                 classNames.push("cm-md-code-block-body");
+                const bodyLineIndex = codeLineNumber - lineNumber - 1;
+                if (canCollapse && !expanded && bodyLineIndex >= collapsedCodeBlockVisibleLines) {
+                  classNames.push("cm-md-code-block-hidden");
+                  addAtomicRange(atomicBuilder, codeLine.from, codeLine.to);
+                } else if (canCollapse && !expanded && bodyLineIndex === collapsedCodeBlockVisibleLines - 1) {
+                  classNames.push("cm-md-code-block-truncated");
+                }
               }
               builder.add(codeLine.from, codeLine.from, Decoration.line({ class: classNames.join(" ") }));
               if (replaceDecoration) {
@@ -28629,6 +29752,34 @@
           let inlineStart = 0;
           const inlineExtraDecos = [];
           let taskMetaWidget = null;
+          const htmlLine = markdownHtmlLineMatch(text);
+          if (htmlLine) {
+            if (!editingLine) {
+              if (htmlLine.kind === "details_open" || htmlLine.kind === "details_close" || htmlLine.kind === "dl_open" || htmlLine.kind === "dl_close") {
+                builder.add(from, line.to, Decoration.replace({}));
+                addAtomicRange(atomicBuilder, from, line.to);
+                continue;
+              }
+              const innerHTML = renderInline(String(htmlLine.inner || ""), {
+                currentPagePath,
+                referenceDefinitions
+              });
+              let className = "cm-md-html-line";
+              let html2 = innerHTML;
+              if (htmlLine.kind === "summary") {
+                className += " cm-md-html-summary";
+                html2 = '<span class="cm-md-html-summary-marker" aria-hidden="true">\u25BE</span><span class="cm-md-html-summary-text">' + innerHTML + "</span>";
+              } else if (htmlLine.kind === "dt") {
+                className += " cm-md-html-dt";
+              } else if (htmlLine.kind === "dd") {
+                className += " cm-md-html-dd";
+              }
+              builder.add(from, from, Decoration.line({ class: className }));
+              builder.add(from, line.to, Decoration.replace({ widget: new HtmlLineWidget(className, html2) }));
+              addAtomicRange(atomicBuilder, from, line.to);
+              continue;
+            }
+          }
           let match = text.match(/^(#{1,6})(\s+)/);
           if (match) {
             builder.add(from, from, Decoration.line({ class: "cm-md-heading cm-md-heading-" + String(match[1].length) }));
@@ -28640,13 +29791,13 @@
               inlineStart = match[0].length;
             }
           }
-          match = text.match(/^(>\s?)/);
-          if (match) {
+          const quoteMatch = markdownBlockquotePrefixMatch(text);
+          if (quoteMatch) {
             builder.add(from, from, Decoration.line({ class: "cm-md-quote" }));
-            builder.add(from, from + match[1].length, Decoration.replace({}));
-            addAtomicRange(atomicBuilder, from, from + match[1].length);
-            if (match[1].length > inlineStart) {
-              inlineStart = match[1].length;
+            builder.add(from, from + quoteMatch.prefixLength, Decoration.replace({ widget: new QuotePrefixWidget(quoteMatch.prefixLength, quoteMatch.depth) }));
+            addAtomicRange(atomicBuilder, from, from + quoteMatch.prefixLength);
+            if (quoteMatch.prefixLength > inlineStart) {
+              inlineStart = quoteMatch.prefixLength;
             }
           }
           match = text.match(/^(\s*)-\s+\[([ xX])\]\s+/);
@@ -28688,7 +29839,31 @@
               taskMetaWidget = new TaskMetaWidget(task);
             }
           }
-          addInlineDecorations(builder, atomicBuilder, from, text, inlineStart, editingLine, selection, currentPagePath, inlineExtraDecos);
+          const listPrefix = markdownListPrefixMatch(text, inlineStart);
+          if (listPrefix) {
+            if (editingLine) {
+              builder.add(
+                from + inlineStart,
+                from + inlineStart + listPrefix.prefixLength,
+                Decoration.mark({ class: "cm-md-list-raw" })
+              );
+            } else {
+              builder.add(
+                from + inlineStart,
+                from + inlineStart + listPrefix.prefixLength,
+                Decoration.replace({ widget: new ListMarkerWidget(listPrefix.markerText, listPrefix.prefixLength, listPrefix.indentLength, listPrefix.ordered) })
+              );
+              addAtomicRange(atomicBuilder, from + inlineStart, from + inlineStart + listPrefix.prefixLength);
+            }
+            inlineStart += listPrefix.prefixLength;
+          }
+          if (isMarkdownThematicBreak(text) && !editingLine) {
+            builder.add(from, from, Decoration.line({ class: "cm-md-rule-line" }));
+            builder.add(from, line.to, Decoration.replace({ widget: new ThematicBreakWidget() }));
+            addAtomicRange(atomicBuilder, from, line.to);
+            continue;
+          }
+          addInlineDecorations(builder, atomicBuilder, from, text, inlineStart, editingLine, selection, currentPagePath, referenceDefinitions, inlineExtraDecos);
           if (taskMetaWidget) {
             builder.add(line.to, line.to, Decoration.widget({ widget: taskMetaWidget, side: 1 }));
           }
@@ -28731,7 +29906,8 @@
         update(value, transaction) {
           const modeChanged = transaction.effects.some((effect) => effect.is(setRenderModeEffect));
           const tasksChanged = transaction.effects.some((effect) => effect.is(setTasksEffect));
-          if (!modeChanged && !tasksChanged && !transaction.docChanged && !transaction.selection) {
+          const codeBlocksChanged = transaction.effects.some((effect) => effect.is(toggleCodeBlockExpandedEffect));
+          if (!modeChanged && !tasksChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
             return value;
           }
           return buildRenderedDecorations(transaction.state);
@@ -28862,6 +30038,17 @@
                 }));
                 return true;
               }
+              const codeToggle = target ? target.closest("[data-code-toggle]") : null;
+              if (codeToggle) {
+                event.preventDefault();
+                const key = String(codeToggle.getAttribute("data-code-toggle") || "");
+                if (key) {
+                  view2.dispatch({
+                    effects: toggleCodeBlockExpandedEffect.of(key)
+                  });
+                }
+                return true;
+              }
               const taskToggle = target ? target.closest("[data-task-toggle]") : null;
               if (taskToggle) {
                 event.preventDefault();
@@ -28926,16 +30113,6 @@
                 }));
                 return true;
               }
-              if (!event.altKey && !event.ctrlKey && !event.metaKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
-                if (handleRenderedTaskArrow(view2, event.key === "ArrowDown" ? "ArrowDown" : "ArrowUp")) {
-                  event.preventDefault();
-                  return true;
-                }
-                if (revealRenderedCodeBlockByArrow(view2, event.key)) {
-                  event.preventDefault();
-                  return true;
-                }
-              }
               if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
                 clearSearchHitHighlight(view2);
               }
@@ -28974,7 +30151,61 @@
                   {
                     key: "ArrowUp",
                     run(view2) {
-                      return handleRenderedTableArrowUp(view2);
+                      return handleRenderedVerticalArrow(view2, "ArrowUp");
+                    }
+                  },
+                  {
+                    key: "ArrowDown",
+                    run(view2) {
+                      return handleRenderedVerticalArrow(view2, "ArrowDown");
+                    }
+                  },
+                  {
+                    key: "Shift-ArrowUp",
+                    run(view2) {
+                      return handleRenderedVerticalArrow(view2, "ArrowUp", true);
+                    }
+                  },
+                  {
+                    key: "Shift-ArrowDown",
+                    run(view2) {
+                      return handleRenderedVerticalArrow(view2, "ArrowDown", true);
+                    }
+                  },
+                  {
+                    key: "ArrowLeft",
+                    run(view2) {
+                      return handleRenderedHiddenPrefixHorizontalBoundary(view2, "ArrowLeft");
+                    }
+                  },
+                  {
+                    key: "ArrowRight",
+                    run(view2) {
+                      return handleRenderedHiddenPrefixHorizontalBoundary(view2, "ArrowRight");
+                    }
+                  },
+                  {
+                    key: "Home",
+                    run(view2) {
+                      return handleRenderedLineBoundary(view2, "Home");
+                    }
+                  },
+                  {
+                    key: "End",
+                    run(view2) {
+                      return handleRenderedLineBoundary(view2, "End");
+                    }
+                  },
+                  {
+                    key: "Shift-Home",
+                    run(view2) {
+                      return handleRenderedLineBoundary(view2, "Home", true);
+                    }
+                  },
+                  {
+                    key: "Shift-End",
+                    run(view2) {
+                      return handleRenderedLineBoundary(view2, "End", true);
                     }
                   },
                   indentWithTab,
@@ -28991,6 +30222,7 @@
                 highlightedLineField,
                 queryBlocksField,
                 tasksField,
+                expandedCodeBlocksField,
                 highlightedLineDecorationsField,
                 renderedDecorationsField,
                 renderedFrontmatterBoundaryFilter,
@@ -29073,7 +30305,8 @@
               const protectedUntil = renderedBodyStartOffset(view.state);
               const nextAnchor = Math.max(protectedUntil, Math.min(Number(anchor) || 0, max));
               const nextHead = Math.max(protectedUntil, Math.min(typeof head === "number" ? head : nextAnchor, max));
-              const clampedSelection = clampSelectionToOffset(EditorSelection.single(nextAnchor, nextHead), protectedUntil);
+              let clampedSelection = clampSelectionToOffset(EditorSelection.single(nextAnchor, nextHead), protectedUntil);
+              clampedSelection = clampSelectionToRenderedVisibleOffsets(view.state, clampedSelection);
               view.dispatch({
                 selection: clampedSelection,
                 scrollIntoView: Boolean(reveal)
@@ -29115,7 +30348,8 @@
               });
               if (enabled) {
                 const protectedUntil = renderedBodyStartOffset(view.state);
-                const clampedSelection = clampSelectionToOffset(view.state.selection, protectedUntil);
+                let clampedSelection = clampSelectionToOffset(view.state.selection, protectedUntil);
+                clampedSelection = clampSelectionToRenderedVisibleOffsets(view.state, clampedSelection);
                 if (!clampedSelection.eq(view.state.selection, true)) {
                   view.dispatch({
                     selection: clampedSelection,

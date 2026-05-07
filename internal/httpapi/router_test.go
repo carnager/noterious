@@ -465,6 +465,12 @@ func TestDocumentsAPIUploadsListsAndDownloads(t *testing.T) {
 	if err := os.MkdirAll(vaultDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(notes) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "alpha.md"), []byte("# Alpha\n\n![Meeting](meeting-notes.pdf)\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(alpha) error = %v", err)
+	}
 
 	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{})
 
@@ -549,6 +555,147 @@ func TestDocumentsAPIUploadsListsAndDownloads(t *testing.T) {
 	}
 	if got := inlineResponse.Header().Get("Content-Disposition"); !strings.HasPrefix(strings.ToLower(got), "inline;") {
 		t.Fatalf("inline Content-Disposition = %q", got)
+	}
+}
+
+func TestDocumentsAPIMoveAndDelete(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+	if err := os.MkdirAll(vaultDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(notes) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "alpha.md"), []byte("# Alpha\n\n![Meeting](meeting-notes.pdf)\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(alpha) error = %v", err)
+	}
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "Meeting Notes.pdf")
+	if err != nil {
+		t.Fatalf("CreateFormFile() error = %v", err)
+	}
+	if _, err := io.WriteString(part, "%PDF-1.4 fake"); err != nil {
+		t.Fatalf("WriteString() error = %v", err)
+	}
+	if err := writer.WriteField("page", "notes/alpha"); err != nil {
+		t.Fatalf("WriteField() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	uploadRequest := httptest.NewRequest(http.MethodPost, "/api/documents", &body)
+	uploadRequest.Header.Set("Content-Type", writer.FormDataContentType())
+	uploadResponse := httptest.NewRecorder()
+	router.ServeHTTP(uploadResponse, uploadRequest)
+	if uploadResponse.Code != http.StatusCreated {
+		t.Fatalf("POST /api/documents status = %d body=%s", uploadResponse.Code, uploadResponse.Body.String())
+	}
+
+	moveBody := bytes.NewBufferString(`{"targetPath":"archive/Quarterly Report"}`)
+	moveRequest := httptest.NewRequest(http.MethodPost, "/api/documents/move/notes/meeting-notes.pdf", moveBody)
+	moveRequest.Header.Set("Content-Type", "application/json")
+	moveResponse := httptest.NewRecorder()
+	router.ServeHTTP(moveResponse, moveRequest)
+	if moveResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/documents/move/... status = %d body=%s", moveResponse.Code, moveResponse.Body.String())
+	}
+
+	var moved struct {
+		Document struct {
+			Path string `json:"path"`
+			Name string `json:"name"`
+		} `json:"document"`
+		SourcePath     string   `json:"sourcePath"`
+		TargetPath     string   `json:"targetPath"`
+		RewrittenPages []string `json:"rewrittenPages"`
+	}
+	if err := json.NewDecoder(moveResponse.Body).Decode(&moved); err != nil {
+		t.Fatalf("Decode(move) error = %v", err)
+	}
+	if moved.SourcePath != "notes/meeting-notes.pdf" || moved.TargetPath != "archive/quarterly-report.pdf" {
+		t.Fatalf("moved metadata = %#v", moved)
+	}
+	if moved.Document.Path != "archive/quarterly-report.pdf" || moved.Document.Name != "quarterly-report.pdf" {
+		t.Fatalf("moved document = %#v", moved.Document)
+	}
+	if len(moved.RewrittenPages) != 1 || moved.RewrittenPages[0] != "notes/alpha" {
+		t.Fatalf("rewritten pages = %#v", moved.RewrittenPages)
+	}
+
+	pageRequest := httptest.NewRequest(http.MethodGet, "/api/pages/notes/alpha", nil)
+	pageResponse := httptest.NewRecorder()
+	router.ServeHTTP(pageResponse, pageRequest)
+	if pageResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/pages/notes/alpha status = %d body=%s", pageResponse.Code, pageResponse.Body.String())
+	}
+	var pagePayload struct {
+		RawMarkdown string `json:"rawMarkdown"`
+	}
+	if err := json.NewDecoder(pageResponse.Body).Decode(&pagePayload); err != nil {
+		t.Fatalf("Decode(page) error = %v", err)
+	}
+	if !strings.Contains(pagePayload.RawMarkdown, "![Meeting](../archive/quarterly-report.pdf)") {
+		t.Fatalf("page raw markdown = %q", pagePayload.RawMarkdown)
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/documents/archive/quarterly-report.pdf", nil)
+	deleteResponse := httptest.NewRecorder()
+	router.ServeHTTP(deleteResponse, deleteRequest)
+	if deleteResponse.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/documents/... status = %d body=%s", deleteResponse.Code, deleteResponse.Body.String())
+	}
+
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/documents?q=quarterly", nil)
+	listResponse := httptest.NewRecorder()
+	router.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/documents?q=quarterly status = %d body=%s", listResponse.Code, listResponse.Body.String())
+	}
+	var listed struct {
+		Count int `json:"count"`
+	}
+	if err := json.NewDecoder(listResponse.Body).Decode(&listed); err != nil {
+		t.Fatalf("Decode(list after delete) error = %v", err)
+	}
+	if listed.Count != 0 {
+		t.Fatalf("listed count after delete = %d", listed.Count)
+	}
+}
+
+func TestDocumentsAPIMoveReturnsConflictForExistingTarget(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "source.pdf"), []byte("%PDF-1.4 source"), 0o644); err != nil {
+		t.Fatalf("WriteFile(source) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "target.pdf"), []byte("%PDF-1.4 target"), 0o644); err != nil {
+		t.Fatalf("WriteFile(target) error = %v", err)
+	}
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{})
+
+	moveBody := bytes.NewBufferString(`{"targetPath":"notes/target.pdf"}`)
+	moveRequest := httptest.NewRequest(http.MethodPost, "/api/documents/move/notes/source.pdf", moveBody)
+	moveRequest.Header.Set("Content-Type", "application/json")
+	moveResponse := httptest.NewRecorder()
+	router.ServeHTTP(moveResponse, moveRequest)
+	if moveResponse.Code != http.StatusConflict {
+		t.Fatalf("POST /api/documents/move/... status = %d want %d body=%s", moveResponse.Code, http.StatusConflict, moveResponse.Body.String())
 	}
 }
 
@@ -3037,6 +3184,46 @@ func TestPutPageReturnsConflictForOverlappingEdits(t *testing.T) {
 	}
 	if string(written) != remoteMarkdown {
 		t.Fatalf("written markdown = %q want %q", string(written), remoteMarkdown)
+	}
+}
+
+func TestPutPageCreateOnlyReturnsConflictForExistingPage(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "notes"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	originalMarkdown := "# Alpha\n\nExisting body.\n"
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "alpha.md"), []byte(originalMarkdown), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/pages/notes/alpha", strings.NewReader(`{"rawMarkdown":"# Alpha\n"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(createOnlyPageHeaderName, "true")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "page already exists") {
+		t.Fatalf("body = %s want existing-page detail", recorder.Body.String())
+	}
+
+	written, err := os.ReadFile(filepath.Join(vaultDir, "notes", "alpha.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(written) != originalMarkdown {
+		t.Fatalf("written markdown = %q want %q", string(written), originalMarkdown)
 	}
 }
 

@@ -9,6 +9,8 @@ import (
 
 var wikiLinkRewritePattern = regexp.MustCompile(`\[\[([^\]|#]+)(#[^\]|]+)?(\|[^\]]+)?\]\]`)
 var markdownLinkRewritePattern = regexp.MustCompile(`\[([^\]]+)\]\(([^)#]+?)(#[^)]+)?\)`)
+var documentWikiLinkRewritePattern = regexp.MustCompile(`(!?)\[\[([^\]|#]+)(#[^\]|]+)?(\|[^\]]+)?\]\]`)
+var documentMarkdownLinkRewritePattern = regexp.MustCompile(`(!?)\[([^\]]*)\]\(([^)#]+?)(#[^)]+)?\)`)
 
 func RewritePageLinks(rawMarkdown string, sourcePage string, fromPage string, toPage string) (string, bool) {
 	sourceNormalized := normalizePagePath(sourcePage)
@@ -51,6 +53,46 @@ func RewritePageLinks(rawMarkdown string, sourcePage string, fromPage string, to
 	return rewritten, changed
 }
 
+func RewriteDocumentLinks(rawMarkdown string, sourcePage string, fromDocument string, toDocument string) (string, bool) {
+	sourceNormalized := normalizePagePath(sourcePage)
+	fromNormalized := normalizeDocumentPath(fromDocument)
+	toNormalized := normalizeDocumentPath(toDocument)
+	if sourceNormalized == "" || fromNormalized == "" || toNormalized == "" || fromNormalized == toNormalized {
+		return rawMarkdown, false
+	}
+
+	changed := false
+	rewritten := documentWikiLinkRewritePattern.ReplaceAllStringFunc(rawMarkdown, func(match string) string {
+		parts := documentWikiLinkRewritePattern.FindStringSubmatch(match)
+		if len(parts) != 5 {
+			return match
+		}
+		resolved, ok := resolveMarkdownDocumentTarget(sourceNormalized, parts[2])
+		if !ok || resolved != fromNormalized {
+			return match
+		}
+		changed = true
+		nextTarget := relativeMarkdownDocumentTarget(sourceNormalized, toNormalized)
+		return parts[1] + "[[" + nextTarget + parts[3] + parts[4] + "]]"
+	})
+
+	rewritten = documentMarkdownLinkRewritePattern.ReplaceAllStringFunc(rewritten, func(match string) string {
+		parts := documentMarkdownLinkRewritePattern.FindStringSubmatch(match)
+		if len(parts) != 5 {
+			return match
+		}
+		resolved, ok := resolveMarkdownDocumentTarget(sourceNormalized, parts[3])
+		if !ok || resolved != fromNormalized {
+			return match
+		}
+		changed = true
+		nextTarget := relativeMarkdownDocumentTarget(sourceNormalized, toNormalized)
+		return parts[1] + "[" + parts[2] + "](" + nextTarget + parts[4] + ")"
+	})
+
+	return rewritten, changed
+}
+
 func normalizePagePath(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -82,6 +124,55 @@ func resolveMarkdownPageTarget(sourcePage string, target string) (string, bool) 
 		return "", false
 	}
 	return resolved, true
+}
+
+func normalizeDocumentPath(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	trimmed = strings.ReplaceAll(trimmed, "\\", "/")
+	trimmed = path.Clean(trimmed)
+	trimmed = strings.TrimPrefix(trimmed, "./")
+	trimmed = strings.TrimPrefix(trimmed, "/")
+	if trimmed == "." || trimmed == "" || trimmed == ".." || strings.HasPrefix(trimmed, "../") {
+		return ""
+	}
+	return trimmed
+}
+
+func resolveMarkdownDocumentTarget(sourcePage string, target string) (string, bool) {
+	trimmed := strings.TrimSpace(target)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.Contains(trimmed, "://") || strings.HasPrefix(strings.ToLower(trimmed), "mailto:") {
+		return "", false
+	}
+	if queryIndex := strings.Index(trimmed, "?"); queryIndex >= 0 {
+		trimmed = trimmed[:queryIndex]
+	}
+	baseDir := pageDirectory(sourcePage)
+	raw := trimmed
+	if baseDir != "" {
+		raw = baseDir + "/" + trimmed
+	}
+	resolved := normalizeDocumentPath(raw)
+	if resolved == "" {
+		return "", false
+	}
+	return resolved, true
+}
+
+func relativeMarkdownDocumentTarget(sourcePage string, targetDocument string) string {
+	baseDir := pageDirectory(sourcePage)
+	target := normalizeDocumentPath(targetDocument)
+	from := "."
+	if baseDir != "" {
+		from = baseDir
+	}
+	relative, err := filepath.Rel(filepath.FromSlash(from), filepath.FromSlash(target))
+	if err != nil {
+		return target
+	}
+	return filepath.ToSlash(relative)
 }
 
 func relativeMarkdownPageTarget(sourcePage string, targetPage string, includeExt bool) string {

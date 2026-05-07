@@ -36,6 +36,9 @@ export function defaultClientPreferences(): ClientPreferences {
       rootHomePage: "",
       scopeHomePages: {},
     },
+    notifications: {
+      browserEnabled: false,
+    },
     templates: [],
   };
 }
@@ -69,6 +72,9 @@ export function cloneClientPreferences(input: ClientPreferences): ClientPreferen
         })
       ),
     },
+    notifications: {
+      browserEnabled: Boolean(input.notifications.browserEnabled),
+    },
     templates: cloneNoteTemplates(input.templates),
   };
 }
@@ -84,6 +90,9 @@ export function normalizeClientPreferences(input: unknown): ClientPreferences {
     : {};
   const vaultsSource = source.vaults && typeof source.vaults === "object"
     ? source.vaults as Record<string, unknown>
+    : {};
+  const notificationsSource = source.notifications && typeof source.notifications === "object"
+    ? source.notifications as Record<string, unknown>
     : {};
   const templatesSource = Array.isArray(source.templates) ? source.templates : [];
   const scopeHomePagesSource = vaultsSource.scopeHomePages && typeof vaultsSource.scopeHomePages === "object"
@@ -123,6 +132,9 @@ export function normalizeClientPreferences(input: unknown): ClientPreferences {
           return Boolean(key || value);
         })
       ),
+    },
+    notifications: {
+      browserEnabled: Boolean(notificationsSource.browserEnabled),
     },
     templates: normalizeNoteTemplates(templatesSource),
   };

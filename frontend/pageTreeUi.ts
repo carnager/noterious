@@ -1,20 +1,26 @@
 import { normalizePageDraftPath } from "./commands";
 import { clearNode } from "./dom";
+import { isTemplatePagePath } from "./noteTemplates";
 import {
+  filterDocumentsByScope,
   filterFoldersByScope,
   filterPagesByScope,
   renderPagesTree,
   type PageTreeMenuTarget,
 } from "./pageViews";
-import type { PageSummary } from "./types";
+import type { DocumentRecord, PageSummary } from "./types";
 
 export interface PageTreeUiState {
   selectedPage: string;
   pages: PageSummary[];
   folders: string[];
+  documents: DocumentRecord[];
   expandedPageFolders: Record<string, boolean>;
   scopePrefix?: string;
   pruneFoldersToVisiblePages?: boolean;
+  showPages?: boolean;
+  showDocuments?: boolean;
+  showTemplates?: boolean;
 }
 
 export interface PageTreeElements {
@@ -34,6 +40,10 @@ export interface PageTreeActions {
   movePageToFolder: (pagePath: string, folderKey: string) => Promise<void>;
   moveFolder: (folderKey: string, targetFolder: string) => Promise<void>;
   openPageHistory: (pagePath: string) => void;
+  openDocument: (document: DocumentRecord) => void;
+  insertDocumentLink: (document: DocumentRecord) => void;
+  requestRenameDocument: (document: DocumentRecord) => Promise<void>;
+  deleteDocument: (document: DocumentRecord) => Promise<void>;
   currentHomePage: () => string;
   setHomePage: (pagePath: string) => void;
   setNoteStatus: (message: string) => void;
@@ -44,6 +54,7 @@ export interface PageTreeDisplayState {
   selectedPage: string;
   pages: PageSummary[];
   folders: string[];
+  documents: DocumentRecord[];
   expandedPageFolders: Record<string, boolean>;
 }
 
@@ -58,10 +69,10 @@ function normalizeScopePrefix(scopePrefix: string): string {
   return normalizePageDraftPath(scopePrefix || "");
 }
 
-function folderAncestorsForPages(pages: PageSummary[]): Set<string> {
+function folderAncestorsForPaths(paths: string[]): Set<string> {
   const keep = new Set<string>();
-  (Array.isArray(pages) ? pages : []).forEach(function (page) {
-    const normalizedPath = normalizePageDraftPath(page.path || "");
+  (Array.isArray(paths) ? paths : []).forEach(function (path) {
+    const normalizedPath = normalizePageDraftPath(path || "");
     if (!normalizedPath) {
       return;
     }
@@ -91,19 +102,67 @@ export function displayPathWithinScope(path: string, scopePrefix: string): strin
 export function pageTreeDisplayStateForScope(state: PageTreeUiState): PageTreeDisplayState {
   const scopePrefix = normalizeScopePrefix(state.scopePrefix || "");
   const selectedPage = state.selectedPage;
-  const pages = filterPagesByScope(state.pages, scopePrefix).map(function (page) {
+  const scopedPages = filterPagesByScope(state.pages, scopePrefix).map(function (page) {
     return {
       ...page,
       path: page.path,
     };
   });
+  const scopedDocuments = filterDocumentsByScope(state.documents, scopePrefix);
+  let pages = scopedPages.filter(function (page) {
+    const isTemplate = isTemplatePagePath(page.path || "");
+    if (isTemplate) {
+      return state.showTemplates !== false;
+    }
+    return state.showPages !== false;
+  });
+  let documents = state.showDocuments === false ? [] : scopedDocuments;
   let folders = filterFoldersByScope(state.folders, scopePrefix);
   if (state.pruneFoldersToVisiblePages) {
-    const keptFolders = folderAncestorsForPages(pages);
+    const keptFolders = folderAncestorsForPaths(pages.map(function (page) {
+      return page.path;
+    }));
     folders = folders.filter(function (folder) {
       return keptFolders.has(normalizePageDraftPath(folder || ""));
     });
+    documents = documents.filter(function (document) {
+      const normalizedPath = normalizePageDraftPath(document.path || "");
+      const parts = normalizedPath.split("/").filter(Boolean);
+      if (parts.length <= 1) {
+        return false;
+      }
+      return keptFolders.has(parts.slice(0, -1).join("/"));
+    });
   }
+  const hiddenPages = scopedPages.filter(function (page) {
+    const isTemplate = isTemplatePagePath(page.path || "");
+    if (isTemplate) {
+      return state.showTemplates === false;
+    }
+    return state.showPages === false;
+  });
+  const hiddenDocuments = state.showDocuments === false ? scopedDocuments : [];
+  const visibleFolderKeys = folderAncestorsForPaths(
+    pages.map(function (page) {
+      return page.path;
+    }).concat(documents.map(function (document) {
+      return document.path;
+    }))
+  );
+  const hiddenFolderKeys = folderAncestorsForPaths(
+    hiddenPages.map(function (page) {
+      return page.path;
+    }).concat(hiddenDocuments.map(function (document) {
+      return document.path;
+    }))
+  );
+  folders = folders.filter(function (folder) {
+    const normalizedFolder = normalizePageDraftPath(folder || "");
+    if (!normalizedFolder) {
+      return false;
+    }
+    return !hiddenFolderKeys.has(normalizedFolder) || visibleFolderKeys.has(normalizedFolder);
+  });
   const expandedPageFolders: Record<string, boolean> = {};
   Object.keys(state.expandedPageFolders).forEach(function (key) {
     if (!state.expandedPageFolders[key]) {
@@ -115,6 +174,7 @@ export function pageTreeDisplayStateForScope(state: PageTreeUiState): PageTreeDi
     selectedPage: selectedPage,
     pages: pages,
     folders: folders,
+    documents: documents,
     expandedPageFolders: expandedPageFolders,
   };
 }
@@ -129,6 +189,7 @@ export function renderPagesSection(state: PageTreeUiState, els: PageTreeElements
     els.pageList,
     displayState.pages,
     displayState.folders,
+    displayState.documents,
     displayState.selectedPage,
     displayState.expandedPageFolders,
     els.pageSearch.value.trim(),
@@ -141,6 +202,9 @@ export function renderPagesSection(state: PageTreeUiState, els: PageTreeElements
     },
     function (pagePath) {
       actions.navigateToPage(pagePath, false);
+    },
+    function (document) {
+      actions.openDocument(document);
     },
     function (folderKey) {
       actions.requestCreatePage(folderKey).catch(function (error) {
@@ -287,7 +351,7 @@ export function openTreeContextMenu(
         actions.setNoteStatus("Delete page failed: " + actions.errorMessage(error));
       });
     }, true);
-  } else {
+  } else if (target.kind === "folder") {
     appendTreeContextMenuItem(treeContextMenu, "New note", "M8 2.5v11M2.5 8h11", function () {
       actions.requestCreatePage(target.path).catch(function (error) {
         actions.setNoteStatus("Create page failed: " + actions.errorMessage(error));
@@ -307,6 +371,24 @@ export function openTreeContextMenu(
     appendTreeContextMenuItem(treeContextMenu, "Delete", "M5.2 3h5.6l.4 1.2H14v1.2H2V4.2h2.8L5.2 3Zm-1 3.2h7.6l-.5 6.1a1 1 0 0 1-1 .9H5.7a1 1 0 0 1-1-.9L4.2 6.2Z", function () {
       actions.deleteFolder(target.path).catch(function (error) {
         actions.setNoteStatus("Delete folder failed: " + actions.errorMessage(error));
+      });
+    }, true);
+  } else {
+    appendTreeContextMenuItem(treeContextMenu, "Open file", "M3 2.5h5.7L13 6.8V13a1 1 0 0 1-1 1H3.9a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Zm5 .9v3.2h3.2M4.8 9.3h6.4M4.8 11.4h6.4", function () {
+      actions.openDocument(target.document);
+    });
+    appendTreeContextMenuItem(treeContextMenu, "Insert link into current note", "M3.8 8a2.7 2.7 0 0 1 2.7-2.7H9v1.3H6.5A1.4 1.4 0 1 0 6.5 9.4H9v1.3H6.5A2.7 2.7 0 0 1 3.8 8Zm3.6.7h1.2V7.3H7.4v1.4Zm2.7-3.4h2.4a2.7 2.7 0 1 1 0 5.4h-2.4V9.4h2.4a1.4 1.4 0 0 0 0-2.8h-2.4V5.3Z", function () {
+      actions.insertDocumentLink(target.document);
+    });
+    appendTreeContextMenuDivider(treeContextMenu);
+    appendTreeContextMenuItem(treeContextMenu, "Rename…", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function () {
+      actions.requestRenameDocument(target.document).catch(function (error) {
+        actions.setNoteStatus("Rename file failed: " + actions.errorMessage(error));
+      });
+    });
+    appendTreeContextMenuItem(treeContextMenu, "Delete", "M5.2 3h5.6l.4 1.2H14v1.2H2V4.2h2.8L5.2 3Zm-1 3.2h7.6l-.5 6.1a1 1 0 0 1-1 .9H5.7a1 1 0 0 1-1-.9L4.2 6.2Z", function () {
+      actions.deleteDocument(target.document).catch(function (error) {
+        actions.setNoteStatus("Delete file failed: " + actions.errorMessage(error));
       });
     }, true);
   }

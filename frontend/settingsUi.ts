@@ -1,5 +1,6 @@
 import { clearNode } from "./dom";
 import type { BackupManifestValidationResult } from "./backupValidation";
+import { browserNotificationPermission, browserNotificationsSupported, browserNotificationStatus } from "./browserNotifications";
 import { analyzeHotkeys, detectHotkeyPlatform, hotkeyDefinitions, hotkeyDefaultGuidance } from "./hotkeys";
 import type { AISettings, AppSettings as SettingsModel, FrontmatterKind, MetaResponse, NoteTemplate, NoteTemplateField, ThemeRecord } from "./types";
 import type { Hotkeys } from "./types";
@@ -62,6 +63,8 @@ export interface SettingsUiElements {
   settingsRuntimeRestartRequired: HTMLElement;
   settingsRuntimeRestartReasons: HTMLElement;
   settingsRuntimeHealth: HTMLElement;
+  settingsBrowserNotifications: HTMLInputElement;
+  settingsBrowserNotificationsStatus: HTMLElement;
   settingsUserNtfyTopicUrl: HTMLInputElement;
   settingsUserNtfyToken: HTMLInputElement;
   settingsAIEnabled: HTMLInputElement;
@@ -485,6 +488,7 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
     els.settingsAIClearKey,
   ];
   const userFields: Array<HTMLInputElement | HTMLSelectElement> = [
+    els.settingsBrowserNotifications,
     els.settingsUserNtfyTopicUrl,
     els.settingsUserNtfyToken,
     els.settingsUserTopLevelVaults,
@@ -604,6 +608,11 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
     : vaultHealth && vaultHealth.healthy
       ? "Healthy"
       : String(vaultHealth && vaultHealth.message ? vaultHealth.message : "Unavailable");
+  const browserNotificationsEnabled = Boolean(state.settings.preferences.notifications.browserEnabled);
+  const browserNotificationsPermission = browserNotificationPermission();
+  els.settingsBrowserNotifications.checked = browserNotificationsEnabled && browserNotificationsPermission !== "unsupported";
+  els.settingsBrowserNotifications.disabled = !browserNotificationsSupported();
+  els.settingsBrowserNotificationsStatus.textContent = browserNotificationStatus(browserNotificationsEnabled, browserNotificationsPermission);
   els.settingsUserNtfyTopicUrl.value = state.settings.userNotifications.ntfyTopicUrl || "";
   els.settingsUserNtfyToken.value = state.settings.userNotifications.ntfyToken || "";
   els.settingsAIEnabled.checked = Boolean(state.aiSettings.enabled);

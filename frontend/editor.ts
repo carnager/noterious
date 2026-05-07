@@ -15,8 +15,17 @@ import {tags} from "@lezer/highlight";
 import { formatDateTimeValue, formatDateValue, normalizeDateTimeDisplayFormat, setDateTimeDisplayFormat } from "./datetime";
 import { pageTitleFromPath } from "./commands";
 import { documentDownloadURL, documentPathLeaf, inlineDocumentURL, isImagePath, resolveDocumentPath } from "./documents";
-import { markdownCodeFenceBlockAt, markdownTableBlockAt, renderedBodyBoundaryStart, splitFrontmatter } from "./markdown";
-import { renderedTaskRawColumn, renderedTaskVisibleColumn, taskLineHasInlineDate } from "./taskNavigation";
+import { markdownCodeFenceBlockAt, markdownTableBlockAt, renderInline, renderedBodyBoundaryStart, splitFrontmatter } from "./markdown";
+import {
+  findMarkdownInlineSpecialSpans,
+  markdownReferenceDefinitions,
+  markdownResolvedLinkInfo,
+  parseInlineMarkdownTree,
+  visibleTextFromChildren,
+  type MarkdownInlineNode,
+  type MarkdownReferenceDefinition,
+} from "./markdownInline";
+import { renderedTaskRawColumn, renderedTaskVisibleColumn, taskLineHasInlineDate, taskPrefixLength } from "./taskNavigation";
 import type { NoteriousEditorApi, QueryBlockRender, TaskRender } from "./types";
 
 interface EditorTaskState {
@@ -28,6 +37,7 @@ interface EditorTaskState {
   who: string[];
 }
 
+const collapsedCodeBlockVisibleLines = 12;
 
 const measureCanvas = document.createElement("canvas");
 const measureContext = measureCanvas.getContext("2d");
@@ -75,9 +85,24 @@ const setQueryBlocksEffect = StateEffect.define<Map<string, string>>();
 const setTasksEffect = StateEffect.define<Map<number, EditorTaskState>>();
 const setPagePathEffect = StateEffect.define<string>();
 const setHighlightedLineEffect = StateEffect.define<number | null>();
+const toggleCodeBlockExpandedEffect = StateEffect.define<string>();
 const editableCompartment = new Compartment();
 const readOnlyCompartment = new Compartment();
 const taskInlineDatePattern = /\[(due|remind):\s*[^\]]+?\]|\b(due|remind)::\s*[^\s]+(?:\s+\d{2}:\d{2})?/g;
+
+function hashString(input: string): string {
+  let hash = 2166136261;
+  const text = String(input || "");
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function codeBlockStateKey(startLineNumber: number, content: string, language: string): string {
+  return String(startLineNumber) + ":" + hashString(String(language || "") + "\n" + String(content || ""));
+}
 
 const codeLanguages = [
   LanguageDescription.of({name: "JavaScript", alias: ["js", "javascript"], extensions: ["js", "mjs", "cjs"], support: javascript()}),
@@ -240,15 +265,28 @@ class ExternalLinkWidget extends WidgetType {
 class CodeToolbarWidget extends WidgetType {
   content: string;
   language: string;
+  toggleKey: string;
+  canCollapse: boolean;
+  expanded: boolean;
+  hiddenLineCount: number;
 
-  constructor(content: string, language: string) {
+  constructor(content: string, language: string, toggleKey: string, canCollapse: boolean, expanded: boolean, hiddenLineCount: number) {
     super();
     this.content = content;
     this.language = language;
+    this.toggleKey = toggleKey;
+    this.canCollapse = Boolean(canCollapse);
+    this.expanded = expanded;
+    this.hiddenLineCount = Math.max(0, Number(hiddenLineCount) || 0);
   }
 
   eq(other: CodeToolbarWidget): boolean {
-    return other.content === this.content && other.language === this.language;
+    return other.content === this.content
+      && other.language === this.language
+      && other.toggleKey === this.toggleKey
+      && other.canCollapse === this.canCollapse
+      && other.expanded === this.expanded
+      && other.hiddenLineCount === this.hiddenLineCount;
   }
 
   toDOM(): HTMLSpanElement {
@@ -260,12 +298,29 @@ class CodeToolbarWidget extends WidgetType {
     language.textContent = this.language || "plain text";
     toolbar.appendChild(language);
 
+    const actions = document.createElement("span");
+    actions.className = "cm-md-code-actions";
+
+    if (this.canCollapse) {
+      const toggleButton = document.createElement("button");
+      toggleButton.type = "button";
+      toggleButton.className = "cm-md-code-toggle";
+      toggleButton.setAttribute("data-code-toggle", this.toggleKey);
+      toggleButton.textContent = this.expanded ? "Collapse" : "Expand";
+      if (!this.expanded) {
+        toggleButton.title = "Show " + String(this.hiddenLineCount) + " more line" + (this.hiddenLineCount === 1 ? "" : "s");
+      }
+      actions.appendChild(toggleButton);
+    }
+
     const copyButton = document.createElement("button");
     copyButton.type = "button";
     copyButton.className = "cm-md-code-copy";
     copyButton.setAttribute("data-code-copy", encodeURIComponent(this.content));
     copyButton.textContent = "Copy";
-    toolbar.appendChild(copyButton);
+    actions.appendChild(copyButton);
+
+    toolbar.appendChild(actions);
 
     return toolbar;
   }
@@ -348,6 +403,114 @@ class TaskMetaWidget extends WidgetType {
 
   ignoreEvent() {
     return false;
+  }
+}
+
+class ListMarkerWidget extends WidgetType {
+  marker: string;
+  prefixLength: number;
+  indentLength: number;
+  ordered: boolean;
+
+  constructor(marker: string, prefixLength: number, indentLength: number, ordered: boolean) {
+    super();
+    this.marker = String(marker || "");
+    this.prefixLength = Math.max(1, Number(prefixLength) || 0);
+    this.indentLength = Math.max(0, Number(indentLength) || 0);
+    this.ordered = Boolean(ordered);
+  }
+
+  eq(other: ListMarkerWidget): boolean {
+    return other.marker === this.marker &&
+      other.prefixLength === this.prefixLength &&
+      other.indentLength === this.indentLength &&
+      other.ordered === this.ordered;
+  }
+
+  toDOM(): HTMLSpanElement {
+    const marker = document.createElement("span");
+    marker.className = "cm-md-list-marker" + (this.ordered ? " cm-md-list-marker-ordered" : "");
+    marker.style.setProperty("--list-prefix-width", String(this.prefixLength * 0.62) + "rem");
+    marker.style.setProperty("--list-indent-width", String(this.indentLength * 0.62) + "rem");
+    marker.textContent = this.marker;
+    marker.setAttribute("aria-hidden", "true");
+    return marker;
+  }
+
+  ignoreEvent() {
+    return true;
+  }
+}
+
+class QuotePrefixWidget extends WidgetType {
+  prefixLength: number;
+  depth: number;
+
+  constructor(prefixLength: number, depth: number) {
+    super();
+    this.prefixLength = Math.max(1, Number(prefixLength) || 0);
+    this.depth = Math.max(1, Number(depth) || 1);
+  }
+
+  eq(other: QuotePrefixWidget): boolean {
+    return other.prefixLength === this.prefixLength && other.depth === this.depth;
+  }
+
+  toDOM(): HTMLSpanElement {
+    const prefix = document.createElement("span");
+    prefix.className = "cm-md-quote-prefix";
+    prefix.style.setProperty("--quote-prefix-width", String(this.prefixLength * 0.62) + "rem");
+    prefix.style.setProperty("--quote-stride-width", String((this.prefixLength / this.depth) * 0.62) + "rem");
+    prefix.style.setProperty("--quote-depth", String(this.depth));
+    prefix.setAttribute("aria-hidden", "true");
+    return prefix;
+  }
+
+  ignoreEvent() {
+    return true;
+  }
+}
+
+class ThematicBreakWidget extends WidgetType {
+  eq(other: ThematicBreakWidget): boolean {
+    return other instanceof ThematicBreakWidget;
+  }
+
+  toDOM(): HTMLSpanElement {
+    const rule = document.createElement("span");
+    rule.className = "cm-md-rule";
+    rule.setAttribute("aria-hidden", "true");
+    return rule;
+  }
+
+  ignoreEvent() {
+    return true;
+  }
+}
+
+class HtmlLineWidget extends WidgetType {
+  className: string;
+  html: string;
+
+  constructor(className: string, html: string) {
+    super();
+    this.className = className;
+    this.html = html;
+  }
+
+  eq(other: HtmlLineWidget): boolean {
+    return other.className === this.className && other.html === this.html;
+  }
+
+  toDOM(): HTMLSpanElement {
+    const wrapper = document.createElement("span");
+    wrapper.className = this.className;
+    wrapper.innerHTML = this.html;
+    return wrapper;
+  }
+
+  ignoreEvent() {
+    return true;
   }
 }
 
@@ -466,6 +629,28 @@ const tasksField = StateField.define<Map<number, EditorTaskState>>({
   },
 });
 
+const expandedCodeBlocksField = StateField.define<Record<string, boolean>>({
+  create() {
+    return {};
+  },
+  update(value, transaction) {
+    let next = value;
+    for (const effect of transaction.effects) {
+      if (effect.is(toggleCodeBlockExpandedEffect)) {
+        const key = String(effect.value || "");
+        if (!key) {
+          continue;
+        }
+        if (next === value) {
+          next = {...value};
+        }
+        next[key] = !Boolean(next[key]);
+      }
+    }
+    return next;
+  },
+});
+
 const highlightedLineField = StateField.define<number | null>({
   create() {
     return null;
@@ -547,6 +732,216 @@ function tableBlockEndingAtLine(lines: string[], endLineIndex: number) {
   return null;
 }
 
+interface MarkdownQuotePrefixMatch {
+  prefixLength: number;
+  depth: number;
+}
+
+function markdownBlockquotePrefixMatch(text: string): MarkdownQuotePrefixMatch | null {
+  const match = String(text || "").match(/^((?: {0,3}>\s*)+)/);
+  if (!match) {
+    return null;
+  }
+  const prefix = String(match[1] || "");
+  const depth = (prefix.match(/>/g) || []).length;
+  if (!depth) {
+    return null;
+  }
+  return {
+    prefixLength: prefix.length,
+    depth,
+  };
+}
+
+interface MarkdownListPrefixMatch {
+  prefixLength: number;
+  indentLength: number;
+  markerText: string;
+  ordered: boolean;
+}
+
+function markdownListPrefixMatch(text: string, startOffset = 0): MarkdownListPrefixMatch | null {
+  const source = String(text || "").slice(Math.max(0, Number(startOffset) || 0));
+
+  let match = source.match(/^(\s*)([-+*])(\s+)/);
+  if (match) {
+    return {
+      prefixLength: match[0].length,
+      indentLength: match[1].length,
+      markerText: "•",
+      ordered: false,
+    };
+  }
+
+  match = source.match(/^(\s*)(\d+)([.)])(\s+)/);
+  if (match) {
+    return {
+      prefixLength: match[0].length,
+      indentLength: match[1].length,
+      markerText: String(match[2] || "") + String(match[3] || "."),
+      ordered: true,
+    };
+  }
+
+  return null;
+}
+
+function isMarkdownThematicBreak(text: string): boolean {
+  const source = String(text || "").trim();
+  return /^((-\s*){3,}|(\*\s*){3,}|(_\s*){3,})$/.test(source);
+}
+
+interface MarkdownMathBlock {
+  startLineIndex: number;
+  endLineIndex: number;
+}
+
+function markdownMathBlockAt(lines: string[], startLineIndex: number): MarkdownMathBlock | null {
+  if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex >= lines.length) {
+    return null;
+  }
+  if (String(lines[startLineIndex] || "").trim() !== "$$") {
+    return null;
+  }
+
+  let endLineIndex = lines.length - 1;
+  for (let index = startLineIndex + 1; index < lines.length; index += 1) {
+    if (String(lines[index] || "").trim() === "$$") {
+      endLineIndex = index;
+      break;
+    }
+  }
+
+  return {
+    startLineIndex,
+    endLineIndex,
+  };
+}
+
+interface MarkdownHtmlLineMatch {
+  kind: "details_open" | "details_close" | "summary" | "dl_open" | "dl_close" | "dt" | "dd";
+  inner?: string;
+}
+
+function markdownHtmlLineMatch(text: string): MarkdownHtmlLineMatch | null {
+  const source = String(text || "").trim();
+  if (/^<details(?:\s+open)?\s*>$/i.test(source)) {
+    return {kind: "details_open"};
+  }
+  if (/^<\/details>$/i.test(source)) {
+    return {kind: "details_close"};
+  }
+  if (/^<dl>$/i.test(source)) {
+    return {kind: "dl_open"};
+  }
+  if (/^<\/dl>$/i.test(source)) {
+    return {kind: "dl_close"};
+  }
+
+  let match = source.match(/^<summary>([\s\S]*?)<\/summary>$/i);
+  if (match) {
+    return {
+      kind: "summary",
+      inner: String(match[1] || ""),
+    };
+  }
+
+  match = source.match(/^<dt>([\s\S]*?)<\/dt>$/i);
+  if (match) {
+    return {
+      kind: "dt",
+      inner: String(match[1] || ""),
+    };
+  }
+
+  match = source.match(/^<dd>([\s\S]*?)<\/dd>$/i);
+  if (match) {
+    return {
+      kind: "dd",
+      inner: String(match[1] || ""),
+    };
+  }
+
+  return null;
+}
+
+interface AllowedInlineHtmlSpan {
+  from: number;
+  to: number;
+  tagName: "sub" | "sup" | "kbd" | "mark";
+  innerFrom: number;
+  innerTo: number;
+}
+
+function findAllowedInlineHtmlSpans(source: string): AllowedInlineHtmlSpan[] {
+  const text = String(source || "");
+  const spans: AllowedInlineHtmlSpan[] = [];
+  const pattern = /<(sub|sup|kbd|mark)>([\s\S]*?)<\/\1>/gi;
+  let match: RegExpExecArray | null = null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    const tagName = String(match[1] || "").toLowerCase() as AllowedInlineHtmlSpan["tagName"];
+    const openingTag = "<" + tagName + ">";
+    const closingTag = "</" + tagName + ">";
+    spans.push({
+      from: match.index,
+      to: match.index + match[0].length,
+      tagName,
+      innerFrom: match.index + openingTag.length,
+      innerTo: match.index + match[0].length - closingTag.length,
+    });
+  }
+
+  return spans;
+}
+
+interface InlineMathSpan {
+  from: number;
+  to: number;
+  innerFrom: number;
+  innerTo: number;
+}
+
+function findInlineMathSpans(source: string): InlineMathSpan[] {
+  const text = String(source || "");
+  const spans: InlineMathSpan[] = [];
+  let index = 0;
+
+  while (index < text.length) {
+    if (text[index] !== "$" || text[index + 1] === "$" || (index > 0 && text[index - 1] === "\\")) {
+      index += 1;
+      continue;
+    }
+
+    let end = index + 1;
+    while (end < text.length) {
+      if (text[end] === "$" && text[end - 1] !== "\\") {
+        break;
+      }
+      end += 1;
+    }
+    if (end >= text.length || text[end] !== "$") {
+      break;
+    }
+
+    const content = text.slice(index + 1, end);
+    if (!content || /^\s|\s$/.test(content)) {
+      index = end + 1;
+      continue;
+    }
+
+    spans.push({
+      from: index,
+      to: end + 1,
+      innerFrom: index + 1,
+      innerTo: end,
+    });
+    index = end + 1;
+  }
+
+  return spans;
+}
+
 function renderedBodyStartOffset(state: EditorState): number {
   if (!state.field(renderModeField, false)) {
     return 0;
@@ -580,6 +975,38 @@ function clampSelectionToOffset(selection: EditorSelection, minOffset: number): 
   return EditorSelection.create(ranges, selection.mainIndex);
 }
 
+function clampSelectionToRenderedVisibleOffsets(state: EditorState, selection: EditorSelection): EditorSelection {
+  if (!state.field(renderModeField, false)) {
+    return selection;
+  }
+  const ranges = selection.ranges.map(function (range) {
+    const anchorLine = state.doc.lineAt(range.anchor);
+    const anchorVisibleStart = Math.min(anchorLine.to, anchorLine.from + renderedHiddenPrefixLength(anchorLine.text));
+    const anchor = range.anchor < anchorVisibleStart ? anchorVisibleStart : range.anchor;
+
+    const headLine = state.doc.lineAt(range.head);
+    const headVisibleStart = Math.min(headLine.to, headLine.from + renderedHiddenPrefixLength(headLine.text));
+    const head = range.head < headVisibleStart ? headVisibleStart : range.head;
+
+    if (anchor === head) {
+      return EditorSelection.cursor(
+        anchor,
+        range.assoc,
+        range.bidiLevel === null ? undefined : range.bidiLevel,
+        range.goalColumn
+      );
+    }
+    return EditorSelection.range(
+      anchor,
+      head,
+      range.goalColumn,
+      range.bidiLevel === null ? undefined : range.bidiLevel,
+      range.assoc
+    );
+  });
+  return EditorSelection.create(ranges, selection.mainIndex);
+}
+
 function changesTouchProtectedRange(transaction: Transaction, protectedUntil: number): boolean {
   if (!transaction.docChanged || protectedUntil <= 0) {
     return false;
@@ -593,106 +1020,173 @@ function changesTouchProtectedRange(transaction: Transaction, protectedUntil: nu
   return touched;
 }
 
-function revealRenderedCodeBlockByArrow(view: EditorView, key: string): boolean {
+function renderedVisibleLineStart(line: { from: number; to: number; text: string }): number {
+  return Math.min(line.to, line.from + renderedHiddenPrefixLength(line.text));
+}
+
+function dispatchRenderedSelection(view: EditorView, head: number, extend = false): boolean {
+  const protectedUntil = renderedBodyStartOffset(view.state);
+  let nextSelection: EditorSelection = extend
+    ? EditorSelection.single(view.state.selection.main.anchor, head)
+    : EditorSelection.single(head);
+  nextSelection = clampSelectionToOffset(nextSelection, protectedUntil);
+  nextSelection = clampSelectionToRenderedVisibleOffsets(view.state, nextSelection);
+  view.dispatch({
+    selection: nextSelection,
+    scrollIntoView: true,
+  });
+  return true;
+}
+
+function moveHeadToLine(state: EditorState, sourceHead: number, lineNumber: number): number | null {
+  if (lineNumber < 1 || lineNumber > state.doc.lines) {
+    return null;
+  }
+  const currentLine = state.doc.lineAt(sourceHead);
+  const column = Math.max(0, sourceHead - currentLine.from);
+  const targetLine = state.doc.line(lineNumber);
+  const visibleStart = state.field(renderModeField, false)
+    ? renderedVisibleLineStart(targetLine)
+    : targetLine.from;
+  const targetHead = Math.min(targetLine.from + column, targetLine.to);
+  return Math.max(visibleStart, targetHead);
+}
+
+function renderedTableArrowTarget(view: EditorView, key: "ArrowUp" | "ArrowDown", sourceHead: number): number | null {
   if (!view.state.field(renderModeField, false)) {
-    return false;
+    return null;
   }
 
-  const selection = view.state.selection.main;
-  if (!selection.empty) {
-    return false;
+  const currentLine = view.state.doc.lineAt(sourceHead);
+  const lines = view.state.doc.toString().split("\n");
+  if (key === "ArrowUp") {
+    if (currentLine.number <= 1) {
+      return null;
+    }
+
+    const tableEndingOnPreviousLine = tableBlockEndingAtLine(lines, currentLine.number - 2);
+    if (tableEndingOnPreviousLine) {
+      return moveHeadToLine(view.state, sourceHead, tableEndingOnPreviousLine.endLineIndex + 1);
+    }
+
+    const tableEndingTwoLinesAbove = tableBlockEndingAtLine(lines, currentLine.number - 3);
+    if (tableEndingTwoLinesAbove) {
+      return moveHeadToLine(view.state, sourceHead, currentLine.number - 1);
+    }
+
+    return null;
   }
 
-  const currentLine = view.state.doc.lineAt(selection.head);
-  const column = Math.max(0, selection.head - currentLine.from);
+  if (currentLine.number >= view.state.doc.lines) {
+    return null;
+  }
+
+  const tableStartingOnNextLine = markdownTableBlockAt(lines, currentLine.number);
+  if (tableStartingOnNextLine) {
+    return moveHeadToLine(view.state, sourceHead, tableStartingOnNextLine.startLineIndex + 1);
+  }
+
+  const tableStartingTwoLinesBelow = markdownTableBlockAt(lines, currentLine.number + 1);
+  if (tableStartingTwoLinesBelow) {
+    return moveHeadToLine(view.state, sourceHead, currentLine.number + 1);
+  }
+
+  return null;
+}
+
+function renderedTaskArrowTarget(view: EditorView, key: "ArrowUp" | "ArrowDown", sourceHead: number): number | null {
+  if (!view.state.field(renderModeField, false)) {
+    return null;
+  }
+
+  const currentLine = view.state.doc.lineAt(sourceHead);
+  const targetLineNumber = key === "ArrowDown" ? currentLine.number + 1 : currentLine.number - 1;
+  if (targetLineNumber < 1 || targetLineNumber > view.state.doc.lines) {
+    return null;
+  }
+
+  const targetLine = view.state.doc.line(targetLineNumber);
+  const currentTaskPrefix = taskPrefixLength(currentLine.text);
+  const targetTaskPrefix = taskPrefixLength(targetLine.text);
+  if (
+    !currentTaskPrefix
+    && !targetTaskPrefix
+    && !taskLineHasInlineDate(currentLine.text)
+    && !taskLineHasInlineDate(targetLine.text)
+  ) {
+    return null;
+  }
+
+  const rawColumn = Math.max(0, sourceHead - currentLine.from);
+  const visibleColumn = renderedTaskVisibleColumn(currentLine.text, rawColumn);
+  const targetRawColumn = renderedTaskRawColumn(targetLine.text, visibleColumn);
+  return Math.min(targetLine.from + targetRawColumn, targetLine.to);
+}
+
+function renderedCodeBlockArrowTarget(view: EditorView, key: "ArrowUp" | "ArrowDown", sourceHead: number): number | null {
+  if (!view.state.field(renderModeField, false)) {
+    return null;
+  }
+
+  const currentLine = view.state.doc.lineAt(sourceHead);
+  const column = Math.max(0, sourceHead - currentLine.from);
   const lines = view.state.doc.toString().split("\n");
 
   if (key === "ArrowDown") {
     if (currentLine.number >= view.state.doc.lines) {
-      return false;
+      return null;
     }
     const block = markdownCodeFenceBlockAt(lines, currentLine.number);
     if (!block) {
-      return false;
+      return null;
     }
     const targetLine = view.state.doc.line(block.startLineIndex + 1);
-    view.dispatch({
-      selection: {
-        anchor: Math.min(targetLine.from + column, targetLine.to),
-      },
-      scrollIntoView: true,
-    });
-    return true;
+    return Math.min(targetLine.from + column, targetLine.to);
   }
 
-  if (key === "ArrowUp") {
-    if (currentLine.number <= 1) {
-      return false;
-    }
-    const block = codeBlockEndingAtLine(lines, currentLine.number - 2);
-    if (!block) {
-      return false;
-    }
-    const targetLine = view.state.doc.line(block.endLineIndex + 1);
-    view.dispatch({
-      selection: {
-        anchor: Math.min(targetLine.from + column, targetLine.to),
-      },
-      scrollIntoView: true,
-    });
-    return true;
-  }
-
-  return false;
-}
-
-function moveCursorToLine(view: EditorView, lineNumber: number): boolean {
-  if (lineNumber < 1 || lineNumber > view.state.doc.lines) {
-    return false;
-  }
-  const selection = view.state.selection.main;
-  const currentLine = view.state.doc.lineAt(selection.head);
-  const column = Math.max(0, selection.head - currentLine.from);
-  const targetLine = view.state.doc.line(lineNumber);
-  view.dispatch({
-    selection: {
-      anchor: Math.min(targetLine.from + column, targetLine.to),
-    },
-    scrollIntoView: true,
-  });
-  return true;
-}
-
-function handleRenderedTableArrowUp(view: EditorView): boolean {
-  if (!view.state.field(renderModeField, false)) {
-    return false;
-  }
-
-  const selection = view.state.selection.main;
-  if (!selection.empty) {
-    return false;
-  }
-
-  const currentLine = view.state.doc.lineAt(selection.head);
-  const lines = view.state.doc.toString().split("\n");
   if (currentLine.number <= 1) {
+    return null;
+  }
+  const block = codeBlockEndingAtLine(lines, currentLine.number - 2);
+  if (!block) {
+    return null;
+  }
+  const targetLineNumber = block.closed && block.endLineIndex > block.startLineIndex + 1
+    ? block.endLineIndex
+    : block.endLineIndex + 1;
+  const targetLine = view.state.doc.line(targetLineNumber);
+  return Math.min(targetLine.from + column, targetLine.to);
+}
+
+function renderedHiddenPrefixLength(text: string): number {
+  const taskPrefix = taskPrefixLength(text);
+  if (taskPrefix) {
+    return taskPrefix;
+  }
+  const headingMatch = String(text || "").match(/^(#{1,6})(\s+)/);
+  if (headingMatch) {
+    return headingMatch[0].length;
+  }
+  const quoteMatch = markdownBlockquotePrefixMatch(text);
+  const quotePrefix = quoteMatch ? quoteMatch.prefixLength : 0;
+  const listPrefix = markdownListPrefixMatch(text, quotePrefix);
+  return quotePrefix + (listPrefix ? listPrefix.prefixLength : 0);
+}
+
+function handleRenderedLineBoundary(view: EditorView, key: "Home" | "End", extend = false): boolean {
+  if (!view.state.field(renderModeField, false)) {
     return false;
   }
 
-  const tableEndingOnPreviousLine = tableBlockEndingAtLine(lines, currentLine.number - 2);
-  if (tableEndingOnPreviousLine) {
-    return moveCursorToLine(view, tableEndingOnPreviousLine.startLineIndex);
-  }
-
-  const tableEndingTwoLinesAbove = tableBlockEndingAtLine(lines, currentLine.number - 3);
-  if (tableEndingTwoLinesAbove) {
-    return moveCursorToLine(view, currentLine.number - 1);
-  }
-
-  return false;
+  const selection = view.state.selection.main;
+  const currentLine = view.state.doc.lineAt(selection.head);
+  const targetHead = key === "End"
+    ? currentLine.to
+    : renderedVisibleLineStart(currentLine);
+  return dispatchRenderedSelection(view, targetHead, extend);
 }
 
-function handleRenderedTaskArrow(view: EditorView, key: "ArrowUp" | "ArrowDown"): boolean {
+function handleRenderedHiddenPrefixHorizontalBoundary(view: EditorView, key: "ArrowLeft" | "ArrowRight"): boolean {
   if (!view.state.field(renderModeField, false)) {
     return false;
   }
@@ -703,26 +1197,70 @@ function handleRenderedTaskArrow(view: EditorView, key: "ArrowUp" | "ArrowDown")
   }
 
   const currentLine = view.state.doc.lineAt(selection.head);
-  const targetLineNumber = key === "ArrowDown" ? currentLine.number + 1 : currentLine.number - 1;
-  if (targetLineNumber < 1 || targetLineNumber > view.state.doc.lines) {
-    return false;
-  }
-
-  const targetLine = view.state.doc.line(targetLineNumber);
-  if (!taskLineHasInlineDate(currentLine.text) && !taskLineHasInlineDate(targetLine.text)) {
-    return false;
-  }
-
+  const currentPrefix = renderedHiddenPrefixLength(currentLine.text);
   const rawColumn = Math.max(0, selection.head - currentLine.from);
-  const visibleColumn = renderedTaskVisibleColumn(currentLine.text, rawColumn);
-  const targetRawColumn = renderedTaskRawColumn(targetLine.text, visibleColumn);
-  view.dispatch({
-    selection: {
-      anchor: Math.min(targetLine.from + targetRawColumn, targetLine.to),
-    },
-    scrollIntoView: true,
-  });
-  return true;
+
+  if (key === "ArrowLeft") {
+    if (!currentPrefix || rawColumn > currentPrefix) {
+      return false;
+    }
+    if (currentLine.number <= 1) {
+      return dispatchRenderedSelection(view, currentLine.from + currentPrefix);
+    }
+    const previousLine = view.state.doc.line(currentLine.number - 1);
+    return dispatchRenderedSelection(view, previousLine.to);
+  }
+
+  if (currentPrefix && rawColumn < currentPrefix) {
+    return dispatchRenderedSelection(view, currentLine.from + currentPrefix);
+  }
+
+  if (rawColumn !== currentLine.length || currentLine.number >= view.state.doc.lines) {
+    return false;
+  }
+
+  const nextLine = view.state.doc.line(currentLine.number + 1);
+  const nextPrefix = renderedHiddenPrefixLength(nextLine.text);
+  if (!nextPrefix) {
+    return false;
+  }
+
+  return dispatchRenderedSelection(view, nextLine.from + nextPrefix);
+}
+
+function handleRenderedVerticalArrow(view: EditorView, key: "ArrowUp" | "ArrowDown", extend = false): boolean {
+  if (!view.state.field(renderModeField, false)) {
+    return false;
+  }
+
+  const selection = view.state.selection.main;
+  if (!extend && !selection.empty) {
+    return false;
+  }
+
+  const sourceHead = selection.head;
+  const taskTarget = renderedTaskArrowTarget(view, key, sourceHead);
+  if (taskTarget !== null) {
+    return dispatchRenderedSelection(view, taskTarget, extend);
+  }
+
+  const tableTarget = renderedTableArrowTarget(view, key, sourceHead);
+  if (tableTarget !== null) {
+    return dispatchRenderedSelection(view, tableTarget, extend);
+  }
+
+  const codeBlockTarget = renderedCodeBlockArrowTarget(view, key, sourceHead);
+  if (codeBlockTarget !== null) {
+    return dispatchRenderedSelection(view, codeBlockTarget, extend);
+  }
+
+  const currentLine = view.state.doc.lineAt(sourceHead);
+  const targetLineNumber = key === "ArrowDown" ? currentLine.number + 1 : currentLine.number - 1;
+  const targetHead = moveHeadToLine(view.state, sourceHead, targetLineNumber);
+  if (targetHead === null) {
+    return false;
+  }
+  return dispatchRenderedSelection(view, targetHead, extend);
 }
 
 interface InlineDeco {
@@ -745,9 +1283,9 @@ function addAtomicRange(builder: RangeSetBuilder<Decoration>, from: number, to: 
   }
 }
 
-function inlineDecorationOverlaps(decos: InlineDeco[], from: number, to: number): boolean {
-  return decos.some(function (deco) {
-    return from < deco.to && deco.from < to;
+function inlineRangesOverlap(from: number, to: number, ranges: Array<{ from: number; to: number }>): boolean {
+  return ranges.some(function (range) {
+    return from < range.to && range.from < to;
   });
 }
 
@@ -771,6 +1309,433 @@ function shouldRenderMarkdownLinkAsImage(label: string, target: string): boolean
   return trimmedLabel === documentPathLeaf(target);
 }
 
+function addHiddenInlineMarker(decos: InlineDeco[], from: number, to: number): void {
+  if (to > from) {
+    decos.push({
+      from,
+      to,
+      deco: Decoration.replace({}),
+      atomic: true,
+    });
+  }
+}
+
+function addInlineStyle(decos: InlineDeco[], from: number, to: number, className: string): void {
+  if (to > from) {
+    decos.push({
+      from,
+      to,
+      deco: Decoration.mark({class: className}),
+    });
+  }
+}
+
+function nodeChildrenByName(node: MarkdownInlineNode, name: string): MarkdownInlineNode[] {
+  return node.children.filter(function (child) {
+    return child.name === name;
+  });
+}
+
+function addInlineStyledNode(
+  decos: InlineDeco[],
+  blockedRanges: Array<{ from: number; to: number }>,
+  node: MarkdownInlineNode,
+  bodyFrom: number,
+  className: string,
+  markNodeName: string
+): void {
+  const nodeFrom = bodyFrom + node.from;
+  const nodeTo = bodyFrom + node.to;
+  if (inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges)) {
+    return;
+  }
+
+  const markNodes = nodeChildrenByName(node, markNodeName);
+  if (markNodes.length < 2) {
+    return;
+  }
+
+  const firstMark = markNodes[0];
+  const lastMark = markNodes[markNodes.length - 1];
+  addHiddenInlineMarker(decos, bodyFrom + firstMark.from, bodyFrom + firstMark.to);
+  addHiddenInlineMarker(decos, bodyFrom + lastMark.from, bodyFrom + lastMark.to);
+  addInlineStyle(decos, bodyFrom + firstMark.to, bodyFrom + lastMark.from, className);
+}
+
+function addSpecialInlineSpanDecoration(
+  decos: InlineDeco[],
+  blockedRanges: Array<{ from: number; to: number }>,
+  body: string,
+  bodyFrom: number,
+  currentPagePath: string,
+  selection: { from: number; to: number }
+): void {
+  const spans = findMarkdownInlineSpecialSpans(body);
+  for (let index = 0; index < spans.length; index += 1) {
+    const span = spans[index];
+    const spanFrom = bodyFrom + span.from;
+    const spanTo = bodyFrom + span.to;
+    const editing = selection.from <= spanTo && selection.to >= spanFrom;
+    if (editing) {
+      decos.push({
+        from: spanFrom,
+        to: spanTo,
+        deco: Decoration.mark({class: "cm-md-link-raw"}),
+        atomic: true,
+      });
+      blockedRanges.push({from: spanFrom, to: spanTo});
+      continue;
+    }
+
+    const target = String(span.target || "").trim();
+    const label = embeddedLinkLabel(target, String(span.label || ""));
+    const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
+    const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
+    if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+      if (isImagePath(resolvedPath)) {
+        const href = inlineDocumentURL(resolvedPath);
+        decos.push({
+          from: spanFrom,
+          to: spanTo,
+          deco: Decoration.replace({widget: new MarkdownImageWidget(href, href, label || documentPathLeaf(resolvedPath) || "image")}),
+          atomic: true,
+        });
+      } else {
+        decos.push({
+          from: spanFrom,
+          to: spanTo,
+          deco: Decoration.replace({widget: new MarkdownLinkWidget(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath))}),
+          atomic: true,
+        });
+      }
+      blockedRanges.push({from: spanFrom, to: spanTo});
+      continue;
+    }
+
+    decos.push({
+      from: spanFrom,
+      to: spanTo,
+      deco: Decoration.replace({widget: new WikiLinkWidget(target, label)}),
+      atomic: true,
+    });
+    blockedRanges.push({from: spanFrom, to: spanTo});
+  }
+}
+
+function addAllowedInlineHtmlSpanDecorations(
+  decos: InlineDeco[],
+  blockedRanges: Array<{ from: number; to: number }>,
+  body: string,
+  bodyFrom: number,
+  selection: { from: number; to: number }
+): void {
+  const classNames: Record<AllowedInlineHtmlSpan["tagName"], string> = {
+    sub: "cm-md-html-sub",
+    sup: "cm-md-html-sup",
+    kbd: "cm-md-html-kbd",
+    mark: "cm-md-html-mark",
+  };
+
+  const spans = findAllowedInlineHtmlSpans(body);
+  for (let index = 0; index < spans.length; index += 1) {
+    const span = spans[index];
+    const spanFrom = bodyFrom + span.from;
+    const spanTo = bodyFrom + span.to;
+    const editing = selection.from <= spanTo && selection.to >= spanFrom;
+    if (editing) {
+      decos.push({
+        from: spanFrom,
+        to: spanTo,
+        deco: Decoration.mark({class: "cm-md-html-raw"}),
+        atomic: true,
+      });
+      blockedRanges.push({from: spanFrom, to: spanTo});
+      continue;
+    }
+
+    const openingTagLength = span.innerFrom - span.from;
+    const closingTagLength = span.to - span.innerTo;
+    addHiddenInlineMarker(decos, spanFrom, spanFrom + openingTagLength);
+    addHiddenInlineMarker(decos, spanTo - closingTagLength, spanTo);
+    addInlineStyle(decos, bodyFrom + span.innerFrom, bodyFrom + span.innerTo, classNames[span.tagName]);
+    blockedRanges.push({from: spanFrom, to: spanTo});
+  }
+}
+
+function addInlineMathSpanDecorations(
+  decos: InlineDeco[],
+  blockedRanges: Array<{ from: number; to: number }>,
+  body: string,
+  bodyFrom: number,
+  selection: { from: number; to: number }
+): void {
+  const spans = findInlineMathSpans(body);
+  for (let index = 0; index < spans.length; index += 1) {
+    const span = spans[index];
+    const spanFrom = bodyFrom + span.from;
+    const spanTo = bodyFrom + span.to;
+    const editing = selection.from <= spanTo && selection.to >= spanFrom;
+    if (editing) {
+      decos.push({
+        from: spanFrom,
+        to: spanTo,
+        deco: Decoration.mark({class: "cm-md-math-raw"}),
+        atomic: true,
+      });
+      blockedRanges.push({from: spanFrom, to: spanTo});
+      continue;
+    }
+
+    addHiddenInlineMarker(decos, spanFrom, spanFrom + 1);
+    addHiddenInlineMarker(decos, spanTo - 1, spanTo);
+    addInlineStyle(decos, bodyFrom + span.innerFrom, bodyFrom + span.innerTo, "cm-md-math-inline");
+    blockedRanges.push({from: spanFrom, to: spanTo});
+  }
+}
+
+function addParsedInlineDecorationNode(
+  decos: InlineDeco[],
+  blockedRanges: Array<{ from: number; to: number }>,
+  node: MarkdownInlineNode,
+  parentName: string,
+  body: string,
+  bodyFrom: number,
+  editingLine: boolean,
+  selection: { from: number; to: number },
+  currentPagePath: string,
+  referenceDefinitions: Map<string, MarkdownReferenceDefinition> | null
+): void {
+  const nodeFrom = bodyFrom + node.from;
+  const nodeTo = bodyFrom + node.to;
+
+  switch (node.name) {
+    case "Link": {
+      if (inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges)) {
+        return;
+      }
+      const info = markdownResolvedLinkInfo(node, body, referenceDefinitions);
+      if (!info) {
+        return;
+      }
+      const target = String(info.target || "").trim();
+      const label = visibleTextFromChildren(node, body, info.labelFrom, info.labelTo).trim() || pageTitleFromPath(target);
+      const editing = selection.from <= nodeTo && selection.to >= nodeFrom;
+      if (editing) {
+        decos.push({
+          from: nodeFrom,
+          to: nodeTo,
+          deco: Decoration.mark({class: "cm-md-link-raw"}),
+          atomic: true,
+        });
+        blockedRanges.push({from: nodeFrom, to: nodeTo});
+        return;
+      }
+
+      if (/^[a-z]+:/i.test(target)) {
+        if (isImagePath(target) && shouldRenderMarkdownLinkAsImage(label, target)) {
+          decos.push({
+            from: nodeFrom,
+            to: nodeTo,
+            deco: Decoration.replace({widget: new MarkdownImageWidget(target, target, label || documentPathLeaf(target) || "image")}),
+            atomic: true,
+          });
+        } else {
+          decos.push({
+            from: nodeFrom,
+            to: nodeTo,
+            deco: Decoration.replace({widget: new ExternalLinkWidget(target, label || target)}),
+            atomic: true,
+          });
+        }
+        blockedRanges.push({from: nodeFrom, to: nodeTo});
+        return;
+      }
+
+      const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
+      if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+        if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage(label, target)) {
+          const imageHref = inlineDocumentURL(resolvedPath);
+          decos.push({
+            from: nodeFrom,
+            to: nodeTo,
+            deco: Decoration.replace({widget: new MarkdownImageWidget(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image")}),
+            atomic: true,
+          });
+        } else {
+          decos.push({
+            from: nodeFrom,
+            to: nodeTo,
+            deco: Decoration.replace({widget: new MarkdownLinkWidget(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath) || documentPathLeaf(target) || target)}),
+            atomic: true,
+          });
+        }
+        blockedRanges.push({from: nodeFrom, to: nodeTo});
+        return;
+      }
+
+      decos.push({
+        from: nodeFrom,
+        to: nodeTo,
+        deco: Decoration.replace({widget: new WikiLinkWidget(target, label || pageTitleFromPath(target))}),
+        atomic: true,
+      });
+      blockedRanges.push({from: nodeFrom, to: nodeTo});
+      return;
+    }
+
+    case "Image": {
+      if (inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges)) {
+        return;
+      }
+      const info = markdownResolvedLinkInfo(node, body, referenceDefinitions);
+      if (!info) {
+        return;
+      }
+      const target = String(info.target || "").trim();
+      const alt = visibleTextFromChildren(node, body, info.labelFrom, info.labelTo).trim();
+      const editing = selection.from <= nodeTo && selection.to >= nodeFrom;
+      if (editing) {
+        decos.push({
+          from: nodeFrom,
+          to: nodeTo,
+          deco: Decoration.mark({class: "cm-md-link-raw"}),
+          atomic: true,
+        });
+        blockedRanges.push({from: nodeFrom, to: nodeTo});
+        return;
+      }
+
+      if (/^[a-z]+:/i.test(target)) {
+        decos.push({
+          from: nodeFrom,
+          to: nodeTo,
+          deco: Decoration.replace({widget: new MarkdownImageWidget(target, target, alt || documentPathLeaf(target) || "image")}),
+          atomic: true,
+        });
+        blockedRanges.push({from: nodeFrom, to: nodeTo});
+        return;
+      }
+
+      const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
+      if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+        const href = inlineDocumentURL(resolvedPath);
+        decos.push({
+          from: nodeFrom,
+          to: nodeTo,
+          deco: Decoration.replace({widget: new MarkdownImageWidget(href, href, alt || documentPathLeaf(resolvedPath) || "image")}),
+          atomic: true,
+        });
+        blockedRanges.push({from: nodeFrom, to: nodeTo});
+      }
+      return;
+    }
+
+    case "Autolink": {
+      if (inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges)) {
+        return;
+      }
+      const urlNode = node.children.find(function (child) {
+        return child.name === "URL";
+      });
+      const target = String(urlNode ? body.slice(urlNode.from, urlNode.to) : body.slice(node.from, node.to)).trim();
+      if (!target) {
+        return;
+      }
+      const editing = selection.from <= nodeTo && selection.to >= nodeFrom;
+      if (editing) {
+        decos.push({
+          from: nodeFrom,
+          to: nodeTo,
+          deco: Decoration.mark({class: "cm-md-link-raw"}),
+          atomic: true,
+        });
+      } else if (!editingLine) {
+        decos.push({
+          from: nodeFrom,
+          to: nodeTo,
+          deco: Decoration.replace({widget: new ExternalLinkWidget(target, target)}),
+          atomic: true,
+        });
+      }
+      blockedRanges.push({from: nodeFrom, to: nodeTo});
+      return;
+    }
+
+    case "URL": {
+      if (parentName === "Link" || parentName === "Image" || parentName === "Autolink" || inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges)) {
+        return;
+      }
+      const target = String(body.slice(node.from, node.to) || "").trim();
+      if (!target) {
+        return;
+      }
+      const editing = selection.from <= nodeTo && selection.to >= nodeFrom;
+      if (editing) {
+        decos.push({
+          from: nodeFrom,
+          to: nodeTo,
+          deco: Decoration.mark({class: "cm-md-link-raw"}),
+          atomic: true,
+        });
+      } else if (!editingLine) {
+        decos.push({
+          from: nodeFrom,
+          to: nodeTo,
+          deco: Decoration.replace({widget: new ExternalLinkWidget(target, target)}),
+          atomic: true,
+        });
+      }
+      blockedRanges.push({from: nodeFrom, to: nodeTo});
+      return;
+    }
+
+    case "InlineCode":
+      if (!editingLine) {
+        addInlineStyledNode(decos, blockedRanges, node, bodyFrom, "cm-md-inline-code", "CodeMark");
+      }
+      return;
+
+    case "StrongEmphasis":
+      if (!editingLine) {
+        addInlineStyledNode(decos, blockedRanges, node, bodyFrom, "cm-md-bold", "EmphasisMark");
+      }
+      break;
+
+    case "Emphasis":
+      if (!editingLine) {
+        addInlineStyledNode(decos, blockedRanges, node, bodyFrom, "cm-md-italic", "EmphasisMark");
+      }
+      break;
+
+    case "Strikethrough":
+      if (!editingLine) {
+        addInlineStyledNode(decos, blockedRanges, node, bodyFrom, "cm-md-strikethrough", "StrikethroughMark");
+      }
+      break;
+
+    case "Escape":
+      if (!editingLine && !inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges) && node.to > node.from) {
+        addHiddenInlineMarker(decos, nodeFrom, nodeFrom + 1);
+      }
+      return;
+  }
+
+  for (let index = 0; index < node.children.length; index += 1) {
+    addParsedInlineDecorationNode(
+      decos,
+      blockedRanges,
+      node.children[index],
+      node.name,
+      body,
+      bodyFrom,
+      editingLine,
+      selection,
+      currentPagePath,
+      referenceDefinitions
+    );
+  }
+}
+
 function addInlineDecorations(
   builder: RangeSetBuilder<Decoration>,
   atomicBuilder: RangeSetBuilder<Decoration>,
@@ -780,164 +1745,18 @@ function addInlineDecorations(
   editingLine: boolean,
   selection: { from: number; to: number },
   currentPagePath: string,
+  referenceDefinitions: Map<string, MarkdownReferenceDefinition> | null,
   extraDecos: InlineDeco[]
 ): void {
   const decos: InlineDeco[] = extraDecos.slice();
+  const blockedRanges: Array<{ from: number; to: number }> = [];
   const body = text.slice(startOffset);
   const bodyFrom = lineFrom + startOffset;
-  const imagePattern = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|!\[([^\]]*)\]\(([^)\s]+)\)/g;
-  const pattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)|(?<![(\[])https?:\/\/[^\s)\]>]+|`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~/g;
-
-  let imageMatch: RegExpExecArray | null = null;
-  while ((imageMatch = imagePattern.exec(body)) !== null) {
-    const mFrom = bodyFrom + imageMatch.index;
-    const mEnd = mFrom + imageMatch[0].length;
-    const editing = selection.from <= mEnd && selection.to >= mFrom;
-
-    if (editing) {
-      decos.push({from: mFrom, to: mEnd, deco: Decoration.mark({class: "cm-md-link-raw"})});
-      continue;
-    }
-
-    if (imageMatch[1] !== undefined) {
-      const target = String(imageMatch[1] || "").trim();
-      const label = embeddedLinkLabel(target, String(imageMatch[2] || ""));
-      const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
-      const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
-      if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
-        if (isImagePath(resolvedPath)) {
-          const href = inlineDocumentURL(resolvedPath);
-          decos.push({
-            from: mFrom,
-            to: mEnd,
-            deco: Decoration.replace({widget: new MarkdownImageWidget(href, href, label || documentPathLeaf(resolvedPath) || "image")}),
-            atomic: true,
-          });
-        } else {
-          decos.push({
-            from: mFrom,
-            to: mEnd,
-            deco: Decoration.replace({widget: new MarkdownLinkWidget(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath))}),
-            atomic: true,
-          });
-        }
-        continue;
-      }
-
-      decos.push({
-        from: mFrom,
-        to: mEnd,
-        deco: Decoration.replace({widget: new WikiLinkWidget(target, label)}),
-        atomic: true,
-      });
-      continue;
-    }
-
-    const alt = String(imageMatch[3] || "").trim();
-    const target = String(imageMatch[4] || "").trim();
-    if (/^[a-z]+:/i.test(target)) {
-      decos.push({
-        from: mFrom,
-        to: mEnd,
-        deco: Decoration.replace({widget: new MarkdownImageWidget(target, target, alt || documentPathLeaf(target) || "image")}),
-        atomic: true,
-      });
-      continue;
-    }
-
-    const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
-    if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
-      const href = inlineDocumentURL(resolvedPath);
-      decos.push({
-        from: mFrom,
-        to: mEnd,
-        deco: Decoration.replace({widget: new MarkdownImageWidget(href, href, alt || documentPathLeaf(resolvedPath) || "image")}),
-        atomic: true,
-      });
-    }
-  }
-
-  let m: RegExpExecArray | null = null;
-  while ((m = pattern.exec(body)) !== null) {
-    const mFrom = bodyFrom + m.index;
-    const mEnd = mFrom + m[0].length;
-    if (inlineDecorationOverlaps(decos, mFrom, mEnd)) {
-      continue;
-    }
-
-    if (m[1] !== undefined) {
-      const target = String(m[1]).trim();
-      const label = String(m[2] || "").trim() || pageTitleFromPath(target);
-      const editing = selection.from <= mEnd && selection.to >= mFrom;
-      if (editing) {
-        decos.push({from: mFrom, to: mEnd, deco: Decoration.mark({class: "cm-md-link-raw"})});
-      } else {
-        decos.push({from: mFrom, to: mEnd, deco: Decoration.replace({widget: new WikiLinkWidget(target, label)}), atomic: true});
-      }
-    } else if (m[3] !== undefined) {
-      const label = String(m[3]).trim();
-      const target = String(m[4] || "").trim();
-      const editing = selection.from <= mEnd && selection.to >= mFrom;
-      if (/^[a-z]+:/i.test(target)) {
-        if (editing) {
-          decos.push({from: mFrom, to: mEnd, deco: Decoration.mark({class: "cm-md-link-raw"})});
-        } else if (isImagePath(target) && shouldRenderMarkdownLinkAsImage(label, target)) {
-          decos.push({
-            from: mFrom,
-            to: mEnd,
-            deco: Decoration.replace({widget: new MarkdownImageWidget(target, target, label || documentPathLeaf(target) || "image")}),
-            atomic: true,
-          });
-        } else {
-          decos.push({from: mFrom, to: mEnd, deco: Decoration.replace({widget: new ExternalLinkWidget(target, label || target)}), atomic: true});
-        }
-      } else {
-        const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
-        if (!resolvedPath || /\.md$/i.test(resolvedPath) || target.startsWith("#")) {
-          continue;
-        }
-        const href = documentDownloadURL(resolvedPath);
-        if (editing) {
-          decos.push({from: mFrom, to: mEnd, deco: Decoration.mark({class: "cm-md-link-raw"})});
-        } else if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage(label, target)) {
-          const imageHref = inlineDocumentURL(resolvedPath);
-          decos.push({
-            from: mFrom,
-            to: mEnd,
-            deco: Decoration.replace({widget: new MarkdownImageWidget(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image")}),
-            atomic: true,
-          });
-        } else {
-          decos.push({from: mFrom, to: mEnd, deco: Decoration.replace({widget: new MarkdownLinkWidget(href, label || href)}), atomic: true});
-        }
-      }
-    } else if (m[0][0] === "h" && /^https?:\/\//.test(m[0])) {
-      const editing = selection.from <= mEnd && selection.to >= mFrom;
-      if (editing) {
-        decos.push({from: mFrom, to: mEnd, deco: Decoration.mark({class: "cm-md-link-raw"})});
-      } else if (!editingLine) {
-        decos.push({from: mFrom, to: mEnd, deco: Decoration.replace({widget: new ExternalLinkWidget(m[0], m[0])}), atomic: true});
-      }
-    } else if (!editingLine) {
-      if (m[5] !== undefined) {
-        decos.push({from: mFrom, to: mFrom + 1, deco: Decoration.replace({}), atomic: true});
-        decos.push({from: mFrom + 1, to: mEnd - 1, deco: Decoration.mark({class: "cm-md-inline-code"})});
-        decos.push({from: mEnd - 1, to: mEnd, deco: Decoration.replace({}), atomic: true});
-      } else if (m[6] !== undefined || m[7] !== undefined) {
-        decos.push({from: mFrom, to: mFrom + 2, deco: Decoration.replace({}), atomic: true});
-        decos.push({from: mFrom + 2, to: mEnd - 2, deco: Decoration.mark({class: "cm-md-bold"})});
-        decos.push({from: mEnd - 2, to: mEnd, deco: Decoration.replace({}), atomic: true});
-      } else if (m[8] !== undefined || m[9] !== undefined) {
-        decos.push({from: mFrom, to: mFrom + 1, deco: Decoration.replace({}), atomic: true});
-        decos.push({from: mFrom + 1, to: mEnd - 1, deco: Decoration.mark({class: "cm-md-italic"})});
-        decos.push({from: mEnd - 1, to: mEnd, deco: Decoration.replace({}), atomic: true});
-      } else if (m[10] !== undefined) {
-        decos.push({from: mFrom, to: mFrom + 2, deco: Decoration.replace({}), atomic: true});
-        decos.push({from: mFrom + 2, to: mEnd - 2, deco: Decoration.mark({class: "cm-md-strikethrough"})});
-        decos.push({from: mEnd - 2, to: mEnd, deco: Decoration.replace({}), atomic: true});
-      }
-    }
-  }
+  addSpecialInlineSpanDecoration(decos, blockedRanges, body, bodyFrom, currentPagePath, selection);
+  addAllowedInlineHtmlSpanDecorations(decos, blockedRanges, body, bodyFrom, selection);
+  addInlineMathSpanDecorations(decos, blockedRanges, body, bodyFrom, selection);
+  const root = parseInlineMarkdownTree(body);
+  addParsedInlineDecorationNode(decos, blockedRanges, root, "", body, bodyFrom, editingLine, selection, currentPagePath, referenceDefinitions);
 
   decos.sort(function (a, b) { return a.from - b.from || a.to - b.to; });
   for (let i = 0; i < decos.length; i += 1) {
@@ -960,10 +1779,20 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
   const atomicBuilder = new RangeSetBuilder<Decoration>();
   const queryBlocks = state.field(queryBlocksField);
   const tasks = state.field(tasksField);
+  const expandedCodeBlocks = state.field(expandedCodeBlocksField);
   const selection = state.selection.main;
   const currentPagePath = state.field(pagePathField);
   const markdown = state.doc.toString();
   const lines = markdown.split("\n");
+  const referenceDefinitions = markdownReferenceDefinitions(markdown);
+  const hiddenReferenceDefinitionLines = new Set<number>();
+  referenceDefinitions.forEach(function (definition) {
+    const fromLine = state.doc.lineAt(definition.from).number;
+    const toLine = state.doc.lineAt(Math.max(definition.from, definition.to - 1)).number;
+    for (let lineNumber = fromLine; lineNumber <= toLine; lineNumber += 1) {
+      hiddenReferenceDefinitionLines.add(lineNumber);
+    }
+  });
   let hiddenFrontmatterUntil = 0;
 
   const frontmatter = splitFrontmatter(markdown).frontmatter;
@@ -987,7 +1816,15 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
     const text = line.text;
     const from = line.from;
     const editingLine = selection.from <= line.to && selection.to >= line.from;
-    const tableBlock = markdownTableBlockAt(lines, lineNumber - 1);
+    if (hiddenReferenceDefinitionLines.has(lineNumber) && !editingLine) {
+      builder.add(line.from, line.to, Decoration.replace({}));
+      addAtomicRange(atomicBuilder, line.from, line.to);
+      continue;
+    }
+    const tableBlock = markdownTableBlockAt(lines, lineNumber - 1, {
+      currentPagePath,
+      referenceDefinitions,
+    });
     if (tableBlock) {
       const tableEndLine = state.doc.line(tableBlock.endLineIndex + 1);
       const editingTable = selection.from <= tableEndLine.to && selection.to >= line.from;
@@ -1039,6 +1876,28 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
       continue;
     }
 
+    const mathBlock = markdownMathBlockAt(lines, lineNumber - 1);
+    if (mathBlock) {
+      const endLine = state.doc.line(mathBlock.endLineIndex + 1);
+      const editingMathBlock = selection.from <= endLine.to && selection.to >= line.from;
+      if (editingMathBlock) {
+        lineNumber = mathBlock.endLineIndex + 1;
+        continue;
+      }
+      for (let mathLineNumber = lineNumber; mathLineNumber <= mathBlock.endLineIndex + 1; mathLineNumber += 1) {
+        const mathLine = state.doc.line(mathLineNumber);
+        if (mathLineNumber === lineNumber || mathLineNumber === mathBlock.endLineIndex + 1) {
+          builder.add(mathLine.from, mathLine.from, Decoration.line({class: "cm-md-math-block-fence"}));
+          builder.add(mathLine.from, mathLine.to, Decoration.replace({}));
+          addAtomicRange(atomicBuilder, mathLine.from, mathLine.to);
+        } else {
+          builder.add(mathLine.from, mathLine.from, Decoration.line({class: "cm-md-math-block-body"}));
+        }
+      }
+      lineNumber = mathBlock.endLineIndex + 1;
+      continue;
+    }
+
     const codeBlock = markdownCodeFenceBlockAt(lines, lineNumber - 1);
     if (codeBlock) {
       const endLine = state.doc.line(codeBlock.endLineIndex + 1);
@@ -1047,6 +1906,13 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
         lineNumber = codeBlock.endLineIndex + 1;
         continue;
       }
+      const bodyLineCount = Math.max(0, codeBlock.content ? codeBlock.content.split("\n").length : 0);
+      const codeBlockKey = codeBlockStateKey(lineNumber, codeBlock.content, codeBlock.language);
+      const canCollapse = bodyLineCount > collapsedCodeBlockVisibleLines;
+      const expanded = canCollapse ? Boolean(expandedCodeBlocks[codeBlockKey]) : false;
+      const hiddenLineCount = canCollapse && !expanded
+        ? bodyLineCount - collapsedCodeBlockVisibleLines
+        : 0;
       for (let codeLineNumber = lineNumber; codeLineNumber <= codeBlock.endLineIndex + 1; codeLineNumber += 1) {
         const codeLine = state.doc.line(codeLineNumber);
         const classNames = ["cm-md-code-block"];
@@ -1054,13 +1920,20 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
         if (codeLineNumber === lineNumber) {
           classNames.push("cm-md-code-block-start");
           replaceDecoration = Decoration.replace({
-            widget: new CodeToolbarWidget(codeBlock.content, codeBlock.language),
+            widget: new CodeToolbarWidget(codeBlock.content, codeBlock.language, codeBlockKey, canCollapse, expanded, hiddenLineCount),
           });
         } else if (codeLineNumber === codeBlock.endLineIndex + 1) {
           classNames.push("cm-md-code-block-end", "cm-md-code-fence-hidden");
           replaceDecoration = Decoration.replace({});
         } else {
           classNames.push("cm-md-code-block-body");
+          const bodyLineIndex = codeLineNumber - lineNumber - 1;
+          if (canCollapse && !expanded && bodyLineIndex >= collapsedCodeBlockVisibleLines) {
+            classNames.push("cm-md-code-block-hidden");
+            addAtomicRange(atomicBuilder, codeLine.from, codeLine.to);
+          } else if (canCollapse && !expanded && bodyLineIndex === collapsedCodeBlockVisibleLines - 1) {
+            classNames.push("cm-md-code-block-truncated");
+          }
         }
         builder.add(codeLine.from, codeLine.from, Decoration.line({class: classNames.join(" ")}));
         if (replaceDecoration) {
@@ -1076,6 +1949,37 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
     const inlineExtraDecos: InlineDeco[] = [];
     let taskMetaWidget: WidgetType | null = null;
 
+    const htmlLine = markdownHtmlLineMatch(text);
+    if (htmlLine) {
+      if (!editingLine) {
+        if (htmlLine.kind === "details_open" || htmlLine.kind === "details_close" || htmlLine.kind === "dl_open" || htmlLine.kind === "dl_close") {
+          builder.add(from, line.to, Decoration.replace({}));
+          addAtomicRange(atomicBuilder, from, line.to);
+          continue;
+        }
+
+        const innerHTML = renderInline(String(htmlLine.inner || ""), {
+          currentPagePath,
+          referenceDefinitions,
+        });
+        let className = "cm-md-html-line";
+        let html = innerHTML;
+        if (htmlLine.kind === "summary") {
+          className += " cm-md-html-summary";
+          html = '<span class="cm-md-html-summary-marker" aria-hidden="true">▾</span><span class="cm-md-html-summary-text">' + innerHTML + "</span>";
+        } else if (htmlLine.kind === "dt") {
+          className += " cm-md-html-dt";
+        } else if (htmlLine.kind === "dd") {
+          className += " cm-md-html-dd";
+        }
+
+        builder.add(from, from, Decoration.line({class: className}));
+        builder.add(from, line.to, Decoration.replace({widget: new HtmlLineWidget(className, html)}));
+        addAtomicRange(atomicBuilder, from, line.to);
+        continue;
+      }
+    }
+
     let match = text.match(/^(#{1,6})(\s+)/);
     if (match) {
       builder.add(from, from, Decoration.line({class: "cm-md-heading cm-md-heading-" + String(match[1].length)}));
@@ -1088,13 +1992,13 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
       }
     }
 
-    match = text.match(/^(>\s?)/);
-    if (match) {
+    const quoteMatch = markdownBlockquotePrefixMatch(text);
+    if (quoteMatch) {
       builder.add(from, from, Decoration.line({class: "cm-md-quote"}));
-      builder.add(from, from + match[1].length, Decoration.replace({}));
-      addAtomicRange(atomicBuilder, from, from + match[1].length);
-      if (match[1].length > inlineStart) {
-        inlineStart = match[1].length;
+      builder.add(from, from + quoteMatch.prefixLength, Decoration.replace({widget: new QuotePrefixWidget(quoteMatch.prefixLength, quoteMatch.depth)}));
+      addAtomicRange(atomicBuilder, from, from + quoteMatch.prefixLength);
+      if (quoteMatch.prefixLength > inlineStart) {
+        inlineStart = quoteMatch.prefixLength;
       }
     }
 
@@ -1140,7 +2044,33 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
       }
     }
 
-    addInlineDecorations(builder, atomicBuilder, from, text, inlineStart, editingLine, selection, currentPagePath, inlineExtraDecos);
+    const listPrefix = markdownListPrefixMatch(text, inlineStart);
+    if (listPrefix) {
+      if (editingLine) {
+        builder.add(
+          from + inlineStart,
+          from + inlineStart + listPrefix.prefixLength,
+          Decoration.mark({class: "cm-md-list-raw"})
+        );
+      } else {
+        builder.add(
+          from + inlineStart,
+          from + inlineStart + listPrefix.prefixLength,
+          Decoration.replace({widget: new ListMarkerWidget(listPrefix.markerText, listPrefix.prefixLength, listPrefix.indentLength, listPrefix.ordered)})
+        );
+        addAtomicRange(atomicBuilder, from + inlineStart, from + inlineStart + listPrefix.prefixLength);
+      }
+      inlineStart += listPrefix.prefixLength;
+    }
+
+    if (isMarkdownThematicBreak(text) && !editingLine) {
+      builder.add(from, from, Decoration.line({class: "cm-md-rule-line"}));
+      builder.add(from, line.to, Decoration.replace({widget: new ThematicBreakWidget()}));
+      addAtomicRange(atomicBuilder, from, line.to);
+      continue;
+    }
+
+    addInlineDecorations(builder, atomicBuilder, from, text, inlineStart, editingLine, selection, currentPagePath, referenceDefinitions, inlineExtraDecos);
 
     if (taskMetaWidget) {
       builder.add(line.to, line.to, Decoration.widget({widget: taskMetaWidget, side: 1}));
@@ -1188,7 +2118,8 @@ const renderedDecorationsField = StateField.define<RenderedDecorationSets>({
   update(value, transaction) {
     const modeChanged = transaction.effects.some((effect) => effect.is(setRenderModeEffect));
     const tasksChanged = transaction.effects.some((effect) => effect.is(setTasksEffect));
-    if (!modeChanged && !tasksChanged && !transaction.docChanged && !transaction.selection) {
+    const codeBlocksChanged = transaction.effects.some((effect) => effect.is(toggleCodeBlockExpandedEffect));
+    if (!modeChanged && !tasksChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
       return value;
     }
     return buildRenderedDecorations(transaction.state);
@@ -1339,6 +2270,18 @@ window.NoteriousCodeEditor = {
           return true;
         }
 
+        const codeToggle = target ? target.closest("[data-code-toggle]") : null;
+        if (codeToggle) {
+          event.preventDefault();
+          const key = String(codeToggle.getAttribute("data-code-toggle") || "");
+          if (key) {
+            view.dispatch({
+              effects: toggleCodeBlockExpandedEffect.of(key),
+            });
+          }
+          return true;
+        }
+
         const taskToggle = target ? target.closest("[data-task-toggle]") : null;
         if (taskToggle) {
           event.preventDefault();
@@ -1406,16 +2349,6 @@ window.NoteriousCodeEditor = {
           }));
           return true;
         }
-        if (!event.altKey && !event.ctrlKey && !event.metaKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
-          if (handleRenderedTaskArrow(view, event.key === "ArrowDown" ? "ArrowDown" : "ArrowUp")) {
-            event.preventDefault();
-            return true;
-          }
-          if (revealRenderedCodeBlockByArrow(view, event.key)) {
-            event.preventDefault();
-            return true;
-          }
-        }
         if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
           clearSearchHitHighlight(view);
         }
@@ -1457,7 +2390,61 @@ window.NoteriousCodeEditor = {
             {
               key: "ArrowUp",
               run(view) {
-                return handleRenderedTableArrowUp(view);
+                return handleRenderedVerticalArrow(view, "ArrowUp");
+              },
+            },
+            {
+              key: "ArrowDown",
+              run(view) {
+                return handleRenderedVerticalArrow(view, "ArrowDown");
+              },
+            },
+            {
+              key: "Shift-ArrowUp",
+              run(view) {
+                return handleRenderedVerticalArrow(view, "ArrowUp", true);
+              },
+            },
+            {
+              key: "Shift-ArrowDown",
+              run(view) {
+                return handleRenderedVerticalArrow(view, "ArrowDown", true);
+              },
+            },
+            {
+              key: "ArrowLeft",
+              run(view) {
+                return handleRenderedHiddenPrefixHorizontalBoundary(view, "ArrowLeft");
+              },
+            },
+            {
+              key: "ArrowRight",
+              run(view) {
+                return handleRenderedHiddenPrefixHorizontalBoundary(view, "ArrowRight");
+              },
+            },
+            {
+              key: "Home",
+              run(view) {
+                return handleRenderedLineBoundary(view, "Home");
+              },
+            },
+            {
+              key: "End",
+              run(view) {
+                return handleRenderedLineBoundary(view, "End");
+              },
+            },
+            {
+              key: "Shift-Home",
+              run(view) {
+                return handleRenderedLineBoundary(view, "Home", true);
+              },
+            },
+            {
+              key: "Shift-End",
+              run(view) {
+                return handleRenderedLineBoundary(view, "End", true);
               },
             },
             indentWithTab,
@@ -1474,6 +2461,7 @@ window.NoteriousCodeEditor = {
           highlightedLineField,
           queryBlocksField,
           tasksField,
+          expandedCodeBlocksField,
           highlightedLineDecorationsField,
           renderedDecorationsField,
           renderedFrontmatterBoundaryFilter,
@@ -1557,7 +2545,8 @@ window.NoteriousCodeEditor = {
         const protectedUntil = renderedBodyStartOffset(view.state);
         const nextAnchor = Math.max(protectedUntil, Math.min(Number(anchor) || 0, max));
         const nextHead = Math.max(protectedUntil, Math.min(typeof head === "number" ? head : nextAnchor, max));
-        const clampedSelection = clampSelectionToOffset(EditorSelection.single(nextAnchor, nextHead), protectedUntil);
+        let clampedSelection = clampSelectionToOffset(EditorSelection.single(nextAnchor, nextHead), protectedUntil);
+        clampedSelection = clampSelectionToRenderedVisibleOffsets(view.state, clampedSelection);
         view.dispatch({
           selection: clampedSelection,
           scrollIntoView: Boolean(reveal),
@@ -1600,7 +2589,8 @@ window.NoteriousCodeEditor = {
         });
         if (enabled) {
           const protectedUntil = renderedBodyStartOffset(view.state);
-          const clampedSelection = clampSelectionToOffset(view.state.selection, protectedUntil);
+          let clampedSelection = clampSelectionToOffset(view.state.selection, protectedUntil);
+          clampedSelection = clampSelectionToRenderedVisibleOffsets(view.state, clampedSelection);
           if (!clampedSelection.eq(view.state.selection, true)) {
             view.dispatch({
               selection: clampedSelection,
