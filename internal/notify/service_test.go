@@ -162,6 +162,78 @@ func TestPollSendsAndDeduplicatesReminderNotifications(t *testing.T) {
 	}
 }
 
+func TestPollDefaultsTaskReminderClickTargetToNoteriousApp(t *testing.T) {
+	tempDir := t.TempDir()
+	vaultDir := filepath.Join(tempDir, "vault")
+	indexDataDir := filepath.Join(tempDir, "index-data")
+	authDataDir := filepath.Join(tempDir, "auth-data")
+	notifyDataDir := filepath.Join(tempDir, "notify-data")
+	if err := os.MkdirAll(filepath.Join(vaultDir, "daily"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	raw := "# Today\n\n- [ ] Follow up with team due:: 2026-04-24 remind:: 09:30 who:: [Ralf]\n"
+	pageFile := filepath.Join(vaultDir, "daily", "today.md")
+	if err := os.WriteFile(pageFile, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	indexService := index.NewService(indexDataDir)
+	if err := indexService.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer func() {
+		_ = indexService.Close()
+	}()
+	vaultService := vault.NewService(vaultDir)
+	if err := indexService.RebuildFromVault(context.Background(), vaultService); err != nil {
+		t.Fatalf("RebuildFromVault() error = %v", err)
+	}
+	authService, err := auth.NewService(context.Background(), authDataDir, "test_session", time.Hour)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	defer func() {
+		_ = authService.Close()
+	}()
+	user, err := authService.CreateInitialAccount(context.Background(), "ralf", "secret-pass")
+	if err != nil {
+		t.Fatalf("CreateInitialAccount() error = %v", err)
+	}
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if got := r.Header.Get("Click"); got != "noterious://open?page=daily%2Ftoday" {
+			t.Fatalf("Click header = %q", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	if _, err := authService.UpdateUserSettings(context.Background(), user.ID, auth.UserSettings{
+		Notifications: auth.NotificationSettings{
+			NtfyTopicURL: server.URL,
+		},
+	}); err != nil {
+		t.Fatalf("UpdateUserSettings() error = %v", err)
+	}
+
+	service, err := NewService(notifyDataDir, indexService, authService)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	service.now = func() time.Time {
+		return time.Date(2026, time.April, 24, 10, 0, 0, 0, time.Local)
+	}
+
+	if err := service.Poll(context.Background()); err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
+	}
+}
+
 func TestPollSendsFrontmatterNotificationForNotes(t *testing.T) {
 	tempDir := t.TempDir()
 	vaultDir := filepath.Join(tempDir, "vault")
@@ -255,6 +327,86 @@ func TestPollSendsFrontmatterNotificationForNotes(t *testing.T) {
 	}
 	if !strings.Contains(lastBody, "Page: contacts/ralf") || !strings.Contains(lastBody, "Reminder: 2026-04-24 09:30") {
 		t.Fatalf("lastBody = %q", lastBody)
+	}
+}
+
+func TestPollDefaultsFrontmatterNotificationClickTargetToNoteriousApp(t *testing.T) {
+	tempDir := t.TempDir()
+	vaultDir := filepath.Join(tempDir, "vault")
+	indexDataDir := filepath.Join(tempDir, "index-data")
+	authDataDir := filepath.Join(tempDir, "auth-data")
+	notifyDataDir := filepath.Join(tempDir, "notify-data")
+	if err := os.MkdirAll(filepath.Join(vaultDir, "contacts"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	raw := strings.Join([]string{
+		"---",
+		"birthday_notification: 2026-04-24 09:30",
+		"---",
+		"# Ralf",
+		"",
+		"Birthday note",
+		"",
+	}, "\n")
+	pageFile := filepath.Join(vaultDir, "contacts", "ralf.md")
+	if err := os.WriteFile(pageFile, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	indexService := index.NewService(indexDataDir)
+	if err := indexService.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer func() {
+		_ = indexService.Close()
+	}()
+	vaultService := vault.NewService(vaultDir)
+	if err := indexService.RebuildFromVault(context.Background(), vaultService); err != nil {
+		t.Fatalf("RebuildFromVault() error = %v", err)
+	}
+	authService, err := auth.NewService(context.Background(), authDataDir, "test_session", time.Hour)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	defer func() {
+		_ = authService.Close()
+	}()
+	user, err := authService.CreateInitialAccount(context.Background(), "ralf", "secret-pass")
+	if err != nil {
+		t.Fatalf("CreateInitialAccount() error = %v", err)
+	}
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if got := r.Header.Get("Click"); got != "noterious://open?page=contacts%2Fralf" {
+			t.Fatalf("Click header = %q", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	if _, err := authService.UpdateUserSettings(context.Background(), user.ID, auth.UserSettings{
+		Notifications: auth.NotificationSettings{
+			NtfyTopicURL: server.URL,
+		},
+	}); err != nil {
+		t.Fatalf("UpdateUserSettings() error = %v", err)
+	}
+
+	service, err := NewService(notifyDataDir, indexService, authService)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	service.now = func() time.Time {
+		return time.Date(2026, time.April, 24, 10, 0, 0, 0, time.Local)
+	}
+
+	if err := service.Poll(context.Background()); err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
 	}
 }
 

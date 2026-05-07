@@ -150,6 +150,7 @@ Use the Quick Switcher to create notes from templates.
 - Note reminders live in frontmatter fields such as `notification`.
 - Task reminders live in `[remind: ...]`.
 - Optional click targets can be added with sibling `*_click` frontmatter fields or task `[click: ...]` fields.
+- Without an explicit click target, ntfy reminders default to `noterious://open?page=...` for the matching page.
 - Noterious can deliver reminders through ntfy when notifications are configured.
 
 ## Search, History, and Recovery

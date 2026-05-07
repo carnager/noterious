@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -390,8 +391,8 @@ func (s *Service) send(ctx context.Context, target auth.NotificationTarget, cand
 	request.Header.Set("Title", candidate.Title)
 	request.Header.Set("Tags", candidate.Tags)
 	request.Header.Set("Priority", candidate.Priority)
-	if candidate.Click != "" {
-		request.Header.Set("Click", candidate.Click)
+	if clickTarget := candidateClickTarget(candidate); clickTarget != "" {
+		request.Header.Set("Click", clickTarget)
 	}
 	if candidate.Page != "" {
 		request.Header.Set("X-Note-Page", candidate.Page)
@@ -422,6 +423,21 @@ func (s *Service) send(ctx context.Context, target auth.NotificationTarget, cand
 		"at", candidate.At.Format(time.RFC3339),
 	)
 	return nil
+}
+
+func candidateClickTarget(candidate candidateNotification) string {
+	if strings.TrimSpace(candidate.Click) != "" {
+		return strings.TrimSpace(candidate.Click)
+	}
+	return noteriousPageDeepLink(candidate.Page)
+}
+
+func noteriousPageDeepLink(pagePath string) string {
+	normalizedPagePath := strings.Trim(strings.TrimSpace(pagePath), "/")
+	if normalizedPagePath == "" {
+		return ""
+	}
+	return "noterious://open?page=" + url.QueryEscape(normalizedPagePath)
 }
 
 func (s *Service) deliverCandidate(

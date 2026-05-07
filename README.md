@@ -146,7 +146,7 @@ Noterious supports reminders in two places:
 - task reminders via `[remind: YYYY-MM-DD HH:MM]`
 - note frontmatter fields such as `notification`, `notify`, `remind`, `reminder`, or `*_notification`
 
-For note frontmatter, `notification` is the dedicated datetime-like field kind in the UI. Optional sibling `*_click` fields are forwarded to ntfy as tap targets, so a notification can open a URL or app-specific URI when clicked. Task reminders can also carry an optional `[click: ...]` target.
+For note frontmatter, `notification` is the dedicated datetime-like field kind in the UI. Optional sibling `*_click` fields are forwarded to ntfy as tap targets, so a notification can open a URL or app-specific URI when clicked. Task reminders can also carry an optional `[click: ...]` target. When no explicit click target is set, ntfy reminders default to `noterious://open?page=...`, which opens the matching page in the Noterious Android app.
 
 Example:
 
