@@ -28,6 +28,10 @@ interface MountedEditor {
   destroy(): void;
 }
 
+interface MountedEditorInScrollShell extends MountedEditor {
+  shell: HTMLDivElement;
+}
+
 interface KeyPressOptions {
   shiftKey?: boolean;
 }
@@ -104,6 +108,35 @@ function mountEditor(markdown: string, tasks: TaskRender[] = []): MountedEditor 
   return {
     api,
     view,
+    destroy() {
+      view.destroy();
+    },
+  };
+}
+
+function mountEditorInScrollShell(markdown: string, tasks: TaskRender[] = []): MountedEditorInScrollShell {
+  document.body.innerHTML = '<div id="shell" style="height: 120px; overflow: auto;"><div style="height: 640px;"><div id="host"><textarea id="markdown-editor"></textarea></div></div></div>';
+  const shell = document.getElementById("shell") as HTMLDivElement | null;
+  const textarea = document.getElementById("markdown-editor") as HTMLTextAreaElement | null;
+  if (!shell || !textarea) {
+    throw new Error("missing scroll shell");
+  }
+  textarea.value = markdown;
+
+  const api = window.NoteriousCodeEditor?.create(textarea) || null;
+  if (!api) {
+    throw new Error("editor failed to mount");
+  }
+
+  api.setPagePath("notes/today");
+  api.setTasks(tasks);
+  api.setEditable(true);
+
+  const view = api.view as EditorView;
+  return {
+    api,
+    view,
+    shell,
     destroy() {
       view.destroy();
     },
@@ -229,6 +262,64 @@ describe("mounted editor UI", function () {
       expect(editor.api.redo()).toBe(true);
       expect(editor.api.getValue()).toBe("Alpha beta");
     } finally {
+      editor.destroy();
+    }
+  });
+
+  it("does not add undo history when syncing an external value", function () {
+    const editor = mountEditor("Alpha");
+
+    try {
+      expect(editor.api.canUndo()).toBe(false);
+
+      editor.api.syncValue("Alpha beta");
+
+      expect(editor.api.getValue()).toBe("Alpha beta");
+      expect(editor.api.canUndo()).toBe(false);
+      expect(editor.api.undo()).toBe(false);
+      expect(editor.api.getValue()).toBe("Alpha beta");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("does not add undo history when syncing an external range", function () {
+    const editor = mountEditor("- [ ] Task");
+
+    try {
+      expect(editor.api.canUndo()).toBe(false);
+
+      editor.api.syncReplaceRange(3, 4, "x");
+
+      expect(editor.api.getValue()).toBe("- [x] Task");
+      expect(editor.api.canUndo()).toBe(false);
+      expect(editor.api.undo()).toBe(false);
+      expect(editor.api.getValue()).toBe("- [x] Task");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves scrollable ancestor position when focusing with preventScroll", function () {
+    const editor = mountEditorInScrollShell("- [ ] Task", [createTask(1, "Task")]);
+    const focusSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation(function (callback: FrameRequestCallback): number {
+      callback(0);
+      return 1;
+    });
+
+    try {
+      editor.shell.scrollTop = 186;
+      const originalFocus = editor.view.focus;
+      (editor.view as EditorView & { focus: () => void }).focus = function (): void {
+        editor.shell.scrollTop = 0;
+        originalFocus.call(editor.view);
+      };
+
+      editor.api.focus({preventScroll: true});
+
+      expect(editor.shell.scrollTop).toBe(186);
+    } finally {
+      focusSpy.mockRestore();
       editor.destroy();
     }
   });

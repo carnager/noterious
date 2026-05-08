@@ -20697,6 +20697,26 @@
     }
     elements.markdownEditor.value = value;
   }
+  function syncMarkdownEditorValue(state, elements, value) {
+    const api = markdownEditorAPI(state);
+    if (api && typeof api.syncValue === "function") {
+      api.syncValue(value);
+      return;
+    }
+    elements.markdownEditor.value = value;
+  }
+  function syncMarkdownEditorRange(state, elements, from, to, insert) {
+    const api = markdownEditorAPI(state);
+    if (api && typeof api.syncReplaceRange === "function") {
+      api.syncReplaceRange(from, to, insert);
+      return;
+    }
+    const value = elements.markdownEditor.value;
+    const max = value.length;
+    const nextFrom = Math.max(0, Math.min(Number(from) || 0, max));
+    const nextTo = Math.max(nextFrom, Math.min(Number(to) || 0, max));
+    elements.markdownEditor.value = value.slice(0, nextFrom) + String(insert || "") + value.slice(nextTo);
+  }
   function resetMarkdownEditorValue(state, elements, value) {
     const api = markdownEditorAPI(state);
     if (api && typeof api.resetValue === "function") {
@@ -20846,9 +20866,12 @@
     if (markdownEditorHasFocus(state, elements)) {
       state.restoreFocusSpec = {
         mode: "editor",
-        offset: markdownEditorSelectionStart(state, elements)
+        offset: markdownEditorSelectionStart(state, elements),
+        scrollTop: markdownEditorScrollTop(state, elements)
       };
+      return;
     }
+    state.restoreFocusSpec = null;
   }
   function blockingOverlayOpen(elements) {
     return Boolean(
@@ -20868,8 +20891,15 @@
       if (focusSpec.mode === "editor") {
         const value = markdownEditorValue(state, elements);
         const offset = Math.max(0, Math.min(Number(focusSpec.offset) || 0, value.length));
+        const scrollTop = Number.isFinite(Number(focusSpec.scrollTop)) ? Number(focusSpec.scrollTop) : null;
+        if (scrollTop !== null) {
+          setMarkdownEditorScrollTop(state, elements, scrollTop);
+        }
         focusMarkdownEditor(state, elements, { preventScroll: true });
         setMarkdownEditorSelection(state, elements, offset, offset);
+        if (scrollTop !== null) {
+          setMarkdownEditorScrollTop(state, elements, scrollTop);
+        }
       }
     });
   }
@@ -29224,6 +29254,8 @@
         }
         async function saveTaskDateField(task, field, value) {
           setTaskDateApplySuppressed2(true);
+          const selectedPagePath = state.selectedPage;
+          const viewport = captureCurrentEditorViewport();
           noteLocalPageChange(task.page || state.selectedPage || "");
           await saveTask(task.ref, {
             text: task.text || "",
@@ -29233,8 +29265,7 @@
             who: Array.isArray(task.who) ? task.who.slice() : []
           });
           closeTaskPickers2();
-          await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
-          restoreNoteFocus();
+          await reloadTasksAndRestoreCurrentEditorViewport(selectedPagePath, viewport);
           window.requestAnimationFrame(function() {
             window.requestAnimationFrame(function() {
               setTaskDateApplySuppressed2(false);
@@ -29255,10 +29286,12 @@
           if (!confirmed) {
             return;
           }
+          const selectedPagePath = state.selectedPage;
+          const viewport = captureCurrentEditorViewport();
           noteLocalPageChange(task.page || state.selectedPage || "");
           await deleteTask(ref);
           closeTaskPickers2();
-          await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
+          await reloadTasksAndRestoreCurrentEditorViewport(selectedPagePath, viewport);
         }
         function closeTaskPickers2() {
           closeTaskPickers(taskPickerState, els);
@@ -29571,6 +29604,17 @@
           renderPageProperties2();
           return templateFillActive;
         }
+        function restorePageScrollPosition(left, top) {
+          try {
+            window.scrollTo(left, top);
+          } catch (_error) {
+            const scrollingElement = document.scrollingElement;
+            if (scrollingElement) {
+              scrollingElement.scrollLeft = left;
+              scrollingElement.scrollTop = top;
+            }
+          }
+        }
         function restoreCurrentEditorViewport(selectionStart, selectionEnd, scrollTop, focusEditor) {
           const clampedStart = Math.max(0, Math.min(selectionStart, state.currentMarkdown.length));
           const clampedEnd = Math.max(0, Math.min(selectionEnd, state.currentMarkdown.length));
@@ -29580,6 +29624,39 @@
             focusMarkdownEditor(state, els, { preventScroll: true });
             setMarkdownEditorSelection(state, els, clampedStart, clampedEnd);
           }
+          setMarkdownEditorScrollTop(state, els, scrollTop);
+        }
+        function captureCurrentEditorViewport() {
+          if (!state.selectedPage || !state.currentPage) {
+            return null;
+          }
+          return {
+            selectionStart: markdownEditorSelectionStart(state, els),
+            selectionEnd: markdownEditorSelectionEnd(state, els),
+            scrollTop: markdownEditorScrollTop(state, els),
+            focusEditor: markdownEditorHasFocus(state, els),
+            pageScrollX: window.scrollX || 0,
+            pageScrollY: window.scrollY || 0
+          };
+        }
+        function restoreCapturedEditorViewport(pagePath, viewport) {
+          if (!viewport || !pagePath || state.selectedPage !== pagePath || !state.currentPage) {
+            return;
+          }
+          restoreCurrentEditorViewport(
+            viewport.selectionStart,
+            viewport.selectionEnd,
+            viewport.scrollTop,
+            viewport.focusEditor
+          );
+          restorePageScrollPosition(viewport.pageScrollX, viewport.pageScrollY);
+          window.requestAnimationFrame(function() {
+            restorePageScrollPosition(viewport.pageScrollX, viewport.pageScrollY);
+          });
+        }
+        async function reloadTasksAndRestoreCurrentEditorViewport(pagePath, viewport) {
+          await Promise.all([loadTasks(), pagePath ? loadPageDetail(pagePath, true, false) : Promise.resolve()]);
+          restoreCapturedEditorViewport(pagePath || "", viewport);
         }
         function propertyValueInputHasFocus() {
           const active = document.activeElement;
@@ -30351,6 +30428,174 @@
           const match = String(line || "").match(/^(\s*)-\s+\[[ xX]\]\s+/);
           return match ? match[1].length : null;
         }
+        function replaceTaskCheckboxInMarkdown(markdown, lineNumbers, done) {
+          const normalized = String(markdown || "").replace(/\r\n/g, "\n");
+          const candidates = Array.from(new Set((Array.isArray(lineNumbers) ? lineNumbers : []).map(function(lineNumber) {
+            return Number(lineNumber) || 0;
+          }).filter(function(lineNumber) {
+            return lineNumber > 0;
+          })));
+          if (!candidates.length) {
+            return null;
+          }
+          const lines = normalized.split("\n");
+          for (const lineNumber of candidates) {
+            const index = lineNumber - 1;
+            if (index < 0 || index >= lines.length) {
+              continue;
+            }
+            const updatedLine = String(lines[index] || "").replace(
+              /^(\s*-\s+\[)[ xX](\]\s+)/,
+              "$1" + (done ? "x" : " ") + "$2"
+            );
+            if (updatedLine === lines[index]) {
+              continue;
+            }
+            const nextLines = lines.slice();
+            nextLines[index] = updatedLine;
+            return {
+              markdown: nextLines.join("\n"),
+              lineNumber
+            };
+          }
+          return null;
+        }
+        function taskLineRange(markdown, lineNumber) {
+          const normalized = String(markdown || "").replace(/\r\n/g, "\n");
+          const nextLineNumber = Number(lineNumber) || 0;
+          if (nextLineNumber <= 0) {
+            return null;
+          }
+          const from = rawOffsetForLineNumber(normalized, nextLineNumber);
+          if (from < 0 || from > normalized.length) {
+            return null;
+          }
+          const newlineIndex = normalized.indexOf("\n", from);
+          const to = newlineIndex === -1 ? normalized.length : newlineIndex;
+          return {
+            from,
+            to,
+            text: normalized.slice(from, to)
+          };
+        }
+        function patchTaskRecordState(taskRecord, done, lineNumber) {
+          return {
+            ...taskRecord,
+            done,
+            state: done ? "done" : "todo",
+            line: lineNumber && lineNumber > 0 ? lineNumber : taskRecord.line
+          };
+        }
+        function patchTaskCollectionState(tasks, ref, done, lineNumber) {
+          return (Array.isArray(tasks) ? tasks : []).map(function(taskRecord) {
+            if (String(taskRecord.ref || "") !== ref) {
+              return taskRecord;
+            }
+            return patchTaskRecordState(taskRecord, done, lineNumber);
+          });
+        }
+        function patchPageSummaryTaskCounts(pagePath, wasDone, done) {
+          if (!pagePath || wasDone === done) {
+            return;
+          }
+          state.pages = (Array.isArray(state.pages) ? state.pages : []).map(function(pageSummary) {
+            if (String(pageSummary.path || "") !== pagePath) {
+              return pageSummary;
+            }
+            return {
+              ...pageSummary,
+              openTaskCount: Math.max(0, Number(pageSummary.openTaskCount) + (done ? -1 : 1)),
+              doneTaskCount: Math.max(0, Number(pageSummary.doneTaskCount) + (done ? 1 : -1))
+            };
+          });
+        }
+        function syncCurrentPageTaskStateFromLocalChange(task, done, lineNumbers) {
+          if (!state.selectedPage || !state.currentPage || String(task.page || "") !== state.selectedPage) {
+            return null;
+          }
+          const currentCandidates = Array.from(new Set(
+            (Array.isArray(lineNumbers) ? lineNumbers : []).concat(Number(task.line) || 0).filter(function(lineNumber) {
+              return Number(lineNumber) > 0;
+            })
+          ));
+          const currentPatch = replaceTaskCheckboxInMarkdown(state.currentMarkdown, currentCandidates, done);
+          if (!currentPatch) {
+            return null;
+          }
+          const originalCandidates = hasUnsavedPageChanges() ? [Number(task.line) || 0] : currentCandidates;
+          const originalBase = String(state.originalMarkdown || state.currentPage.rawMarkdown || "");
+          const originalPatch = replaceTaskCheckboxInMarkdown(originalBase, originalCandidates, done) || (!hasUnsavedPageChanges() ? currentPatch : null);
+          if (!originalPatch) {
+            return null;
+          }
+          const previousCurrentMarkdown = state.currentMarkdown;
+          const previousOriginalMarkdown = state.originalMarkdown;
+          const previousCurrentPageRawMarkdown = state.currentPage.rawMarkdown;
+          const previousCurrentPageTasks = state.currentPage.tasks;
+          const previousTasks = state.tasks;
+          const previousPages = state.pages;
+          const currentPageRef = state.currentPage;
+          const currentSelectedPagePath = state.selectedPage;
+          const previousCurrentLineRange = taskLineRange(previousCurrentMarkdown, currentPatch.lineNumber);
+          const nextCurrentLineRange = taskLineRange(currentPatch.markdown, currentPatch.lineNumber);
+          const resolvedLineNumber = currentPatch.lineNumber || Number(task.line) || 0;
+          state.currentMarkdown = currentPatch.markdown;
+          state.originalMarkdown = originalPatch.markdown;
+          state.currentPage.rawMarkdown = originalPatch.markdown;
+          state.currentPage.tasks = patchTaskCollectionState(state.currentPage.tasks, task.ref, done, resolvedLineNumber);
+          state.tasks = patchTaskCollectionState(state.tasks, task.ref, done);
+          patchPageSummaryTaskCounts(String(task.page || ""), Boolean(task.done), done);
+          if (previousCurrentLineRange && nextCurrentLineRange) {
+            syncMarkdownEditorRange(
+              state,
+              els,
+              previousCurrentLineRange.from,
+              previousCurrentLineRange.to,
+              nextCurrentLineRange.text
+            );
+          } else {
+            syncMarkdownEditorValue(state, els, state.currentMarkdown);
+          }
+          els.rawView.textContent = state.currentMarkdown;
+          const page = currentPageView2();
+          if (state.markdownEditorApi && page) {
+            markdownEditorSetTasks(state, renderedTasksForEditor(page));
+          }
+          renderPages();
+          renderPageTasks2();
+          renderUndoRedoButtons();
+          refreshCurrentNoteStatus();
+          return function revertLocalTaskState() {
+            state.tasks = previousTasks;
+            state.pages = previousPages;
+            if (state.currentPage === currentPageRef && state.selectedPage === currentSelectedPagePath) {
+              state.currentMarkdown = previousCurrentMarkdown;
+              state.originalMarkdown = previousOriginalMarkdown;
+              state.currentPage.rawMarkdown = previousCurrentPageRawMarkdown;
+              state.currentPage.tasks = previousCurrentPageTasks;
+              if (previousCurrentLineRange && nextCurrentLineRange) {
+                syncMarkdownEditorRange(
+                  state,
+                  els,
+                  nextCurrentLineRange.from,
+                  nextCurrentLineRange.to,
+                  previousCurrentLineRange.text
+                );
+              } else {
+                syncMarkdownEditorValue(state, els, state.currentMarkdown);
+              }
+              els.rawView.textContent = state.currentMarkdown;
+              const revertedPage = currentPageView2();
+              if (state.markdownEditorApi && revertedPage) {
+                markdownEditorSetTasks(state, renderedTasksForEditor(revertedPage));
+              }
+            }
+            renderPages();
+            renderPageTasks2();
+            renderUndoRedoButtons();
+            refreshCurrentNoteStatus();
+          };
+        }
         function taskBlockEnd(lines, startIndex) {
           const startIndent = taskLineIndent(lines[startIndex]);
           if (startIndent === null) {
@@ -30501,7 +30746,7 @@
           if (!task) {
             return false;
           }
-          toggleTaskDone2(task).catch(function(error) {
+          toggleTaskDone2(task, currentLineIndex + 1).catch(function(error) {
             setNoteStatus("Task toggle failed: " + errorMessage(error));
           });
           return true;
@@ -31893,23 +32138,45 @@
             openInlineTaskPicker2(task.ref, mode, left, top, anchorTop, anchorBottom);
           });
         }
-        async function toggleTaskDone2(task) {
+        async function toggleTaskDone2(task, currentLineNumber) {
           if (!task || !task.ref) {
             return;
           }
+          const selectedPagePath = state.selectedPage;
+          const nextDone = !task.done;
+          const revertLocalTaskState = syncCurrentPageTaskStateFromLocalChange(
+            task,
+            nextDone,
+            currentLineNumber && currentLineNumber > 0 ? [currentLineNumber] : []
+          );
+          const viewport = !revertLocalTaskState && selectedPagePath && String(task.page || "") === selectedPagePath ? captureCurrentEditorViewport() : null;
           try {
             setTaskDateApplySuppressed2(true);
-            rememberNoteFocus();
             noteLocalPageChange(task.page || state.selectedPage || "");
             await toggleTaskDone(task);
-            await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
-            restoreNoteFocus();
+            if (revertLocalTaskState) {
+              await Promise.all([
+                loadPages(),
+                loadTasks(),
+                selectedPagePath && String(task.page || "") === selectedPagePath ? refreshCurrentDerivedState(selectedPagePath) : Promise.resolve()
+              ]);
+            } else if (selectedPagePath && String(task.page || "") === selectedPagePath) {
+              await Promise.all([
+                loadPages(),
+                reloadTasksAndRestoreCurrentEditorViewport(selectedPagePath, viewport)
+              ]);
+            } else {
+              await Promise.all([loadPages(), loadTasks()]);
+            }
             window.requestAnimationFrame(function() {
               window.requestAnimationFrame(function() {
                 setTaskDateApplySuppressed2(false);
               });
             });
           } catch (error) {
+            if (revertLocalTaskState) {
+              revertLocalTaskState();
+            }
             setTaskDateApplySuppressed2(false);
             setNoteStatus("Task toggle failed: " + errorMessage(error));
           }
@@ -32012,10 +32279,7 @@
           if (!state.selectedPage) {
             return;
           }
-          state.restoreFocusSpec = {
-            mode: "editor",
-            offset: markdownEditorSelectionStart(state, els)
-          };
+          captureEditorFocusSpec(state, els);
         }
         function restoreNoteFocus() {
           if (!state.selectedPage) {
@@ -35437,7 +35701,7 @@
                 Number(detail.lineNumber) || 0
               );
               if (task) {
-                toggleTaskDone2(task);
+                toggleTaskDone2(task, Number(detail.lineNumber) || 0);
               }
             });
             on(markdownEditorApi.host, "noterious:task-date-edit", function(event) {

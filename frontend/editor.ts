@@ -53,6 +53,10 @@ const collapsedCodeBlockVisibleLines = 12;
 const measureCanvas = document.createElement("canvas");
 const measureContext = measureCanvas.getContext("2d");
 
+type ScrollPositionSnapshot =
+  | { kind: "element"; node: HTMLElement; left: number; top: number }
+  | { kind: "window"; node: Window; left: number; top: number };
+
 function bindTransientScrollClass(element: HTMLElement, className: string): void {
   let clearTimer = 0;
   element.addEventListener("scroll", function () {
@@ -64,6 +68,74 @@ function bindTransientScrollClass(element: HTMLElement, className: string): void
       element.classList.remove(className);
     }, 650);
   }, {passive: true});
+}
+
+function isScrollableOverflow(value: string): boolean {
+  return value === "auto" || value === "scroll" || value === "overlay";
+}
+
+function captureScrollPositionSnapshots(target: HTMLElement): ScrollPositionSnapshot[] {
+  const ownerWindow = target.ownerDocument.defaultView || window;
+  const snapshots: ScrollPositionSnapshot[] = [];
+  let current = target.parentElement;
+  while (current) {
+    const style = ownerWindow.getComputedStyle(current);
+    const overflow = style.overflow;
+    const canScrollX = ((isScrollableOverflow(style.overflowX) || isScrollableOverflow(overflow))
+      && current.scrollWidth > current.clientWidth)
+      || current.scrollLeft !== 0;
+    const canScrollY = ((isScrollableOverflow(style.overflowY) || isScrollableOverflow(overflow))
+      && current.scrollHeight > current.clientHeight)
+      || current.scrollTop !== 0;
+    if (canScrollX || canScrollY) {
+      snapshots.push({
+        kind: "element",
+        node: current,
+        left: current.scrollLeft,
+        top: current.scrollTop,
+      });
+    }
+    current = current.parentElement;
+  }
+  snapshots.push({
+    kind: "window",
+    node: ownerWindow,
+    left: ownerWindow.scrollX || 0,
+    top: ownerWindow.scrollY || 0,
+  });
+  return snapshots;
+}
+
+function restoreScrollPositionSnapshots(snapshots: ScrollPositionSnapshot[]): void {
+  for (const snapshot of snapshots) {
+    if (snapshot.kind === "element") {
+      snapshot.node.scrollLeft = snapshot.left;
+      snapshot.node.scrollTop = snapshot.top;
+      continue;
+    }
+    if ((snapshot.node.scrollX || 0) === snapshot.left && (snapshot.node.scrollY || 0) === snapshot.top) {
+      continue;
+    }
+    try {
+      snapshot.node.scrollTo(snapshot.left, snapshot.top);
+    } catch (_error) {
+      // Ignore environments that don't implement scrolling.
+    }
+  }
+}
+
+function focusEditorView(view: EditorView, host: HTMLElement, options?: FocusOptions): void {
+  if (!options || !options.preventScroll) {
+    view.focus();
+    return;
+  }
+  const snapshots = captureScrollPositionSnapshots(host);
+  view.focus();
+  restoreScrollPositionSnapshots(snapshots);
+  const ownerWindow = host.ownerDocument.defaultView || window;
+  ownerWindow.requestAnimationFrame(function () {
+    restoreScrollPositionSnapshots(snapshots);
+  });
 }
 
 function measuredTextWidth(text: string, element: HTMLElement): number {
@@ -3055,6 +3127,41 @@ window.NoteriousCodeEditor = {
         suppressInput = false;
         setTextareaValue(textarea, nextValue);
       },
+      syncValue(value: string) {
+        const nextValue = String(value || "");
+        const current = view.state.doc.toString();
+        if (nextValue === current) {
+          setTextareaValue(textarea, nextValue);
+          return;
+        }
+        suppressInput = true;
+        view.dispatch({
+          changes: {from: 0, to: current.length, insert: nextValue},
+          annotations: Transaction.addToHistory.of(false),
+        });
+        suppressInput = false;
+        setTextareaValue(textarea, nextValue);
+      },
+      syncReplaceRange(from: number, to: number, insert: string) {
+        const max = view.state.doc.length;
+        const nextFrom = Math.max(0, Math.min(Number(from) || 0, max));
+        const nextTo = Math.max(nextFrom, Math.min(Number(to) || 0, max));
+        const nextInsert = String(insert || "");
+        if (nextFrom === nextTo && !nextInsert) {
+          return;
+        }
+        suppressInput = true;
+        view.dispatch({
+          changes: {
+            from: nextFrom,
+            to: nextTo,
+            insert: nextInsert,
+          },
+          annotations: Transaction.addToHistory.of(false),
+        });
+        suppressInput = false;
+        setTextareaValue(textarea, view.state.doc.toString());
+      },
       resetValue(value: string) {
         const nextValue = String(value || "");
         const current = view.state.doc.toString();
@@ -3097,12 +3204,9 @@ window.NoteriousCodeEditor = {
       },
       focus(options?: FocusOptions) {
         try {
-          view.focus();
-          if (options && options.preventScroll) {
-            view.scrollDOM.scrollTop = view.scrollDOM.scrollTop;
-          }
+          focusEditorView(view, host, options);
         } catch (_error) {
-          view.focus();
+          focusEditorView(view, host, options);
         }
       },
       blur() {

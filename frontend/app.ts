@@ -75,6 +75,8 @@ import {
   markdownEditorValue,
   restoreEditorFocus,
   resetMarkdownEditorValue,
+  syncMarkdownEditorRange,
+  syncMarkdownEditorValue,
   setMarkdownEditorScrollTop,
   setMarkdownEditorSelection,
   setMarkdownEditorValue,
@@ -945,6 +947,8 @@ interface ActionDialogSession {
 
   async function saveTaskDateField(task: TaskRecord, field: "due" | "remind", value: string): Promise<void> {
     setTaskDateApplySuppressed(true);
+    const selectedPagePath = state.selectedPage;
+    const viewport = captureCurrentEditorViewport();
     noteLocalPageChange(task.page || state.selectedPage || "");
     await saveTask(task.ref, {
       text: task.text || "",
@@ -954,8 +958,7 @@ interface ActionDialogSession {
       who: Array.isArray(task.who) ? task.who.slice() : [],
     });
     closeTaskPickers();
-    await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
-    restoreNoteFocus();
+    await reloadTasksAndRestoreCurrentEditorViewport(selectedPagePath, viewport);
     window.requestAnimationFrame(function () {
       window.requestAnimationFrame(function () {
         setTaskDateApplySuppressed(false);
@@ -977,10 +980,12 @@ interface ActionDialogSession {
     if (!confirmed) {
       return;
     }
+    const selectedPagePath = state.selectedPage;
+    const viewport = captureCurrentEditorViewport();
     noteLocalPageChange(task.page || state.selectedPage || "");
     await deleteTaskRequest(ref);
     closeTaskPickers();
-    await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true) : Promise.resolve()]);
+    await reloadTasksAndRestoreCurrentEditorViewport(selectedPagePath, viewport);
   }
 
   function closeTaskPickers(): void {
@@ -1338,6 +1343,27 @@ interface ActionDialogSession {
     return templateFillActive;
   }
 
+  interface CurrentEditorViewport {
+    selectionStart: number;
+    selectionEnd: number;
+    scrollTop: number;
+    focusEditor: boolean;
+    pageScrollX: number;
+    pageScrollY: number;
+  }
+
+  function restorePageScrollPosition(left: number, top: number): void {
+    try {
+      window.scrollTo(left, top);
+    } catch (_error) {
+      const scrollingElement = document.scrollingElement;
+      if (scrollingElement) {
+        scrollingElement.scrollLeft = left;
+        scrollingElement.scrollTop = top;
+      }
+    }
+  }
+
   function restoreCurrentEditorViewport(selectionStart: number, selectionEnd: number, scrollTop: number, focusEditor: boolean): void {
     const clampedStart = Math.max(0, Math.min(selectionStart, state.currentMarkdown.length));
     const clampedEnd = Math.max(0, Math.min(selectionEnd, state.currentMarkdown.length));
@@ -1347,6 +1373,48 @@ interface ActionDialogSession {
       focusMarkdownEditor(state, els, {preventScroll: true});
       setMarkdownEditorSelection(state, els, clampedStart, clampedEnd);
     }
+    setMarkdownEditorScrollTop(state, els, scrollTop);
+  }
+
+  function captureCurrentEditorViewport(): CurrentEditorViewport | null {
+    if (!state.selectedPage || !state.currentPage) {
+      return null;
+    }
+    return {
+      selectionStart: markdownEditorSelectionStart(state, els),
+      selectionEnd: markdownEditorSelectionEnd(state, els),
+      scrollTop: markdownEditorScrollTop(state, els),
+      focusEditor: markdownEditorHasFocus(state, els),
+      pageScrollX: window.scrollX || 0,
+      pageScrollY: window.scrollY || 0,
+    };
+  }
+
+  function restoreCapturedEditorViewport(
+    pagePath: string,
+    viewport: CurrentEditorViewport | null
+  ): void {
+    if (!viewport || !pagePath || state.selectedPage !== pagePath || !state.currentPage) {
+      return;
+    }
+    restoreCurrentEditorViewport(
+      viewport.selectionStart,
+      viewport.selectionEnd,
+      viewport.scrollTop,
+      viewport.focusEditor
+    );
+    restorePageScrollPosition(viewport.pageScrollX, viewport.pageScrollY);
+    window.requestAnimationFrame(function () {
+      restorePageScrollPosition(viewport.pageScrollX, viewport.pageScrollY);
+    });
+  }
+
+  async function reloadTasksAndRestoreCurrentEditorViewport(
+    pagePath: string | null,
+    viewport: CurrentEditorViewport | null
+  ): Promise<void> {
+    await Promise.all([loadTasks(), pagePath ? loadPageDetail(pagePath, true, false) : Promise.resolve()]);
+    restoreCapturedEditorViewport(pagePath || "", viewport);
   }
 
   function propertyValueInputHasFocus(): boolean {
@@ -2199,6 +2267,189 @@ interface ActionDialogSession {
     return match ? match[1].length : null;
   }
 
+  function replaceTaskCheckboxInMarkdown(markdown: string, lineNumbers: number[], done: boolean): { markdown: string; lineNumber: number } | null {
+    const normalized = String(markdown || "").replace(/\r\n/g, "\n");
+    const candidates = Array.from(new Set((Array.isArray(lineNumbers) ? lineNumbers : [])
+      .map(function (lineNumber) {
+        return Number(lineNumber) || 0;
+      })
+      .filter(function (lineNumber) {
+        return lineNumber > 0;
+      })));
+    if (!candidates.length) {
+      return null;
+    }
+    const lines = normalized.split("\n");
+    for (const lineNumber of candidates) {
+      const index = lineNumber - 1;
+      if (index < 0 || index >= lines.length) {
+        continue;
+      }
+      const updatedLine = String(lines[index] || "").replace(
+        /^(\s*-\s+\[)[ xX](\]\s+)/,
+        "$1" + (done ? "x" : " ") + "$2"
+      );
+      if (updatedLine === lines[index]) {
+        continue;
+      }
+      const nextLines = lines.slice();
+      nextLines[index] = updatedLine;
+      return {
+        markdown: nextLines.join("\n"),
+        lineNumber: lineNumber,
+      };
+    }
+    return null;
+  }
+
+  function taskLineRange(markdown: string, lineNumber: number): { from: number; to: number; text: string } | null {
+    const normalized = String(markdown || "").replace(/\r\n/g, "\n");
+    const nextLineNumber = Number(lineNumber) || 0;
+    if (nextLineNumber <= 0) {
+      return null;
+    }
+    const from = rawOffsetForLineNumber(normalized, nextLineNumber);
+    if (from < 0 || from > normalized.length) {
+      return null;
+    }
+    const newlineIndex = normalized.indexOf("\n", from);
+    const to = newlineIndex === -1 ? normalized.length : newlineIndex;
+    return {
+      from,
+      to,
+      text: normalized.slice(from, to),
+    };
+  }
+
+  function patchTaskRecordState(taskRecord: TaskRecord, done: boolean, lineNumber?: number): TaskRecord {
+    return {
+      ...taskRecord,
+      done: done,
+      state: done ? "done" : "todo",
+      line: lineNumber && lineNumber > 0 ? lineNumber : taskRecord.line,
+    };
+  }
+
+  function patchTaskCollectionState(tasks: TaskRecord[], ref: string, done: boolean, lineNumber?: number): TaskRecord[] {
+    return (Array.isArray(tasks) ? tasks : []).map(function (taskRecord) {
+      if (String(taskRecord.ref || "") !== ref) {
+        return taskRecord;
+      }
+      return patchTaskRecordState(taskRecord, done, lineNumber);
+    });
+  }
+
+  function patchPageSummaryTaskCounts(pagePath: string, wasDone: boolean, done: boolean): void {
+    if (!pagePath || wasDone === done) {
+      return;
+    }
+    state.pages = (Array.isArray(state.pages) ? state.pages : []).map(function (pageSummary) {
+      if (String(pageSummary.path || "") !== pagePath) {
+        return pageSummary;
+      }
+      return {
+        ...pageSummary,
+        openTaskCount: Math.max(0, Number(pageSummary.openTaskCount) + (done ? -1 : 1)),
+        doneTaskCount: Math.max(0, Number(pageSummary.doneTaskCount) + (done ? 1 : -1)),
+      };
+    });
+  }
+
+  function syncCurrentPageTaskStateFromLocalChange(task: TaskRecord, done: boolean, lineNumbers?: number[]): (() => void) | null {
+    if (!state.selectedPage || !state.currentPage || String(task.page || "") !== state.selectedPage) {
+      return null;
+    }
+    const currentCandidates = Array.from(new Set(
+      (Array.isArray(lineNumbers) ? lineNumbers : [])
+        .concat(Number(task.line) || 0)
+        .filter(function (lineNumber) {
+          return Number(lineNumber) > 0;
+        })
+    ));
+    const currentPatch = replaceTaskCheckboxInMarkdown(state.currentMarkdown, currentCandidates, done);
+    if (!currentPatch) {
+      return null;
+    }
+    const originalCandidates = hasUnsavedPageChanges() ? [Number(task.line) || 0] : currentCandidates;
+    const originalBase = String(state.originalMarkdown || state.currentPage.rawMarkdown || "");
+    const originalPatch = replaceTaskCheckboxInMarkdown(originalBase, originalCandidates, done)
+      || (!hasUnsavedPageChanges() ? currentPatch : null);
+    if (!originalPatch) {
+      return null;
+    }
+
+    const previousCurrentMarkdown = state.currentMarkdown;
+    const previousOriginalMarkdown = state.originalMarkdown;
+    const previousCurrentPageRawMarkdown = state.currentPage.rawMarkdown;
+    const previousCurrentPageTasks = state.currentPage.tasks;
+    const previousTasks = state.tasks;
+    const previousPages = state.pages;
+    const currentPageRef = state.currentPage;
+    const currentSelectedPagePath = state.selectedPage;
+    const previousCurrentLineRange = taskLineRange(previousCurrentMarkdown, currentPatch.lineNumber);
+    const nextCurrentLineRange = taskLineRange(currentPatch.markdown, currentPatch.lineNumber);
+
+    const resolvedLineNumber = currentPatch.lineNumber || Number(task.line) || 0;
+    state.currentMarkdown = currentPatch.markdown;
+    state.originalMarkdown = originalPatch.markdown;
+    state.currentPage.rawMarkdown = originalPatch.markdown;
+    state.currentPage.tasks = patchTaskCollectionState(state.currentPage.tasks, task.ref, done, resolvedLineNumber);
+    state.tasks = patchTaskCollectionState(state.tasks, task.ref, done);
+    patchPageSummaryTaskCounts(String(task.page || ""), Boolean(task.done), done);
+
+    if (previousCurrentLineRange && nextCurrentLineRange) {
+      syncMarkdownEditorRange(
+        state,
+        els,
+        previousCurrentLineRange.from,
+        previousCurrentLineRange.to,
+        nextCurrentLineRange.text
+      );
+    } else {
+      syncMarkdownEditorValue(state, els, state.currentMarkdown);
+    }
+    els.rawView.textContent = state.currentMarkdown;
+    const page = currentPageView();
+    if (state.markdownEditorApi && page) {
+      markdownEditorSetTasks(state, renderedTasksForEditor(page));
+    }
+    renderPages();
+    renderPageTasks();
+    renderUndoRedoButtons();
+    refreshCurrentNoteStatus();
+
+    return function revertLocalTaskState(): void {
+      state.tasks = previousTasks;
+      state.pages = previousPages;
+      if (state.currentPage === currentPageRef && state.selectedPage === currentSelectedPagePath) {
+        state.currentMarkdown = previousCurrentMarkdown;
+        state.originalMarkdown = previousOriginalMarkdown;
+        state.currentPage.rawMarkdown = previousCurrentPageRawMarkdown;
+        state.currentPage.tasks = previousCurrentPageTasks;
+        if (previousCurrentLineRange && nextCurrentLineRange) {
+          syncMarkdownEditorRange(
+            state,
+            els,
+            nextCurrentLineRange.from,
+            nextCurrentLineRange.to,
+            previousCurrentLineRange.text
+          );
+        } else {
+          syncMarkdownEditorValue(state, els, state.currentMarkdown);
+        }
+        els.rawView.textContent = state.currentMarkdown;
+        const revertedPage = currentPageView();
+        if (state.markdownEditorApi && revertedPage) {
+          markdownEditorSetTasks(state, renderedTasksForEditor(revertedPage));
+        }
+      }
+      renderPages();
+      renderPageTasks();
+      renderUndoRedoButtons();
+      refreshCurrentNoteStatus();
+    };
+  }
+
   function taskBlockEnd(lines: string[], startIndex: number): number {
     const startIndent = taskLineIndent(lines[startIndex]);
     if (startIndent === null) {
@@ -2359,7 +2610,7 @@ interface ActionDialogSession {
     if (!task) {
       return false;
     }
-    toggleTaskDone(task).catch(function (error) {
+    toggleTaskDone(task, currentLineIndex + 1).catch(function (error) {
       setNoteStatus("Task toggle failed: " + errorMessage(error));
     });
     return true;
@@ -3939,24 +4190,50 @@ interface ActionDialogSession {
     });
   }
 
-  async function toggleTaskDone(task: TaskRecord | null): Promise<void> {
+  async function toggleTaskDone(task: TaskRecord | null, currentLineNumber?: number): Promise<void> {
     if (!task || !task.ref) {
       return;
     }
 
+    const selectedPagePath = state.selectedPage;
+    const nextDone = !task.done;
+    const revertLocalTaskState = syncCurrentPageTaskStateFromLocalChange(
+      task,
+      nextDone,
+      currentLineNumber && currentLineNumber > 0 ? [currentLineNumber] : []
+    );
+    const viewport = !revertLocalTaskState && selectedPagePath && String(task.page || "") === selectedPagePath
+      ? captureCurrentEditorViewport()
+      : null;
     try {
       setTaskDateApplySuppressed(true);
-      rememberNoteFocus();
       noteLocalPageChange(task.page || state.selectedPage || "");
       await toggleTaskDoneRequest(task);
-      await Promise.all([loadTasks(), state.selectedPage ? loadPageDetail(state.selectedPage, true, false) : Promise.resolve()]);
-      restoreNoteFocus();
+      if (revertLocalTaskState) {
+        await Promise.all([
+          loadPages(),
+          loadTasks(),
+          selectedPagePath && String(task.page || "") === selectedPagePath
+            ? refreshCurrentDerivedState(selectedPagePath)
+            : Promise.resolve(),
+        ]);
+      } else if (selectedPagePath && String(task.page || "") === selectedPagePath) {
+        await Promise.all([
+          loadPages(),
+          reloadTasksAndRestoreCurrentEditorViewport(selectedPagePath, viewport),
+        ]);
+      } else {
+        await Promise.all([loadPages(), loadTasks()]);
+      }
       window.requestAnimationFrame(function () {
         window.requestAnimationFrame(function () {
           setTaskDateApplySuppressed(false);
         });
       });
     } catch (error) {
+      if (revertLocalTaskState) {
+        revertLocalTaskState();
+      }
       setTaskDateApplySuppressed(false);
       setNoteStatus("Task toggle failed: " + errorMessage(error));
     }
@@ -4069,10 +4346,7 @@ interface ActionDialogSession {
     if (!state.selectedPage) {
       return;
     }
-    state.restoreFocusSpec = {
-      mode: "editor",
-      offset: markdownEditorSelectionStart(state, els),
-    };
+    captureEditorFocusSpec(state, els);
   }
 
   function restoreNoteFocus(): void {
@@ -7737,7 +8011,7 @@ interface ActionDialogSession {
           Number(detail.lineNumber) || 0
         );
         if (task) {
-          toggleTaskDone(task);
+          toggleTaskDone(task, Number(detail.lineNumber) || 0);
         }
       });
       on(markdownEditorApi.host, "noterious:task-date-edit", function (event) {

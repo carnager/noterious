@@ -547,6 +547,7 @@ export interface QueryFenceOptions {
 export interface FocusRestoreSpec {
   mode: "editor";
   offset?: number;
+  scrollTop?: number;
 }
 
 export interface SlashCommand {
@@ -581,6 +582,8 @@ export interface NoteriousEditorApi {
   view: unknown;
   getValue(): string;
   setValue(value: string): void;
+  syncValue(value: string): void;
+  syncReplaceRange(from: number, to: number, insert: string): void;
   resetValue(value: string): void;
   replaceRange(from: number, to: number, insert: string): void;
   undo(): boolean;

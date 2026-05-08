@@ -55,6 +55,34 @@ export function setMarkdownEditorValue(state: EditorControllerState, elements: E
   elements.markdownEditor.value = value;
 }
 
+export function syncMarkdownEditorValue(state: EditorControllerState, elements: EditorControllerElements, value: string): void {
+  const api = markdownEditorAPI(state);
+  if (api && typeof api.syncValue === "function") {
+    api.syncValue(value);
+    return;
+  }
+  elements.markdownEditor.value = value;
+}
+
+export function syncMarkdownEditorRange(
+  state: EditorControllerState,
+  elements: EditorControllerElements,
+  from: number,
+  to: number,
+  insert: string
+): void {
+  const api = markdownEditorAPI(state);
+  if (api && typeof api.syncReplaceRange === "function") {
+    api.syncReplaceRange(from, to, insert);
+    return;
+  }
+  const value = elements.markdownEditor.value;
+  const max = value.length;
+  const nextFrom = Math.max(0, Math.min(Number(from) || 0, max));
+  const nextTo = Math.max(nextFrom, Math.min(Number(to) || 0, max));
+  elements.markdownEditor.value = value.slice(0, nextFrom) + String(insert || "") + value.slice(nextTo);
+}
+
 export function resetMarkdownEditorValue(state: EditorControllerState, elements: EditorControllerElements, value: string): void {
   const api = markdownEditorAPI(state);
   if (api && typeof api.resetValue === "function") {
@@ -236,8 +264,11 @@ export function captureEditorFocusSpec(state: EditorControllerState, elements: E
     state.restoreFocusSpec = {
       mode: "editor",
       offset: markdownEditorSelectionStart(state, elements),
+      scrollTop: markdownEditorScrollTop(state, elements),
     };
+    return;
   }
+  state.restoreFocusSpec = null;
 }
 
 export function blockingOverlayOpen(elements: EditorControllerElements): boolean {
@@ -274,8 +305,15 @@ export function restoreEditorFocus(
     if (focusSpec.mode === "editor") {
       const value = markdownEditorValue(state, elements);
       const offset = Math.max(0, Math.min(Number(focusSpec.offset) || 0, value.length));
+      const scrollTop = Number.isFinite(Number(focusSpec.scrollTop)) ? Number(focusSpec.scrollTop) : null;
+      if (scrollTop !== null) {
+        setMarkdownEditorScrollTop(state, elements, scrollTop);
+      }
       focusMarkdownEditor(state, elements, { preventScroll: true });
       setMarkdownEditorSelection(state, elements, offset, offset);
+      if (scrollTop !== null) {
+        setMarkdownEditorScrollTop(state, elements, scrollTop);
+      }
     }
   });
 }
