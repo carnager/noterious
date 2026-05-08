@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.26] - 2026-05-08
+
+### Fixed
+- Added a local TypeScript declaration shim for `node-emoji`, so frontend builds do not depend on external package type discovery and no longer fail in stricter environments such as some Nix setups.
+
 ## [v0.1.25] - 2026-05-08
 
 ### Added
