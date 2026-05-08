@@ -20,6 +20,7 @@ type Notifications struct {
 type Documents struct {
 	UploadPlacement string `json:"uploadPlacement"`
 	UploadSubfolder string `json:"uploadSubfolder,omitempty"`
+	UploadFolder    string `json:"uploadFolder,omitempty"`
 }
 
 type Vault struct {
@@ -59,6 +60,7 @@ func DefaultSettingsFromConfig(cfg config.Config) AppSettings {
 		Documents: Documents{
 			UploadPlacement: "same-folder",
 			UploadSubfolder: "_files",
+			UploadFolder:    "",
 		},
 	}
 }
@@ -155,10 +157,7 @@ func (s *Store) load() (AppSettings, error) {
 func normalizeSettings(input AppSettings, defaults AppSettings) AppSettings {
 	normalized := input
 
-	if strings.TrimSpace(normalized.Vault.VaultPath) == "" {
-		normalized.Vault.VaultPath = defaults.Vault.VaultPath
-	}
-	normalized.Vault.VaultPath = strings.TrimSpace(normalized.Vault.VaultPath)
+	normalized.Vault.VaultPath = strings.TrimSpace(defaults.Vault.VaultPath)
 	if strings.TrimSpace(normalized.Notifications.NtfyInterval) == "" {
 		normalized.Notifications.NtfyInterval = defaults.Notifications.NtfyInterval
 	}
@@ -171,6 +170,7 @@ func normalizeSettings(input AppSettings, defaults AppSettings) AppSettings {
 		normalized.Documents.UploadSubfolder = defaults.Documents.UploadSubfolder
 	}
 	normalized.Documents.UploadSubfolder = normalizeUploadSubfolder(normalized.Documents.UploadSubfolder)
+	normalized.Documents.UploadFolder = normalizeUploadSubfolder(normalized.Documents.UploadFolder)
 
 	return normalized
 }
@@ -183,9 +183,9 @@ func validateSettings(settings AppSettings) error {
 		return fmt.Errorf("ntfy interval must be a valid duration")
 	}
 	switch strings.TrimSpace(settings.Documents.UploadPlacement) {
-	case "same-folder", "vault-root", "note-subfolder":
+	case "same-folder", "vault-root", "note-subfolder", "specific-folder":
 	default:
-		return fmt.Errorf("document upload placement must be same-folder, vault-root, or note-subfolder")
+		return fmt.Errorf("document upload placement must be same-folder, vault-root, note-subfolder, or specific-folder")
 	}
 	if strings.TrimSpace(settings.Documents.UploadPlacement) == "note-subfolder" {
 		subfolder := normalizeUploadSubfolder(settings.Documents.UploadSubfolder)
@@ -194,6 +194,15 @@ func validateSettings(settings AppSettings) error {
 		}
 		if subfolder == "." || subfolder == ".." || strings.HasPrefix(subfolder, "../") {
 			return fmt.Errorf("document upload subfolder must be a relative path inside the vault")
+		}
+	}
+	if strings.TrimSpace(settings.Documents.UploadPlacement) == "specific-folder" {
+		folder := normalizeUploadSubfolder(settings.Documents.UploadFolder)
+		if folder == "" {
+			return fmt.Errorf("document upload folder must not be empty")
+		}
+		if folder == "." || folder == ".." || strings.HasPrefix(folder, "../") {
+			return fmt.Errorf("document upload folder must be a relative path inside the vault")
 		}
 	}
 	return nil
@@ -217,12 +226,9 @@ func snapshotFor(settings AppSettings, applied Vault) Snapshot {
 
 func snapshotForApplied(settings AppSettings, applied Vault, appliedNotifications Notifications) Snapshot {
 	effectiveApplied := Vault{
-		VaultPath: strings.TrimSpace(applied.VaultPath),
+		VaultPath: strings.TrimSpace(settings.Vault.VaultPath),
 	}
-	restartRequiredReasons := make([]string, 0, 2)
-	if !strings.EqualFold(strings.TrimSpace(settings.Vault.VaultPath), strings.TrimSpace(applied.VaultPath)) {
-		restartRequiredReasons = append(restartRequiredReasons, "Vault path differs from the running server configuration.")
-	}
+	restartRequiredReasons := make([]string, 0, 1)
 	if strings.TrimSpace(settings.Notifications.NtfyInterval) != strings.TrimSpace(appliedNotifications.NtfyInterval) {
 		restartRequiredReasons = append(restartRequiredReasons, "Notification polling interval differs from the running server configuration.")
 	}

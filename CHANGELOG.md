@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.24] - 2026-05-08
+
+### Added
+- Attachment uploads can now target a specific vault-relative folder, with autocomplete suggestions in settings from known folders and document directories.
+- The Files rail now supports drag-to-resize on desktop and shows overflow tooltips for truncated tree labels.
+- The rendered editor regression harness now covers raw-link fallback for markdown document links and `[[...]]` links in addition to the broader render-mode cursor matrix.
+
+### Changed
+- Top-level folders are now always treated as scopes in the web UI; the old single-vault toggle and vault-path editing controls are gone from settings.
+- Markdown rendering is broader and more consistent across preview and editor render mode, including parser-backed inline handling, footnotes, abbreviations, emoji, definition lists, simple HTML, and more complete link handling.
+- The top bar now stays visible while scrolling, and links are styled with stronger accent coloring in preview and render mode.
+
+### Fixed
+- Drag-and-drop of tree documents, images, and external files into notes is more reliable, and uploads respect the configured placement including the new fixed-folder mode.
+- Document links with spaces now resolve, rewrite, and count usage correctly even when authored externally or wrapped/encoded in markdown.
+- Rendered editor navigation no longer jumps through tables, code blocks, blockquotes, or links, and entering a rendered markdown or wiki link now reveals the full raw markup for normal filename/path editing.
+
 ## [v0.1.23] - 2026-05-07
 
 ### Added

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { markdownAbbreviationDefinitions } from "./markdownExtensions";
 import { markdownReferenceDefinitions } from "./markdownInline";
 
 import {
@@ -72,6 +73,23 @@ describe("markdown helpers", function () {
     expect(html).toContain("/api/documents/download?path=Docs%2Fspec.pdf");
   });
 
+  it("renders document links with spaced targets from raw or wrapped markdown destinations", function () {
+    const rawHtml = renderInline("[Quarterly Report](Docs/Quarterly Report.pdf)", {currentPagePath: "Notes/today"});
+    const wrappedHtml = renderInline("[Quarterly Report](<Docs/Quarterly Report.pdf>)", {currentPagePath: "Notes/today"});
+
+    expect(rawHtml).toContain('class="markdown-document-link"');
+    expect(rawHtml).toContain("/api/documents/download?path=Notes%2FDocs%2FQuarterly%20Report.pdf");
+    expect(wrappedHtml).toContain('class="markdown-document-link"');
+    expect(wrappedHtml).toContain("/api/documents/download?path=Notes%2FDocs%2FQuarterly%20Report.pdf");
+  });
+
+  it("renders image links with spaced targets from raw markdown destinations", function () {
+    const html = renderInline("![Quarterly Chart](Assets/Quarterly Chart.png)", {currentPagePath: "Notes/today"});
+
+    expect(html).toContain('class="markdown-inline-image-link"');
+    expect(html).toContain("/api/documents/download?path=Notes%2FAssets%2FQuarterly%20Chart.png&amp;inline=1");
+  });
+
   it("renders bare URLs as anchors", function () {
     expect(renderInline("Visit https://example.com/docs for details.")).toBe(
       'Visit <a href="https://example.com/docs" target="_blank" rel="noopener">https://example.com/docs</a> for details.'
@@ -119,6 +137,28 @@ describe("markdown helpers", function () {
     );
   });
 
+  it("renders emoji, markdown sub/sup, footnotes, and abbreviations", function () {
+    const abbreviationDefinitions = markdownAbbreviationDefinitions("*[HTML]: Hyper Text Markup Language");
+    const html = renderInline("H~2~O, 2^10^, :rocket:, footnote[^1], and HTML.", {abbreviationDefinitions});
+
+    expect(html).toContain('<sub class="markdown-inline-sub">2</sub>');
+    expect(html).toContain('<sup class="markdown-inline-sup">10</sup>');
+    expect(html).toContain('<span class="markdown-inline-emoji" aria-label=":rocket:">🚀</span>');
+    expect(html).toContain('<sup class="markdown-footnote-ref">1</sup>');
+    expect(html).toContain('<abbr class="markdown-inline-abbr" title="Hyper Text Markup Language">HTML</abbr>');
+  });
+
+  it("ignores footnote definitions when resolving reference links", function () {
+    const referenceDefinitions = markdownReferenceDefinitions([
+      "[^1]: This is a footnote.",
+      "",
+      "[ref-link]: https://example.com/reference",
+    ].join("\n"));
+
+    expect(referenceDefinitions.has("^1")).toBe(false);
+    expect(referenceDefinitions.get("ref-link")?.target).toBe("https://example.com/reference");
+  });
+
   it("finds a wiki link at the caret position", function () {
     expect(wikiLinkAtCaret("before [[notes/alpha|Alpha]] after", 12)).toEqual({
       target: "notes/alpha",
@@ -164,9 +204,9 @@ describe("markdown helpers", function () {
 
   it("renders markdown pipe tables into HTML", function () {
     const block = markdownTableBlockAt([
-      "| Name | Page |",
-      "| --- | --- |",
-      "| Alpha | [[notes/alpha]] |",
+      "| Name | Page | Count |",
+      "| :--- | :---: | ---: |",
+      "| Alpha | [[notes/alpha]] | 42 |",
       "",
     ], 0);
 
@@ -174,6 +214,9 @@ describe("markdown helpers", function () {
     expect(block?.html).toContain("<table>");
     expect(block?.html).toContain("<th");
     expect(block?.html).toContain('data-table-cell="true"');
+    expect(block?.html).toContain('style="text-align:left;"');
+    expect(block?.html).toContain('style="text-align:center;"');
+    expect(block?.html).toContain('style="text-align:right;"');
     expect(block?.html).toContain('data-page-link="notes/alpha"');
   });
 

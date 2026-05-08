@@ -209,6 +209,8 @@
           </section>
         </aside>
 
+        <div id="rail-resize-handle" class="rail-resize-handle" aria-hidden="true"></div>
+
         <section class="panel focus">
           <section id="notes-screen" class="notes-screen">
             <div class="section-head hero">
@@ -328,6 +330,7 @@
       </div>
     </div>
     <div id="tree-context-menu" class="tree-context-menu hidden" role="menu" aria-label="Tree item menu"></div>
+    <div id="page-tree-tooltip" class="page-tree-tooltip hidden" role="tooltip" aria-hidden="true"></div>
 
     <div class="modal-shell hidden" id="search-modal-shell">
       <div class="modal-card search-modal-card">
@@ -551,26 +554,12 @@
               <h3>Vault &amp; Server</h3>
             </div>
             <div class="settings-form-stack settings-group-fields">
-              <p class="settings-section-intro">Control how Noterious treats top-level folders and where the server watches for notes.</p>
+              <p class="settings-section-intro">Top-level folders are always treated as scopes. Runtime paths come from app startup; this panel only exposes server-side intervals and upload behavior.</p>
               <div class="settings-subsection">
                 <div class="settings-subsection-head">
-                  <strong>Workspace</strong>
-                  <span>Use top-level folders as scope-like vault views without changing canonical note paths.</span>
+                  <strong>Server Runtime</strong>
+                  <span>These settings affect reminders and upload destinations. The vault root itself is configured when the app starts.</span>
                 </div>
-                <label class="settings-toggle-row">
-                  <input id="settings-user-top-level-vaults" type="checkbox">
-                  <span>Use top-level folders as vaults</span>
-                </label>
-              </div>
-              <div class="settings-subsection">
-                <div class="settings-subsection-head">
-                  <strong>Server Paths</strong>
-                  <span>These control where the server reads notes and how often it checks reminders.</span>
-                </div>
-              <label class="search modal-field-wide">
-                <span>Vault Root</span>
-                <input id="settings-vault-path" type="text" placeholder="./vault" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-              </label>
               <label class="search modal-field-wide">
                 <span>Reminder Poll Interval</span>
                 <input id="settings-ntfy-interval" type="text" placeholder="1m" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
@@ -586,12 +575,18 @@
                   <select id="settings-documents-placement">
                     <option value="same-folder">Same folder as note</option>
                     <option value="note-subfolder">Subfolder inside note folder</option>
+                    <option value="specific-folder">Choose a specific folder</option>
                     <option value="vault-root">Vault root</option>
                   </select>
                 </label>
                 <label class="search modal-field-wide hidden" id="settings-documents-subfolder-field">
                   <span>Subfolder Name</span>
                   <input id="settings-documents-subfolder" type="text" placeholder="_files" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                </label>
+                <label class="search modal-field-wide hidden" id="settings-documents-folder-field">
+                  <span>Vault-Relative Folder</span>
+                  <input id="settings-documents-folder" type="text" placeholder="Shared/Uploads" list="settings-documents-folder-options" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  <datalist id="settings-documents-folder-options"></datalist>
                 </label>
               </div>
             </div>
@@ -794,6 +789,20 @@
                     </select>
                   </label>
                 </div>
+              </div>
+              <div class="settings-subsection">
+                <div class="settings-subsection-head">
+                  <strong>Tree Defaults</strong>
+                  <span>Choose what the file rail shows when the app opens.</span>
+                </div>
+                <label class="settings-toggle-row">
+                  <input id="settings-tree-default-documents" type="checkbox">
+                  <span>Show files by default</span>
+                </label>
+                <label class="settings-toggle-row">
+                  <input id="settings-tree-default-templates" type="checkbox">
+                  <span>Show templates by default</span>
+                </label>
               </div>
             </div>
           </section>

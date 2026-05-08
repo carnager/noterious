@@ -1,5 +1,7 @@
-import { GFM, parser as markdownParser } from "@lezer/markdown";
+import { Emoji, GFM, parser as markdownParser, Subscript, Superscript } from "@lezer/markdown";
 import type { TreeCursor } from "@lezer/common";
+
+import { isMarkdownFootnoteLabel, markdownEmojiCharacter } from "./markdownExtensions";
 
 export interface MarkdownInlineNode {
   name: string;
@@ -9,12 +11,13 @@ export interface MarkdownInlineNode {
 }
 
 export interface MarkdownInlineSpecialSpan {
-  kind: "wiki_link" | "wiki_image";
+  kind: "wiki_link" | "wiki_image" | "markdown_link" | "markdown_image";
   from: number;
   to: number;
   raw: string;
   target: string;
   label: string;
+  anchor?: string;
 }
 
 export interface MarkdownInlineLinkInfo {
@@ -42,7 +45,7 @@ export interface MarkdownResolvedLinkInfo {
   referenceLabel?: string;
 }
 
-const configuredMarkdownParser = markdownParser.configure([GFM]);
+const configuredMarkdownParser = markdownParser.configure([GFM, Emoji, Subscript, Superscript]);
 
 function buildInlineNode(cursor: TreeCursor): MarkdownInlineNode {
   const node: MarkdownInlineNode = {
@@ -108,6 +111,10 @@ export function markdownReferenceDefinitions(source: string): Map<string, Markdo
     }
 
     const label = markdownLabelText(text, labelNode);
+    if (isMarkdownFootnoteLabel(label)) {
+      return;
+    }
+
     const normalized = normalizeMarkdownLinkLabel(label);
     if (!normalized) {
       return;
@@ -127,18 +134,44 @@ export function markdownReferenceDefinitions(source: string): Map<string, Markdo
   return definitions;
 }
 
+function rangesOverlap(from: number, to: number, ranges: Array<{ from: number; to: number }>): boolean {
+  return ranges.some(function (range) {
+    return from < range.to && to > range.from;
+  });
+}
+
+function protectedInlineSpecialRanges(source: string): Array<{ from: number; to: number }> {
+  const ranges: Array<{ from: number; to: number }> = [];
+  const root = parseInlineMarkdownTree(source);
+
+  walkMarkdownNodes(root, function (node) {
+    if ((node.name === "Link" || node.name === "Image") && markdownInlineLinkInfo(node)) {
+      ranges.push({ from: node.from, to: node.to });
+      return;
+    }
+    if (node.name === "InlineCode" || node.name === "HTMLTag" || node.name === "Autolink") {
+      ranges.push({ from: node.from, to: node.to });
+    }
+  });
+
+  return ranges;
+}
+
 export function findMarkdownInlineSpecialSpans(source: string): MarkdownInlineSpecialSpan[] {
   const text = String(source || "");
   const spans: MarkdownInlineSpecialSpan[] = [];
+  const blockedRanges = protectedInlineSpecialRanges(text);
   const pattern = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
   let match: RegExpExecArray | null = null;
 
   while ((match = pattern.exec(text)) !== null) {
+    const from = match.index;
+    const to = match.index + match[0].length;
     if (match[1] !== undefined) {
       spans.push({
         kind: "wiki_image",
-        from: match.index,
-        to: match.index + match[0].length,
+        from,
+        to,
         raw: match[0],
         target: String(match[1] || "").trim(),
         label: String(match[2] || "").trim(),
@@ -148,14 +181,40 @@ export function findMarkdownInlineSpecialSpans(source: string): MarkdownInlineSp
 
     spans.push({
       kind: "wiki_link",
-      from: match.index,
-      to: match.index + match[0].length,
+      from,
+      to,
       raw: match[0],
       target: String(match[3] || "").trim(),
       label: String(match[4] || "").trim(),
     });
   }
 
+  const markdownLinkPattern = /(!?)\[([^\]\n]*)\]\((<[^>\n]+>|[^)\n]+?)(#[^)]+)?\)/g;
+  while ((match = markdownLinkPattern.exec(text)) !== null) {
+    const from = match.index;
+    const to = match.index + match[0].length;
+    const target = String(match[3] || "").trim();
+    if (!target || rangesOverlap(from, to, blockedRanges)) {
+      continue;
+    }
+
+    spans.push({
+      kind: match[1] ? "markdown_image" : "markdown_link",
+      from,
+      to,
+      raw: match[0],
+      target,
+      label: String(match[2] || ""),
+      anchor: String(match[4] || ""),
+    });
+  }
+
+  spans.sort(function (left, right) {
+    if (left.from !== right.from) {
+      return left.from - right.from;
+    }
+    return right.to - left.to;
+  });
   return spans;
 }
 
@@ -258,7 +317,11 @@ function visibleTextFromNode(node: MarkdownInlineNode, source: string, rangeFrom
     case "QuoteMark":
     case "ListMark":
     case "TaskMarker":
+    case "SubscriptMark":
+    case "SuperscriptMark":
       return "";
+    case "Emoji":
+      return markdownEmojiCharacter(String(source || "").slice(rangeFrom, rangeTo));
     case "Escape":
       return String(source || "").slice(rangeFrom + 1, rangeTo);
     case "Link": {

@@ -11,7 +11,6 @@ export interface SettingsUiState {
   settingsSection: SettingsSection;
   settingsLoaded: boolean;
   aiSettingsLoaded: boolean;
-  topLevelFoldersAsVaults: boolean;
   themeLibraryLoaded: boolean;
   themeLibrary: ThemeRecord[];
   settingsTemplateDrafts: NoteTemplate[];
@@ -39,11 +38,12 @@ export interface SettingsUiElements {
   settingsGroupUserNotifications: HTMLElement;
   settingsGroupAI: HTMLElement;
   saveSettings: HTMLButtonElement;
-  settingsVaultPath: HTMLInputElement;
   settingsNtfyInterval: HTMLInputElement;
   settingsDocumentsPlacement: HTMLSelectElement;
   settingsDocumentsSubfolder: HTMLInputElement;
   settingsDocumentsSubfolderField: HTMLElement;
+  settingsDocumentsFolder: HTMLInputElement;
+  settingsDocumentsFolderField: HTMLElement;
   settingsBackupVaultPath: HTMLElement;
   settingsBackupDataDir: HTMLElement;
   settingsBackupDatabase: HTMLElement;
@@ -74,7 +74,8 @@ export interface SettingsUiElements {
   settingsAIClearKey: HTMLButtonElement;
   settingsAIKeyStatus: HTMLElement;
   settingsAIHelp: HTMLElement;
-  settingsUserTopLevelVaults: HTMLInputElement;
+  settingsTreeDefaultDocuments: HTMLInputElement;
+  settingsTreeDefaultTemplates: HTMLInputElement;
   settingsFontFamily: HTMLSelectElement;
   settingsFontSize: HTMLSelectElement;
   settingsDateTimeFormat: HTMLSelectElement;
@@ -472,10 +473,10 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
   renderSettingsModal(state, els);
 
   const serverFields: Array<HTMLInputElement | HTMLSelectElement | HTMLButtonElement> = [
-    els.settingsVaultPath,
     els.settingsNtfyInterval,
     els.settingsDocumentsPlacement,
     els.settingsDocumentsSubfolder,
+    els.settingsDocumentsFolder,
     els.settingsBackupDownload,
     els.settingsBackupScript,
     els.settingsBackupValidate,
@@ -491,7 +492,8 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
     els.settingsBrowserNotifications,
     els.settingsUserNtfyTopicUrl,
     els.settingsUserNtfyToken,
-    els.settingsUserTopLevelVaults,
+    els.settingsTreeDefaultDocuments,
+    els.settingsTreeDefaultTemplates,
     els.settingsFontFamily,
     els.settingsFontSize,
     els.settingsDateTimeFormat,
@@ -527,12 +529,14 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
   }
 
   els.saveSettings.disabled = false;
-  els.settingsVaultPath.value = state.settings.vault.vaultPath || "";
   els.settingsNtfyInterval.value = state.settings.notifications.ntfyInterval || "1m";
   els.settingsDocumentsPlacement.value = state.settings.documents.uploadPlacement || "same-folder";
   els.settingsDocumentsSubfolder.value = state.settings.documents.uploadSubfolder || "_files";
+  els.settingsDocumentsFolder.value = state.settings.documents.uploadFolder || "";
   els.settingsDocumentsSubfolderField.classList.toggle("hidden", els.settingsDocumentsPlacement.value !== "note-subfolder");
   els.settingsDocumentsSubfolder.disabled = els.settingsDocumentsPlacement.value !== "note-subfolder";
+  els.settingsDocumentsFolderField.classList.toggle("hidden", els.settingsDocumentsPlacement.value !== "specific-folder");
+  els.settingsDocumentsFolder.disabled = els.settingsDocumentsPlacement.value !== "specific-folder";
   const runtimeVaultPath = state.serverMeta && state.serverMeta.runtimeVault
     ? String(state.serverMeta.runtimeVault.vaultPath || "").trim()
     : "";
@@ -626,7 +630,8 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
       ? "A server-side API key is stored."
       : "No API key stored yet.";
   els.settingsAIHelp.textContent = "OpenAI-compatible only in v1. Example base URLs: https://api.openai.com/v1 or https://api.deepseek.com/v1. Browser-local keys are intentionally not supported.";
-  els.settingsUserTopLevelVaults.checked = state.topLevelFoldersAsVaults;
+  els.settingsTreeDefaultDocuments.checked = Boolean(state.settings.preferences.ui.showDocumentsInTree);
+  els.settingsTreeDefaultTemplates.checked = Boolean(state.settings.preferences.ui.showTemplatesInTree);
   renderThemeOptions(state, els);
   els.settingsFontFamily.value = state.settings.preferences.ui.fontFamily || "mono";
   els.settingsFontSize.value = state.settings.preferences.ui.fontSize || "16";

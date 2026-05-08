@@ -13,12 +13,6 @@ import (
 const requestScopeHeader = "X-Noterious-Scope"
 
 func configuredVaultRoot(settingsStore *settings.Store, cfg config.Config) string {
-	if settingsStore != nil {
-		snapshot := settingsStore.Snapshot()
-		if strings.TrimSpace(snapshot.AppliedVault.VaultPath) != "" {
-			return strings.TrimSpace(snapshot.AppliedVault.VaultPath)
-		}
-	}
 	return strings.TrimSpace(cfg.VaultPath)
 }
 

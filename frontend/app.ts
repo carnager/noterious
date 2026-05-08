@@ -126,6 +126,7 @@ import {
   renamePage as renamePageRequest,
 } from "./pageOperations";
 import {
+  documentUploadFolderSuggestions,
   documentUploadHint,
   documentUploadTargetLabel,
   rewriteDocumentLinksInMarkdown,
@@ -158,7 +159,9 @@ import {
   filterDocumentsByScope,
   filterPagesByScope,
   filterPagesByTag,
+  pageTreeDragMimeType,
   type PageTreeMenuTarget,
+  type TreeDragItem,
   renderPageContext as renderPageContextUI,
   renderPageTags as renderPageTagsUI,
   renderPageTasks as renderPageTasksUI,
@@ -445,6 +448,7 @@ interface AppState {
   helpError: string;
   browserNotificationSyncInFlight: boolean;
   browserNotificationSessionStartedAt: number;
+  railWidth: number;
 }
 
 interface TemplateFillSession {
@@ -498,6 +502,9 @@ interface ActionDialogSession {
 (function () {
   const browserNotificationPollIntervalMs = 30 * 1000;
   const browserNotificationSessionSkewMs = 60 * 1000;
+  const defaultDesktopRailWidth = 260;
+  const minDesktopRailWidth = 220;
+  const maxDesktopRailWidth = 480;
   let pwaRegistrationPromise: Promise<ServiceWorkerRegistration | null> | null = null;
 
   function registerPWA(): Promise<ServiceWorkerRegistration | null> {
@@ -548,8 +555,8 @@ interface ActionDialogSession {
     pageTagsExpanded: false,
     fileTreeFilters: {
       pages: true,
-      documents: false,
-      templates: false,
+      documents: defaultClientPreferences().ui.showDocumentsInTree,
+      templates: defaultClientPreferences().ui.showTemplatesInTree,
     },
     editingPropertyKey: "",
     propertyTypeMenuKey: "",
@@ -573,6 +580,7 @@ interface ActionDialogSession {
       documents: {
         uploadPlacement: "same-folder",
         uploadSubfolder: "_files",
+        uploadFolder: "",
       },
       userNotifications: {
         ntfyTopicUrl: "",
@@ -599,7 +607,7 @@ interface ActionDialogSession {
     aiClearKeyPending: false,
     activeScopePrefix: "",
     homePage: "",
-    topLevelFoldersAsVaults: false,
+    topLevelFoldersAsVaults: true,
     themeLibraryLoaded: false,
     themeLibrary: builtinThemeLibrary(),
     savedThemeId: defaultThemeId,
@@ -654,6 +662,7 @@ interface ActionDialogSession {
     helpError: "",
     browserNotificationSyncInFlight: false,
     browserNotificationSessionStartedAt: Date.now(),
+    railWidth: defaultDesktopRailWidth,
   };
 
   const els = {
@@ -707,6 +716,7 @@ interface ActionDialogSession {
     remoteChangeReload: requiredElement<HTMLButtonElement>("remote-change-reload"),
     remoteChangeDismiss: requiredElement<HTMLButtonElement>("remote-change-dismiss"),
     treeContextMenu: requiredElement<HTMLDivElement>("tree-context-menu"),
+    pageTreeTooltip: requiredElement<HTMLDivElement>("page-tree-tooltip"),
     markdownEditor: requiredElement<HTMLTextAreaElement>("markdown-editor"),
     structuredView: requiredElement<HTMLElement>("structured-view"),
     derivedView: requiredElement<HTMLElement>("derived-view"),
@@ -715,6 +725,7 @@ interface ActionDialogSession {
     eventLog: requiredElement<HTMLDivElement>("event-log"),
     appLayout: optionalQuery<HTMLElement>(".app-layout"),
     rail: requiredElement<HTMLElement>("rail"),
+    railResizeHandle: requiredElement<HTMLElement>("rail-resize-handle"),
     railTabFiles: requiredElement<HTMLButtonElement>("rail-tab-files"),
     railTabContext: requiredElement<HTMLButtonElement>("rail-tab-context"),
     railTabTasks: requiredElement<HTMLButtonElement>("rail-tab-tasks"),
@@ -824,11 +835,13 @@ interface ActionDialogSession {
     settingsGroupAI: requiredElement<HTMLElement>("settings-group-ai"),
     cancelSettings: requiredElement<HTMLButtonElement>("cancel-settings"),
     saveSettings: requiredElement<HTMLButtonElement>("save-settings"),
-    settingsVaultPath: requiredElement<HTMLInputElement>("settings-vault-path"),
     settingsNtfyInterval: requiredElement<HTMLInputElement>("settings-ntfy-interval"),
     settingsDocumentsPlacement: requiredElement<HTMLSelectElement>("settings-documents-placement"),
     settingsDocumentsSubfolder: requiredElement<HTMLInputElement>("settings-documents-subfolder"),
     settingsDocumentsSubfolderField: requiredElement<HTMLElement>("settings-documents-subfolder-field"),
+    settingsDocumentsFolder: requiredElement<HTMLInputElement>("settings-documents-folder"),
+    settingsDocumentsFolderField: requiredElement<HTMLElement>("settings-documents-folder-field"),
+    settingsDocumentsFolderOptions: requiredElement<HTMLDataListElement>("settings-documents-folder-options"),
     settingsBackupVaultPath: requiredElement<HTMLElement>("settings-backup-vault-path"),
     settingsBackupDataDir: requiredElement<HTMLElement>("settings-backup-data-dir"),
     settingsBackupDatabase: requiredElement<HTMLElement>("settings-backup-database"),
@@ -859,7 +872,8 @@ interface ActionDialogSession {
     settingsAIClearKey: requiredElement<HTMLButtonElement>("settings-ai-clear-key"),
     settingsAIKeyStatus: requiredElement<HTMLElement>("settings-ai-key-status"),
     settingsAIHelp: requiredElement<HTMLElement>("settings-ai-help"),
-    settingsUserTopLevelVaults: requiredElement<HTMLInputElement>("settings-user-top-level-vaults"),
+    settingsTreeDefaultDocuments: requiredElement<HTMLInputElement>("settings-tree-default-documents"),
+    settingsTreeDefaultTemplates: requiredElement<HTMLInputElement>("settings-tree-default-templates"),
     settingsTheme: requiredElement<HTMLSelectElement>("settings-ui-theme"),
     settingsThemeUpload: requiredElement<HTMLButtonElement>("settings-theme-upload"),
     settingsThemeDelete: requiredElement<HTMLButtonElement>("settings-theme-delete"),
@@ -893,6 +907,11 @@ interface ActionDialogSession {
   };
 
   let actionDialogSession: ActionDialogSession | null = null;
+  let pageTreeTooltipAnchor: HTMLElement | null = null;
+  let noteSurfaceDragDepth = 0;
+  let railResizePointerID: number | null = null;
+  let railResizeStartX = 0;
+  let railResizeStartWidth = defaultDesktopRailWidth;
 
   function currentPickerTask(): TaskRecord | null {
     return taskPickerState.ref ? findCurrentTask(taskPickerState.ref) : null;
@@ -1744,7 +1763,7 @@ interface ActionDialogSession {
 
   function setCurrentScopePrefix(prefix: string): void {
     state.activeScopePrefix = normalizePageDraftPath(prefix || "");
-    setActiveScopePrefix(state.topLevelFoldersAsVaults ? state.activeScopePrefix : "");
+    setActiveScopePrefix(state.activeScopePrefix);
   }
 
   function setVisibleVaultState(availableVaults: VaultRecord[], currentVault: VaultRecord | null, scopePrefix: string): void {
@@ -1768,6 +1787,36 @@ interface ActionDialogSession {
   }
 
   const scopeStorageKey = "noterious.scope-prefix";
+  const railWidthStorageKey = "noterious.rail-width";
+
+  function normalizeDesktopRailWidth(value: unknown): number {
+    const numeric = typeof value === "string" ? Number.parseFloat(value) : Number(value);
+    if (!Number.isFinite(numeric)) {
+      return defaultDesktopRailWidth;
+    }
+    return Math.max(minDesktopRailWidth, Math.min(maxDesktopRailWidth, Math.round(numeric)));
+  }
+
+  function loadStoredRailWidth(): number {
+    try {
+      return normalizeDesktopRailWidth(window.localStorage.getItem(railWidthStorageKey) || "");
+    } catch (_error) {
+      return defaultDesktopRailWidth;
+    }
+  }
+
+  function storeRailWidth(width: number): void {
+    try {
+      window.localStorage.setItem(railWidthStorageKey, String(normalizeDesktopRailWidth(width)));
+    } catch (_error) {
+      // Ignore storage failures and keep working with in-memory state.
+    }
+  }
+
+  function applyRailWidth(): void {
+    state.railWidth = normalizeDesktopRailWidth(state.railWidth);
+    document.documentElement.style.setProperty("--desktop-rail-width", state.railWidth + "px");
+  }
 
   function loadStoredScopePrefix(): string {
     try {
@@ -1793,11 +1842,6 @@ interface ActionDialogSession {
   async function loadAvailableVaults(): Promise<void> {
     const rootVault = state.rootVault;
     const storedScopePrefix = loadStoredScopePrefix();
-    if (!state.topLevelFoldersAsVaults) {
-      storeScopePrefix("");
-      setVisibleVaultState(rootVault ? [rootVault] : [], rootVault, "");
-      return;
-    }
     setCurrentScopePrefix(storedScopePrefix);
 
     const snapshot = await fetchJSON<VaultListResponse>("/api/user/vaults");
@@ -1922,9 +1966,6 @@ interface ActionDialogSession {
   }
 
   function currentScopePrefix(): string {
-    if (!state.topLevelFoldersAsVaults) {
-      return "";
-    }
     return normalizePageDraftPath(state.activeScopePrefix || "");
   }
 
@@ -2690,6 +2731,53 @@ interface ActionDialogSession {
     return filterDocumentsByScope(state.documents, currentScopePrefix());
   }
 
+  function hidePageTreeTooltip(): void {
+    pageTreeTooltipAnchor = null;
+    els.pageTreeTooltip.textContent = "";
+    els.pageTreeTooltip.classList.add("hidden");
+    els.pageTreeTooltip.setAttribute("aria-hidden", "true");
+  }
+
+  function positionPageTreeTooltip(anchor: HTMLElement): void {
+    if (els.pageTreeTooltip.classList.contains("hidden")) {
+      return;
+    }
+    const anchorRect = anchor.getBoundingClientRect();
+    const tooltipRect = els.pageTreeTooltip.getBoundingClientRect();
+    const left = Math.max(12, Math.min(anchorRect.right + 12, window.innerWidth - tooltipRect.width - 12));
+    const top = Math.max(12, Math.min(anchorRect.top + ((anchorRect.height - tooltipRect.height) / 2), window.innerHeight - tooltipRect.height - 12));
+    els.pageTreeTooltip.style.left = left + "px";
+    els.pageTreeTooltip.style.top = top + "px";
+  }
+
+  function maybeShowPageTreeTooltipForTarget(target: EventTarget | null): void {
+    const hovered = target instanceof HTMLElement ? target : null;
+    const rowButton = hovered ? hovered.closest(".page-tree-page, .page-tree-toggle") as HTMLElement | null : null;
+    if (!rowButton || !els.pageList.contains(rowButton)) {
+      hidePageTreeTooltip();
+      return;
+    }
+    const label = rowButton.querySelector(".page-tree-label") as HTMLElement | null;
+    const text = String(label && label.textContent ? label.textContent : "").trim();
+    const truncated = Boolean(
+      label
+      && text
+      && (
+        (label.scrollWidth - label.clientWidth) > 1
+        || (label.scrollHeight - label.clientHeight) > 1
+      )
+    );
+    if (!label || !text || !truncated) {
+      hidePageTreeTooltip();
+      return;
+    }
+    pageTreeTooltipAnchor = label;
+    els.pageTreeTooltip.textContent = text;
+    els.pageTreeTooltip.classList.remove("hidden");
+    els.pageTreeTooltip.setAttribute("aria-hidden", "false");
+    positionPageTreeTooltip(label);
+  }
+
   function renderFileTreeFilterButtons(): void {
     els.fileTreeFilterPages.classList.toggle("active", state.fileTreeFilters.pages);
     els.fileTreeFilterDocuments.classList.toggle("active", state.fileTreeFilters.documents);
@@ -3151,6 +3239,16 @@ interface ActionDialogSession {
 
   function renderSettingsForm() {
     renderSettingsFormUI(state, els);
+    clearNode(els.settingsDocumentsFolderOptions);
+    documentUploadFolderSuggestions(
+      state.folders,
+      state.documents,
+      state.settings.documents.uploadFolder || els.settingsDocumentsFolder.value || ""
+    ).forEach(function (folder) {
+      const option = document.createElement("option");
+      option.value = folder;
+      els.settingsDocumentsFolderOptions.appendChild(option);
+    });
     renderSettingsHotkeyHints();
     els.settingsStatus.textContent = "";
   }
@@ -3229,6 +3327,7 @@ interface ActionDialogSession {
     state.settings.documents = snapshot.settings.documents || {
       uploadPlacement: "same-folder",
       uploadSubfolder: "_files",
+      uploadFolder: "",
     };
     state.appliedVault = snapshot.appliedVault;
     state.settingsRestartRequired = snapshot.restartRequired;
@@ -3513,6 +3612,7 @@ interface ActionDialogSession {
   }
 
   function renderPages() {
+    hidePageTreeTooltip();
     renderFileTreeFilterButtons();
     renderPagesSection({
       selectedPage: state.appScreen === "notes" ? state.selectedPage : "",
@@ -3548,6 +3648,7 @@ interface ActionDialogSession {
       deletePage: deletePage,
       movePageToFolder: movePageToFolder,
       moveFolder: moveFolder,
+      moveDocumentToFolder: moveDocumentToFolder,
       openPageHistory: openPageHistoryFor,
       currentHomePage: currentHomePage,
       setHomePage: setHomePage,
@@ -3602,6 +3703,7 @@ interface ActionDialogSession {
       deletePage: deletePage,
       movePageToFolder: movePageToFolder,
       moveFolder: moveFolder,
+      moveDocumentToFolder: moveDocumentToFolder,
       openPageHistory: openPageHistoryFor,
       currentHomePage: currentHomePage,
       setHomePage: setHomePage,
@@ -4647,7 +4749,7 @@ interface ActionDialogSession {
       }
       window.requestAnimationFrame(function () {
         if (state.settingsSection === "vault" && state.settingsLoaded) {
-          focusWithoutScroll(els.settingsUserTopLevelVaults);
+          focusWithoutScroll(els.settingsNtfyInterval);
           return;
         }
         if (state.settingsSection === "notifications") {
@@ -4683,14 +4785,17 @@ interface ActionDialogSession {
 
   function syncSettingsDocumentPlacementField(): void {
     const usesSubfolder = String(els.settingsDocumentsPlacement.value || "").trim() === "note-subfolder";
+    const usesSpecificFolder = String(els.settingsDocumentsPlacement.value || "").trim() === "specific-folder";
     els.settingsDocumentsSubfolderField.classList.toggle("hidden", !usesSubfolder);
     els.settingsDocumentsSubfolder.disabled = !usesSubfolder;
+    els.settingsDocumentsFolderField.classList.toggle("hidden", !usesSpecificFolder);
+    els.settingsDocumentsFolder.disabled = !usesSpecificFolder;
   }
 
   function collectServerSettingsForm(): ServerSettings {
     return {
       vault: {
-        vaultPath: String(els.settingsVaultPath.value || "").trim(),
+        vaultPath: state.settings.vault.vaultPath || state.appliedVault.vaultPath || "",
       },
       notifications: {
         ntfyInterval: String(els.settingsNtfyInterval.value || "1m").trim(),
@@ -4698,6 +4803,7 @@ interface ActionDialogSession {
       documents: {
         uploadPlacement: String(els.settingsDocumentsPlacement.value || "same-folder").trim() as ServerSettings["documents"]["uploadPlacement"],
         uploadSubfolder: String(els.settingsDocumentsSubfolder.value || "_files").trim(),
+        uploadFolder: String(els.settingsDocumentsFolder.value || "").trim(),
       },
     };
   }
@@ -4746,9 +4852,11 @@ interface ActionDialogSession {
         fontFamily: String(els.settingsFontFamily.value || "mono").trim(),
         fontSize: String(els.settingsFontSize.value || "16").trim(),
         dateTimeFormat: String(els.settingsDateTimeFormat.value || "browser").trim(),
+        showDocumentsInTree: Boolean(els.settingsTreeDefaultDocuments.checked),
+        showTemplatesInTree: Boolean(els.settingsTreeDefaultTemplates.checked),
       },
       vaults: {
-        topLevelFoldersAsVaults: Boolean(els.settingsUserTopLevelVaults.checked),
+        topLevelFoldersAsVaults: true,
         rootHomePage: state.settings.preferences.vaults.rootHomePage,
         scopeHomePages: state.settings.preferences.vaults.scopeHomePages,
       },
@@ -4772,14 +4880,18 @@ interface ActionDialogSession {
   function applyClientPreferences(preferences: ClientPreferences): void {
     state.settings.preferences = cloneClientPreferences(preferences);
     state.settingsTemplateDrafts = cloneNoteTemplates(state.settings.preferences.templates);
-    state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
-    setCurrentScopePrefix(state.topLevelFoldersAsVaults ? state.activeScopePrefix : "");
+    state.topLevelFoldersAsVaults = true;
+    state.fileTreeFilters.documents = Boolean(state.settings.preferences.ui.showDocumentsInTree);
+    state.fileTreeFilters.templates = Boolean(state.settings.preferences.ui.showTemplatesInTree);
+    setCurrentScopePrefix(state.activeScopePrefix);
     syncHomePageForCurrentScope();
     state.savedThemeId = currentThemeID();
     state.previewThemeId = currentThemeID();
     saveStoredClientPreferences(state.settings.preferences);
     renderSettingsForm();
     applyUIPreferences();
+    renderPages();
+    renderPageTags();
     renderSourceModeButton();
     renderPageHistoryButton();
     if (state.currentPage || state.appScreen === "help") {
@@ -4796,7 +4908,6 @@ interface ActionDialogSession {
       els.settingsStatus.textContent = "Settings are still loading. Try again in a moment.";
       return;
     }
-    const previousTopLevelFoldersAsVaults = state.topLevelFoldersAsVaults;
     let browserNotificationMessage = "";
     if (els.settingsBrowserNotifications.checked) {
       const permission = browserNotificationPermission();
@@ -4844,10 +4955,6 @@ interface ActionDialogSession {
       await loadAvailableVaults();
       if (state.selectedPage || state.appScreen === "help") {
         syncURLState(true);
-      }
-      if (previousTopLevelFoldersAsVaults !== state.topLevelFoldersAsVaults) {
-        window.location.reload();
-        return;
       }
       closeSettingsModal();
       restoreNoteFocus();
@@ -5128,6 +5235,59 @@ interface ActionDialogSession {
     return state.documents.map(function (document) {
       return String(document.path || "").trim().replace(/^\/+|\/+$/g, "");
     }).filter(Boolean);
+  }
+
+  function currentDocumentRecordByPath(path: string): DocumentRecord | null {
+    const normalizedPath = normalizePageDraftPath(path || "");
+    if (!normalizedPath) {
+      return null;
+    }
+    return state.documents.find(function (document) {
+      return normalizePageDraftPath(document.path || "") === normalizedPath;
+    }) || null;
+  }
+
+  function parseTreeDragItem(dataTransfer: DataTransfer | null): TreeDragItem | null {
+    if (!dataTransfer) {
+      return null;
+    }
+    const raw = dataTransfer.getData(pageTreeDragMimeType);
+    if (!raw) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw) as TreeDragItem;
+      if (!parsed || !parsed.path || (parsed.kind !== "page" && parsed.kind !== "folder" && parsed.kind !== "document")) {
+        return null;
+      }
+      return parsed;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function noteSurfaceDropKind(dataTransfer: DataTransfer | null): "files" | "document" | null {
+    if (!dataTransfer) {
+      return null;
+    }
+    const transferTypes = Array.from(dataTransfer.types || []);
+    if ((dataTransfer.files && dataTransfer.files.length > 0) || transferTypes.includes("Files")) {
+      return "files";
+    }
+    const payload = parseTreeDragItem(dataTransfer);
+    if (payload && payload.kind === "document") {
+      return "document";
+    }
+    return null;
+  }
+
+  function setNoteSurfaceDropActive(active: boolean): void {
+    els.noteSurface.classList.toggle("drop-active", active);
+  }
+
+  function resetNoteSurfaceDropState(): void {
+    noteSurfaceDragDepth = 0;
+    setNoteSurfaceDropActive(false);
   }
 
   function scopedPropertyValueSuggestions(key: string, kind: FrontmatterKind): string[] {
@@ -5415,6 +5575,21 @@ interface ActionDialogSession {
         ? ('Moved file to "' + movedDocument.path + '".')
         : ('Renamed file to "' + movedDocument.name + '".')
     );
+  }
+
+  async function moveDocumentToFolder(documentPath: string, folderKey: string): Promise<void> {
+    const normalizedDocumentPath = normalizePageDraftPath(documentPath);
+    if (!normalizedDocumentPath) {
+      return;
+    }
+    const leafName = pageTitleFromPath(normalizedDocumentPath);
+    const normalizedFolder = normalizePageDraftPath(folderKey || "");
+    const targetPath = normalizedFolder ? (normalizedFolder + "/" + leafName) : leafName;
+    if (!targetPath || targetPath === normalizedDocumentPath) {
+      return;
+    }
+    const movedDocument = await moveDocument(normalizedDocumentPath, targetPath);
+    setNoteStatus('Moved file to "' + movedDocument.path + '".');
   }
 
   async function uploadDocument(file: File): Promise<DocumentRecord> {
@@ -5744,9 +5919,20 @@ interface ActionDialogSession {
     }, 0);
   }
 
+  function setRailWidth(width: number, persist?: boolean): void {
+    state.railWidth = normalizeDesktopRailWidth(width);
+    applyRailWidth();
+    if (persist) {
+      storeRailWidth(state.railWidth);
+    }
+  }
+
   function setRailOpen(open: boolean): void {
     state.railOpen = Boolean(open);
     const mobileLayout = window.matchMedia("(max-width: 1180px)").matches;
+    if (!state.railOpen) {
+      hidePageTreeTooltip();
+    }
     if (els.rail) {
       els.rail.classList.toggle("open", state.railOpen);
     }
@@ -5967,6 +6153,75 @@ interface ActionDialogSession {
     on(els.addProperty, "click", startAddProperty);
     on(els.toggleRail, "click", function () {
       setRailOpen(!state.railOpen);
+    });
+    on(els.railResizeHandle, "pointerdown", function (rawEvent) {
+      const event = rawEvent as PointerEvent;
+      if (event.button !== 0 || !state.railOpen || window.matchMedia("(max-width: 1180px)").matches) {
+        return;
+      }
+      event.preventDefault();
+      railResizePointerID = event.pointerId;
+      railResizeStartX = event.clientX;
+      railResizeStartWidth = state.railWidth;
+      document.body.classList.add("rail-resizing");
+      els.railResizeHandle.classList.add("active");
+      if (typeof els.railResizeHandle.setPointerCapture === "function") {
+        els.railResizeHandle.setPointerCapture(event.pointerId);
+      }
+    });
+    on(window, "pointermove", function (rawEvent) {
+      const event = rawEvent as PointerEvent;
+      if (railResizePointerID === null || event.pointerId !== railResizePointerID) {
+        return;
+      }
+      event.preventDefault();
+      setRailWidth(railResizeStartWidth + (event.clientX - railResizeStartX));
+    });
+    function finishRailResize(rawEvent?: Event): void {
+      const event = rawEvent instanceof PointerEvent ? rawEvent : null;
+      if (railResizePointerID === null || (event && event.pointerId !== railResizePointerID)) {
+        return;
+      }
+      if (typeof els.railResizeHandle.releasePointerCapture === "function" && event) {
+        try {
+          els.railResizeHandle.releasePointerCapture(event.pointerId);
+        } catch (_error) {
+          // Ignore stale pointer-capture state.
+        }
+      }
+      railResizePointerID = null;
+      document.body.classList.remove("rail-resizing");
+      els.railResizeHandle.classList.remove("active");
+      setRailWidth(state.railWidth, true);
+    }
+    on(window, "pointerup", finishRailResize as EventListener);
+    on(window, "pointercancel", finishRailResize as EventListener);
+    on(els.pageList, "mouseover", function (event) {
+      maybeShowPageTreeTooltipForTarget(event.target);
+    });
+    on(els.pageList, "mousemove", function (event) {
+      maybeShowPageTreeTooltipForTarget(event.target);
+    });
+    on(els.pageList, "mouseleave", function () {
+      hidePageTreeTooltip();
+    });
+    on(els.pageList, "focusin", function (event) {
+      maybeShowPageTreeTooltipForTarget(event.target);
+    });
+    on(els.pageList, "focusout", function (event) {
+      const related = event instanceof FocusEvent && event.relatedTarget instanceof HTMLElement
+        ? event.relatedTarget
+        : null;
+      if (!related || !els.pageList.contains(related)) {
+        hidePageTreeTooltip();
+      }
+    });
+    on(els.pageList, "scroll", function () {
+      if (pageTreeTooltipAnchor && document.body.contains(pageTreeTooltipAnchor)) {
+        positionPageTreeTooltip(pageTreeTooltipAnchor);
+        return;
+      }
+      hidePageTreeTooltip();
     });
     on(els.togglePageSearch, "click", function () {
       setPageSearchOpen(els.pageSearchShell.classList.contains("hidden"));
@@ -6346,39 +6601,78 @@ interface ActionDialogSession {
       syncTaskFilterButtons();
       renderPageTasks();
     });
-    on(els.noteSurface, "dragenter", function (event) {
-      if (state.appScreen !== "notes" || !state.selectedPage || !state.currentPage) {
+    function handleNoteSurfaceDragEvent(rawEvent: Event, phase: "enter" | "over" | "leave" | "drop"): void {
+      const dragEvent = rawEvent as DragEvent;
+      if (phase === "leave") {
+        noteSurfaceDragDepth = Math.max(0, noteSurfaceDragDepth - 1);
+        if (noteSurfaceDragDepth === 0) {
+          setNoteSurfaceDropActive(false);
+        }
         return;
       }
-      event.preventDefault();
-      els.noteSurface.classList.add("drop-active");
-    });
-    on(els.noteSurface, "dragover", function (event) {
-      if (state.appScreen !== "notes" || !state.selectedPage || !state.currentPage) {
+      const dropKind = noteSurfaceDropKind(dragEvent.dataTransfer || null);
+      if (phase === "drop" && dropKind && !studioPageEditable()) {
+        dragEvent.preventDefault();
+        dragEvent.stopPropagation();
+        resetNoteSurfaceDropState();
+        setNoteStatus("Open a note before dropping files or links.");
         return;
       }
-      event.preventDefault();
-      els.noteSurface.classList.add("drop-active");
-    });
-    on(els.noteSurface, "dragleave", function (event) {
-      const dragEvent = event as DragEvent;
-      const related = dragEvent.relatedTarget instanceof Node ? dragEvent.relatedTarget : null;
-      if (related && els.noteSurface.contains(related)) {
+      if (!studioPageEditable() || !dropKind) {
+        if (phase === "drop") {
+          resetNoteSurfaceDropState();
+        }
         return;
       }
-      els.noteSurface.classList.remove("drop-active");
-    });
-    on(els.noteSurface, "drop", function (event) {
-      const dragEvent = event as DragEvent;
-      if (state.appScreen !== "notes" || !state.selectedPage || !state.currentPage) {
-        els.noteSurface.classList.remove("drop-active");
-        return;
+      if (dragEvent.dataTransfer) {
+        dragEvent.dataTransfer.dropEffect = "copy";
       }
       dragEvent.preventDefault();
-      els.noteSurface.classList.remove("drop-active");
-      uploadDroppedFiles(dragEvent.dataTransfer ? dragEvent.dataTransfer.files : null).catch(function (error) {
-        setNoteStatus("Upload failed: " + errorMessage(error));
-      });
+      dragEvent.stopPropagation();
+      if (phase === "enter") {
+        noteSurfaceDragDepth += 1;
+        setNoteSurfaceDropActive(true);
+        return;
+      }
+      if (phase === "over") {
+        if (noteSurfaceDragDepth === 0) {
+          noteSurfaceDragDepth = 1;
+        }
+        setNoteSurfaceDropActive(true);
+        return;
+      }
+      resetNoteSurfaceDropState();
+      if (dropKind === "files") {
+        uploadDroppedFiles(dragEvent.dataTransfer ? dragEvent.dataTransfer.files : null).catch(function (error) {
+          setNoteStatus("Upload failed: " + errorMessage(error));
+        });
+        return;
+      }
+      const payload = parseTreeDragItem(dragEvent.dataTransfer || null);
+      const document = payload && payload.kind === "document"
+        ? currentDocumentRecordByPath(payload.path)
+        : null;
+      if (!document || !state.selectedPage) {
+        setNoteStatus("Dropped file is no longer indexed.");
+        return;
+      }
+      insertTextAtEditorSelection(documentLinkForSelection(document, state.selectedPage));
+      setNoteStatus("Inserted document link for " + document.name + ".");
+    }
+    els.noteSurface.addEventListener("dragenter", function (event) {
+      handleNoteSurfaceDragEvent(event, "enter");
+    }, true);
+    els.noteSurface.addEventListener("dragover", function (event) {
+      handleNoteSurfaceDragEvent(event, "over");
+    }, true);
+    els.noteSurface.addEventListener("dragleave", function (event) {
+      handleNoteSurfaceDragEvent(event, "leave");
+    }, true);
+    els.noteSurface.addEventListener("drop", function (event) {
+      handleNoteSurfaceDragEvent(event, "drop");
+    }, true);
+    on(window, "dragend", function () {
+      resetNoteSurfaceDropState();
     });
     on(els.markdownEditor, "input", function () {
       state.currentMarkdown = els.markdownEditor.value;
@@ -6747,6 +7041,9 @@ interface ActionDialogSession {
     });
     document.addEventListener("mousedown", function (event) {
       const target = event.target instanceof Element ? event.target : null;
+      if (!target || !target.closest("#page-list")) {
+        hidePageTreeTooltip();
+      }
       const withinProperties = target ? target.closest("#page-properties") || target.closest("#add-property") : null;
       if (!withinProperties) {
         dismissPropertyUI();
@@ -6905,6 +7202,9 @@ interface ActionDialogSession {
       state.windowBlurred = true;
       captureEditorFocusSpec(state, els);
       closeTreeContextMenu();
+      hidePageTreeTooltip();
+      resetNoteSurfaceDropState();
+      finishRailResize();
     });
     window.addEventListener("focus", function () {
       state.windowBlurred = false;
@@ -7032,21 +7332,35 @@ interface ActionDialogSession {
     }
     on(window, "resize", function () {
       positionInlineTableEditorPanel();
+      if (pageTreeTooltipAnchor && document.body.contains(pageTreeTooltipAnchor)) {
+        positionPageTreeTooltip(pageTreeTooltipAnchor);
+      } else {
+        hidePageTreeTooltip();
+      }
     });
     on(window, "scroll", function () {
       if (state.tableEditor) {
         anchorInlineTableEditorToRenderedTableUI(state, els, state.tableEditor.startLine);
       }
+      if (pageTreeTooltipAnchor && document.body.contains(pageTreeTooltipAnchor)) {
+        positionPageTreeTooltip(pageTreeTooltipAnchor);
+      } else {
+        hidePageTreeTooltip();
+      }
     });
+    state.railWidth = loadStoredRailWidth();
+    applyRailWidth();
     setRailTab("files");
     setRailOpen(!window.matchMedia("(max-width: 1180px)").matches);
     setPageSearchOpen(false);
     setSourceOpen(false);
     state.themeCache = loadStoredThemeCache();
     state.settings.preferences = loadStoredClientPreferences();
-    state.topLevelFoldersAsVaults = Boolean(state.settings.preferences.vaults.topLevelFoldersAsVaults);
+    state.topLevelFoldersAsVaults = true;
+    state.fileTreeFilters.documents = Boolean(state.settings.preferences.ui.showDocumentsInTree);
+    state.fileTreeFilters.templates = Boolean(state.settings.preferences.ui.showTemplatesInTree);
     state.activeScopePrefix = loadStoredScopePrefix();
-    setActiveScopePrefix(state.topLevelFoldersAsVaults ? state.activeScopePrefix : "");
+    setActiveScopePrefix(state.activeScopePrefix);
     state.savedThemeId = currentThemeID();
     state.previewThemeId = currentThemeID();
     applyUIPreferences();

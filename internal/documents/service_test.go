@@ -19,7 +19,7 @@ func TestCreateListAndGetDocument(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	document, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "report.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	document, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "", "report.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -65,7 +65,7 @@ func TestCreateSanitizesUploadedDocumentName(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	document, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "Meeting Notes (Final) 2026.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	document, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "", "Meeting Notes (Final) 2026.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -86,7 +86,7 @@ func TestCreateSupportsVaultRootAndNoteSubfolderPlacements(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	rootDocument, err := service.Create(context.Background(), "notes/alpha", UploadPlacementVaultRoot, "_files", "root.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	rootDocument, err := service.Create(context.Background(), "notes/alpha", UploadPlacementVaultRoot, "_files", "", "root.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
 	if err != nil {
 		t.Fatalf("Create(vault-root) error = %v", err)
 	}
@@ -94,12 +94,20 @@ func TestCreateSupportsVaultRootAndNoteSubfolderPlacements(t *testing.T) {
 		t.Fatalf("vault-root document path = %q", rootDocument.Path)
 	}
 
-	subfolderDocument, err := service.Create(context.Background(), "notes/alpha", UploadPlacementNoteSubfolder, "_files", "nested.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	subfolderDocument, err := service.Create(context.Background(), "notes/alpha", UploadPlacementNoteSubfolder, "_files", "", "nested.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
 	if err != nil {
 		t.Fatalf("Create(note-subfolder) error = %v", err)
 	}
 	if subfolderDocument.Path != "notes/_files/nested.pdf" {
 		t.Fatalf("note-subfolder document path = %q", subfolderDocument.Path)
+	}
+
+	folderDocument, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSpecificFolder, "_files", "Shared/Uploads", "fixed.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	if err != nil {
+		t.Fatalf("Create(specific-folder) error = %v", err)
+	}
+	if folderDocument.Path != "Shared/Uploads/fixed.pdf" {
+		t.Fatalf("specific-folder document path = %q", folderDocument.Path)
 	}
 }
 
@@ -111,7 +119,7 @@ func TestMoveRenamesAndMovesDocument(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	document, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "Meeting Notes.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	document, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "", "Meeting Notes.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -142,11 +150,11 @@ func TestMoveRejectsConflictingDocumentPath(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	document, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "source.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	document, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "", "source.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
 	if err != nil {
 		t.Fatalf("Create(source) error = %v", err)
 	}
-	if _, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "target.pdf", "application/pdf", strings.NewReader("%PDF-1.7")); err != nil {
+	if _, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "", "target.pdf", "application/pdf", strings.NewReader("%PDF-1.7")); err != nil {
 		t.Fatalf("Create(target) error = %v", err)
 	}
 
@@ -164,7 +172,7 @@ func TestDeleteRemovesDocument(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	document, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "report.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	document, err := service.Create(context.Background(), "notes/alpha", UploadPlacementSameFolder, "_files", "", "report.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -185,8 +193,22 @@ func TestCreateRejectsInvalidNoteSubfolderPlacement(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	_, err = service.Create(context.Background(), "notes/alpha", UploadPlacementNoteSubfolder, "../outside", "nested.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	_, err = service.Create(context.Background(), "notes/alpha", UploadPlacementNoteSubfolder, "../outside", "", "nested.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
 	if err == nil || !strings.Contains(err.Error(), "document upload subfolder") {
+		t.Fatalf("Create() error = %v", err)
+	}
+}
+
+func TestCreateRejectsInvalidSpecificFolderPlacement(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	_, err = service.Create(context.Background(), "notes/alpha", UploadPlacementSpecificFolder, "_files", "../outside", "nested.pdf", "application/pdf", strings.NewReader("%PDF-1.7"))
+	if err == nil || !strings.Contains(err.Error(), "document upload folder") {
 		t.Fatalf("Create() error = %v", err)
 	}
 }
@@ -208,6 +230,7 @@ func TestCollectUsageCountsDocumentReferences(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(rootDir, "notes", "today.md"), []byte(`# Today
 
 [Spec again](../Docs/spec.pdf)
+[Quarterly Report](<../Docs/Quarterly%20Report.pdf>)
 
 ~~~md
 [Ignored](../Docs/spec.pdf)
@@ -218,6 +241,7 @@ func TestCollectUsageCountsDocumentReferences(t *testing.T) {
 
 	usage, err := CollectUsage(context.Background(), vault.NewService(rootDir), []string{
 		"Docs/spec.pdf",
+		"Docs/Quarterly Report.pdf",
 		"Assets/cat.png",
 		"unused.pdf",
 	})
@@ -236,6 +260,12 @@ func TestCollectUsageCountsDocumentReferences(t *testing.T) {
 	}
 	if got := usage["Assets/cat.png"].ReferencedBy; len(got) != 1 || got[0] != "index" {
 		t.Fatalf("cat referencedBy = %#v", got)
+	}
+	if usage["Docs/Quarterly Report.pdf"].ReferenceCount != 1 {
+		t.Fatalf("quarterly report reference count = %d", usage["Docs/Quarterly Report.pdf"].ReferenceCount)
+	}
+	if got := usage["Docs/Quarterly Report.pdf"].ReferencedBy; len(got) != 1 || got[0] != "notes/today" {
+		t.Fatalf("quarterly report referencedBy = %#v", got)
 	}
 	if usage["unused.pdf"].ReferenceCount != 0 || len(usage["unused.pdf"].ReferencedBy) != 0 {
 		t.Fatalf("unused usage = %#v", usage["unused.pdf"])

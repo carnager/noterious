@@ -37,3 +37,27 @@ func TestRewriteDocumentLinksLeavesUnrelatedTargetsUntouched(t *testing.T) {
 		t.Fatalf("updated = %q", updated)
 	}
 }
+
+func TestRewriteDocumentLinksUpdatesWrappedTargetsWithSpaces(t *testing.T) {
+	raw := "[Quarterly Report](<Docs/Quarterly Report.pdf>)"
+	updated, changed := RewriteDocumentLinks(raw, "notes/today", "notes/Docs/Quarterly Report.pdf", "archive/Quarterly Report.pdf")
+
+	if !changed {
+		t.Fatalf("expected wrapped spaced target to change")
+	}
+	if updated != "[Quarterly Report](<../archive/Quarterly Report.pdf>)" {
+		t.Fatalf("updated = %q", updated)
+	}
+}
+
+func TestRewriteDocumentLinksKeepsAnchorsInsideWrappedTargets(t *testing.T) {
+	raw := "[Quarterly Report](Docs/Quarterly Report.pdf#page=2)"
+	updated, changed := RewriteDocumentLinks(raw, "notes/today", "notes/Docs/Quarterly Report.pdf", "archive/Quarterly Report.pdf")
+
+	if !changed {
+		t.Fatalf("expected spaced target with anchor to change")
+	}
+	if updated != "[Quarterly Report](<../archive/Quarterly Report.pdf#page=2>)" {
+		t.Fatalf("updated = %q", updated)
+	}
+}

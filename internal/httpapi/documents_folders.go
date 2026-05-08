@@ -36,10 +36,10 @@ type documentsResponse struct {
 }
 
 type movedDocumentResponse struct {
-	Document   documentResponse `json:"document"`
-	SourcePath string           `json:"sourcePath"`
-	TargetPath string           `json:"targetPath"`
-	RewrittenPages []string     `json:"rewrittenPages,omitempty"`
+	Document       documentResponse `json:"document"`
+	SourcePath     string           `json:"sourcePath"`
+	TargetPath     string           `json:"targetPath"`
+	RewrittenPages []string         `json:"rewrittenPages,omitempty"`
 }
 
 type deletedDocumentResponse struct {
@@ -178,6 +178,7 @@ func handleDocumentsRequest(w http.ResponseWriter, r *http.Request, deps Depende
 
 	uploadPlacement := documents.UploadPlacementSameFolder
 	uploadSubfolder := "_files"
+	uploadFolder := ""
 	if deps.Settings != nil {
 		current := deps.Settings.Settings()
 		if strings.TrimSpace(current.Documents.UploadPlacement) != "" {
@@ -186,6 +187,9 @@ func handleDocumentsRequest(w http.ResponseWriter, r *http.Request, deps Depende
 		if strings.TrimSpace(current.Documents.UploadSubfolder) != "" {
 			uploadSubfolder = strings.TrimSpace(current.Documents.UploadSubfolder)
 		}
+		if strings.TrimSpace(current.Documents.UploadFolder) != "" {
+			uploadFolder = strings.TrimSpace(current.Documents.UploadFolder)
+		}
 	}
 
 	document, err := documentService.Create(
@@ -193,6 +197,7 @@ func handleDocumentsRequest(w http.ResponseWriter, r *http.Request, deps Depende
 		r.FormValue("page"),
 		uploadPlacement,
 		uploadSubfolder,
+		uploadFolder,
 		header.Filename,
 		header.Header.Get("Content-Type"),
 		file,
@@ -250,9 +255,9 @@ func handleDocumentMoveRequest(w http.ResponseWriter, r *http.Request, deps Depe
 		rewrittenPagePaths = append(rewrittenPagePaths, rewrittenPage.path)
 	}
 	writeJSON(w, http.StatusOK, movedDocumentResponse{
-		Document:   mapDocument(moved, documentService, documents.Usage{}, false),
-		SourcePath: documentPath,
-		TargetPath: moved.Path,
+		Document:       mapDocument(moved, documentService, documents.Usage{}, false),
+		SourcePath:     documentPath,
+		TargetPath:     moved.Path,
 		RewrittenPages: rewrittenPagePaths,
 	})
 }

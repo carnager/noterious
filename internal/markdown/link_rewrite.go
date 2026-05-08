@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"net/url"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -86,8 +87,8 @@ func RewriteDocumentLinks(rawMarkdown string, sourcePage string, fromDocument st
 			return match
 		}
 		changed = true
-		nextTarget := relativeMarkdownDocumentTarget(sourceNormalized, toNormalized)
-		return parts[1] + "[" + parts[2] + "](" + nextTarget + parts[4] + ")"
+		nextTarget := markdownDocumentTarget(relativeMarkdownDocumentTarget(sourceNormalized, toNormalized), parts[4])
+		return parts[1] + "[" + parts[2] + "](" + nextTarget + ")"
 	})
 
 	return rewritten, changed
@@ -141,13 +142,53 @@ func normalizeDocumentPath(raw string) string {
 	return trimmed
 }
 
+func decodeMarkdownPathSegments(raw string) string {
+	if !strings.Contains(raw, "%") {
+		return raw
+	}
+	parts := strings.Split(raw, "/")
+	for index, part := range parts {
+		decoded, err := url.PathUnescape(part)
+		if err != nil {
+			continue
+		}
+		parts[index] = decoded
+	}
+	return strings.Join(parts, "/")
+}
+
+func normalizeMarkdownDocumentTarget(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if strings.HasPrefix(trimmed, "<") && strings.HasSuffix(trimmed, ">") && len(trimmed) >= 2 {
+		trimmed = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	}
+	if suffix := strings.IndexAny(trimmed, "?#"); suffix >= 0 {
+		trimmed = trimmed[:suffix]
+	}
+	if strings.HasPrefix(trimmed, "<") && strings.HasSuffix(trimmed, ">") && len(trimmed) >= 2 {
+		trimmed = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	}
+	return decodeMarkdownPathSegments(trimmed)
+}
+
+func markdownDocumentTarget(raw string, suffix string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	combined := trimmed + suffix
+	if strings.ContainsAny(trimmed, " ()") {
+		combined = strings.ReplaceAll(combined, "<", "%3C")
+		combined = strings.ReplaceAll(combined, ">", "%3E")
+		return "<" + combined + ">"
+	}
+	return combined
+}
+
 func resolveMarkdownDocumentTarget(sourcePage string, target string) (string, bool) {
-	trimmed := strings.TrimSpace(target)
+	trimmed := normalizeMarkdownDocumentTarget(target)
 	if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.Contains(trimmed, "://") || strings.HasPrefix(strings.ToLower(trimmed), "mailto:") {
 		return "", false
-	}
-	if queryIndex := strings.Index(trimmed, "?"); queryIndex >= 0 {
-		trimmed = trimmed[:queryIndex]
 	}
 	baseDir := pageDirectory(sourcePage)
 	raw := trimmed

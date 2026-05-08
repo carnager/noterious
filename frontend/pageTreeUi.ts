@@ -39,6 +39,7 @@ export interface PageTreeActions {
   deletePage: (pagePath: string) => Promise<void>;
   movePageToFolder: (pagePath: string, folderKey: string) => Promise<void>;
   moveFolder: (folderKey: string, targetFolder: string) => Promise<void>;
+  moveDocumentToFolder: (documentPath: string, folderKey: string) => Promise<void>;
   openPageHistory: (pagePath: string) => void;
   openDocument: (document: DocumentRecord) => void;
   insertDocumentLink: (document: DocumentRecord) => void;
@@ -253,6 +254,14 @@ export function renderPagesSection(state: PageTreeUiState, els: PageTreeElements
         targetFolder
       ).catch(function (error) {
         actions.setNoteStatus("Move folder failed: " + actions.errorMessage(error));
+      });
+    },
+    function (documentPath, folderKey) {
+      actions.moveDocumentToFolder(
+        documentPath,
+        folderKey
+      ).catch(function (error) {
+        actions.setNoteStatus("Move file failed: " + actions.errorMessage(error));
       });
     }
   );

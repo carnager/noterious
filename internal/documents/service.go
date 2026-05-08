@@ -31,9 +31,10 @@ type Service struct {
 }
 
 const (
-	UploadPlacementSameFolder    = "same-folder"
-	UploadPlacementVaultRoot     = "vault-root"
-	UploadPlacementNoteSubfolder = "note-subfolder"
+	UploadPlacementSameFolder     = "same-folder"
+	UploadPlacementVaultRoot      = "vault-root"
+	UploadPlacementNoteSubfolder  = "note-subfolder"
+	UploadPlacementSpecificFolder = "specific-folder"
 )
 
 var (
@@ -115,7 +116,7 @@ func (s *Service) Get(documentPath string) (Document, string, error) {
 	return documentFromPath(normalized, info), fullPath, nil
 }
 
-func (s *Service) Create(_ context.Context, pagePath string, uploadPlacement string, uploadSubfolder string, name string, contentType string, input io.Reader) (Document, error) {
+func (s *Service) Create(_ context.Context, pagePath string, uploadPlacement string, uploadSubfolder string, uploadFolder string, name string, contentType string, input io.Reader) (Document, error) {
 	baseName := sanitizeDocumentName(name)
 	if baseName == "" {
 		return Document{}, fmt.Errorf("document name is required")
@@ -129,7 +130,7 @@ func (s *Service) Create(_ context.Context, pagePath string, uploadPlacement str
 		return Document{}, fmt.Errorf("document is empty")
 	}
 
-	dirPath, err := documentDirForUpload(pagePath, uploadPlacement, uploadSubfolder)
+	dirPath, err := documentDirForUpload(pagePath, uploadPlacement, uploadSubfolder, uploadFolder)
 	if err != nil {
 		return Document{}, err
 	}
@@ -249,7 +250,7 @@ func documentDirForPage(pagePath string) (string, error) {
 	return dir, nil
 }
 
-func documentDirForUpload(pagePath string, uploadPlacement string, uploadSubfolder string) (string, error) {
+func documentDirForUpload(pagePath string, uploadPlacement string, uploadSubfolder string, uploadFolder string) (string, error) {
 	switch strings.TrimSpace(uploadPlacement) {
 	case "", UploadPlacementSameFolder:
 		return documentDirForPage(pagePath)
@@ -271,6 +272,15 @@ func documentDirForUpload(pagePath string, uploadPlacement string, uploadSubfold
 			return subfolder, nil
 		}
 		return joinDocumentPath(dir, subfolder), nil
+	case UploadPlacementSpecificFolder:
+		folder := normalizeUploadSubfolder(uploadFolder)
+		if folder == "" {
+			return "", fmt.Errorf("document upload folder is required")
+		}
+		if folder == "." || folder == ".." || strings.HasPrefix(folder, "../") {
+			return "", fmt.Errorf("document upload folder must stay inside the vault")
+		}
+		return folder, nil
 	default:
 		return "", fmt.Errorf("unsupported document upload placement %q", uploadPlacement)
 	}

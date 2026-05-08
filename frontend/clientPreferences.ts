@@ -30,9 +30,11 @@ export function defaultClientPreferences(): ClientPreferences {
       fontSize: "16",
       dateTimeFormat: "browser",
       themeId: "noterious-night",
+      showDocumentsInTree: false,
+      showTemplatesInTree: false,
     },
     vaults: {
-      topLevelFoldersAsVaults: false,
+      topLevelFoldersAsVaults: true,
       rootHomePage: "",
       scopeHomePages: {},
     },
@@ -60,9 +62,11 @@ export function cloneClientPreferences(input: ClientPreferences): ClientPreferen
       fontSize: input.ui.fontSize,
       dateTimeFormat: input.ui.dateTimeFormat,
       themeId: input.ui.themeId,
+      showDocumentsInTree: Boolean(input.ui.showDocumentsInTree),
+      showTemplatesInTree: Boolean(input.ui.showTemplatesInTree),
     },
     vaults: {
-      topLevelFoldersAsVaults: Boolean(input.vaults.topLevelFoldersAsVaults),
+      topLevelFoldersAsVaults: true,
       rootHomePage: String(input.vaults.rootHomePage || "").trim(),
       scopeHomePages: Object.fromEntries(
         Object.entries(input.vaults.scopeHomePages || {}).map(function ([key, value]) {
@@ -121,9 +125,11 @@ export function normalizeClientPreferences(input: unknown): ClientPreferences {
       fontSize: ["14", "15", "16", "17", "18", "19", "20"].includes(fontSize) ? fontSize : defaults.ui.fontSize,
       dateTimeFormat: dateTimeFormat === "iso" || dateTimeFormat === "de" ? dateTimeFormat : "browser",
       themeId: themeId || defaults.ui.themeId,
+      showDocumentsInTree: Boolean(uiSource.showDocumentsInTree),
+      showTemplatesInTree: Boolean(uiSource.showTemplatesInTree),
     },
     vaults: {
-      topLevelFoldersAsVaults: Boolean(vaultsSource.topLevelFoldersAsVaults),
+      topLevelFoldersAsVaults: true,
       rootHomePage: typeof vaultsSource.rootHomePage === "string" ? vaultsSource.rootHomePage.trim() : "",
       scopeHomePages: Object.fromEntries(
         Object.entries(scopeHomePagesSource).map(function ([key, value]) {

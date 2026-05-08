@@ -11,6 +11,9 @@ missing product and reliability work still open in the current app.
       fallback stays conservative and never drops hidden draft state.
       Most plain markdown conflict paths are now covered; what remains is
       mainly the last inline-table and future semantic-editor edge cases.
+- [ ] Fix cursor navigation inside rendered document links so `ArrowLeft`
+      and `ArrowRight` step through the link text instead of snapping to the
+      first or last character.
 
 ## Priority 2: Backup And Restore
 

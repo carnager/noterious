@@ -38,7 +38,8 @@
     "@codemirror/state": "^6.6.0",
     "@codemirror/view": "^6.41.1",
     "@lezer/highlight": "^1.2.3",
-    "esbuild": "^0.28.0"
+    "esbuild": "^0.28.0",
+    "node-emoji": "^2.2.0"
   },
   "devDependencies": {
     "jsdom": "^29.1.1",

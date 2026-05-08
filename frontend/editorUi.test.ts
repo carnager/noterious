@@ -3,6 +3,11 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EditorView } from "@codemirror/view";
 
+import {
+  markdownAbbreviationDefinitionMatch,
+  markdownDefinitionListPrefixMatch,
+  markdownFootnoteDefinitionMatch,
+} from "./markdownExtensions";
 import { renderedTaskRawColumn, renderedTaskVisibleColumn, taskPrefixLength } from "./taskNavigation";
 import type { NoteriousEditorApi, TaskRender } from "./types";
 
@@ -117,7 +122,17 @@ function renderedVisiblePrefixLength(text: string): number {
   const quoteMatch = String(text || "").match(/^((?: {0,3}>\s*)+)/);
   const quotePrefix = quoteMatch ? quoteMatch[0].length : 0;
   const listMatch = String(text || "").slice(quotePrefix).match(/^(\s*)([-+*])(\s+)|^(\s*)(\d+)([.)])(\s+)/);
-  return quotePrefix + (listMatch ? listMatch[0].length : 0);
+  let prefixLength = quotePrefix + (listMatch ? listMatch[0].length : 0);
+  const footnoteDefinition = markdownFootnoteDefinitionMatch(text, prefixLength);
+  if (footnoteDefinition && footnoteDefinition.prefixLength) {
+    return prefixLength + footnoteDefinition.prefixLength;
+  }
+  const abbreviationDefinition = markdownAbbreviationDefinitionMatch(text, prefixLength);
+  if (abbreviationDefinition && abbreviationDefinition.prefixLength) {
+    return prefixLength + abbreviationDefinition.prefixLength;
+  }
+  const definitionPrefix = markdownDefinitionListPrefixMatch(text, prefixLength);
+  return prefixLength + (definitionPrefix ? definitionPrefix.prefixLength : 0);
 }
 
 function lineColumn(view: EditorView): { lineNumber: number; column: number } {
@@ -340,6 +355,50 @@ describe("mounted editor UI", function () {
     }
   });
 
+  it("renders aligned markdown tables as full-width widgets with left, center, and right cell alignment", function () {
+    const markdown = [
+      "### Aligned Table",
+      "",
+      "| Left Aligned | Center Aligned | Right Aligned |",
+      "| :----------- | :------------: | ------------: |",
+      "| Row 1 | Data | $100 |",
+      "| Row 2 | Data | $20 |",
+      "| Row 3 | Data | $3,000 |",
+      "",
+      "Tail",
+    ].join("\n");
+    const editor = mountEditor(markdown);
+
+    try {
+      editor.api.setSelectionRange(markdown.length, markdown.length);
+      editor.api.setRenderMode(true);
+
+      const widget = editor.view.contentDOM.querySelector(".cm-md-table-block") as HTMLElement | null;
+      const block = editor.view.contentDOM.querySelector(".markdown-table-block") as HTMLElement | null;
+      const cells = Array.from(editor.view.contentDOM.querySelectorAll(".markdown-table-block th, .markdown-table-block td")) as HTMLElement[];
+
+      expect(widget).toBeTruthy();
+      expect(block).toBeTruthy();
+      expect(window.getComputedStyle(widget as HTMLElement).display).toBe("block");
+      expect(cells.map((cell) => window.getComputedStyle(cell).textAlign)).toEqual([
+        "left",
+        "center",
+        "right",
+        "left",
+        "center",
+        "right",
+        "left",
+        "center",
+        "right",
+        "left",
+        "center",
+        "right",
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("re-enters a rendered code block from the adjacent line", function () {
     const markdown = [
       "Intro",
@@ -456,6 +515,129 @@ describe("mounted editor UI", function () {
     }
   });
 
+  it("renders markdown document and image links with spaced targets on non-editing lines", function () {
+    const markdown = [
+      "[Quarterly Report](Docs/Quarterly Report.pdf)",
+      "![Quarterly Chart](Assets/Quarterly Chart.png)",
+      "Tail",
+    ].join("\n");
+    const editor = mountEditor(markdown);
+
+    try {
+      editor.api.setRenderMode(true);
+      setCursor(editor.view, 3, 0);
+
+      const linkLine = renderedLineElement(editor.view, 1);
+      const imageLine = renderedLineElement(editor.view, 2);
+
+      expect(linkLine?.querySelector(".cm-md-link")?.getAttribute("data-document-download")).toBe(
+        "/api/documents/download?path=notes%2FDocs%2FQuarterly%20Report.pdf"
+      );
+      expect(imageLine?.querySelector("img.cm-md-image")?.getAttribute("src")).toBe(
+        "/api/documents/download?path=notes%2FAssets%2FQuarterly%20Chart.png&inline=1"
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("reveals raw markdown document links as soon as the cursor enters them", function () {
+    const markdown = "See [Quarterly Report](Docs/Quarterly Report.pdf) today";
+    const editor = mountEditor(markdown);
+
+    try {
+      editor.api.setRenderMode(true);
+
+      const line = editor.view.state.doc.line(1);
+      const linkStart = line.text.indexOf("[");
+      const linkEnd = line.text.indexOf(")") + 1;
+      const labelEnd = line.text.indexOf("](");
+
+      expect(renderedLineElement(editor.view, 1)?.querySelector("[data-document-download]")).toBeTruthy();
+
+      setCursor(editor.view, 1, linkStart);
+      expect(pressKey(editor.view, "ArrowRight")).toBe(true);
+      expect(lineColumn(editor.view)).toEqual({
+        lineNumber: 1,
+        column: linkStart + 1,
+      });
+      expect(renderedLineElement(editor.view, 1)?.textContent || "").toContain("[Quarterly Report](Docs/Quarterly Report.pdf)");
+      expect(renderedLineElement(editor.view, 1)?.querySelector("[data-document-download]")).toBeNull();
+      expect(pressKey(editor.view, "ArrowRight")).toBe(true);
+      expect(lineColumn(editor.view)).toEqual({
+        lineNumber: 1,
+        column: linkStart + 2,
+      });
+
+      editor.api.setRenderMode(true);
+      setCursor(editor.view, 1, linkEnd);
+      expect(pressKey(editor.view, "ArrowLeft")).toBe(true);
+      expect(lineColumn(editor.view)).toEqual({
+        lineNumber: 1,
+        column: labelEnd,
+      });
+      expect(renderedLineElement(editor.view, 1)?.textContent || "").toContain("[Quarterly Report](Docs/Quarterly Report.pdf)");
+      expect(renderedLineElement(editor.view, 1)?.querySelector("[data-document-download]")).toBeNull();
+      expect(pressKey(editor.view, "ArrowLeft")).toBe(true);
+      expect(lineColumn(editor.view)).toEqual({
+        lineNumber: 1,
+        column: labelEnd - 1,
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("reveals raw wiki links as soon as the cursor enters them", function () {
+    const markdown = "See [[Projects/Quarterly Report|Quarterly Report]] today";
+    const editor = mountEditor(markdown);
+
+    try {
+      editor.api.setRenderMode(true);
+
+      const line = editor.view.state.doc.line(1);
+      const linkStart = line.text.indexOf("[[");
+      const linkEnd = line.text.indexOf("]]") + 2;
+      const labelStart = line.text.indexOf("Quarterly Report]]");
+      const labelEnd = line.text.indexOf("]]");
+
+      expect(renderedLineElement(editor.view, 1)?.querySelector(".cm-md-link")?.getAttribute("data-page-link")).toBe(
+        "Projects/Quarterly Report"
+      );
+
+      setCursor(editor.view, 1, linkStart);
+      expect(pressKey(editor.view, "ArrowRight")).toBe(true);
+      expect(lineColumn(editor.view)).toEqual({
+        lineNumber: 1,
+        column: labelStart,
+      });
+      expect(renderedLineElement(editor.view, 1)?.textContent || "").toContain("[[Projects/Quarterly Report|Quarterly Report]]");
+      expect(renderedLineElement(editor.view, 1)?.querySelector("[data-page-link]")).toBeNull();
+      expect(pressKey(editor.view, "ArrowRight")).toBe(true);
+      expect(lineColumn(editor.view)).toEqual({
+        lineNumber: 1,
+        column: labelStart + 1,
+      });
+
+      editor.api.setRenderMode(true);
+      setCursor(editor.view, 1, linkEnd);
+      expect(pressKey(editor.view, "ArrowLeft")).toBe(true);
+      expect(lineColumn(editor.view)).toEqual({
+        lineNumber: 1,
+        column: labelEnd,
+      });
+      expect(renderedLineElement(editor.view, 1)?.textContent || "").toContain("[[Projects/Quarterly Report|Quarterly Report]]");
+      expect(renderedLineElement(editor.view, 1)?.querySelector("[data-page-link]")).toBeNull();
+      expect(pressKey(editor.view, "ArrowLeft")).toBe(true);
+      expect(lineColumn(editor.view)).toEqual({
+        lineNumber: 1,
+        column: labelEnd - 1,
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("hides escape markers on non-editing lines", function () {
     const markdown = [
       "Escaped \\*stars\\* and \\\\ slash",
@@ -468,6 +650,99 @@ describe("mounted editor UI", function () {
       setCursor(editor.view, 2, 0);
 
       expect(renderedLineElement(editor.view, 1)?.textContent).toContain("Escaped *stars* and \\ slash");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("renders footnotes, abbreviations, emoji, and markdown sub/sup syntax on non-editing lines", function () {
+    const markdown = [
+      "Here is a sentence with a footnote[^1], another[^note], and HTML.",
+      "",
+      "[^1]: This is the first footnote.",
+      "[^note]: This is the named footnote.",
+      "",
+      "*[HTML]: Hyper Text Markup Language",
+      "The HTML spec launches :rocket: with H~2~O and 2^10^ power.",
+      "Tail",
+    ].join("\n");
+    const editor = mountEditor(markdown);
+
+    try {
+      editor.api.setRenderMode(true);
+      setCursor(editor.view, 8, 0);
+
+      const firstLine = renderedLineElement(editor.view, 1);
+      const firstFootnoteRef = firstLine?.querySelector(".cm-md-footnote-ref") as HTMLElement | null;
+      const secondFootnoteRef = firstLine?.querySelectorAll(".cm-md-footnote-ref")[1] as HTMLElement | undefined;
+      const footnoteLine = renderedLineElement(editor.view, 3);
+      const abbreviationLine = renderedLineElement(editor.view, 6);
+      const contentLine = renderedLineElement(editor.view, 7);
+
+      expect(firstFootnoteRef?.textContent).toBe("1");
+      expect(secondFootnoteRef?.textContent).toBe("note");
+      expect(firstLine?.textContent || "").not.toContain("[^1]");
+      expect(footnoteLine?.querySelector(".cm-md-footnote-label")?.textContent).toBe("1");
+      expect(footnoteLine?.textContent || "").not.toContain("[^1]:");
+      expect(abbreviationLine?.querySelector(".cm-md-abbr-definition-chip")?.textContent).toBe("HTML");
+      expect(abbreviationLine?.textContent || "").not.toContain("*[HTML]:");
+      expect(contentLine?.querySelector(".cm-md-abbr")?.getAttribute("title")).toBe("Hyper Text Markup Language");
+      expect(contentLine?.querySelector(".cm-md-emoji")?.textContent).toBe("🚀");
+      expect(contentLine?.innerHTML || "").toContain("cm-md-subscript");
+      expect(contentLine?.innerHTML || "").toContain("cm-md-superscript");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("renders definition lists without raw colon prefixes", function () {
+    const markdown = [
+      "Term 1",
+      ": Definition for term 1.",
+      "",
+      "Term 2",
+      ": First definition for term 2.",
+      ": Second definition for term 2.",
+      "Tail",
+    ].join("\n");
+    const editor = mountEditor(markdown);
+
+    try {
+      editor.api.setRenderMode(true);
+      setCursor(editor.view, 7, 0);
+
+      expect(renderedLineElement(editor.view, 1)?.className || "").toContain("cm-md-definition-term");
+      expect(renderedLineElement(editor.view, 2)?.querySelector(".cm-md-definition-marker")).toBeTruthy();
+      expect(renderedLineElement(editor.view, 2)?.textContent || "").not.toContain(": Definition");
+      expect(renderedLineElement(editor.view, 4)?.className || "").toContain("cm-md-definition-term");
+      expect(renderedLineElement(editor.view, 5)?.querySelector(".cm-md-definition-marker")).toBeTruthy();
+      expect(renderedLineElement(editor.view, 6)?.querySelector(".cm-md-definition-marker")).toBeTruthy();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("treats definition-style prefixes as hidden home positions", function () {
+    const markdown = [
+      "[^1]: Footnote body",
+      "*[HTML]: Hyper Text Markup Language",
+      "Term",
+      ": Definition body",
+      "Tail",
+    ].join("\n");
+    const editor = mountEditor(markdown);
+
+    try {
+      editor.api.setRenderMode(true);
+
+      setCursor(editor.view, 1, editor.view.state.doc.line(1).length);
+      expectArrow(editor.view, "Home", 1, 6);
+
+      setCursor(editor.view, 2, editor.view.state.doc.line(2).length);
+      expectArrow(editor.view, "Home", 2, 9);
+
+      setCursor(editor.view, 4, editor.view.state.doc.line(4).length);
+      expectArrow(editor.view, "Home", 4, 2);
     } finally {
       editor.destroy();
     }
@@ -486,18 +761,29 @@ describe("mounted editor UI", function () {
       editor.api.setRenderMode(true);
       setCursor(editor.view, 4, 0);
 
-      const outerPrefix = renderedLineElement(editor.view, 1)?.querySelector(".cm-md-quote-prefix") as HTMLElement | null;
-      const nestedPrefix = renderedLineElement(editor.view, 2)?.querySelector(".cm-md-quote-prefix") as HTMLElement | null;
-      const thirdLevelPrefix = renderedLineElement(editor.view, 3)?.querySelector(".cm-md-quote-prefix") as HTMLElement | null;
-      expect(outerPrefix).toBeTruthy();
-      expect(outerPrefix?.style.getPropertyValue("--quote-prefix-width")).toBe("1.24rem");
-      expect(outerPrefix?.style.getPropertyValue("--quote-stride-width")).toBe("1.24rem");
-      expect(nestedPrefix?.style.getPropertyValue("--quote-prefix-width")).toBe("2.48rem");
-      expect(nestedPrefix?.style.getPropertyValue("--quote-stride-width")).toBe("1.24rem");
-      expect(thirdLevelPrefix?.style.getPropertyValue("--quote-prefix-width")).toBe("3.7199999999999998rem");
-      expect(thirdLevelPrefix?.style.getPropertyValue("--quote-stride-width")).toBe("1.24rem");
-      expect(renderedLineElement(editor.view, 2)?.textContent || "").toBe("Nested quote");
-      expect(renderedLineElement(editor.view, 3)?.textContent || "").toBe("Third level");
+      const outerLine = renderedLineElement(editor.view, 1) as HTMLElement | null;
+      const nestedLine = renderedLineElement(editor.view, 2) as HTMLElement | null;
+      const thirdLevelLine = renderedLineElement(editor.view, 3) as HTMLElement | null;
+      expect(outerLine?.className || "").toContain("cm-md-quote");
+      expect(nestedLine?.className || "").toContain("cm-md-quote");
+      expect(thirdLevelLine?.className || "").toContain("cm-md-quote");
+      expect(outerLine?.style.getPropertyValue("--quote-depth")).toBe("1");
+      expect(outerLine?.style.getPropertyValue("--quote-gutter-width")).toBe("0.72rem");
+      expect(outerLine?.style.getPropertyValue("--quote-step-width")).toBe("0.72rem");
+      expect(outerLine?.style.getPropertyValue("--quote-top-gap")).toBe("0.14em");
+      expect(outerLine?.style.getPropertyValue("--quote-bottom-gap")).toBe("0");
+      expect(nestedLine?.style.getPropertyValue("--quote-depth")).toBe("2");
+      expect(nestedLine?.style.getPropertyValue("--quote-gutter-width")).toBe("1.44rem");
+      expect(nestedLine?.style.getPropertyValue("--quote-step-width")).toBe("0.72rem");
+      expect(nestedLine?.style.getPropertyValue("--quote-top-gap")).toBe("0");
+      expect(nestedLine?.style.getPropertyValue("--quote-bottom-gap")).toBe("0");
+      expect(thirdLevelLine?.style.getPropertyValue("--quote-depth")).toBe("3");
+      expect(thirdLevelLine?.style.getPropertyValue("--quote-gutter-width")).toBe("2.16rem");
+      expect(thirdLevelLine?.style.getPropertyValue("--quote-step-width")).toBe("0.72rem");
+      expect(thirdLevelLine?.style.getPropertyValue("--quote-top-gap")).toBe("0");
+      expect(thirdLevelLine?.style.getPropertyValue("--quote-bottom-gap")).toBe("0.14em");
+      expect(nestedLine?.textContent || "").toBe("Nested quote");
+      expect(thirdLevelLine?.textContent || "").toBe("Third level");
     } finally {
       editor.destroy();
     }

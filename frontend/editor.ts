@@ -15,7 +15,18 @@ import {tags} from "@lezer/highlight";
 import { formatDateTimeValue, formatDateValue, normalizeDateTimeDisplayFormat, setDateTimeDisplayFormat } from "./datetime";
 import { pageTitleFromPath } from "./commands";
 import { documentDownloadURL, documentPathLeaf, inlineDocumentURL, isImagePath, resolveDocumentPath } from "./documents";
-import { markdownCodeFenceBlockAt, markdownTableBlockAt, renderInline, renderedBodyBoundaryStart, splitFrontmatter } from "./markdown";
+import { escapeHTML, markdownCodeFenceBlockAt, markdownTableBlockAt, renderInline, renderedBodyBoundaryStart, splitFrontmatter } from "./markdown";
+import {
+  findMarkdownAbbreviationUsageSpans,
+  isMarkdownDefinitionTermLine,
+  markdownAbbreviationDefinitionMatch,
+  markdownAbbreviationDefinitions,
+  markdownDefinitionListPrefixMatch,
+  markdownEmojiCharacter,
+  markdownFootnoteDefinitionMatch,
+  markdownFootnoteReferenceMatch,
+  type MarkdownAbbreviationDefinition,
+} from "./markdownExtensions";
 import {
   findMarkdownInlineSpecialSpans,
   markdownReferenceDefinitions,
@@ -442,35 +453,6 @@ class ListMarkerWidget extends WidgetType {
   }
 }
 
-class QuotePrefixWidget extends WidgetType {
-  prefixLength: number;
-  depth: number;
-
-  constructor(prefixLength: number, depth: number) {
-    super();
-    this.prefixLength = Math.max(1, Number(prefixLength) || 0);
-    this.depth = Math.max(1, Number(depth) || 1);
-  }
-
-  eq(other: QuotePrefixWidget): boolean {
-    return other.prefixLength === this.prefixLength && other.depth === this.depth;
-  }
-
-  toDOM(): HTMLSpanElement {
-    const prefix = document.createElement("span");
-    prefix.className = "cm-md-quote-prefix";
-    prefix.style.setProperty("--quote-prefix-width", String(this.prefixLength * 0.62) + "rem");
-    prefix.style.setProperty("--quote-stride-width", String((this.prefixLength / this.depth) * 0.62) + "rem");
-    prefix.style.setProperty("--quote-depth", String(this.depth));
-    prefix.setAttribute("aria-hidden", "true");
-    return prefix;
-  }
-
-  ignoreEvent() {
-    return true;
-  }
-}
-
 class ThematicBreakWidget extends WidgetType {
   eq(other: ThematicBreakWidget): boolean {
     return other instanceof ThematicBreakWidget;
@@ -505,6 +487,39 @@ class HtmlLineWidget extends WidgetType {
   toDOM(): HTMLSpanElement {
     const wrapper = document.createElement("span");
     wrapper.className = this.className;
+    wrapper.innerHTML = this.html;
+    return wrapper;
+  }
+
+  ignoreEvent() {
+    return true;
+  }
+}
+
+class InlineHTMLWidget extends WidgetType {
+  className: string;
+  html: string;
+  styleProperties: Record<string, string>;
+
+  constructor(className: string, html: string, styleProperties?: Record<string, string>) {
+    super();
+    this.className = className;
+    this.html = html;
+    this.styleProperties = styleProperties ? {...styleProperties} : {};
+  }
+
+  eq(other: InlineHTMLWidget): boolean {
+    return other.className === this.className
+      && other.html === this.html
+      && JSON.stringify(other.styleProperties) === JSON.stringify(this.styleProperties);
+  }
+
+  toDOM(): HTMLSpanElement {
+    const wrapper = document.createElement("span");
+    wrapper.className = this.className;
+    Object.keys(this.styleProperties).forEach((name) => {
+      wrapper.style.setProperty(name, this.styleProperties[name]);
+    });
     wrapper.innerHTML = this.html;
     return wrapper;
   }
@@ -751,6 +766,17 @@ function markdownBlockquotePrefixMatch(text: string): MarkdownQuotePrefixMatch |
     prefixLength: prefix.length,
     depth,
   };
+}
+
+function quoteLineStyle(depth: number, connectAbove: boolean, connectBelow: boolean): string {
+  const safeDepth = Math.max(1, Number(depth) || 1);
+  const quoteStepWidth = 0.72;
+  const gutterWidth = String(safeDepth * quoteStepWidth) + "rem";
+  return "--quote-depth:" + String(safeDepth)
+    + ";--quote-gutter-width:" + gutterWidth
+    + ";--quote-step-width:" + String(quoteStepWidth) + "rem"
+    + ";--quote-top-gap:" + (connectAbove ? "0" : "0.14em")
+    + ";--quote-bottom-gap:" + (connectBelow ? "0" : "0.14em") + ";";
 }
 
 interface MarkdownListPrefixMatch {
@@ -1170,7 +1196,24 @@ function renderedHiddenPrefixLength(text: string): number {
   const quoteMatch = markdownBlockquotePrefixMatch(text);
   const quotePrefix = quoteMatch ? quoteMatch.prefixLength : 0;
   const listPrefix = markdownListPrefixMatch(text, quotePrefix);
-  return quotePrefix + (listPrefix ? listPrefix.prefixLength : 0);
+  let prefixLength = quotePrefix + (listPrefix ? listPrefix.prefixLength : 0);
+
+  const footnoteDefinition = markdownFootnoteDefinitionMatch(text, prefixLength);
+  if (footnoteDefinition && footnoteDefinition.prefixLength) {
+    return prefixLength + footnoteDefinition.prefixLength;
+  }
+
+  const abbreviationDefinition = markdownAbbreviationDefinitionMatch(text, prefixLength);
+  if (abbreviationDefinition && abbreviationDefinition.prefixLength) {
+    return prefixLength + abbreviationDefinition.prefixLength;
+  }
+
+  const definitionPrefix = markdownDefinitionListPrefixMatch(text, prefixLength);
+  if (definitionPrefix) {
+    prefixLength += definitionPrefix.prefixLength;
+  }
+
+  return prefixLength;
 }
 
 function handleRenderedLineBoundary(view: EditorView, key: "Home" | "End", extend = false): boolean {
@@ -1270,6 +1313,13 @@ interface InlineDeco {
   atomic?: boolean;
 }
 
+interface InlineSelectionLike {
+  from: number;
+  to: number;
+  head: number;
+  empty: boolean;
+}
+
 interface RenderedDecorationSets {
   decorations: DecorationSet;
   atomicRanges: DecorationSet;
@@ -1330,6 +1380,142 @@ function addInlineStyle(decos: InlineDeco[], from: number, to: number, className
   }
 }
 
+function addInlineDecoration(
+  decos: InlineDeco[],
+  from: number,
+  to: number,
+  className: string,
+  attributes?: Record<string, string>
+): void {
+  if (to > from) {
+    decos.push({
+      from,
+      to,
+      deco: Decoration.mark({
+        class: className,
+        attributes,
+      }),
+    });
+  }
+}
+
+function addInlineLinkLabelDecoration(
+  decos: InlineDeco[],
+  linkFrom: number,
+  labelFrom: number,
+  labelTo: number,
+  linkTo: number,
+  className: string,
+  attributes?: Record<string, string>
+): boolean {
+  if (labelTo <= labelFrom || labelFrom < linkFrom || labelTo > linkTo) {
+    return false;
+  }
+  addHiddenInlineMarker(decos, linkFrom, labelFrom);
+  addHiddenInlineMarker(decos, labelTo, linkTo);
+  addInlineDecoration(decos, labelFrom, labelTo, className, attributes);
+  return true;
+}
+
+function addInlineDocumentLinkDecoration(
+  decos: InlineDeco[],
+  linkFrom: number,
+  labelFrom: number,
+  labelTo: number,
+  linkTo: number,
+  href: string
+): boolean {
+  return addInlineLinkLabelDecoration(
+    decos,
+    linkFrom,
+    labelFrom,
+    labelTo,
+    linkTo,
+    "cm-md-link",
+    {
+      "data-document-download": href,
+    }
+  );
+}
+
+function addInlinePageLinkDecoration(
+  decos: InlineDeco[],
+  linkFrom: number,
+  labelFrom: number,
+  labelTo: number,
+  linkTo: number,
+  target: string
+): boolean {
+  return addInlineLinkLabelDecoration(
+    decos,
+    linkFrom,
+    labelFrom,
+    labelTo,
+    linkTo,
+    "cm-md-link",
+    {
+      "data-page-link": target,
+    }
+  );
+}
+
+interface SpecialSpanLabelRange {
+  labelFrom: number;
+  labelTo: number;
+  revealLeft: number | null;
+  revealRight: number | null;
+}
+
+function specialSpanLabelRange(span: ReturnType<typeof findMarkdownInlineSpecialSpans>[number]): SpecialSpanLabelRange | null {
+  if (span.kind === "wiki_link" || span.kind === "wiki_image") {
+    const raw = String(span.raw || "");
+    const closingOffset = raw.endsWith("]]") ? raw.length - 2 : raw.length;
+    const pipeOffset = raw.indexOf("|");
+    const prefixLength = span.kind === "wiki_image" ? 3 : 2;
+    const labelFrom = pipeOffset >= 0 ? pipeOffset + 1 : prefixLength;
+    if (closingOffset <= labelFrom) {
+      return null;
+    }
+    return {
+      labelFrom,
+      labelTo: closingOffset,
+      revealLeft: pipeOffset >= 0 ? prefixLength : null,
+      revealRight: null,
+    };
+  }
+
+  if (span.kind === "markdown_link" || span.kind === "markdown_image") {
+    const raw = String(span.raw || "");
+    const openOffset = raw.indexOf("[");
+    const closeLabelOffset = raw.indexOf("](");
+    if (openOffset < 0 || closeLabelOffset <= openOffset + 1) {
+      return null;
+    }
+    const targetOffset = closeLabelOffset + 2;
+    return {
+      labelFrom: openOffset + 1,
+      labelTo: closeLabelOffset,
+      revealLeft: null,
+      revealRight: targetOffset < raw.length ? targetOffset : null,
+    };
+  }
+
+  return null;
+}
+
+function selectionEditsInlineLink(
+  selection: InlineSelectionLike,
+  linkFrom: number,
+  _labelFrom: number,
+  _labelTo: number,
+  linkTo: number
+): boolean {
+  if (!selection.empty) {
+    return selection.from < linkTo && selection.to > linkFrom;
+  }
+  return selection.head > linkFrom && selection.head < linkTo;
+}
+
 function nodeChildrenByName(node: MarkdownInlineNode, name: string): MarkdownInlineNode[] {
   return node.children.filter(function (child) {
     return child.name === name;
@@ -1368,30 +1554,146 @@ function addSpecialInlineSpanDecoration(
   body: string,
   bodyFrom: number,
   currentPagePath: string,
-  selection: { from: number; to: number }
+  selection: InlineSelectionLike
 ): void {
   const spans = findMarkdownInlineSpecialSpans(body);
   for (let index = 0; index < spans.length; index += 1) {
     const span = spans[index];
     const spanFrom = bodyFrom + span.from;
     const spanTo = bodyFrom + span.to;
-    const editing = selection.from <= spanTo && selection.to >= spanFrom;
+    const target = String(span.target || "").trim();
+    const anchor = String(span.anchor || "");
+    const label = embeddedLinkLabel(target, String(span.label || ""));
+    const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
+    const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
+    const labelRange = specialSpanLabelRange(span);
+    const labelFrom = labelRange ? spanFrom + labelRange.labelFrom : spanFrom;
+    const labelTo = labelRange ? spanFrom + labelRange.labelTo : spanTo;
+    const editing = labelRange
+      ? selectionEditsInlineLink(selection, spanFrom, labelFrom, labelTo, spanTo)
+      : (selection.from < spanTo && selection.to > spanFrom);
+
+    if (span.kind === "markdown_link") {
+      if (/^[a-z]+:/i.test(target)) {
+        if (isImagePath(target) && shouldRenderMarkdownLinkAsImage(label, target)) {
+          decos.push({
+            from: spanFrom,
+            to: spanTo,
+            deco: Decoration.replace({widget: new MarkdownImageWidget(target, target, label || documentPathLeaf(target) || "image")}),
+            atomic: true,
+          });
+        } else {
+          decos.push({
+            from: spanFrom,
+            to: spanTo,
+            deco: Decoration.replace({widget: new ExternalLinkWidget(target, label || target)}),
+            atomic: true,
+          });
+        }
+        blockedRanges.push({from: spanFrom, to: spanTo});
+        continue;
+      }
+
+      if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+        if (isImagePath(resolvedPath) && shouldRenderMarkdownLinkAsImage(label, target)) {
+          const href = inlineDocumentURL(resolvedPath);
+          decos.push({
+            from: spanFrom,
+            to: spanTo,
+            deco: Decoration.replace({widget: new MarkdownImageWidget(href, href, label || documentPathLeaf(resolvedPath) || "image")}),
+            atomic: true,
+          });
+        } else {
+          if (editing) {
+            decos.push({
+              from: spanFrom,
+              to: spanTo,
+              deco: Decoration.mark({class: "cm-md-link-raw"}),
+            });
+            blockedRanges.push({from: spanFrom, to: spanTo});
+            continue;
+          }
+          if (!labelRange || !addInlineDocumentLinkDecoration(decos, spanFrom, labelFrom, labelTo, spanTo, documentDownloadURL(resolvedPath) + anchor)) {
+            decos.push({
+              from: spanFrom,
+              to: spanTo,
+              deco: Decoration.replace({widget: new MarkdownLinkWidget(documentDownloadURL(resolvedPath) + anchor, label || documentPathLeaf(resolvedPath) || documentPathLeaf(target) || target)}),
+              atomic: true,
+            });
+          }
+        }
+        blockedRanges.push({from: spanFrom, to: spanTo});
+        continue;
+      }
+
+      if (editing) {
+        decos.push({
+          from: spanFrom,
+          to: spanTo,
+          deco: Decoration.mark({class: "cm-md-link-raw"}),
+        });
+        blockedRanges.push({from: spanFrom, to: spanTo});
+        continue;
+      }
+
+      if (!labelRange || !addInlinePageLinkDecoration(decos, spanFrom, labelFrom, labelTo, spanTo, target + anchor)) {
+        decos.push({
+          from: spanFrom,
+          to: spanTo,
+          deco: Decoration.replace({widget: new WikiLinkWidget(target + anchor, label || pageTitleFromPath(target))}),
+          atomic: true,
+        });
+      }
+      blockedRanges.push({from: spanFrom, to: spanTo});
+      continue;
+    }
+
+    if (span.kind === "markdown_image") {
+      if (editing) {
+        decos.push({
+          from: spanFrom,
+          to: spanTo,
+          deco: Decoration.mark({class: "cm-md-link-raw"}),
+        });
+        blockedRanges.push({from: spanFrom, to: spanTo});
+        continue;
+      }
+
+      if (/^[a-z]+:/i.test(target)) {
+        decos.push({
+          from: spanFrom,
+          to: spanTo,
+          deco: Decoration.replace({widget: new MarkdownImageWidget(target, target, label || documentPathLeaf(target) || "image")}),
+          atomic: true,
+        });
+        blockedRanges.push({from: spanFrom, to: spanTo});
+        continue;
+      }
+
+      if (resolvedPath && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+        const href = inlineDocumentURL(resolvedPath);
+        decos.push({
+          from: spanFrom,
+          to: spanTo,
+          deco: Decoration.replace({widget: new MarkdownImageWidget(href, href, label || documentPathLeaf(resolvedPath) || "image")}),
+          atomic: true,
+        });
+        blockedRanges.push({from: spanFrom, to: spanTo});
+      }
+      continue;
+    }
+
     if (editing) {
       decos.push({
         from: spanFrom,
         to: spanTo,
         deco: Decoration.mark({class: "cm-md-link-raw"}),
-        atomic: true,
       });
       blockedRanges.push({from: spanFrom, to: spanTo});
       continue;
     }
 
-    const target = String(span.target || "").trim();
-    const label = embeddedLinkLabel(target, String(span.label || ""));
-    const resolvedPath = resolveDocumentPath(currentPagePath || "", target);
-    const looksLikeDocument = resolvedPath ? documentPathLeaf(resolvedPath).indexOf(".") >= 0 : false;
-    if (resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
+    if (span.kind === "wiki_link" && resolvedPath && looksLikeDocument && !/\.md$/i.test(resolvedPath) && !target.startsWith("#")) {
       if (isImagePath(resolvedPath)) {
         const href = inlineDocumentURL(resolvedPath);
         decos.push({
@@ -1401,23 +1703,27 @@ function addSpecialInlineSpanDecoration(
           atomic: true,
         });
       } else {
-        decos.push({
-          from: spanFrom,
-          to: spanTo,
-          deco: Decoration.replace({widget: new MarkdownLinkWidget(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath))}),
-          atomic: true,
-        });
+        if (!labelRange || !addInlineDocumentLinkDecoration(decos, spanFrom, labelFrom, labelTo, spanTo, documentDownloadURL(resolvedPath))) {
+          decos.push({
+            from: spanFrom,
+            to: spanTo,
+            deco: Decoration.replace({widget: new MarkdownLinkWidget(documentDownloadURL(resolvedPath), label || documentPathLeaf(resolvedPath))}),
+            atomic: true,
+          });
+        }
       }
       blockedRanges.push({from: spanFrom, to: spanTo});
       continue;
     }
 
-    decos.push({
-      from: spanFrom,
-      to: spanTo,
-      deco: Decoration.replace({widget: new WikiLinkWidget(target, label)}),
-      atomic: true,
-    });
+    if (!labelRange || !addInlinePageLinkDecoration(decos, spanFrom, labelFrom, labelTo, spanTo, target)) {
+      decos.push({
+        from: spanFrom,
+        to: spanTo,
+        deco: Decoration.replace({widget: new WikiLinkWidget(target, label)}),
+        atomic: true,
+      });
+    }
     blockedRanges.push({from: spanFrom, to: spanTo});
   }
 }
@@ -1427,7 +1733,7 @@ function addAllowedInlineHtmlSpanDecorations(
   blockedRanges: Array<{ from: number; to: number }>,
   body: string,
   bodyFrom: number,
-  selection: { from: number; to: number }
+  selection: InlineSelectionLike
 ): void {
   const classNames: Record<AllowedInlineHtmlSpan["tagName"], string> = {
     sub: "cm-md-html-sub",
@@ -1467,7 +1773,7 @@ function addInlineMathSpanDecorations(
   blockedRanges: Array<{ from: number; to: number }>,
   body: string,
   bodyFrom: number,
-  selection: { from: number; to: number }
+  selection: InlineSelectionLike
 ): void {
   const spans = findInlineMathSpans(body);
   for (let index = 0; index < spans.length; index += 1) {
@@ -1493,6 +1799,34 @@ function addInlineMathSpanDecorations(
   }
 }
 
+function addInlineAbbreviationDecorations(
+  decos: InlineDeco[],
+  blockedRanges: Array<{ from: number; to: number }>,
+  body: string,
+  bodyFrom: number,
+  editingLine: boolean,
+  abbreviationDefinitions: Map<string, MarkdownAbbreviationDefinition> | null
+): void {
+  if (editingLine || !abbreviationDefinitions || !abbreviationDefinitions.size) {
+    return;
+  }
+
+  const spans = findMarkdownAbbreviationUsageSpans(body, abbreviationDefinitions);
+  for (let index = 0; index < spans.length; index += 1) {
+    const span = spans[index];
+    const spanFrom = bodyFrom + span.from;
+    const spanTo = bodyFrom + span.to;
+    if (inlineRangesOverlap(spanFrom, spanTo, blockedRanges)) {
+      continue;
+    }
+
+    addInlineDecoration(decos, spanFrom, spanTo, "cm-md-abbr", {
+      title: span.title || span.label,
+      "aria-label": span.title || span.label,
+    });
+  }
+}
+
 function addParsedInlineDecorationNode(
   decos: InlineDeco[],
   blockedRanges: Array<{ from: number; to: number }>,
@@ -1501,7 +1835,7 @@ function addParsedInlineDecorationNode(
   body: string,
   bodyFrom: number,
   editingLine: boolean,
-  selection: { from: number; to: number },
+  selection: InlineSelectionLike,
   currentPagePath: string,
   referenceDefinitions: Map<string, MarkdownReferenceDefinition> | null
 ): void {
@@ -1510,6 +1844,17 @@ function addParsedInlineDecorationNode(
 
   switch (node.name) {
     case "Link": {
+      const footnoteReference = markdownFootnoteReferenceMatch(body.slice(node.from, node.to));
+      if (footnoteReference) {
+        if (!editingLine && !inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges)) {
+          addHiddenInlineMarker(decos, nodeFrom, nodeFrom + 2);
+          addHiddenInlineMarker(decos, nodeTo - 1, nodeTo);
+          addInlineStyle(decos, nodeFrom + 2, nodeTo - 1, "cm-md-footnote-ref");
+          blockedRanges.push({from: nodeFrom, to: nodeTo});
+        }
+        return;
+      }
+
       if (inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges)) {
         return;
       }
@@ -1519,13 +1864,14 @@ function addParsedInlineDecorationNode(
       }
       const target = String(info.target || "").trim();
       const label = visibleTextFromChildren(node, body, info.labelFrom, info.labelTo).trim() || pageTitleFromPath(target);
-      const editing = selection.from <= nodeTo && selection.to >= nodeFrom;
+      const labelFrom = bodyFrom + info.labelFrom;
+      const labelTo = bodyFrom + info.labelTo;
+      const editing = selectionEditsInlineLink(selection, nodeFrom, labelFrom, labelTo, nodeTo);
       if (editing) {
         decos.push({
           from: nodeFrom,
           to: nodeTo,
           deco: Decoration.mark({class: "cm-md-link-raw"}),
-          atomic: true,
         });
         blockedRanges.push({from: nodeFrom, to: nodeTo});
         return;
@@ -1561,7 +1907,7 @@ function addParsedInlineDecorationNode(
             deco: Decoration.replace({widget: new MarkdownImageWidget(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image")}),
             atomic: true,
           });
-        } else {
+        } else if (!addInlineDocumentLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, documentDownloadURL(resolvedPath))) {
           decos.push({
             from: nodeFrom,
             to: nodeTo,
@@ -1573,12 +1919,14 @@ function addParsedInlineDecorationNode(
         return;
       }
 
-      decos.push({
-        from: nodeFrom,
-        to: nodeTo,
-        deco: Decoration.replace({widget: new WikiLinkWidget(target, label || pageTitleFromPath(target))}),
-        atomic: true,
-      });
+      if (!addInlinePageLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, target)) {
+        decos.push({
+          from: nodeFrom,
+          to: nodeTo,
+          deco: Decoration.replace({widget: new WikiLinkWidget(target, label || pageTitleFromPath(target))}),
+          atomic: true,
+        });
+      }
       blockedRanges.push({from: nodeFrom, to: nodeTo});
       return;
     }
@@ -1599,7 +1947,6 @@ function addParsedInlineDecorationNode(
           from: nodeFrom,
           to: nodeTo,
           deco: Decoration.mark({class: "cm-md-link-raw"}),
-          atomic: true,
         });
         blockedRanges.push({from: nodeFrom, to: nodeTo});
         return;
@@ -1647,7 +1994,6 @@ function addParsedInlineDecorationNode(
           from: nodeFrom,
           to: nodeTo,
           deco: Decoration.mark({class: "cm-md-link-raw"}),
-          atomic: true,
         });
       } else if (!editingLine) {
         decos.push({
@@ -1675,7 +2021,6 @@ function addParsedInlineDecorationNode(
           from: nodeFrom,
           to: nodeTo,
           deco: Decoration.mark({class: "cm-md-link-raw"}),
-          atomic: true,
         });
       } else if (!editingLine) {
         decos.push({
@@ -1692,6 +2037,7 @@ function addParsedInlineDecorationNode(
     case "InlineCode":
       if (!editingLine) {
         addInlineStyledNode(decos, blockedRanges, node, bodyFrom, "cm-md-inline-code", "CodeMark");
+        blockedRanges.push({from: nodeFrom, to: nodeTo});
       }
       return;
 
@@ -1712,6 +2058,39 @@ function addParsedInlineDecorationNode(
         addInlineStyledNode(decos, blockedRanges, node, bodyFrom, "cm-md-strikethrough", "StrikethroughMark");
       }
       break;
+
+    case "Subscript":
+      if (!editingLine) {
+        addInlineStyledNode(decos, blockedRanges, node, bodyFrom, "cm-md-subscript", "SubscriptMark");
+      }
+      break;
+
+    case "Superscript":
+      if (!editingLine) {
+        addInlineStyledNode(decos, blockedRanges, node, bodyFrom, "cm-md-superscript", "SuperscriptMark");
+      }
+      break;
+
+    case "Emoji":
+      if (!editingLine && !inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges)) {
+        const raw = body.slice(node.from, node.to);
+        const emoji = markdownEmojiCharacter(raw);
+        if (emoji !== raw) {
+          decos.push({
+            from: nodeFrom,
+            to: nodeTo,
+            deco: Decoration.replace({
+              widget: new InlineHTMLWidget(
+                "cm-md-inline-widget cm-md-emoji",
+                '<span role="img" aria-label="' + escapeHTML(raw) + '">' + escapeHTML(emoji) + "</span>"
+              ),
+            }),
+            atomic: true,
+          });
+          blockedRanges.push({from: nodeFrom, to: nodeTo});
+        }
+      }
+      return;
 
     case "Escape":
       if (!editingLine && !inlineRangesOverlap(nodeFrom, nodeTo, blockedRanges) && node.to > node.from) {
@@ -1743,9 +2122,10 @@ function addInlineDecorations(
   text: string,
   startOffset: number,
   editingLine: boolean,
-  selection: { from: number; to: number },
+  selection: InlineSelectionLike,
   currentPagePath: string,
   referenceDefinitions: Map<string, MarkdownReferenceDefinition> | null,
+  abbreviationDefinitions: Map<string, MarkdownAbbreviationDefinition> | null,
   extraDecos: InlineDeco[]
 ): void {
   const decos: InlineDeco[] = extraDecos.slice();
@@ -1757,6 +2137,7 @@ function addInlineDecorations(
   addInlineMathSpanDecorations(decos, blockedRanges, body, bodyFrom, selection);
   const root = parseInlineMarkdownTree(body);
   addParsedInlineDecorationNode(decos, blockedRanges, root, "", body, bodyFrom, editingLine, selection, currentPagePath, referenceDefinitions);
+  addInlineAbbreviationDecorations(decos, blockedRanges, body, bodyFrom, editingLine, abbreviationDefinitions);
 
   decos.sort(function (a, b) { return a.from - b.from || a.to - b.to; });
   for (let i = 0; i < decos.length; i += 1) {
@@ -1784,6 +2165,7 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
   const currentPagePath = state.field(pagePathField);
   const markdown = state.doc.toString();
   const lines = markdown.split("\n");
+  const abbreviationDefinitions = markdownAbbreviationDefinitions(markdown);
   const referenceDefinitions = markdownReferenceDefinitions(markdown);
   const hiddenReferenceDefinitionLines = new Set<number>();
   referenceDefinitions.forEach(function (definition) {
@@ -1822,6 +2204,7 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
       continue;
     }
     const tableBlock = markdownTableBlockAt(lines, lineNumber - 1, {
+      abbreviationDefinitions,
       currentPagePath,
       referenceDefinitions,
     });
@@ -1959,6 +2342,7 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
         }
 
         const innerHTML = renderInline(String(htmlLine.inner || ""), {
+          abbreviationDefinitions,
           currentPagePath,
           referenceDefinitions,
         });
@@ -1994,8 +2378,23 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
 
     const quoteMatch = markdownBlockquotePrefixMatch(text);
     if (quoteMatch) {
-      builder.add(from, from, Decoration.line({class: "cm-md-quote"}));
-      builder.add(from, from + quoteMatch.prefixLength, Decoration.replace({widget: new QuotePrefixWidget(quoteMatch.prefixLength, quoteMatch.depth)}));
+      const previousQuoteMatch = lineNumber > 1
+        ? markdownBlockquotePrefixMatch(lines[lineNumber - 2] || "")
+        : null;
+      const nextQuoteMatch = lineNumber < lines.length
+        ? markdownBlockquotePrefixMatch(lines[lineNumber] || "")
+        : null;
+      builder.add(
+        from,
+        from,
+        Decoration.line({
+          class: "cm-md-quote",
+          attributes: {
+            style: quoteLineStyle(quoteMatch.depth, Boolean(previousQuoteMatch), Boolean(nextQuoteMatch)),
+          },
+        })
+      );
+      builder.add(from, from + quoteMatch.prefixLength, Decoration.replace({}));
       addAtomicRange(atomicBuilder, from, from + quoteMatch.prefixLength);
       if (quoteMatch.prefixLength > inlineStart) {
         inlineStart = quoteMatch.prefixLength;
@@ -2063,6 +2462,77 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
       inlineStart += listPrefix.prefixLength;
     }
 
+    const footnoteDefinition = markdownFootnoteDefinitionMatch(text, inlineStart);
+    if (footnoteDefinition && footnoteDefinition.prefixLength) {
+      if (!editingLine) {
+        builder.add(from, from, Decoration.line({class: "cm-md-footnote-line"}));
+        builder.add(
+          from + inlineStart,
+          from + inlineStart + footnoteDefinition.prefixLength,
+          Decoration.replace({
+            widget: new InlineHTMLWidget(
+              "cm-md-inline-widget cm-md-footnote-label",
+              '<sup class="cm-md-footnote-ref">' + escapeHTML(footnoteDefinition.displayLabel) + "</sup>",
+              {
+                "--md-prefix-width": String(footnoteDefinition.prefixLength * 0.62) + "rem",
+              }
+            ),
+          })
+        );
+        addAtomicRange(atomicBuilder, from + inlineStart, from + inlineStart + footnoteDefinition.prefixLength);
+        inlineStart += footnoteDefinition.prefixLength;
+      }
+    } else {
+      const abbreviationDefinition = markdownAbbreviationDefinitionMatch(text, inlineStart);
+      if (abbreviationDefinition && abbreviationDefinition.prefixLength) {
+        if (!editingLine) {
+          builder.add(from, from, Decoration.line({class: "cm-md-abbr-definition-line"}));
+          builder.add(
+            from + inlineStart,
+            from + inlineStart + abbreviationDefinition.prefixLength,
+            Decoration.replace({
+              widget: new InlineHTMLWidget(
+                "cm-md-inline-widget cm-md-abbr-definition-label",
+                '<span class="cm-md-abbr-definition-chip">' + escapeHTML(abbreviationDefinition.label) + "</span>",
+                {
+                  "--md-prefix-width": String(abbreviationDefinition.prefixLength * 0.62) + "rem",
+                }
+              ),
+            })
+          );
+          addAtomicRange(atomicBuilder, from + inlineStart, from + inlineStart + abbreviationDefinition.prefixLength);
+          inlineStart += abbreviationDefinition.prefixLength;
+        }
+      } else {
+        const definitionPrefix = markdownDefinitionListPrefixMatch(text, inlineStart);
+        if (definitionPrefix) {
+          if (!editingLine) {
+            builder.add(from, from, Decoration.line({class: "cm-md-definition-desc"}));
+            builder.add(
+              from + inlineStart,
+              from + inlineStart + definitionPrefix.prefixLength,
+              Decoration.replace({
+                widget: new InlineHTMLWidget(
+                  "cm-md-inline-widget cm-md-definition-marker",
+                  '<span class="cm-md-definition-marker-glyph" aria-hidden="true">›</span>',
+                  {
+                    "--md-prefix-width": String(definitionPrefix.prefixLength * 0.62) + "rem",
+                  }
+                ),
+              })
+            );
+            addAtomicRange(atomicBuilder, from + inlineStart, from + inlineStart + definitionPrefix.prefixLength);
+            inlineStart += definitionPrefix.prefixLength;
+          }
+        } else if (!editingLine) {
+          const nextLineText = lineNumber < state.doc.lines ? state.doc.line(lineNumber + 1).text : "";
+          if (isMarkdownDefinitionTermLine(text, nextLineText, inlineStart)) {
+            builder.add(from, from, Decoration.line({class: "cm-md-definition-term"}));
+          }
+        }
+      }
+    }
+
     if (isMarkdownThematicBreak(text) && !editingLine) {
       builder.add(from, from, Decoration.line({class: "cm-md-rule-line"}));
       builder.add(from, line.to, Decoration.replace({widget: new ThematicBreakWidget()}));
@@ -2070,7 +2540,19 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
       continue;
     }
 
-    addInlineDecorations(builder, atomicBuilder, from, text, inlineStart, editingLine, selection, currentPagePath, referenceDefinitions, inlineExtraDecos);
+    addInlineDecorations(
+      builder,
+      atomicBuilder,
+      from,
+      text,
+      inlineStart,
+      editingLine,
+      selection,
+      currentPagePath,
+      referenceDefinitions,
+      abbreviationDefinitions,
+      inlineExtraDecos
+    );
 
     if (taskMetaWidget) {
       builder.add(line.to, line.to, Decoration.widget({widget: taskMetaWidget, side: 1}));

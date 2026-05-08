@@ -10,7 +10,10 @@ describe("clientPreferences", function () {
   it("defaults scope home pages to an empty map", function () {
     expect(defaultClientPreferences().vaults.scopeHomePages).toEqual({});
     expect(defaultClientPreferences().vaults.rootHomePage).toBe("");
+    expect(defaultClientPreferences().vaults.topLevelFoldersAsVaults).toBe(true);
     expect(defaultClientPreferences().notifications.browserEnabled).toBe(false);
+    expect(defaultClientPreferences().ui.showDocumentsInTree).toBe(false);
+    expect(defaultClientPreferences().ui.showTemplatesInTree).toBe(false);
     expect(defaultClientPreferences().templates).toEqual([]);
   });
 
@@ -27,6 +30,10 @@ describe("clientPreferences", function () {
       notifications: {
         browserEnabled: true,
       },
+      ui: {
+        showDocumentsInTree: true,
+        showTemplatesInTree: true,
+      },
       templates: [
         {
           id: "contact",
@@ -41,11 +48,14 @@ describe("clientPreferences", function () {
     });
 
     expect(normalized.vaults.rootHomePage).toBe("index");
+    expect(normalized.vaults.topLevelFoldersAsVaults).toBe(true);
     expect(normalized.vaults.scopeHomePages).toEqual({
       Work: "notes/home",
       Private: "shopping/index",
     });
     expect(normalized.notifications.browserEnabled).toBe(true);
+    expect(normalized.ui.showDocumentsInTree).toBe(true);
+    expect(normalized.ui.showTemplatesInTree).toBe(true);
     expect(normalized.templates).toEqual([
       {
         id: "contact",
@@ -60,9 +70,12 @@ describe("clientPreferences", function () {
 
     const cloned = cloneClientPreferences(normalized);
     expect(cloned.vaults.rootHomePage).toBe(normalized.vaults.rootHomePage);
+    expect(cloned.vaults.topLevelFoldersAsVaults).toBe(true);
     expect(cloned.vaults.scopeHomePages).toEqual(normalized.vaults.scopeHomePages);
     expect(cloned.vaults.scopeHomePages).not.toBe(normalized.vaults.scopeHomePages);
     expect(cloned.notifications.browserEnabled).toBe(true);
+    expect(cloned.ui.showDocumentsInTree).toBe(true);
+    expect(cloned.ui.showTemplatesInTree).toBe(true);
     expect(cloned.templates).toEqual(normalized.templates);
     expect(cloned.templates).not.toBe(normalized.templates);
   });

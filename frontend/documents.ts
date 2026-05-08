@@ -16,12 +16,56 @@ function normalizePath(value: string): string {
     .trim();
 }
 
-function stripPathSuffixes(value: string): string {
-  return normalizePath(value).replace(/[?#].*$/, "");
+function decodeMarkdownPathSegments(value: string): string {
+  const source = String(value || "");
+  if (!source.includes("%")) {
+    return source;
+  }
+  return source
+    .split("/")
+    .map(function (segment) {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join("/");
 }
 
-function pageDirectory(pagePath: string): string {
-  const normalized = normalizePath(pagePath).replace(/\.md$/i, "");
+function unwrapMarkdownLinkTarget(value: string): string {
+  const text = String(value || "").trim();
+  if (text.startsWith("<") && text.endsWith(">") && text.length >= 2) {
+    return text.slice(1, -1).trim();
+  }
+  return text;
+}
+
+function normalizedMarkdownLinkTarget(value: string): string {
+  const unwrapped = unwrapMarkdownLinkTarget(String(value || "").trim());
+  const withoutSuffix = unwrapped.replace(/[?#].*$/, "");
+  return decodeMarkdownPathSegments(unwrapMarkdownLinkTarget(withoutSuffix));
+}
+
+function markdownLinkTarget(value: string, suffix = ""): string {
+  const target = String(value || "").trim();
+  const extra = String(suffix || "");
+  if (!target) {
+    return "";
+  }
+  const combined = target + extra;
+  if (/[()\s]/.test(target)) {
+    return "<" + combined.replace(/</g, "%3C").replace(/>/g, "%3E") + ">";
+  }
+  return combined;
+}
+
+function stripPathSuffixes(value: string): string {
+  return normalizePath(normalizedMarkdownLinkTarget(value));
+}
+
+function pathDirectory(path: string): string {
+  const normalized = normalizePath(path);
   const parts = normalized.split("/").filter(Boolean);
   if (parts.length <= 1) {
     return "";
@@ -29,14 +73,20 @@ function pageDirectory(pagePath: string): string {
   return parts.slice(0, -1).join("/");
 }
 
+function pageDirectory(pagePath: string): string {
+  return pathDirectory(normalizePath(pagePath).replace(/\.md$/i, ""));
+}
+
 function normalizedDocumentSettings(settings?: Partial<ServerDocumentSettings> | null): ServerDocumentSettings {
   const placement = String(settings && settings.uploadPlacement || "").trim();
   const subfolder = normalizePath(String(settings && settings.uploadSubfolder || "")).replace(/^\/+|\/+$/g, "");
+  const folder = normalizePath(String(settings && settings.uploadFolder || "")).replace(/^\/+|\/+$/g, "");
   return {
-    uploadPlacement: placement === "vault-root" || placement === "note-subfolder"
+    uploadPlacement: placement === "vault-root" || placement === "note-subfolder" || placement === "specific-folder"
       ? placement
       : "same-folder",
     uploadSubfolder: subfolder || "_files",
+    uploadFolder: folder,
   };
 }
 
@@ -48,6 +98,9 @@ export function documentUploadDirectory(currentPagePath: string, settings?: Part
   }
   if (documentSettings.uploadPlacement === "note-subfolder") {
     return pageDir ? (pageDir + "/" + documentSettings.uploadSubfolder) : documentSettings.uploadSubfolder;
+  }
+  if (documentSettings.uploadPlacement === "specific-folder") {
+    return documentSettings.uploadFolder;
   }
   return pageDir;
 }
@@ -73,9 +126,48 @@ export function documentUploadHint(
   if (documentSettings.uploadPlacement === "note-subfolder") {
     return "New uploads for this note go to the configured subfolder: " + directory + "/.";
   }
+  if (documentSettings.uploadPlacement === "specific-folder") {
+    return directory
+      ? ("New uploads for this note go to the chosen folder: " + directory + "/.")
+      : "New uploads for this note go to the chosen folder once you configure one.";
+  }
   return directory
     ? ("New uploads for this note go to the same folder: " + directory + "/.")
     : "New uploads for this note go to the vault root.";
+}
+
+export function documentUploadFolderSuggestions(
+  folders: string[],
+  documents: DocumentRecord[],
+  currentValue = ""
+): string[] {
+  const suggestions = new Set<string>();
+
+  folders.forEach(function (folder) {
+    const normalized = normalizePath(folder).replace(/^\/+|\/+$/g, "");
+    if (normalized) {
+      suggestions.add(normalized);
+    }
+  });
+
+  documents.forEach(function (document) {
+    const directory = pathDirectory(document.path).replace(/^\/+|\/+$/g, "");
+    if (directory) {
+      suggestions.add(directory);
+    }
+  });
+
+  const current = normalizePath(currentValue).replace(/^\/+|\/+$/g, "");
+  if (current) {
+    suggestions.add(current);
+  }
+
+  return Array.from(suggestions).sort(function (left, right) {
+    return left.localeCompare(right, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
 }
 
 export function relativeDocumentPath(currentPagePath: string, documentPath: string): string {
@@ -96,7 +188,7 @@ export function relativeDocumentPath(currentPagePath: string, documentPath: stri
 }
 
 export function resolveDocumentPath(currentPagePath: string, linkTarget: string): string {
-  const target = normalizePath(linkTarget);
+  const target = normalizePath(normalizedMarkdownLinkTarget(linkTarget));
   if (!target || /^[a-z]+:/i.test(target) || target.startsWith("#")) {
     return target;
   }
@@ -146,8 +238,8 @@ export function rewriteDocumentLinksInMarkdown(
       return match;
     }
     changed = true;
-    const nextTarget = relativeDocumentPath(sourcePage, toNormalized);
-    return String(bang || "") + "[" + String(label || "") + "](" + nextTarget + String(anchor || "") + ")";
+    const nextTarget = markdownLinkTarget(relativeDocumentPath(sourcePage, toNormalized), String(anchor || ""));
+    return String(bang || "") + "[" + String(label || "") + "](" + nextTarget + ")";
   });
 
   return {
@@ -187,7 +279,7 @@ export function documentEmbedsInline(document: Pick<DocumentRecord, "contentType
 
 export function markdownLinkForDocument(document: DocumentRecord, currentPagePath: string): string {
   const label = String(document.name || "").replace(/]/g, "\\]");
-  const target = relativeDocumentPath(currentPagePath, document.path);
+  const target = markdownLinkTarget(relativeDocumentPath(currentPagePath, document.path));
   if (documentEmbedsInline(document)) {
     return "![" + label + "](" + target + ")";
   }

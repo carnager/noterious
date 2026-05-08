@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDocumentSections,
+  documentUploadFolderSuggestions,
   documentUploadHint,
   documentUploadTargetLabel,
   inlineDocumentURL,
@@ -26,10 +27,15 @@ function document(path: string, contentType = "application/pdf", overrides: Part
   };
 }
 
-function documentSettings(uploadPlacement: ServerDocumentSettings["uploadPlacement"], uploadSubfolder = "_files"): ServerDocumentSettings {
+function documentSettings(
+  uploadPlacement: ServerDocumentSettings["uploadPlacement"],
+  uploadSubfolder = "_files",
+  uploadFolder = ""
+): ServerDocumentSettings {
   return {
     uploadPlacement,
     uploadSubfolder,
+    uploadFolder,
   };
 }
 
@@ -40,6 +46,9 @@ describe("document helpers", function () {
     );
     expect(markdownLinkForDocument(document("Meetings/Adventscafe.pdf"), "Meetings/Teamsitzungen/index")).toBe(
       "[Adventscafe.pdf](../Adventscafe.pdf)"
+    );
+    expect(markdownLinkForDocument(document("Meetings/Teamsitzungen/Quarterly Report.pdf"), "Meetings/Teamsitzungen/index")).toBe(
+      "[Quarterly Report.pdf](<Quarterly Report.pdf>)"
     );
   });
 
@@ -56,6 +65,8 @@ describe("document helpers", function () {
     expect(relativeDocumentPath("Meetings/Teamsitzungen/index", "Meetings/Teamsitzungen/Adventscafe.pdf")).toBe("Adventscafe.pdf");
     expect(resolveDocumentPath("Meetings/Teamsitzungen/index", "Adventscafe.pdf")).toBe("Meetings/Teamsitzungen/Adventscafe.pdf");
     expect(resolveDocumentPath("Meetings/Teamsitzungen/index", "../Adventscafe.pdf")).toBe("Meetings/Adventscafe.pdf");
+    expect(resolveDocumentPath("Meetings/Teamsitzungen/index", "<Quarterly Report.pdf>")).toBe("Meetings/Teamsitzungen/Quarterly Report.pdf");
+    expect(resolveDocumentPath("Meetings/Teamsitzungen/index", "Quarterly%20Report.pdf")).toBe("Meetings/Teamsitzungen/Quarterly Report.pdf");
   });
 
   it("rewrites moved document links in markdown and wiki syntax", function () {
@@ -64,6 +75,22 @@ describe("document helpers", function () {
 
     expect(rewritten.changed).toBe(true);
     expect(rewritten.markdown).toBe("![Cat](../Media/cat.png)\n![[../Media/cat.png|Cat]]\n[Spec](Docs/spec.pdf)");
+  });
+
+  it("rewrites markdown links with spaced document targets into valid wrapped destinations", function () {
+    const source = "[Quarterly Report](Docs/Quarterly Report.pdf)";
+    const rewritten = rewriteDocumentLinksInMarkdown(source, "Notes/today", "Notes/Docs/Quarterly Report.pdf", "Archive/Quarterly Report.pdf");
+
+    expect(rewritten.changed).toBe(true);
+    expect(rewritten.markdown).toBe("[Quarterly Report](<../Archive/Quarterly Report.pdf>)");
+  });
+
+  it("keeps anchors inside wrapped markdown destinations when spaced targets are rewritten", function () {
+    const source = "[Quarterly Report](Docs/Quarterly Report.pdf#page=2)";
+    const rewritten = rewriteDocumentLinksInMarkdown(source, "Notes/today", "Notes/Docs/Quarterly Report.pdf", "Archive/Quarterly Report.pdf");
+
+    expect(rewritten.changed).toBe(true);
+    expect(rewritten.markdown).toBe("[Quarterly Report](<../Archive/Quarterly Report.pdf#page=2>)");
   });
 
   it("describes where uploads for the current note will be stored", function () {
@@ -87,6 +114,33 @@ describe("document helpers", function () {
     expect(documentUploadHint("Meetings/Teamsitzungen/index", true, documentSettings("note-subfolder", "_assets"))).toBe(
       "New uploads for this note go to the configured subfolder: Meetings/Teamsitzungen/_assets/."
     );
+    expect(documentUploadTargetLabel("Meetings/Teamsitzungen/index", documentSettings("specific-folder", "_assets", "Shared/Uploads"))).toBe(
+      "Shared/Uploads/"
+    );
+    expect(documentUploadHint("Meetings/Teamsitzungen/index", true, documentSettings("specific-folder", "_assets", "Shared/Uploads"))).toBe(
+      "New uploads for this note go to the chosen folder: Shared/Uploads/."
+    );
+  });
+
+  it("collects upload folder suggestions from known folders and documents", function () {
+    expect(documentUploadFolderSuggestions(
+      [
+        "Shared",
+        "Shared/Uploads",
+        "Work/Specs",
+      ],
+      [
+        document("Inbox/Files/Quarterly Report.pdf"),
+        document("Shared/Uploads/bear.png", "image/png"),
+      ],
+      "Archive/Imports"
+    )).toEqual([
+      "Archive/Imports",
+      "Inbox/Files",
+      "Shared",
+      "Shared/Uploads",
+      "Work/Specs",
+    ]);
   });
 
   it("explains upload behavior when no note is open", function () {

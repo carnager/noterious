@@ -3,6 +3,7 @@ package documents
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"path"
 	"regexp"
 	"slices"
@@ -134,12 +135,9 @@ func markdownBody(rawMarkdown string) string {
 }
 
 func resolveDocumentTarget(currentPagePath string, linkTarget string) string {
-	target := strings.TrimSpace(linkTarget)
+	target := normalizeMarkdownDocumentTarget(linkTarget)
 	if target == "" || strings.HasPrefix(target, "#") || strings.Contains(target, "://") || strings.HasPrefix(strings.ToLower(target), "mailto:") {
 		return ""
-	}
-	if queryIndex := strings.Index(target, "?"); queryIndex >= 0 {
-		target = target[:queryIndex]
 	}
 	baseDir, err := documentDirForPage(currentPagePath)
 	if err != nil {
@@ -171,4 +169,33 @@ func resolveDocumentTarget(currentPagePath string, linkTarget string) string {
 		return ""
 	}
 	return normalized
+}
+
+func decodeMarkdownPathSegments(raw string) string {
+	if !strings.Contains(raw, "%") {
+		return raw
+	}
+	parts := strings.Split(raw, "/")
+	for index, part := range parts {
+		decoded, err := url.PathUnescape(part)
+		if err != nil {
+			continue
+		}
+		parts[index] = decoded
+	}
+	return strings.Join(parts, "/")
+}
+
+func normalizeMarkdownDocumentTarget(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if strings.HasPrefix(trimmed, "<") && strings.HasSuffix(trimmed, ">") && len(trimmed) >= 2 {
+		trimmed = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	}
+	if suffix := strings.IndexAny(trimmed, "?#"); suffix >= 0 {
+		trimmed = trimmed[:suffix]
+	}
+	if strings.HasPrefix(trimmed, "<") && strings.HasSuffix(trimmed, ">") && len(trimmed) >= 2 {
+		trimmed = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	}
+	return decodeMarkdownPathSegments(trimmed)
 }

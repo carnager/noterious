@@ -351,6 +351,8 @@ export interface UISettings {
   fontSize: string;
   dateTimeFormat: "browser" | "iso" | "de";
   themeId: string;
+  showDocumentsInTree: boolean;
+  showTemplatesInTree: boolean;
 }
 
 export interface VaultPreferences {
@@ -372,8 +374,9 @@ export interface ServerNotificationSettings {
 }
 
 export interface ServerDocumentSettings {
-  uploadPlacement: "same-folder" | "vault-root" | "note-subfolder";
+  uploadPlacement: "same-folder" | "vault-root" | "note-subfolder" | "specific-folder";
   uploadSubfolder: string;
+  uploadFolder: string;
 }
 
 export interface UserNotificationSettings {

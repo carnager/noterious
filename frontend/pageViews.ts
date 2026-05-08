@@ -22,9 +22,12 @@ export type PageTreeMenuTarget =
   | { kind: "folder"; path: string; name: string }
   | { kind: "document"; path: string; name: string; document: DocumentRecord };
 
-type TreeDragItem =
+export const pageTreeDragMimeType = "application/x-noterious-tree";
+
+export type TreeDragItem =
   | { kind: "page"; path: string }
-  | { kind: "folder"; path: string };
+  | { kind: "folder"; path: string }
+  | { kind: "document"; path: string };
 
 let activeDragItem: TreeDragItem | null = null;
 
@@ -93,9 +96,10 @@ function setDragPayload(event: DragEvent, payload: TreeDragItem): void {
     return;
   }
   activeDragItem = payload;
-  event.dataTransfer.effectAllowed = "move";
-  event.dataTransfer.dropEffect = "move";
-  event.dataTransfer.setData("application/x-noterious-tree", JSON.stringify(payload));
+  const effect = payload.kind === "document" ? "copyMove" : "move";
+  event.dataTransfer.effectAllowed = effect;
+  event.dataTransfer.dropEffect = payload.kind === "document" ? "copy" : "move";
+  event.dataTransfer.setData(pageTreeDragMimeType, JSON.stringify(payload));
   event.dataTransfer.setData("text/plain", payload.path);
 }
 
@@ -106,13 +110,13 @@ function getDragPayload(event: DragEvent): TreeDragItem | null {
   if (!event.dataTransfer) {
     return null;
   }
-  const raw = event.dataTransfer.getData("application/x-noterious-tree");
+  const raw = event.dataTransfer.getData(pageTreeDragMimeType);
   if (!raw) {
     return null;
   }
   try {
     const payload = JSON.parse(raw) as TreeDragItem;
-    if (!payload || !payload.path || (payload.kind !== "page" && payload.kind !== "folder")) {
+    if (!payload || !payload.path || (payload.kind !== "page" && payload.kind !== "folder" && payload.kind !== "document")) {
       return null;
     }
     return payload;
@@ -125,7 +129,7 @@ function canDropOnFolder(payload: TreeDragItem | null, folderKey: string): boole
   if (!payload || !folderKey) {
     return false;
   }
-  if (payload.kind === "page") {
+  if (payload.kind === "page" || payload.kind === "document") {
     const pageLeaf = String(payload.path || "").split("/").pop() || "";
     return folderKey + "/" + pageLeaf !== payload.path;
   }
@@ -281,7 +285,8 @@ function renderPageTreeNode(
   onDeletePage: (pagePath: string) => void,
   onOpenContextMenu: (target: PageTreeMenuTarget, left: number, top: number) => void,
   onMovePage: (pagePath: string, folderKey: string) => void,
-  onMoveFolder: (folderKey: string, targetFolder: string) => void
+  onMoveFolder: (folderKey: string, targetFolder: string) => void,
+  onMoveDocument: (documentPath: string, folderKey: string) => void
 ): HTMLDivElement {
   const group = document.createElement("div");
   group.className = depth === 0 ? "page-tree-root" : "page-tree-children";
@@ -292,7 +297,6 @@ function renderPageTreeNode(
       const folder = node.folders[name];
       const item = document.createElement("div");
       item.className = "page-tree-node page-tree-folder";
-      makeDragSource(item, { kind: "folder", path: folder.key });
       item.addEventListener("dragover", function (event) {
         const payload = getDragPayload(event);
         if (!canDropOnFolder(payload, folder.key)) {
@@ -317,6 +321,10 @@ function renderPageTreeNode(
         event.stopPropagation();
         if (payload.kind === "page") {
           onMovePage(payload.path, folder.key);
+          return;
+        }
+        if (payload.kind === "document") {
+          onMoveDocument(payload.path, folder.key);
           return;
         }
         onMoveFolder(payload.path, folder.key);
@@ -348,7 +356,6 @@ function renderPageTreeNode(
       const label = document.createElement("span");
       label.className = "page-tree-label";
       label.textContent = folder.name;
-      label.title = folder.name;
       button.appendChild(chevron);
       button.appendChild(icon);
       button.appendChild(label);
@@ -357,7 +364,7 @@ function renderPageTreeNode(
       item.appendChild(row);
 
       if (expandedPageFolders[folder.key]) {
-        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
+        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder, onMoveDocument));
       }
 
       group.appendChild(item);
@@ -372,7 +379,6 @@ function renderPageTreeNode(
       const leafName = String(page.path || "").split("/").slice(-1)[0] || page.path;
       const item = document.createElement("div");
       item.className = "page-tree-node page-tree-leaf";
-      makeDragSource(item, { kind: "page", path: page.path });
 
       const row = document.createElement("div");
       row.className = "page-tree-row";
@@ -399,7 +405,6 @@ function renderPageTreeNode(
       const label = document.createElement("span");
       label.className = "page-tree-label";
       label.textContent = leafName;
-      label.title = leafName;
       button.appendChild(icon);
       button.appendChild(label);
       row.appendChild(button);
@@ -425,6 +430,7 @@ function renderPageTreeNode(
       const button = document.createElement("button");
       button.type = "button";
       button.className = "page-tree-page page-tree-document";
+      makeDragSource(button, { kind: "document", path: doc.path });
       button.addEventListener("click", function () {
         onOpenDocument(doc);
       });
@@ -440,7 +446,6 @@ function renderPageTreeNode(
       const label = document.createElement("span");
       label.className = "page-tree-label";
       label.textContent = leafName;
-      label.title = leafName;
       button.appendChild(icon);
       button.appendChild(label);
       row.appendChild(button);
@@ -474,7 +479,8 @@ export function renderPagesTree(
   onDeletePage: (pagePath: string) => void,
   onOpenContextMenu: (target: PageTreeMenuTarget, left: number, top: number) => void,
   onMovePage: (pagePath: string, folderKey: string) => void,
-  onMoveFolder: (folderKey: string, targetFolder: string) => void
+  onMoveFolder: (folderKey: string, targetFolder: string) => void,
+  onMoveDocument: (documentPath: string, folderKey: string) => void
 ): void {
   clearNode(container);
   const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
@@ -614,6 +620,10 @@ export function renderPagesTree(
       onMovePage(payload.path, normalizedRootFolderPath);
       return;
     }
+    if (payload.kind === "document") {
+      onMoveDocument(payload.path, normalizedRootFolderPath);
+      return;
+    }
     onMoveFolder(payload.path, normalizedRootFolderPath);
   }
   [rootRow, rootLabel, rootActions].forEach(function (element) {
@@ -664,13 +674,17 @@ export function renderPagesTree(
       return;
     }
     if (payload.kind === "page") {
-      onMovePage(payload.path, "");
+      onMovePage(payload.path, normalizedRootFolderPath);
       return;
     }
-    onMoveFolder(payload.path, "");
+    if (payload.kind === "document") {
+      onMoveDocument(payload.path, normalizedRootFolderPath);
+      return;
+    }
+    onMoveFolder(payload.path, normalizedRootFolderPath);
   };
 
-  container.appendChild(renderPageTreeNode(buildPageTree(visiblePages, visibleFolders, visibleDocuments, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder));
+  container.appendChild(renderPageTreeNode(buildPageTree(visiblePages, visibleFolders, visibleDocuments, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder, onMoveDocument));
 }
 
 export interface TaskPanelFilters {

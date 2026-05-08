@@ -18,7 +18,7 @@ Noterious is a server-first markdown notebook. Your notes stay as markdown files
 - automatically merges non-overlapping concurrent page edits from multiple clients and falls back to explicit conflicts for overlapping changes
 - sends notifications from both task reminders and note frontmatter notification fields
 - supports one account per deployment
-- can treat top-level folders under the vault root as switchable vault scopes
+- treats top-level folders under the vault root as switchable scopes in the UI
 - supports built-in and custom UI themes
 - ships Nix packaging plus a multi-instance NixOS module
 
@@ -80,11 +80,11 @@ That root is itself a valid note space:
 
 - `<vault-root>`
 
-Optional switchable vault scopes are just direct child folders below it:
+Switchable scopes are just direct child folders below it:
 
 - `<vault-root>/<top-level-folder>`
 
-If you enable `Use top-level folders as vaults` in settings, the UI can switch between those top-level folders. This is a UI/runtime scope feature, not a separate storage backend.
+The UI always treats those top-level folders as scopes. This is a UI/runtime scope feature, not a separate storage backend.
 
 Background services stay rooted at the configured vault root:
 
@@ -302,7 +302,7 @@ That tag is moved to the newest release tag. If you want a fixed release instead
 
 ```nix
 {
-  inputs.noterious.url = "github:carnager/noterious/v0.1.23";
+  inputs.noterious.url = "github:carnager/noterious/v0.1.24";
 }
 ```
 

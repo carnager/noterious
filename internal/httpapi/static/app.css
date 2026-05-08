@@ -118,13 +118,28 @@ select {
 }
 
 .topbar {
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 26;
   display: flex;
   align-items: center;
   justify-content: space-between;
   align-items: center;
   gap: 0.55rem;
   padding: 0.08rem 0.2rem 0.32rem;
+  background: color-mix(in srgb, var(--bg-gradient-start) 88%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.topbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--line) 84%, transparent);
+  pointer-events: none;
 }
 
 .topbar h1,
@@ -269,6 +284,10 @@ select {
   align-items: stretch;
 }
 
+.rail-resize-handle {
+  display: none;
+}
+
 .vault-health-banner {
   display: flex;
   align-items: flex-start;
@@ -300,6 +319,12 @@ select {
 
 .app-layout.rail-collapsed {
   grid-template-columns: minmax(0, 1fr);
+}
+
+body.rail-resizing,
+body.rail-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
 }
 
 .panel {
@@ -594,6 +619,37 @@ button.tag-chip:focus-visible {
   .app-layout {
     grid-template-columns: minmax(0, 1fr);
     min-height: calc(100vh - 2.8rem);
+  }
+
+  .app-layout:not(.rail-collapsed) .rail-resize-handle {
+    display: block;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: calc(var(--desktop-rail-width) - 5px);
+    width: 10px;
+    z-index: 24;
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  .app-layout:not(.rail-collapsed) .rail-resize-handle::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 4px;
+    width: 2px;
+    border-radius: 999px;
+    background: rgba(122, 162, 247, 0.16);
+    transition: background 120ms ease, box-shadow 120ms ease;
+  }
+
+  .app-layout:not(.rail-collapsed) .rail-resize-handle:hover::before,
+  .app-layout:not(.rail-collapsed) .rail-resize-handle.active::before,
+  body.rail-resizing .rail-resize-handle::before {
+    background: rgba(122, 162, 247, 0.54);
+    box-shadow: 0 0 0 1px rgba(122, 162, 247, 0.18);
   }
 
   .topbar {
@@ -1030,15 +1086,21 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   line-height: 1.3;
 }
 
-.page-tree-row:hover .page-tree-label,
-.page-tree-row:focus-within .page-tree-label,
-.page-tree-page.active .page-tree-label,
-.page-tree-toggle[aria-expanded="true"] .page-tree-label {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.page-tree-tooltip {
+  position: fixed;
+  z-index: 72;
+  max-width: min(42rem, calc(100vw - 1.5rem));
+  padding: 0.58rem 0.72rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--overlay) 94%, transparent);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  font-size: 0.76rem;
+  line-height: 1.4;
   white-space: normal;
   overflow-wrap: anywhere;
+  pointer-events: none;
 }
 
 .tree-context-menu {
@@ -1979,17 +2041,32 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   white-space: nowrap;
 }
 
-.markdown-document-link {
-  color: var(--accent);
+.markdown-document-link,
+.wiki-link {
+  color: color-mix(in srgb, var(--accent) 90%, white 10%);
   text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.12em;
+  text-decoration-color: color-mix(in srgb, var(--accent) 78%, transparent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.14em;
 }
 
 .markdown-document-link:hover,
-.markdown-document-link:focus-visible {
-  color: color-mix(in srgb, var(--accent) 82%, var(--ink));
+.markdown-document-link:focus-visible,
+.wiki-link:hover,
+.wiki-link:focus-visible {
+  color: color-mix(in srgb, var(--accent) 82%, white 18%);
+  text-decoration-color: currentColor;
   outline: none;
+}
+
+.wiki-link {
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  font: inherit;
+  line-height: inherit;
 }
 
 .markdown-inline-image-link {
@@ -2020,10 +2097,12 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 
 .markdown-inline-sub {
   font-size: 0.8em;
+  vertical-align: sub;
 }
 
 .markdown-inline-sup {
   font-size: 0.8em;
+  vertical-align: super;
 }
 
 .markdown-inline-kbd {
@@ -2043,6 +2122,23 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   color: inherit;
   padding: 0.02em 0.18em;
   border-radius: 4px;
+}
+
+.markdown-inline-emoji {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}
+
+.markdown-inline-abbr {
+  text-decoration: underline dotted color-mix(in srgb, var(--line-strong) 78%, var(--accent));
+  text-underline-offset: 0.16em;
+  cursor: help;
+}
+
+.markdown-footnote-ref {
+  font-size: 0.78em;
+  line-height: 0;
+  vertical-align: super;
+  color: color-mix(in srgb, var(--accent) 82%, var(--ink));
 }
 
 .markdown-inline-math {
@@ -2159,16 +2255,6 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 
 .page-task-title strong {
   font-weight: 700;
-}
-
-.page-task-title .wiki-link {
-  color: var(--accent, #4f8cc9);
-  text-decoration: underline;
-  cursor: pointer;
-  background: none;
-  border: none;
-  font: inherit;
-  padding: 0;
 }
 
 .page-task-meta {
@@ -2455,27 +2541,36 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 }
 
 .markdown-editor-host.render-mode .cm-md-quote {
+  --quote-depth: 1;
+  --quote-gutter-width: 0.72rem;
+  --quote-step-width: 0.72rem;
+  --quote-top-gap: 0.14em;
+  --quote-bottom-gap: 0.14em;
   color: var(--muted);
   font-style: italic;
   box-shadow: none;
+  padding-left: calc(var(--quote-gutter-width) + 0.38rem) !important;
 }
 
-.markdown-editor-host.render-mode .cm-md-quote-prefix {
-  --quote-prefix-width: 1.24rem;
-  --quote-stride-width: 1.24rem;
-  display: inline-block;
-  width: var(--quote-prefix-width);
-  min-height: 1.3em;
-  margin-right: 0.46rem;
-  vertical-align: -0.12em;
+.markdown-editor-host.render-mode .cm-md-quote::before {
+  content: "";
+  position: absolute;
+  left: 0.08rem;
+  top: var(--quote-top-gap);
+  bottom: var(--quote-bottom-gap);
+  width: var(--quote-gutter-width);
   background-image: repeating-linear-gradient(
     to right,
-    color-mix(in srgb, var(--line-strong) 88%, var(--surface)) 0 2px,
-    transparent 2px var(--quote-stride-width)
+    transparent 0 calc(var(--quote-step-width) - 2px),
+    color-mix(in srgb, var(--line-strong) 88%, var(--surface)) calc(var(--quote-step-width) - 2px) var(--quote-step-width)
   );
-  background-repeat: repeat-x;
-  background-size: var(--quote-stride-width) 100%;
-  opacity: 0.88;
+  opacity: 0.84;
+  pointer-events: none;
+}
+
+.markdown-editor-host.render-mode .cm-md-quote .cm-md-inline-code,
+.markdown-editor-host.render-mode .cm-md-quote .cm-md-html-kbd {
+  font-style: normal;
 }
 
 .markdown-editor-host.render-mode .cm-md-list-marker {
@@ -2505,12 +2600,14 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   color: color-mix(in srgb, var(--accent) 72%, var(--muted));
 }
 
-.markdown-editor-host.render-mode .cm-md-html-sub {
+.markdown-editor-host.render-mode .cm-md-html-sub,
+.markdown-editor-host.render-mode .cm-md-subscript {
   font-size: 0.8em;
   vertical-align: sub;
 }
 
-.markdown-editor-host.render-mode .cm-md-html-sup {
+.markdown-editor-host.render-mode .cm-md-html-sup,
+.markdown-editor-host.render-mode .cm-md-superscript {
   font-size: 0.8em;
   vertical-align: super;
 }
@@ -2538,6 +2635,82 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   font-family: var(--code-font-family);
   font-style: italic;
   color: color-mix(in srgb, var(--accent) 86%, var(--ink));
+}
+
+.markdown-editor-host.render-mode .cm-md-abbr {
+  text-decoration: underline dotted color-mix(in srgb, var(--line-strong) 78%, var(--accent));
+  text-underline-offset: 0.16em;
+  cursor: help;
+}
+
+.markdown-editor-host.render-mode .cm-md-footnote-ref {
+  font-size: 0.78em;
+  line-height: 0;
+  vertical-align: super;
+  color: color-mix(in srgb, var(--accent) 82%, var(--ink));
+}
+
+.markdown-editor-host.render-mode .cm-md-inline-widget {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: var(--md-prefix-width, auto);
+}
+
+.markdown-editor-host.render-mode .cm-md-emoji {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}
+
+.markdown-editor-host.render-mode .cm-md-footnote-line {
+  color: color-mix(in srgb, var(--ink) 86%, var(--muted));
+}
+
+.markdown-editor-host.render-mode .cm-md-footnote-label {
+  justify-content: flex-end;
+  margin-right: 0.42rem;
+  color: color-mix(in srgb, var(--accent) 72%, var(--muted));
+}
+
+.markdown-editor-host.render-mode .cm-md-abbr-definition-line {
+  color: color-mix(in srgb, var(--ink) 86%, var(--muted));
+}
+
+.markdown-editor-host.render-mode .cm-md-abbr-definition-label {
+  margin-right: 0.46rem;
+}
+
+.markdown-editor-host.render-mode .cm-md-abbr-definition-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.4em;
+  padding: 0.04em 0.46em;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 82%, var(--accent-soft));
+  background: color-mix(in srgb, var(--surface-soft) 76%, transparent);
+  color: color-mix(in srgb, var(--accent) 72%, var(--ink));
+  font-size: 0.82em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.markdown-editor-host.render-mode .cm-md-definition-term {
+  font-weight: 600;
+  color: color-mix(in srgb, var(--ink) 90%, white 10%);
+}
+
+.markdown-editor-host.render-mode .cm-md-definition-desc {
+  color: color-mix(in srgb, var(--ink) 84%, var(--muted));
+}
+
+.markdown-editor-host.render-mode .cm-md-definition-marker {
+  margin-right: 0.32rem;
+  color: color-mix(in srgb, var(--muted) 76%, var(--accent));
+}
+
+.markdown-editor-host.render-mode .cm-md-definition-marker-glyph {
+  display: inline-block;
+  width: 100%;
+  text-align: center;
 }
 
 .markdown-editor-host.render-mode .cm-md-html-line {
@@ -2707,19 +2880,22 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 .markdown-editor-host.render-mode .cm-md-link {
   border: 0;
   background: transparent;
-  color: inherit;
+  color: color-mix(in srgb, var(--accent) 90%, white 10%);
+  cursor: pointer;
   padding: 0;
   font: inherit;
   line-height: inherit;
   border-radius: 0;
   text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.12em;
+  text-decoration-color: color-mix(in srgb, var(--accent) 78%, transparent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.14em;
 }
 
 .markdown-editor-host.render-mode .cm-md-link:hover,
 .markdown-editor-host.render-mode .cm-md-link:focus-visible {
-  color: var(--accent);
+  color: color-mix(in srgb, var(--accent) 82%, white 18%);
+  text-decoration-color: currentColor;
   outline: none;
 }
 
