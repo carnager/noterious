@@ -18,6 +18,7 @@ export interface PageOperationsCallbacks {
     danger?: boolean;
   }) => Promise<boolean>;
   loadPages: () => Promise<void>;
+  loadDocuments?: () => Promise<void>;
   navigateToPage: (pagePath: string, replace: boolean) => void;
   clearPageSelection: () => void;
   currentHomePage: () => string;
@@ -268,7 +269,7 @@ export async function moveFolder(
   folderKey: string,
   targetFolder: string,
   context: PageOperationsContext,
-  callbacks: Pick<PageOperationsCallbacks, "encodePath" | "fetchJSON" | "loadPages" | "currentHomePage" | "setHomePage" | "navigateToPage" | "renderPages">,
+  callbacks: Pick<PageOperationsCallbacks, "encodePath" | "fetchJSON" | "loadPages" | "loadDocuments" | "currentHomePage" | "setHomePage" | "navigateToPage" | "renderPages">,
 ): Promise<void> {
   const sourceFolder = normalizePageDraftPath(folderKey);
   const destinationParent = normalizePageDraftPath(targetFolder);
@@ -281,7 +282,7 @@ export async function moveFolder(
     return;
   }
 
-  const payload = await callbacks.fetchJSON<{ folder?: string }>("/api/folders/" + callbacks.encodePath(sourceFolder) + "/move", {
+  const payload = await callbacks.fetchJSON<{ folder?: string; rewrittenPages?: string[] }>("/api/folders/" + callbacks.encodePath(sourceFolder) + "/move", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ targetFolder: destinationParent, name: "" }),
@@ -289,15 +290,25 @@ export async function moveFolder(
   const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
   const movedSelectedPage = context.selectedPage ? remapPathPrefix(context.selectedPage, sourceFolder, movedFolder) : "";
   const movedHomePage = callbacks.currentHomePage() ? remapPathPrefix(callbacks.currentHomePage(), sourceFolder, movedFolder) : "";
+  const rewrittenPages = Array.isArray(payload.rewrittenPages)
+    ? payload.rewrittenPages.map(normalizePageDraftPath).filter(Boolean) as string[]
+    : [];
 
   remapExpandedFolderKeys(context.expandedPageFolders, sourceFolder, movedFolder);
   if (movedHomePage) {
     callbacks.setHomePage(movedHomePage);
   }
 
-  await callbacks.loadPages();
+  await Promise.all([
+    callbacks.loadPages(),
+    callbacks.loadDocuments ? callbacks.loadDocuments() : Promise.resolve(),
+  ]);
   if (movedSelectedPage && movedSelectedPage !== context.selectedPage) {
     callbacks.navigateToPage(movedSelectedPage, false);
+    return;
+  }
+  if (context.selectedPage && rewrittenPages.indexOf(context.selectedPage) >= 0) {
+    callbacks.navigateToPage(context.selectedPage, false);
     return;
   }
   callbacks.renderPages();
@@ -307,7 +318,7 @@ export async function renameFolder(
   folderKey: string,
   nextLeafName: string,
   context: PageOperationsContext,
-  callbacks: Pick<PageOperationsCallbacks, "encodePath" | "fetchJSON" | "loadPages" | "currentHomePage" | "setHomePage" | "navigateToPage" | "renderPages">,
+  callbacks: Pick<PageOperationsCallbacks, "encodePath" | "fetchJSON" | "loadPages" | "loadDocuments" | "currentHomePage" | "setHomePage" | "navigateToPage" | "renderPages">,
 ): Promise<void> {
   const sourceFolder = normalizePageDraftPath(folderKey);
   const nextLeaf = normalizePageDraftPath(nextLeafName);
@@ -330,7 +341,7 @@ export async function renameFolder(
     return;
   }
 
-  const payload = await callbacks.fetchJSON<{ folder?: string }>("/api/folders/" + callbacks.encodePath(sourceFolder) + "/move", {
+  const payload = await callbacks.fetchJSON<{ folder?: string; rewrittenPages?: string[] }>("/api/folders/" + callbacks.encodePath(sourceFolder) + "/move", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ targetFolder: parentFolder, name: folderName }),
@@ -338,15 +349,25 @@ export async function renameFolder(
   const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
   const movedSelectedPage = context.selectedPage ? remapPathPrefix(context.selectedPage, sourceFolder, movedFolder) : "";
   const movedHomePage = callbacks.currentHomePage() ? remapPathPrefix(callbacks.currentHomePage(), sourceFolder, movedFolder) : "";
+  const rewrittenPages = Array.isArray(payload.rewrittenPages)
+    ? payload.rewrittenPages.map(normalizePageDraftPath).filter(Boolean) as string[]
+    : [];
 
   remapExpandedFolderKeys(context.expandedPageFolders, sourceFolder, movedFolder);
   if (movedHomePage) {
     callbacks.setHomePage(movedHomePage);
   }
 
-  await callbacks.loadPages();
+  await Promise.all([
+    callbacks.loadPages(),
+    callbacks.loadDocuments ? callbacks.loadDocuments() : Promise.resolve(),
+  ]);
   if (movedSelectedPage && movedSelectedPage !== context.selectedPage) {
     callbacks.navigateToPage(movedSelectedPage, false);
+    return;
+  }
+  if (context.selectedPage && rewrittenPages.indexOf(context.selectedPage) >= 0) {
+    callbacks.navigateToPage(context.selectedPage, false);
     return;
   }
   callbacks.renderPages();

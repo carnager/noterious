@@ -12584,7 +12584,7 @@
     let cursor = Array.isArray(buffer) ? new FlatBufferCursor(buffer, buffer.length) : buffer;
     let types2 = nodeSet.types;
     let contextHash = 0, lookAhead = 0;
-    function takeNode(parentStart, minPos, children2, positions2, inRepeat, depth) {
+    function takeNode(parentStart, minPos, children2, positions2, inRepeat, depth2) {
       let { id: id2, start, end, size } = cursor;
       let lookAheadAtStart = lookAhead, contextAtStart = contextHash;
       if (size < 0) {
@@ -12627,10 +12627,10 @@
               lastEnd = cursor.end;
             }
             cursor.next();
-          } else if (depth > 2500) {
+          } else if (depth2 > 2500) {
             takeFlatNode(start, endPos, localChildren, localPositions);
           } else {
-            takeNode(start, endPos, localChildren, localPositions, localInRepeat, depth + 1);
+            takeNode(start, endPos, localChildren, localPositions, localInRepeat, depth2 + 1);
           }
         }
         if (localInRepeat >= 0 && lastGroup > 0 && lastGroup < localChildren.length)
@@ -14019,7 +14019,7 @@
         get node() {
           if (!this.buffer)
             return this._tree;
-          let cache4 = this.bufferNode, result = null, depth = 0;
+          let cache4 = this.bufferNode, result = null, depth2 = 0;
           if (cache4 && cache4.context == this.buffer) {
             scan: for (let index = this.index, d = this.stack.length; d >= 0; ) {
               for (let c = cache4; c; c = c._parent)
@@ -14027,13 +14027,13 @@
                   if (index == this.index)
                     return c;
                   result = c;
-                  depth = d + 1;
+                  depth2 = d + 1;
                   break scan;
                 }
               index = this.stack[--d];
             }
           }
-          for (let i = depth; i < this.stack.length; i++)
+          for (let i = depth2; i < this.stack.length; i++)
             result = new BufferNode(this.buffer, result, this.stack[i]);
           return this.bufferNode = new BufferNode(this.buffer, result, this.index);
         }
@@ -14052,11 +14052,11 @@
         skipped, and `leave` isn't called for it.
         */
         iterate(enter, leave) {
-          for (let depth = 0; ; ) {
+          for (let depth2 = 0; ; ) {
             let mustLeave = false;
             if (this.type.isAnonymous || enter(this) !== false) {
               if (this.firstChild()) {
-                depth++;
+                depth2++;
                 continue;
               }
               if (!this.type.isAnonymous)
@@ -14066,12 +14066,12 @@
               if (mustLeave && leave)
                 leave(this);
               mustLeave = this.type.isAnonymous;
-              if (!depth)
+              if (!depth2)
                 return;
               if (this.nextSibling())
                 break;
               this.parent();
-              depth--;
+              depth2--;
               mustLeave = true;
             }
           }
@@ -15441,17 +15441,17 @@
   }
   function matchMarkedBrackets(_state, _pos, dir, token, handle, matching, brackets) {
     let parent = token.parent, firstToken = { from: handle.from, to: handle.to };
-    let depth = 0, cursor = parent === null || parent === void 0 ? void 0 : parent.cursor();
+    let depth2 = 0, cursor = parent === null || parent === void 0 ? void 0 : parent.cursor();
     if (cursor && (dir < 0 ? cursor.childBefore(token.from) : cursor.childAfter(token.to)))
       do {
         if (dir < 0 ? cursor.to <= token.from : cursor.from >= token.to) {
-          if (depth == 0 && matching.indexOf(cursor.type.name) > -1 && cursor.from < cursor.to) {
+          if (depth2 == 0 && matching.indexOf(cursor.type.name) > -1 && cursor.from < cursor.to) {
             let endHandle = findHandle(cursor);
             return { start: firstToken, end: endHandle ? { from: endHandle.from, to: endHandle.to } : void 0, matched: true };
           } else if (matchingNodes(cursor.type, dir, brackets)) {
-            depth++;
+            depth2++;
           } else if (matchingNodes(cursor.type, -dir, brackets)) {
-            if (depth == 0) {
+            if (depth2 == 0) {
               let endHandle = findHandle(cursor);
               return {
                 start: firstToken,
@@ -15459,7 +15459,7 @@
                 matched: false
               };
             }
-            depth--;
+            depth2--;
           }
         }
       } while (dir < 0 ? cursor.prevSibling() : cursor.nextSibling());
@@ -15473,7 +15473,7 @@
     if (bracket2 < 0 || bracket2 % 2 == 0 != dir > 0)
       return null;
     let startToken = { from: dir < 0 ? pos - 1 : pos, to: dir > 0 ? pos + 1 : pos };
-    let iter = state.doc.iterRange(pos, dir > 0 ? state.doc.length : 0), depth = 0;
+    let iter = state.doc.iterRange(pos, dir > 0 ? state.doc.length : 0), depth2 = 0;
     for (let distance = 0; !iter.next().done && distance <= maxScanDistance; ) {
       let text = iter.value;
       if (dir < 0)
@@ -15484,11 +15484,11 @@
         if (found < 0 || tree.resolveInner(basePos + pos2, 1).type != tokenType)
           continue;
         if (found % 2 == 0 == dir > 0) {
-          depth++;
-        } else if (depth == 1) {
+          depth2++;
+        } else if (depth2 == 1) {
           return { start: startToken, end: { from: basePos + pos2, to: basePos + pos2 + 1 }, matched: found >> 1 == bracket2 >> 1 };
         } else {
-          depth--;
+          depth2--;
         }
       }
       if (dir > 0)
@@ -16645,6 +16645,15 @@
       return true;
     };
   }
+  function depth(side) {
+    return function(state) {
+      let histState = state.field(historyField_, false);
+      if (!histState)
+        return 0;
+      let branch = side == 0 ? histState.done : histState.undone;
+      return branch.length - (branch.length && !branch[0].changes ? 1 : 0);
+    };
+  }
   function updateBranch(branch, to, maxLen, newEvent) {
     let start = to + 1 > maxLen + 20 ? to - maxLen - 1 : 0;
     let newBranch = branch.slice(start, to);
@@ -17046,7 +17055,7 @@
       };
     });
   }
-  var toggleComment, toggleLineComment, toggleBlockComment, toggleBlockCommentByLine, SearchMargin, fromHistory, isolateHistory, invertedEffects, historyConfig, historyField_, undo, redo, undoSelection, redoSelection, HistEvent, none2, MaxSelectionsPerEvent, joinableUserEvent, HistoryState, historyKeymap, cursorCharLeft, cursorCharRight, cursorGroupLeft, cursorGroupRight, segmenter, cursorSyntaxLeft, cursorSyntaxRight, cursorLineUp, cursorLineDown, cursorPageUp, cursorPageDown, cursorLineBoundaryForward, cursorLineBoundaryBackward, cursorLineBoundaryLeft, cursorLineBoundaryRight, cursorLineStart, cursorLineEnd, cursorMatchingBracket, selectCharLeft, selectCharRight, selectGroupLeft, selectGroupRight, selectSyntaxLeft, selectSyntaxRight, selectLineUp, selectLineDown, selectPageUp, selectPageDown, selectLineBoundaryForward, selectLineBoundaryBackward, selectLineBoundaryLeft, selectLineBoundaryRight, selectLineStart, selectLineEnd, cursorDocStart, cursorDocEnd, selectDocStart, selectDocEnd, selectAll, selectLine, selectParentSyntax, addCursorAbove, addCursorBelow, simplifySelection, deleteByChar, deleteCharBackward, deleteCharForward, deleteByGroup, deleteGroupBackward, deleteGroupForward, deleteToLineEnd, deleteLineBoundaryBackward, deleteLineBoundaryForward, splitLine, transposeChars, moveLineUp, moveLineDown, copyLineUp, copyLineDown, deleteLine, insertNewlineAndIndent, insertBlankLine, indentSelection, indentMore, indentLess, toggleTabFocusMode, emacsStyleKeymap, standardKeymap, defaultKeymap, indentWithTab;
+  var toggleComment, toggleLineComment, toggleBlockComment, toggleBlockCommentByLine, SearchMargin, fromHistory, isolateHistory, invertedEffects, historyConfig, historyField_, undo, redo, undoSelection, redoSelection, undoDepth, redoDepth, HistEvent, none2, MaxSelectionsPerEvent, joinableUserEvent, HistoryState, historyKeymap, cursorCharLeft, cursorCharRight, cursorGroupLeft, cursorGroupRight, segmenter, cursorSyntaxLeft, cursorSyntaxRight, cursorLineUp, cursorLineDown, cursorPageUp, cursorPageDown, cursorLineBoundaryForward, cursorLineBoundaryBackward, cursorLineBoundaryLeft, cursorLineBoundaryRight, cursorLineStart, cursorLineEnd, cursorMatchingBracket, selectCharLeft, selectCharRight, selectGroupLeft, selectGroupRight, selectSyntaxLeft, selectSyntaxRight, selectLineUp, selectLineDown, selectPageUp, selectPageDown, selectLineBoundaryForward, selectLineBoundaryBackward, selectLineBoundaryLeft, selectLineBoundaryRight, selectLineStart, selectLineEnd, cursorDocStart, cursorDocEnd, selectDocStart, selectDocEnd, selectAll, selectLine, selectParentSyntax, addCursorAbove, addCursorBelow, simplifySelection, deleteByChar, deleteCharBackward, deleteCharForward, deleteByGroup, deleteGroupBackward, deleteGroupForward, deleteToLineEnd, deleteLineBoundaryBackward, deleteLineBoundaryForward, splitLine, transposeChars, moveLineUp, moveLineDown, copyLineUp, copyLineDown, deleteLine, insertNewlineAndIndent, insertBlankLine, indentSelection, indentMore, indentLess, toggleTabFocusMode, emacsStyleKeymap, standardKeymap, defaultKeymap, indentWithTab;
   var init_dist6 = __esm({
     "node_modules/@codemirror/commands/dist/index.js"() {
       init_dist();
@@ -17131,6 +17140,14 @@
       redo = /* @__PURE__ */ cmd(1, false);
       undoSelection = /* @__PURE__ */ cmd(0, true);
       redoSelection = /* @__PURE__ */ cmd(1, true);
+      undoDepth = /* @__PURE__ */ depth(
+        0
+        /* BranchName.Done */
+      );
+      redoDepth = /* @__PURE__ */ depth(
+        1
+        /* BranchName.Undone */
+      );
       HistEvent = class _HistEvent {
         constructor(changes, effects, mapped, startSelection, selectionsAfter) {
           this.changes = changes;
@@ -18278,7 +18295,7 @@
       }
       return null;
     } else {
-      let depth = 0, pos = start;
+      let depth2 = 0, pos = start;
       for (let escaped = false; pos < text.length; pos++) {
         let ch = text.charCodeAt(pos);
         if (space(ch)) {
@@ -18286,11 +18303,11 @@
         } else if (escaped) {
           escaped = false;
         } else if (ch == 40) {
-          depth++;
+          depth2++;
         } else if (ch == 41) {
-          if (!depth)
+          if (!depth2)
             break;
-          depth--;
+          depth2--;
         } else if (ch == 92) {
           escaped = true;
         }
@@ -19101,8 +19118,8 @@
         Get the type of the parent block at the given depth. When no
         depth is passed, return the type of the innermost parent.
         */
-        parentType(depth = this.depth - 1) {
-          return this.parser.nodeSet.types[this.stack[depth].type];
+        parentType(depth2 = this.depth - 1) {
+          return this.parser.nodeSet.types[this.stack[depth2].type];
         }
         /**
         Move to the next input line. This should only be called by
@@ -20301,13 +20318,13 @@
         */
         reduce(action) {
           var _a2;
-          let depth = action >> 19, type = action & 65535;
+          let depth2 = action >> 19, type = action & 65535;
           let { parser: parser11 } = this.p;
           let lookaheadRecord = this.reducePos < this.pos - 25 && this.setLookAhead(this.pos);
           let dPrec = parser11.dynamicPrecedence(type);
           if (dPrec)
             this.score += dPrec;
-          if (depth == 0) {
+          if (depth2 == 0) {
             if (type < parser11.minRepeatTerm && this.reducePos < this.pos)
               this.reducePos = this.pos;
             this.pushState(parser11.getGoto(this.state, type, true), this.reducePos);
@@ -20316,7 +20333,7 @@
             this.reduceContext(type, this.reducePos);
             return;
           }
-          let base2 = this.stack.length - (depth - 1) * 3 - (action & 262144 ? 6 : 0);
+          let base2 = this.stack.length - (depth2 - 1) * 3 - (action & 262144 ? 6 : 0);
           let start = base2 ? this.stack[base2 - 2] : this.p.ranges[0].from;
           if (type < parser11.minRepeatTerm && start == this.reducePos && this.reducePos < this.pos)
             this.reducePos = this.pos;
@@ -20559,8 +20576,8 @@
           if ((reduce & 65536) == 0)
             return false;
           if (!parser11.validAction(this.state, reduce)) {
-            let depth = reduce >> 19, term = reduce & 65535;
-            let target = this.stack.length - depth * 3;
+            let depth2 = reduce >> 19, term = reduce & 65535;
+            let target = this.stack.length - depth2 * 3;
             if (target < 0 || parser11.getGoto(this.stack[target], term, false) < 0) {
               let backup = this.findForcedReduction();
               if (backup == null)
@@ -20581,21 +20598,21 @@
         */
         findForcedReduction() {
           let { parser: parser11 } = this.p, seen = [];
-          let explore = (state, depth) => {
+          let explore = (state, depth2) => {
             if (seen.includes(state))
               return;
             seen.push(state);
             return parser11.allActions(state, (action) => {
               if (action & (262144 | 131072)) ;
               else if (action & 65536) {
-                let rDepth = (action >> 19) - depth;
+                let rDepth = (action >> 19) - depth2;
                 if (rDepth > 1) {
                   let term = action & 65535, target = this.stack.length - rDepth * 3;
                   if (target >= 0 && parser11.getGoto(this.stack[target], term, false) >= 0)
                     return rDepth << 19 | 65536 | term;
                 }
               } else {
-                let found = explore(action, depth + 1);
+                let found = explore(action, depth2 + 1);
                 if (found != null)
                   return found;
               }
@@ -20739,14 +20756,14 @@
           this.base = this.stack.length;
         }
         reduce(action) {
-          let term = action & 65535, depth = action >> 19;
-          if (depth == 0) {
+          let term = action & 65535, depth2 = action >> 19;
+          if (depth2 == 0) {
             if (this.stack == this.start.stack)
               this.stack = this.stack.slice();
             this.stack.push(this.state, 0, 0);
             this.base += 3;
           } else {
-            this.base -= (depth - 1) * 3;
+            this.base -= (depth2 - 1) * 3;
           }
           let goto = this.start.p.parser.getGoto(this.stack[this.base - 3], term, true);
           this.state = goto;
@@ -25072,10 +25089,10 @@
     this.hash = (parent ? parent.hash + parent.hash << 8 : 0) + indent2 + (indent2 << 4) + flags + (flags << 6);
   }
   function countIndent(space6) {
-    let depth = 0;
+    let depth2 = 0;
     for (let i = 0; i < space6.length; i++)
-      depth += space6.charCodeAt(i) == tab ? 8 - depth % 8 : 1;
-    return depth;
+      depth2 += space6.charCodeAt(i) == tab ? 8 - depth2 % 8 : 1;
+    return depth2;
   }
   function skipEscape(input, ch) {
     if (ch == letter_o) {
@@ -25212,16 +25229,16 @@
         if (context.flags) return;
         let prev = input.peek(-1);
         if (prev == newline3 || prev == carriageReturn) {
-          let depth = 0, chars = 0;
+          let depth2 = 0, chars = 0;
           for (; ; ) {
-            if (input.next == space4) depth++;
-            else if (input.next == tab) depth += 8 - depth % 8;
+            if (input.next == space4) depth2++;
+            else if (input.next == tab) depth2 += 8 - depth2 % 8;
             else break;
             input.advance();
             chars++;
           }
-          if (depth != context.indent && input.next != newline3 && input.next != carriageReturn && input.next != hash2) {
-            if (depth < context.indent) input.acceptToken(dedent, -chars);
+          if (depth2 != context.indent && input.next != newline3 && input.next != carriageReturn && input.next != hash2) {
+            if (depth2 < context.indent) input.acceptToken(dedent, -chars);
             else input.acceptToken(indent);
           }
         }
@@ -25949,16 +25966,16 @@
   // node_modules/@codemirror/lang-go/dist/index.js
   function defIDs(type, spec) {
     return (node, def) => {
-      outer: for (let cur = node.node.firstChild, depth = 0, parent = null; ; ) {
+      outer: for (let cur = node.node.firstChild, depth2 = 0, parent = null; ; ) {
         while (!cur) {
-          if (!depth)
+          if (!depth2)
             break outer;
-          depth--;
+          depth2--;
           cur = parent.nextSibling;
           parent = parent.parent;
         }
         if (spec && cur.name == spec || cur.name == "SpecList") {
-          depth++;
+          depth2++;
           parent = cur;
           cur = cur.firstChild;
         } else {
@@ -26346,11 +26363,11 @@
       type_Flow = 3;
       type_Lit = 4;
       Context3 = class {
-        constructor(parent, depth, type) {
+        constructor(parent, depth2, type) {
           this.parent = parent;
-          this.depth = depth;
+          this.depth = depth2;
           this.type = type;
-          this.hash = (parent ? parent.hash + parent.hash << 8 : 0) + depth + (depth << 4) + type;
+          this.hash = (parent ? parent.hash + parent.hash << 8 : 0) + depth2 + (depth2 << 4) + type;
         }
       };
       Context3.top = new Context3(null, -1, type_Top);
@@ -26401,14 +26418,14 @@
             if (stack.canShift(blockEnd)) input.acceptToken(blockEnd);
             else return input.acceptToken(DocEnd, 3);
           }
-          let depth = 0;
+          let depth2 = 0;
           while (input.next == 32) {
-            depth++;
+            depth2++;
             input.advance();
           }
-          if ((depth < stack.context.depth || depth == stack.context.depth && stack.context.type == type_Seq && (input.next != 45 || !isSep(input.peek(1)))) && // Not blank
+          if ((depth2 < stack.context.depth || depth2 == stack.context.depth && stack.context.type == type_Seq && (input.next != 45 || !isSep(input.peek(1)))) && // Not blank
           input.next != -1 && !isBreakSpace(input.next) && input.next != 35)
-            input.acceptToken(blockEnd, -depth);
+            input.acceptToken(blockEnd, -depth2);
         }
       }, { contextual: true });
       blockMark = new ExternalTokenizer((input, stack) => {
@@ -26479,12 +26496,12 @@
       blockLiteral = new ExternalTokenizer((input, stack) => {
         let indent2 = stack.context.type == type_Lit ? stack.context.depth : -1, upto = input.pos;
         scan: for (; ; ) {
-          let depth = 0, next = input.next;
-          while (next == 32) next = input.peek(++depth);
-          if (!depth && (three(input, 45, depth) || three(input, 46, depth))) break;
+          let depth2 = 0, next = input.next;
+          while (next == 32) next = input.peek(++depth2);
+          if (!depth2 && (three(input, 45, depth2) || three(input, 46, depth2))) break;
           if (!isBreakSpace(next)) {
-            if (indent2 < 0) indent2 = Math.max(stack.context.depth + 1, depth);
-            if (depth < indent2) break;
+            if (indent2 < 0) indent2 = Math.max(stack.context.depth + 1, depth2);
+            if (depth2 < indent2) break;
           }
           for (; ; ) {
             if (input.next < 0) break scan;
@@ -26767,18 +26784,18 @@
         input.acceptToken(LineComment2);
       } else if (next == 47 && input.next == 42) {
         input.advance();
-        for (let depth = 1; ; ) {
+        for (let depth2 = 1; ; ) {
           let cur = input.next;
           if (input.next < 0)
             break;
           input.advance();
           if (cur == 42 && input.next == 47) {
-            depth--;
+            depth2--;
             input.advance();
-            if (!depth)
+            if (!depth2)
               break;
           } else if (cur == 47 && input.next == 42) {
-            depth++;
+            depth2++;
             input.advance();
           }
         }
@@ -39849,7 +39866,7 @@
           continue;
         }
         if (tagInfo && tagInfo.kind === "open") {
-          let depth = 1;
+          let depth2 = 1;
           let closeNode = null;
           let closeIndex = index;
           for (let scanIndex = index + 1; scanIndex < node.children.length; scanIndex += 1) {
@@ -39862,10 +39879,10 @@
               continue;
             }
             if (candidateInfo.kind === "open") {
-              depth += 1;
+              depth2 += 1;
             } else if (candidateInfo.kind === "close") {
-              depth -= 1;
-              if (!depth) {
+              depth2 -= 1;
+              if (!depth2) {
                 closeNode = candidate;
                 closeIndex = scanIndex;
                 break;
@@ -40199,6 +40216,7 @@
         textarea.value = value;
       }
       var setRenderModeEffect = StateEffect.define();
+      var setViewOnlyEffect = StateEffect.define();
       var setQueryBlocksEffect = StateEffect.define();
       var setTasksEffect = StateEffect.define();
       var setPagePathEffect = StateEffect.define();
@@ -40345,7 +40363,7 @@
         }
       };
       var CodeToolbarWidget = class extends WidgetType {
-        constructor(content2, language2, toggleKey, canCollapse, expanded, hiddenLineCount) {
+        constructor(content2, language2, toggleKey, canCollapse, expanded, hiddenLineCount, viewOnly) {
           super();
           this.content = content2;
           this.language = language2;
@@ -40353,9 +40371,10 @@
           this.canCollapse = Boolean(canCollapse);
           this.expanded = expanded;
           this.hiddenLineCount = Math.max(0, Number(hiddenLineCount) || 0);
+          this.viewOnly = Boolean(viewOnly);
         }
         eq(other) {
-          return other.content === this.content && other.language === this.language && other.toggleKey === this.toggleKey && other.canCollapse === this.canCollapse && other.expanded === this.expanded && other.hiddenLineCount === this.hiddenLineCount;
+          return other.content === this.content && other.language === this.language && other.toggleKey === this.toggleKey && other.canCollapse === this.canCollapse && other.expanded === this.expanded && other.hiddenLineCount === this.hiddenLineCount && other.viewOnly === this.viewOnly;
         }
         toDOM() {
           const toolbar = document.createElement("span");
@@ -40366,7 +40385,7 @@
           toolbar.appendChild(language2);
           const actions = document.createElement("span");
           actions.className = "cm-md-code-actions";
-          if (this.canCollapse) {
+          if (this.canCollapse && !this.viewOnly) {
             const toggleButton = document.createElement("button");
             toggleButton.type = "button";
             toggleButton.className = "cm-md-code-toggle";
@@ -40387,32 +40406,37 @@
           return toolbar;
         }
         ignoreEvent() {
-          return false;
+          return this.viewOnly;
         }
       };
       var TaskCheckboxWidget = class extends WidgetType {
-        constructor(done, ref, indent2) {
+        constructor(done, ref, indent2, viewOnly) {
           super();
           this.done = done;
           this.ref = ref || "";
           this.indent = Math.max(0, Number(indent2) || 0);
+          this.viewOnly = Boolean(viewOnly);
         }
         eq(other) {
-          return other.done === this.done && other.ref === this.ref && other.indent === this.indent;
+          return other.done === this.done && other.ref === this.ref && other.indent === this.indent && other.viewOnly === this.viewOnly;
         }
         toDOM() {
           const toggle = document.createElement("span");
-          toggle.className = "cm-md-task-toggle";
-          toggle.setAttribute("data-task-toggle", "true");
+          toggle.className = "cm-md-task-toggle" + (this.viewOnly ? " cm-md-task-toggle-passive" : "");
+          if (!this.viewOnly) {
+            toggle.setAttribute("data-task-toggle", "true");
+          }
           toggle.setAttribute("data-done", this.done ? "true" : "false");
           toggle.style.setProperty("--task-indent", String(this.indent * 0.62) + "rem");
           if (this.ref) {
             toggle.setAttribute("data-task-ref", this.ref);
           }
-          toggle.setAttribute("role", "checkbox");
-          toggle.setAttribute("tabindex", "0");
-          toggle.setAttribute("aria-checked", this.done ? "true" : "false");
-          toggle.setAttribute("aria-label", this.done ? "Mark task incomplete" : "Mark task complete");
+          if (!this.viewOnly) {
+            toggle.setAttribute("role", "checkbox");
+            toggle.setAttribute("tabindex", "0");
+            toggle.setAttribute("aria-checked", this.done ? "true" : "false");
+            toggle.setAttribute("aria-label", this.done ? "Mark task incomplete" : "Mark task complete");
+          }
           const box = document.createElement("input");
           box.type = "checkbox";
           box.className = "cm-md-task-toggle-box";
@@ -40423,7 +40447,7 @@
           return toggle;
         }
         ignoreEvent() {
-          return false;
+          return this.viewOnly;
         }
       };
       var TaskMetaWidget = class extends WidgetType {
@@ -40530,69 +40554,75 @@
         }
       };
       var QueryBlockWidget = class extends WidgetType {
-        constructor(html2, editLineNumber) {
+        constructor(html2, editLineNumber, viewOnly) {
           super();
           this.html = html2;
           this.editLineNumber = editLineNumber;
+          this.viewOnly = Boolean(viewOnly);
         }
         eq(other) {
-          return other.html === this.html && other.editLineNumber === this.editLineNumber;
+          return other.html === this.html && other.editLineNumber === this.editLineNumber && other.viewOnly === this.viewOnly;
         }
         toDOM() {
           const wrapper = document.createElement("div");
           wrapper.className = "cm-md-query-block";
-          const toolbar = document.createElement("div");
-          toolbar.className = "cm-md-query-toolbar";
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "cm-md-query-edit";
-          button.setAttribute("data-query-edit", String(this.editLineNumber));
-          button.textContent = "Edit Query";
-          toolbar.appendChild(button);
           const content2 = document.createElement("div");
           content2.className = "cm-md-query-content";
           content2.innerHTML = this.html;
-          wrapper.appendChild(toolbar);
+          if (!this.viewOnly) {
+            const toolbar = document.createElement("div");
+            toolbar.className = "cm-md-query-toolbar";
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "cm-md-query-edit";
+            button.setAttribute("data-query-edit", String(this.editLineNumber));
+            button.textContent = "Edit Query";
+            toolbar.appendChild(button);
+            wrapper.appendChild(toolbar);
+          }
           wrapper.appendChild(content2);
           return wrapper;
         }
         ignoreEvent() {
-          return false;
+          return this.viewOnly;
         }
       };
       var MarkdownTableWidget = class extends WidgetType {
-        constructor(html2) {
+        constructor(html2, viewOnly) {
           super();
           this.html = html2;
+          this.viewOnly = Boolean(viewOnly);
         }
         eq(other) {
-          return other.html === this.html;
+          return other.html === this.html && other.viewOnly === this.viewOnly;
         }
         toDOM() {
           const wrapper = document.createElement("div");
           wrapper.className = "cm-md-table-block";
           wrapper.innerHTML = this.html;
-          wrapper.addEventListener("click", function(event) {
-            const target = event.target instanceof HTMLElement ? event.target : null;
-            const cell = target ? target.closest("[data-table-cell]") : null;
-            if (cell) {
-              event.preventDefault();
-              const tableBlock = cell.closest(".markdown-table-block");
-              const rect = (tableBlock instanceof HTMLElement ? tableBlock : cell).getBoundingClientRect();
-              cell.dispatchEvent(new CustomEvent("noterious:table-open", {
-                bubbles: true,
-                detail: {
-                  startLine: cell.getAttribute("data-table-start-line") || "",
-                  row: cell.getAttribute("data-table-row") || "",
-                  col: cell.getAttribute("data-table-col") || "",
-                  left: String(Math.round(rect.left)),
-                  top: String(Math.round(rect.top)),
-                  width: String(Math.round(rect.width))
-                }
-              }));
-              return;
-            }
-          });
+          if (!this.viewOnly) {
+            wrapper.addEventListener("click", function(event) {
+              const target = event.target instanceof HTMLElement ? event.target : null;
+              const cell = target ? target.closest("[data-table-cell]") : null;
+              if (cell) {
+                event.preventDefault();
+                const tableBlock = cell.closest(".markdown-table-block");
+                const rect = (tableBlock instanceof HTMLElement ? tableBlock : cell).getBoundingClientRect();
+                cell.dispatchEvent(new CustomEvent("noterious:table-open", {
+                  bubbles: true,
+                  detail: {
+                    startLine: cell.getAttribute("data-table-start-line") || "",
+                    row: cell.getAttribute("data-table-row") || "",
+                    col: cell.getAttribute("data-table-col") || "",
+                    left: String(Math.round(rect.left)),
+                    top: String(Math.round(rect.top)),
+                    width: String(Math.round(rect.width))
+                  }
+                }));
+                return;
+              }
+            });
+          }
           return wrapper;
         }
         ignoreEvent() {
@@ -40728,17 +40758,17 @@
           return null;
         }
         const prefix = String(match[1] || "");
-        const depth = (prefix.match(/>/g) || []).length;
-        if (!depth) {
+        const depth2 = (prefix.match(/>/g) || []).length;
+        if (!depth2) {
           return null;
         }
         return {
           prefixLength: prefix.length,
-          depth
+          depth: depth2
         };
       }
-      function quoteLineStyle(depth, connectAbove, connectBelow) {
-        const safeDepth = Math.max(1, Number(depth) || 1);
+      function quoteLineStyle(depth2, connectAbove, connectBelow) {
+        const safeDepth = Math.max(1, Number(depth2) || 1);
         const quoteStepWidth = 0.72;
         const gutterWidth = String(safeDepth * quoteStepWidth) + "rem";
         return "--quote-depth:" + String(safeDepth) + ";--quote-gutter-width:" + gutterWidth + ";--quote-step-width:" + String(quoteStepWidth) + "rem;--quote-top-gap:" + (connectAbove ? "0" : "0.14em") + ";--quote-bottom-gap:" + (connectBelow ? "0" : "0.14em") + ";";
@@ -41834,7 +41864,13 @@
         const queryBlocks = state.field(queryBlocksField);
         const tasks = state.field(tasksField);
         const expandedCodeBlocks = state.field(expandedCodeBlocksField);
-        const selection = state.selection.main;
+        const viewOnly = state.field(viewOnlyField, false);
+        const selection = viewOnly ? {
+          from: -1,
+          to: -1,
+          head: -1,
+          empty: true
+        } : state.selection.main;
         const currentPagePath = state.field(pagePathField);
         const markdown2 = state.doc.toString();
         const lines = markdown2.split("\n");
@@ -41891,7 +41927,7 @@
               tableEndLine.to,
               Decoration.replace({
                 block: true,
-                widget: new MarkdownTableWidget(tableBlock.html)
+                widget: new MarkdownTableWidget(tableBlock.html, viewOnly)
               })
             );
             addAtomicRange(atomicBuilder, line.from, tableEndLine.to);
@@ -41921,7 +41957,7 @@
               endLine.to,
               Decoration.replace({
                 block: true,
-                widget: new QueryBlockWidget(html2, editLineNumber)
+                widget: new QueryBlockWidget(html2, editLineNumber, viewOnly)
               })
             );
             addAtomicRange(atomicBuilder, line.from, endLine.to);
@@ -41969,7 +42005,7 @@
               if (codeLineNumber === lineNumber) {
                 classNames.push("cm-md-code-block-start");
                 replaceDecoration = Decoration.replace({
-                  widget: new CodeToolbarWidget(codeBlock.content, codeBlock.language, codeBlockKey, canCollapse, expanded, hiddenLineCount)
+                  widget: new CodeToolbarWidget(codeBlock.content, codeBlock.language, codeBlockKey, canCollapse, expanded, hiddenLineCount, viewOnly)
                 });
               } else if (codeLineNumber === codeBlock.endLineIndex + 1) {
                 classNames.push("cm-md-code-block-end", "cm-md-code-fence-hidden");
@@ -42070,25 +42106,27 @@
             const prefixLength = match[0].length;
             const bodyText = text.slice(prefixLength);
             builder.add(from, from, Decoration.line({ class: "cm-md-task-line" + (task.done ? " cm-md-task-done" : "") }));
-            builder.add(from, from + prefixLength, Decoration.replace({ widget: new TaskCheckboxWidget(task.done, task.ref, indentLength) }));
+            builder.add(from, from + prefixLength, Decoration.replace({ widget: new TaskCheckboxWidget(task.done, task.ref, indentLength, viewOnly) }));
             addAtomicRange(atomicBuilder, from, from + prefixLength);
             inlineStart = prefixLength;
-            let dateMatch = null;
-            while ((dateMatch = taskInlineDatePattern2.exec(bodyText)) !== null) {
-              const field = String(dateMatch[1] || "");
-              const start = from + prefixLength + dateMatch.index;
-              const end = start + dateMatch[0].length;
-              inlineExtraDecos.push({
-                from: start,
-                to: end,
-                deco: Decoration.mark({
-                  class: "cm-md-task-inline-date",
-                  attributes: {
-                    "data-task-date-edit": field,
-                    "data-task-ref": task.ref || ""
-                  }
-                })
-              });
+            if (!viewOnly) {
+              let dateMatch = null;
+              while ((dateMatch = taskInlineDatePattern2.exec(bodyText)) !== null) {
+                const field = String(dateMatch[1] || "");
+                const start = from + prefixLength + dateMatch.index;
+                const end = start + dateMatch[0].length;
+                inlineExtraDecos.push({
+                  from: start,
+                  to: end,
+                  deco: Decoration.mark({
+                    class: "cm-md-task-inline-date",
+                    attributes: {
+                      "data-task-date-edit": field,
+                      "data-task-ref": task.ref || ""
+                    }
+                  })
+                });
+              }
             }
             taskInlineDatePattern2.lastIndex = 0;
             if (task.text && bodyText.startsWith(task.text) && task.who && task.who.length) {
@@ -42224,6 +42262,19 @@
           return value;
         }
       });
+      var viewOnlyField = StateField.define({
+        create() {
+          return false;
+        },
+        update(value, transaction) {
+          for (const effect of transaction.effects) {
+            if (effect.is(setViewOnlyEffect)) {
+              return Boolean(effect.value);
+            }
+          }
+          return value;
+        }
+      });
       var pagePathField = StateField.define({
         create() {
           return "";
@@ -42243,9 +42294,10 @@
         },
         update(value, transaction) {
           const modeChanged = transaction.effects.some((effect) => effect.is(setRenderModeEffect));
+          const viewOnlyChanged = transaction.effects.some((effect) => effect.is(setViewOnlyEffect));
           const tasksChanged = transaction.effects.some((effect) => effect.is(setTasksEffect));
           const codeBlocksChanged = transaction.effects.some((effect) => effect.is(toggleCodeBlockExpandedEffect));
-          if (!modeChanged && !tasksChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
+          if (!modeChanged && !viewOnlyChanged && !tasksChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
             return value;
           }
           return buildRenderedDecorations(transaction.state);
@@ -42305,6 +42357,9 @@
           let suppressInput = false;
           const eventHandlers = EditorView.domEventHandlers({
             paste(event, view2) {
+              if (view2.state.field(viewOnlyField, false)) {
+                return false;
+              }
               const text = event.clipboardData ? event.clipboardData.getData("text/plain") : "";
               if (!text || !/^https?:\/\/\S+$/i.test(text.trim())) {
                 return false;
@@ -42324,6 +42379,7 @@
             },
             mousedown(event, view2) {
               clearSearchHitHighlight(view2);
+              const viewOnly = view2.state.field(viewOnlyField, false);
               const target = event.target instanceof Element ? event.target : null;
               const pageLink = target ? target.closest("[data-page-link]") : null;
               if (pageLink) {
@@ -42351,6 +42407,9 @@
               }
               const queryEdit = target ? target.closest("[data-query-edit]") : null;
               if (queryEdit) {
+                if (viewOnly) {
+                  return true;
+                }
                 event.preventDefault();
                 const lineNumber = Number(queryEdit.getAttribute("data-query-edit") || "0");
                 if (lineNumber > 0 && lineNumber <= view2.state.doc.lines) {
@@ -42378,6 +42437,9 @@
               }
               const codeToggle = target ? target.closest("[data-code-toggle]") : null;
               if (codeToggle) {
+                if (viewOnly) {
+                  return true;
+                }
                 event.preventDefault();
                 const key = String(codeToggle.getAttribute("data-code-toggle") || "");
                 if (key) {
@@ -42389,6 +42451,9 @@
               }
               const taskToggle = target ? target.closest("[data-task-toggle]") : null;
               if (taskToggle) {
+                if (viewOnly) {
+                  return true;
+                }
                 event.preventDefault();
                 const taskCarrier = target ? target.closest("[data-task-ref]") : null;
                 const taskRef = taskCarrier ? taskCarrier.getAttribute("data-task-ref") || "" : "";
@@ -42405,6 +42470,9 @@
               }
               const taskDateEdit = target ? target.closest("[data-task-date-edit]") : null;
               if (taskDateEdit) {
+                if (viewOnly) {
+                  return true;
+                }
                 event.preventDefault();
                 const trigger = taskDateEdit instanceof HTMLElement ? taskDateEdit : null;
                 const rect = trigger ? trigger.getBoundingClientRect() : null;
@@ -42423,6 +42491,9 @@
               }
               const taskDelete = target ? target.closest("[data-task-delete]") : null;
               if (taskDelete) {
+                if (viewOnly) {
+                  return true;
+                }
                 event.preventDefault();
                 host.dispatchEvent(new CustomEvent("noterious:task-delete", {
                   detail: {
@@ -42435,9 +42506,10 @@
               return false;
             },
             keydown(event, view2) {
+              const viewOnly = view2.state.field(viewOnlyField, false);
               const target = event.target instanceof Element ? event.target : null;
               const taskToggle = target ? target.closest("[data-task-toggle]") : null;
-              if (taskToggle && (event.key === " " || event.key === "Enter")) {
+              if (!viewOnly && taskToggle && (event.key === " " || event.key === "Enter")) {
                 event.preventDefault();
                 const taskRef = taskToggle.getAttribute("data-task-ref") || "";
                 const position = view2.posAtDOM(taskToggle);
@@ -42476,104 +42548,109 @@
               return false;
             }
           });
-          const view = new EditorView({
-            state: EditorState.create({
-              doc: textarea.value || "",
-              extensions: [
-                editableCompartment.of(EditorView.editable.of(true)),
-                readOnlyCompartment.of(EditorState.readOnly.of(false)),
-                history(),
-                drawSelection(),
-                highlightActiveLine(),
-                keymap.of([
-                  {
-                    key: "ArrowUp",
-                    run(view2) {
-                      return handleRenderedVerticalArrow(view2, "ArrowUp");
-                    }
-                  },
-                  {
-                    key: "ArrowDown",
-                    run(view2) {
-                      return handleRenderedVerticalArrow(view2, "ArrowDown");
-                    }
-                  },
-                  {
-                    key: "Shift-ArrowUp",
-                    run(view2) {
-                      return handleRenderedVerticalArrow(view2, "ArrowUp", true);
-                    }
-                  },
-                  {
-                    key: "Shift-ArrowDown",
-                    run(view2) {
-                      return handleRenderedVerticalArrow(view2, "ArrowDown", true);
-                    }
-                  },
-                  {
-                    key: "ArrowLeft",
-                    run(view2) {
-                      return handleRenderedHiddenPrefixHorizontalBoundary(view2, "ArrowLeft");
-                    }
-                  },
-                  {
-                    key: "ArrowRight",
-                    run(view2) {
-                      return handleRenderedHiddenPrefixHorizontalBoundary(view2, "ArrowRight");
-                    }
-                  },
-                  {
-                    key: "Home",
-                    run(view2) {
-                      return handleRenderedLineBoundary(view2, "Home");
-                    }
-                  },
-                  {
-                    key: "End",
-                    run(view2) {
-                      return handleRenderedLineBoundary(view2, "End");
-                    }
-                  },
-                  {
-                    key: "Shift-Home",
-                    run(view2) {
-                      return handleRenderedLineBoundary(view2, "Home", true);
-                    }
-                  },
-                  {
-                    key: "Shift-End",
-                    run(view2) {
-                      return handleRenderedLineBoundary(view2, "End", true);
-                    }
-                  },
-                  indentWithTab,
-                  ...defaultKeymap,
-                  ...historyKeymap
-                ]),
-                EditorView.lineWrapping,
-                markdown({
-                  codeLanguages
-                }),
-                syntaxHighlighting(themedHighlight, { fallback: true }),
-                renderModeField,
-                pagePathField,
-                highlightedLineField,
-                queryBlocksField,
-                tasksField,
-                expandedCodeBlocksField,
-                highlightedLineDecorationsField,
-                renderedDecorationsField,
-                renderedFrontmatterBoundaryFilter,
-                eventHandlers,
-                EditorView.updateListener.of((update) => {
-                  const value = update.state.doc.toString();
-                  setTextareaValue(textarea, value);
-                  if (update.docChanged && !suppressInput) {
-                    syncTextareaValue(textarea, value);
-                  }
-                })
-              ]
+          const extensions = [
+            editableCompartment.of(EditorView.editable.of(true)),
+            readOnlyCompartment.of(EditorState.readOnly.of(false)),
+            history(),
+            drawSelection(),
+            highlightActiveLine(),
+            keymap.of([
+              {
+                key: "ArrowUp",
+                run(view2) {
+                  return handleRenderedVerticalArrow(view2, "ArrowUp");
+                }
+              },
+              {
+                key: "ArrowDown",
+                run(view2) {
+                  return handleRenderedVerticalArrow(view2, "ArrowDown");
+                }
+              },
+              {
+                key: "Shift-ArrowUp",
+                run(view2) {
+                  return handleRenderedVerticalArrow(view2, "ArrowUp", true);
+                }
+              },
+              {
+                key: "Shift-ArrowDown",
+                run(view2) {
+                  return handleRenderedVerticalArrow(view2, "ArrowDown", true);
+                }
+              },
+              {
+                key: "ArrowLeft",
+                run(view2) {
+                  return handleRenderedHiddenPrefixHorizontalBoundary(view2, "ArrowLeft");
+                }
+              },
+              {
+                key: "ArrowRight",
+                run(view2) {
+                  return handleRenderedHiddenPrefixHorizontalBoundary(view2, "ArrowRight");
+                }
+              },
+              {
+                key: "Home",
+                run(view2) {
+                  return handleRenderedLineBoundary(view2, "Home");
+                }
+              },
+              {
+                key: "End",
+                run(view2) {
+                  return handleRenderedLineBoundary(view2, "End");
+                }
+              },
+              {
+                key: "Shift-Home",
+                run(view2) {
+                  return handleRenderedLineBoundary(view2, "Home", true);
+                }
+              },
+              {
+                key: "Shift-End",
+                run(view2) {
+                  return handleRenderedLineBoundary(view2, "End", true);
+                }
+              },
+              indentWithTab,
+              ...defaultKeymap,
+              ...historyKeymap
+            ]),
+            EditorView.lineWrapping,
+            markdown({
+              codeLanguages
             }),
+            syntaxHighlighting(themedHighlight, { fallback: true }),
+            renderModeField,
+            viewOnlyField,
+            pagePathField,
+            highlightedLineField,
+            queryBlocksField,
+            tasksField,
+            expandedCodeBlocksField,
+            highlightedLineDecorationsField,
+            renderedDecorationsField,
+            renderedFrontmatterBoundaryFilter,
+            eventHandlers,
+            EditorView.updateListener.of((update) => {
+              const value = update.state.doc.toString();
+              setTextareaValue(textarea, value);
+              if (update.docChanged && !suppressInput) {
+                syncTextareaValue(textarea, value);
+              }
+            })
+          ];
+          function createViewState(value) {
+            return EditorState.create({
+              doc: value,
+              extensions
+            });
+          }
+          const view = new EditorView({
+            state: createViewState(textarea.value || ""),
             parent: host
           });
           bindTransientScrollClass(view.scrollDOM, "is-scrolling");
@@ -42597,6 +42674,18 @@
               suppressInput = false;
               setTextareaValue(textarea, nextValue);
             },
+            resetValue(value) {
+              const nextValue = String(value || "");
+              const current = view.state.doc.toString();
+              if (nextValue === current) {
+                setTextareaValue(textarea, nextValue);
+                return;
+              }
+              suppressInput = true;
+              view.setState(createViewState(nextValue));
+              suppressInput = false;
+              setTextareaValue(textarea, nextValue);
+            },
             replaceRange(from, to, insert2) {
               const max = view.state.doc.length;
               const nextFrom = Math.max(0, Math.min(Number(from) || 0, max));
@@ -42612,6 +42701,18 @@
               });
               suppressInput = false;
               setTextareaValue(textarea, view.state.doc.toString());
+            },
+            undo() {
+              return undo(view);
+            },
+            redo() {
+              return redo(view);
+            },
+            canUndo() {
+              return undoDepth(view.state) > 0;
+            },
+            canRedo() {
+              return redoDepth(view.state) > 0;
             },
             focus(options) {
               try {
@@ -42685,6 +42786,24 @@
                 effects: setRenderModeEffect.of(Boolean(enabled))
               });
               if (enabled) {
+                const protectedUntil = renderedBodyStartOffset(view.state);
+                let clampedSelection = clampSelectionToOffset(view.state.selection, protectedUntil);
+                clampedSelection = clampSelectionToRenderedVisibleOffsets(view.state, clampedSelection);
+                if (!clampedSelection.eq(view.state.selection, true)) {
+                  view.dispatch({
+                    selection: clampedSelection,
+                    scrollIntoView: true
+                  });
+                }
+              }
+            },
+            setViewOnly(enabled) {
+              const viewOnly = Boolean(enabled);
+              host.classList.toggle("is-view-only", viewOnly);
+              view.dispatch({
+                effects: setViewOnlyEffect.of(viewOnly)
+              });
+              if (viewOnly && view.state.field(renderModeField, false)) {
                 const protectedUntil = renderedBodyStartOffset(view.state);
                 let clampedSelection = clampSelectionToOffset(view.state.selection, protectedUntil);
                 clampedSelection = clampSelectionToRenderedVisibleOffsets(view.state, clampedSelection);

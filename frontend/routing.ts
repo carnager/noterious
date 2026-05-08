@@ -18,9 +18,10 @@ export interface NavigateToPageOptions {
   pagePath: string;
   lineNumber?: number | string;
   taskRef?: string;
+  anchor?: string;
   replace: boolean;
   onExpandAncestors(pagePath: string): void;
-  onSetPendingFocus(lineNumber: number | null, taskRef: string): void;
+  onSetPendingFocus(lineNumber: number | null, taskRef: string, anchor: string): void;
   onSelectPage(pagePath: string): void;
   onSyncURL(replace: boolean): void;
   onRenderPages(): void;
@@ -82,7 +83,11 @@ export function navigateToPageSelection(options: NavigateToPageOptions): void {
   }
   const parsedLine = Number(options.lineNumber);
   const pendingLine = Number.isFinite(parsedLine) && parsedLine > 0 ? parsedLine : null;
-  options.onSetPendingFocus(pendingLine, String(options.taskRef || "").trim());
+  options.onSetPendingFocus(
+    pendingLine,
+    String(options.taskRef || "").trim(),
+    String(options.anchor || "").trim()
+  );
   options.onSelectPage(options.pagePath);
   options.onExpandAncestors(options.pagePath);
   options.onSyncURL(Boolean(options.replace));

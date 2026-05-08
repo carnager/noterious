@@ -19434,6 +19434,136 @@
     }
   });
 
+  // frontend/pageAnchors.ts
+  function safeDecodeURIComponent(value) {
+    try {
+      return decodeURIComponent(value);
+    } catch (_error) {
+      return value;
+    }
+  }
+  function normalizePageAnchor(value) {
+    const decoded = safeDecodeURIComponent(String(value || "").trim().replace(/^#+/, ""));
+    return decoded.trim();
+  }
+  function slugifyHeadingAnchor(text) {
+    const source = normalizePageAnchor(text).toLowerCase();
+    let result = "";
+    let lastDash = false;
+    for (let index = 0; index < source.length; index += 1) {
+      const char = source[index];
+      const isAlpha = char >= "a" && char <= "z";
+      const isDigit = char >= "0" && char <= "9";
+      if (isAlpha || isDigit) {
+        result += char;
+        lastDash = false;
+        continue;
+      }
+      if (char === " " || char === "-" || char === "_" || char === "/") {
+        if (result && !lastDash) {
+          result += "-";
+          lastDash = true;
+        }
+      }
+    }
+    return result.replace(/^-+|-+$/g, "");
+  }
+  function parsePageAnchorTarget(target, currentPagePath) {
+    const raw = String(target || "").trim();
+    if (!raw) {
+      return null;
+    }
+    const hashIndex = raw.indexOf("#");
+    const pagePart = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
+    const anchorPart = hashIndex >= 0 ? raw.slice(hashIndex + 1) : "";
+    const pagePath = normalizePageDraftPath(pagePart || currentPagePath || "");
+    const anchor = normalizePageAnchor(anchorPart);
+    if (!pagePath) {
+      return null;
+    }
+    return {
+      pagePath,
+      anchor
+    };
+  }
+  function splitMarkdownFrontmatter(markdown) {
+    const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+    if (!lines.length || String(lines[0] || "").trim() !== "---") {
+      return {
+        bodyLines: lines,
+        bodyStartLine: 0
+      };
+    }
+    for (let index = 1; index < lines.length; index += 1) {
+      const trimmed = String(lines[index] || "").trim();
+      if (trimmed === "---" || trimmed === "...") {
+        return {
+          bodyLines: lines.slice(index + 1),
+          bodyStartLine: index + 1
+        };
+      }
+    }
+    return {
+      bodyLines: lines,
+      bodyStartLine: 0
+    };
+  }
+  function extractHeadingAnchors(markdown) {
+    const split = splitMarkdownFrontmatter(markdown);
+    const headings = [];
+    const anchorCounts = {};
+    split.bodyLines.forEach(function(line, index) {
+      const match = String(line || "").match(/^\s{0,3}(#{1,6})\s+(.+?)\s*$/);
+      if (!match) {
+        return;
+      }
+      const text = String(match[2] || "").trim();
+      if (!text) {
+        return;
+      }
+      const baseAnchor = slugifyHeadingAnchor(text) || "section-" + String(split.bodyStartLine + index + 1);
+      const nextCount = (anchorCounts[baseAnchor] || 0) + 1;
+      anchorCounts[baseAnchor] = nextCount;
+      headings.push({
+        level: String(match[1] || "").length,
+        text,
+        anchor: nextCount > 1 ? baseAnchor + "-" + String(nextCount) : baseAnchor,
+        line: split.bodyStartLine + index + 1
+      });
+    });
+    return headings;
+  }
+  function resolveHeadingAnchorLine(toc, anchor) {
+    const normalizedAnchor = normalizePageAnchor(anchor);
+    if (!normalizedAnchor) {
+      return null;
+    }
+    const exactNeedle = normalizedAnchor.toLowerCase();
+    const slugNeedle = slugifyHeadingAnchor(normalizedAnchor);
+    const exactMatch = (Array.isArray(toc) ? toc : []).find(function(heading2) {
+      return String(heading2.anchor || "").trim().toLowerCase() === exactNeedle;
+    });
+    if (exactMatch && Number(exactMatch.line) > 0) {
+      return Number(exactMatch.line);
+    }
+    const slugMatch = (Array.isArray(toc) ? toc : []).find(function(heading2) {
+      return String(heading2.anchor || "").trim().toLowerCase() === slugNeedle || slugifyHeadingAnchor(String(heading2.text || "")) === slugNeedle;
+    });
+    if (slugMatch && Number(slugMatch.line) > 0) {
+      return Number(slugMatch.line);
+    }
+    return null;
+  }
+  function resolveHeadingAnchorLineInMarkdown(markdown, anchor) {
+    return resolveHeadingAnchorLine(extractHeadingAnchors(markdown), anchor);
+  }
+  var init_pageAnchors = __esm({
+    "frontend/pageAnchors.ts"() {
+      "use strict";
+      init_commands();
+    }
+  });
+
   // frontend/details.ts
   async function toggleTaskDone(task) {
     await fetchJSON("/api/tasks/" + encodeURIComponent(task.ref), {
@@ -19468,7 +19598,7 @@
       return Number(task.line) === normalizedLineNumber;
     }) || null;
   }
-  async function loadPageDetailData(pagePath, encodePath, pendingPageTaskRef, pendingPageLineFocus) {
+  async function loadPageDetailData(pagePath, encodePath, pendingPageTaskRef, pendingPageLineFocus, pendingPageAnchorFocus = "") {
     const [page, derived] = await Promise.all([
       fetchJSON("/api/pages/" + encodePath(pagePath)),
       fetchJSON("/api/pages/" + encodePath(pagePath) + "/derived")
@@ -19479,9 +19609,11 @@
       if (matchedTask && matchedTask.line) {
         targetLine = matchedTask.line;
       }
+    } else if (pendingPageAnchorFocus) {
+      targetLine = resolveHeadingAnchorLine(derived.toc || [], pendingPageAnchorFocus);
     }
     const markdown = page.rawMarkdown || "";
-    const focusOffset = pendingPageTaskRef || pendingPageLineFocus ? pendingPageTaskRef ? rawOffsetForTaskLine(markdown, targetLine || 1) : rawOffsetForLineNumber(markdown, targetLine || 1) : null;
+    const focusOffset = pendingPageTaskRef || pendingPageLineFocus || pendingPageAnchorFocus ? pendingPageTaskRef ? rawOffsetForTaskLine(markdown, targetLine || 1) : rawOffsetForLineNumber(markdown, targetLine || 1) : null;
     return {
       page,
       derived,
@@ -19515,6 +19647,7 @@
       "use strict";
       init_http();
       init_markdown();
+      init_pageAnchors();
     }
   });
 
@@ -19578,6 +19711,10 @@
       return normalizedPath.slice(normalizedScope.length + 1);
     }
     return normalizedPath;
+  }
+  function displayAbsolutePath(path) {
+    const normalizedPath = normalizePath2(path);
+    return normalizedPath ? "/" + normalizedPath : "/";
   }
   function samePath(left, right) {
     return normalizePath2(left).toLowerCase() === normalizePath2(right).toLowerCase();
@@ -19667,6 +19804,86 @@
     }
     return filtered.slice(0, 6);
   }
+  function normalizeMoveFolderInput(input) {
+    const raw = String(input || "").trim().replace(/\\/g, "/");
+    if (raw === "/") {
+      return { raw, root: true, normalized: "" };
+    }
+    return {
+      raw,
+      root: false,
+      normalized: normalizePath2(raw)
+    };
+  }
+  function resolveMoveTargetFolder(input, scopePrefix, folders) {
+    const normalizedScope = normalizePath2(scopePrefix);
+    const parsed = normalizeMoveFolderInput(input);
+    if (parsed.root) {
+      return {
+        raw: parsed.raw,
+        root: true,
+        normalizedInput: "/",
+        targetFolder: normalizedScope
+      };
+    }
+    if (!parsed.normalized) {
+      return {
+        raw: parsed.raw,
+        root: false,
+        normalizedInput: "",
+        targetFolder: ""
+      };
+    }
+    if (!normalizedScope) {
+      return {
+        raw: parsed.raw,
+        root: false,
+        normalizedInput: parsed.normalized,
+        targetFolder: parsed.normalized
+      };
+    }
+    if (pathWithinScope(parsed.normalized, normalizedScope) || folders.has(parsed.normalized.toLowerCase())) {
+      return {
+        raw: parsed.raw,
+        root: false,
+        normalizedInput: parsed.normalized,
+        targetFolder: parsed.normalized
+      };
+    }
+    return {
+      raw: parsed.raw,
+      root: false,
+      normalizedInput: parsed.normalized,
+      targetFolder: applyScopePrefix(parsed.normalized, normalizedScope)
+    };
+  }
+  function buildMoveSuggestions(kind, sourcePath, scopePrefix, folders) {
+    const normalizedSource = normalizePath2(sourcePath);
+    const normalizedScope = normalizePath2(scopePrefix);
+    const sourceLeaf = pageTitleFromPath(normalizedSource);
+    const allFolders = sortedUniqueFolders(folders);
+    const suggestions = [{
+      value: "/",
+      label: displayAbsolutePath(normalizedScope)
+    }];
+    allFolders.forEach(function(folder) {
+      if (!folder || samePath(folder, normalizedScope)) {
+        return;
+      }
+      if (kind === "folder" && (samePath(folder, normalizedSource) || folder.startsWith(normalizedSource + "/"))) {
+        return;
+      }
+      const targetPath = joinPath(folder, sourceLeaf);
+      if (samePath(targetPath, normalizedSource)) {
+        return;
+      }
+      suggestions.push({
+        value: folder,
+        label: displayAbsolutePath(folder)
+      });
+    });
+    return suggestions;
+  }
   function buildPathDialogAssist(options) {
     const kind = options.kind;
     const action = options.action;
@@ -19725,6 +19942,50 @@
       helper,
       helperTone,
       suggestions: filterSuggestions(normalizedInput, suggestionPool)
+    };
+  }
+  function buildPathMoveAssist(options) {
+    const normalizedSource = normalizePath2(options.sourcePath || "");
+    const normalizedScope = normalizePath2(options.scopePrefix || "");
+    const pages = pathSet(options.pages);
+    const folderList = sortedUniqueFolders(options.folders);
+    const folders = pathSet(folderList);
+    const resolved = resolveMoveTargetFolder(options.input, normalizedScope, folders);
+    const targetFolder = resolved.targetFolder;
+    const targetPath = targetFolder ? joinPath(targetFolder, pageTitleFromPath(normalizedSource)) : pageTitleFromPath(normalizedSource);
+    let error = "";
+    if (!normalizedSource) {
+      error = "Missing source path.";
+    } else if (!resolved.root && !resolved.normalizedInput) {
+      error = "Choose a target folder.";
+    } else if (!resolved.root && targetFolder && !folders.has(targetFolder.toLowerCase())) {
+      error = 'Folder "' + targetFolder + '" does not exist.';
+    } else if (samePath(targetPath, normalizedSource)) {
+      error = "No change yet.";
+    } else if (options.kind === "folder" && (samePath(targetFolder, normalizedSource) || targetFolder.startsWith(normalizedSource + "/"))) {
+      error = "A folder cannot be moved into itself.";
+    } else if (options.kind === "note" && pages.has(targetPath.toLowerCase())) {
+      error = 'A note already exists at "' + targetPath + '".';
+    } else if (options.kind === "folder" && folders.has(targetPath.toLowerCase())) {
+      error = 'A folder already exists at "' + targetPath + '".';
+    }
+    let helper = "";
+    let helperTone = "neutral";
+    if (!error && targetPath) {
+      helper = 'Destination: "' + displayAbsolutePath(targetPath) + '".';
+      if (normalizedScope && !pathWithinScope(targetPath, normalizedScope)) {
+        helper += " Leaves the current scope.";
+        helperTone = "warn";
+      }
+    }
+    return {
+      normalizedInput: resolved.normalizedInput,
+      targetFolder,
+      targetPath,
+      error,
+      helper,
+      helperTone,
+      suggestions: filterSuggestions(resolved.normalizedInput === "/" ? "" : resolved.normalizedInput, buildMoveSuggestions(options.kind, normalizedSource, normalizedScope, folderList))
     };
   }
   var init_pathAssist = __esm({
@@ -19869,6 +20130,10 @@
     }
     return normalizedPath;
   }
+  function displayAbsolutePath2(path) {
+    const normalizedPath = normalizeFolderPath(path);
+    return normalizedPath ? "/" + normalizedPath : "/";
+  }
   function sortedUniqueFolders2(folders) {
     return Array.from(new Set((Array.isArray(folders) ? folders : []).map(normalizeFolderPath).filter(Boolean))).sort();
   }
@@ -19893,6 +20158,80 @@
       }).slice(0, 6);
     }
     return filtered.slice(0, 6);
+  }
+  function normalizeMoveFolderInput2(input) {
+    const raw = String(input || "").trim().replace(/\\/g, "/");
+    if (raw === "/") {
+      return { raw, root: true, normalized: "" };
+    }
+    return {
+      raw,
+      root: false,
+      normalized: normalizeFolderPath(raw)
+    };
+  }
+  function applyScopePrefix2(path, scopePrefix) {
+    const normalizedPath = normalizeFolderPath(path);
+    const normalizedScope = normalizeFolderPath(scopePrefix);
+    if (!normalizedPath) {
+      return "";
+    }
+    if (!normalizedScope || normalizedPath === normalizedScope || normalizedPath.startsWith(normalizedScope + "/")) {
+      return normalizedPath;
+    }
+    return normalizedScope + "/" + normalizedPath;
+  }
+  function resolveMoveTargetFolder2(input, scopePrefix, folders) {
+    const normalizedScope = normalizeFolderPath(scopePrefix);
+    const parsed = normalizeMoveFolderInput2(input);
+    if (parsed.root) {
+      return {
+        normalizedInput: "/",
+        targetFolder: normalizedScope,
+        root: true
+      };
+    }
+    if (!parsed.normalized) {
+      return {
+        normalizedInput: "",
+        targetFolder: "",
+        root: false
+      };
+    }
+    if (!normalizedScope || pathWithinScope2(parsed.normalized, normalizedScope) || folders.has(parsed.normalized.toLowerCase())) {
+      return {
+        normalizedInput: parsed.normalized,
+        targetFolder: parsed.normalized,
+        root: false
+      };
+    }
+    return {
+      normalizedInput: parsed.normalized,
+      targetFolder: applyScopePrefix2(parsed.normalized, normalizedScope),
+      root: false
+    };
+  }
+  function buildMoveSuggestions2(sourcePath, scopePrefix, folders) {
+    const normalizedScope = normalizeFolderPath(scopePrefix);
+    const sourceLeaf = pathLeaf2(sourcePath);
+    const suggestions = [{
+      value: "/",
+      label: displayAbsolutePath2(normalizedScope)
+    }];
+    sortedUniqueFolders2(folders).forEach(function(folder) {
+      if (!folder || samePath2(folder, normalizedScope)) {
+        return;
+      }
+      const targetPath = joinPath2(folder, sourceLeaf);
+      if (samePath2(targetPath, sourcePath)) {
+        return;
+      }
+      suggestions.push({
+        value: folder,
+        label: displayAbsolutePath2(folder)
+      });
+    });
+    return suggestions;
   }
   function buildRenameSuggestions2(sourcePath, scopePrefix, folders) {
     const sourceLeaf = pathLeaf2(sourcePath);
@@ -19958,6 +20297,45 @@
       helper,
       helperTone,
       suggestions: filterSuggestions2(normalizedInput, buildRenameSuggestions2(normalizedSource, normalizedScope, options.folders))
+    };
+  }
+  function buildDocumentMoveAssist(options) {
+    const normalizedSource = normalizeDocumentDraftPath(options.sourcePath || "");
+    const normalizedScope = normalizeFolderPath(options.scopePrefix || "");
+    const documents = pathSet2(options.documents);
+    const folders = pathSet2(options.folders);
+    const resolved = resolveMoveTargetFolder2(options.input, normalizedScope, folders);
+    const targetFolder = resolved.targetFolder;
+    const targetPath = joinPath2(targetFolder, pathLeaf2(normalizedSource));
+    let error = "";
+    if (!normalizedSource) {
+      error = "Missing source path.";
+    } else if (!resolved.root && !resolved.normalizedInput) {
+      error = "Choose a target folder.";
+    } else if (!resolved.root && targetFolder && !folders.has(targetFolder.toLowerCase())) {
+      error = 'Folder "' + targetFolder + '" does not exist.';
+    } else if (samePath2(targetPath, normalizedSource)) {
+      error = "No change yet.";
+    } else if (documents.has(targetPath.toLowerCase())) {
+      error = 'A file already exists at "' + targetPath + '".';
+    }
+    let helper = "";
+    let helperTone = "neutral";
+    if (!error && targetPath) {
+      helper = 'Destination: "' + displayAbsolutePath2(targetPath) + '".';
+      if (normalizedScope && !pathWithinScope2(targetPath, normalizedScope)) {
+        helper += " Leaves the current scope.";
+        helperTone = "warn";
+      }
+    }
+    return {
+      normalizedInput: resolved.normalizedInput,
+      targetFolder,
+      targetPath,
+      error,
+      helper,
+      helperTone,
+      suggestions: filterSuggestions2(resolved.normalizedInput === "/" ? "" : resolved.normalizedInput, buildMoveSuggestions2(normalizedSource, normalizedScope, options.folders))
     };
   }
   var init_documentPathAssist = __esm({
@@ -20319,6 +20697,14 @@
     }
     elements.markdownEditor.value = value;
   }
+  function resetMarkdownEditorValue(state, elements, value) {
+    const api = markdownEditorAPI(state);
+    if (api && typeof api.resetValue === "function") {
+      api.resetValue(value);
+      return;
+    }
+    elements.markdownEditor.value = value;
+  }
   function markdownEditorSelectionStart(state, elements) {
     const api = markdownEditorAPI(state);
     return api ? api.getSelectionStart() : elements.markdownEditor.selectionStart || 0;
@@ -20326,6 +20712,34 @@
   function markdownEditorSelectionEnd(state, elements) {
     const api = markdownEditorAPI(state);
     return api ? api.getSelectionEnd() : elements.markdownEditor.selectionEnd || 0;
+  }
+  function markdownEditorUndo(state, elements) {
+    const api = markdownEditorAPI(state);
+    if (api && typeof api.undo === "function") {
+      return api.undo();
+    }
+    if (document.activeElement !== elements.markdownEditor) {
+      focusWithoutScroll(elements.markdownEditor);
+    }
+    return document.execCommand("undo");
+  }
+  function markdownEditorRedo(state, elements) {
+    const api = markdownEditorAPI(state);
+    if (api && typeof api.redo === "function") {
+      return api.redo();
+    }
+    if (document.activeElement !== elements.markdownEditor) {
+      focusWithoutScroll(elements.markdownEditor);
+    }
+    return document.execCommand("redo");
+  }
+  function markdownEditorCanUndo(state) {
+    const api = markdownEditorAPI(state);
+    return api && typeof api.canUndo === "function" ? api.canUndo() : true;
+  }
+  function markdownEditorCanRedo(state) {
+    const api = markdownEditorAPI(state);
+    return api && typeof api.canRedo === "function" ? api.canRedo() : true;
   }
   function setMarkdownEditorSelection(state, elements, anchor, head, reveal) {
     const api = markdownEditorAPI(state);
@@ -20392,6 +20806,12 @@
     }
     elements.markdownEditor.readOnly = !enabled;
     elements.markdownEditor.disabled = !enabled;
+  }
+  function markdownEditorSetViewOnly(state, enabled) {
+    const api = markdownEditorAPI(state);
+    if (api && typeof api.setViewOnly === "function") {
+      api.setViewOnly(Boolean(enabled));
+    }
   }
   function markdownEditorSetQueryBlocks(state, blocks) {
     const api = markdownEditorAPI(state);
@@ -21908,13 +22328,21 @@
     const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
     const movedSelectedPage = context.selectedPage ? remapPathPrefix(context.selectedPage, sourceFolder, movedFolder) : "";
     const movedHomePage = callbacks.currentHomePage() ? remapPathPrefix(callbacks.currentHomePage(), sourceFolder, movedFolder) : "";
+    const rewrittenPages = Array.isArray(payload.rewrittenPages) ? payload.rewrittenPages.map(normalizePageDraftPath).filter(Boolean) : [];
     remapExpandedFolderKeys(context.expandedPageFolders, sourceFolder, movedFolder);
     if (movedHomePage) {
       callbacks.setHomePage(movedHomePage);
     }
-    await callbacks.loadPages();
+    await Promise.all([
+      callbacks.loadPages(),
+      callbacks.loadDocuments ? callbacks.loadDocuments() : Promise.resolve()
+    ]);
     if (movedSelectedPage && movedSelectedPage !== context.selectedPage) {
       callbacks.navigateToPage(movedSelectedPage, false);
+      return;
+    }
+    if (context.selectedPage && rewrittenPages.indexOf(context.selectedPage) >= 0) {
+      callbacks.navigateToPage(context.selectedPage, false);
       return;
     }
     callbacks.renderPages();
@@ -21948,13 +22376,21 @@
     const movedFolder = normalizePageDraftPath(payload.folder || destinationFolder);
     const movedSelectedPage = context.selectedPage ? remapPathPrefix(context.selectedPage, sourceFolder, movedFolder) : "";
     const movedHomePage = callbacks.currentHomePage() ? remapPathPrefix(callbacks.currentHomePage(), sourceFolder, movedFolder) : "";
+    const rewrittenPages = Array.isArray(payload.rewrittenPages) ? payload.rewrittenPages.map(normalizePageDraftPath).filter(Boolean) : [];
     remapExpandedFolderKeys(context.expandedPageFolders, sourceFolder, movedFolder);
     if (movedHomePage) {
       callbacks.setHomePage(movedHomePage);
     }
-    await callbacks.loadPages();
+    await Promise.all([
+      callbacks.loadPages(),
+      callbacks.loadDocuments ? callbacks.loadDocuments() : Promise.resolve()
+    ]);
     if (movedSelectedPage && movedSelectedPage !== context.selectedPage) {
       callbacks.navigateToPage(movedSelectedPage, false);
+      return;
+    }
+    if (context.selectedPage && rewrittenPages.indexOf(context.selectedPage) >= 0) {
+      callbacks.navigateToPage(context.selectedPage, false);
       return;
     }
     callbacks.renderPages();
@@ -22324,6 +22760,86 @@
     }
     return normalizedPath;
   }
+  function inlineEditMatchesCreate(inlineEdit, kind, parentFolder3) {
+    return Boolean(
+      inlineEdit && inlineEdit.mode === "create" && inlineEdit.kind === kind && String(inlineEdit.parentFolder || "").trim().replace(/^\/+|\/+$/g, "") === String(parentFolder3 || "").trim().replace(/^\/+|\/+$/g, "")
+    );
+  }
+  function inlineEditMatchesRename(inlineEdit, kind, path) {
+    return Boolean(
+      inlineEdit && inlineEdit.mode === "rename" && inlineEdit.kind === kind && String(inlineEdit.sourcePath || "").trim().replace(/^\/+|\/+$/g, "") === String(path || "").trim().replace(/^\/+|\/+$/g, "")
+    );
+  }
+  function renderPageTreeInlineItem(kind, value, onValueChange, onCommit, onCancel) {
+    const item = document.createElement("div");
+    item.className = kind === "folder" ? "page-tree-node page-tree-folder page-tree-inline-node" : "page-tree-node page-tree-leaf page-tree-inline-node" + (kind === "document" ? " page-tree-document-leaf" : "");
+    const row = document.createElement("div");
+    row.className = "page-tree-row";
+    const shell = document.createElement("div");
+    shell.className = "page-tree-inline-editor";
+    if (kind === "folder") {
+      const chevron = document.createElement("span");
+      chevron.className = "page-tree-chevron page-tree-chevron-placeholder";
+      chevron.textContent = "\u25B8";
+      shell.appendChild(chevron);
+    }
+    const icon = document.createElement("span");
+    icon.className = "page-tree-icon";
+    icon.textContent = kind === "folder" ? "\u{1F4C1}" : kind === "document" ? "\u2197" : "\u2022";
+    shell.appendChild(icon);
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "page-tree-inline-input";
+    input.value = value;
+    input.placeholder = kind === "folder" ? "Untitled folder" : kind === "document" ? "untitled-file" : "Untitled";
+    input.autocapitalize = "none";
+    input.spellcheck = false;
+    input.setAttribute("data-page-tree-inline-input", "true");
+    let settled = false;
+    function finish(callback) {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      callback();
+    }
+    input.addEventListener("click", function(event) {
+      event.stopPropagation();
+    });
+    input.addEventListener("mousedown", function(event) {
+      event.stopPropagation();
+    });
+    input.addEventListener("contextmenu", function(event) {
+      event.stopPropagation();
+    });
+    input.addEventListener("input", function() {
+      onValueChange(input.value);
+    });
+    input.addEventListener("keydown", function(event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        finish(onCommit);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        finish(onCancel);
+      }
+    });
+    input.addEventListener("blur", function() {
+      window.setTimeout(function() {
+        if (!settled) {
+          finish(onCommit);
+        }
+      }, 0);
+    });
+    shell.appendChild(input);
+    row.appendChild(shell);
+    item.appendChild(row);
+    return item;
+  }
   function filterPagesByScope(pages, scopePrefix) {
     return (Array.isArray(pages) ? pages : []).filter(function(page) {
       return pageWithinScope(String(page.path || ""), scopePrefix);
@@ -22493,9 +23009,22 @@
     });
     return root;
   }
-  function renderPageTreeNode(node, depth, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder, onMoveDocument) {
+  function makeTreeActionIcon(pathData) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", pathData);
+    path.setAttribute("fill", "currentColor");
+    svg.appendChild(path);
+    return svg;
+  }
+  function renderPageTreeNode(node, currentFolderKey, depth, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder, onMoveDocument, inlineEdit, onInlineEditValueChange, onInlineEditCommit, onInlineEditCancel) {
     const group = document.createElement("div");
     group.className = depth === 0 ? "page-tree-root" : "page-tree-children";
+    if (inlineEditMatchesCreate(inlineEdit, "folder", currentFolderKey)) {
+      group.appendChild(renderPageTreeInlineItem("folder", inlineEdit?.value || "", onInlineEditValueChange, onInlineEditCommit, onInlineEditCancel));
+    }
     Object.keys(node.folders).sort().forEach(function(name2) {
       const folder = node.folders[name2];
       const item = document.createElement("div");
@@ -22534,38 +23063,68 @@
       });
       const row = document.createElement("div");
       row.className = "page-tree-row";
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "page-tree-toggle";
-      button.setAttribute("aria-expanded", expandedPageFolders[folder.key] ? "true" : "false");
-      makeDragSource(button, { kind: "folder", path: folder.key });
-      button.addEventListener("click", function() {
-        onToggleFolder(folder.key);
-      });
-      button.addEventListener("contextmenu", function(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onOpenContextMenu({ kind: "folder", path: folder.key, name: folder.name }, event.clientX, event.clientY);
-      });
-      const chevron = document.createElement("span");
-      chevron.className = "page-tree-chevron";
-      chevron.textContent = expandedPageFolders[folder.key] ? "\u25BE" : "\u25B8";
-      const icon = document.createElement("span");
-      icon.className = "page-tree-icon";
-      icon.textContent = expandedPageFolders[folder.key] ? "\u{1F4C2}" : "\u{1F4C1}";
-      const label = document.createElement("span");
-      label.className = "page-tree-label";
-      label.textContent = folder.name;
-      button.appendChild(chevron);
-      button.appendChild(icon);
-      button.appendChild(label);
-      row.appendChild(button);
+      if (inlineEditMatchesRename(inlineEdit, "folder", folder.key)) {
+        row.appendChild(renderPageTreeInlineItem("folder", inlineEdit?.value || "", onInlineEditValueChange, onInlineEditCommit, onInlineEditCancel).firstElementChild);
+      } else {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "page-tree-toggle";
+        button.setAttribute("aria-expanded", expandedPageFolders[folder.key] ? "true" : "false");
+        makeDragSource(button, { kind: "folder", path: folder.key });
+        button.addEventListener("click", function() {
+          onToggleFolder(folder.key);
+        });
+        button.addEventListener("contextmenu", function(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenContextMenu({ kind: "folder", path: folder.key, name: folder.name }, event.clientX, event.clientY);
+        });
+        const chevron = document.createElement("span");
+        chevron.className = "page-tree-chevron";
+        chevron.textContent = expandedPageFolders[folder.key] ? "\u25BE" : "\u25B8";
+        const icon = document.createElement("span");
+        icon.className = "page-tree-icon";
+        icon.textContent = expandedPageFolders[folder.key] ? "\u{1F4C2}" : "\u{1F4C1}";
+        const label = document.createElement("span");
+        label.className = "page-tree-label";
+        label.textContent = folder.name;
+        button.appendChild(chevron);
+        button.appendChild(icon);
+        button.appendChild(label);
+        row.appendChild(button);
+      }
       item.appendChild(row);
       if (expandedPageFolders[folder.key]) {
-        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder, onMoveDocument));
+        item.appendChild(renderPageTreeNode(
+          folder,
+          folder.key,
+          depth + 1,
+          expandedPageFolders,
+          selectedPage,
+          onToggleFolder,
+          onSelectPage,
+          onOpenDocument,
+          onCreatePage,
+          onCreateSubfolder,
+          onRenameFolder,
+          onDeleteFolder,
+          onRenamePage,
+          onDeletePage,
+          onOpenContextMenu,
+          onMovePage,
+          onMoveFolder,
+          onMoveDocument,
+          inlineEdit,
+          onInlineEditValueChange,
+          onInlineEditCommit,
+          onInlineEditCancel
+        ));
       }
       group.appendChild(item);
     });
+    if (inlineEditMatchesCreate(inlineEdit, "page", currentFolderKey)) {
+      group.appendChild(renderPageTreeInlineItem("page", inlineEdit?.value || "", onInlineEditValueChange, onInlineEditCommit, onInlineEditCancel));
+    }
     node.pages.slice().sort(function(left, right) {
       return String(left.path).localeCompare(String(right.path));
     }).forEach(function(page) {
@@ -22574,30 +23133,34 @@
       item.className = "page-tree-node page-tree-leaf";
       const row = document.createElement("div");
       row.className = "page-tree-row";
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "page-tree-page";
-      makeDragSource(button, { kind: "page", path: page.path });
-      if (selectedPage === page.path) {
-        button.classList.add("active");
+      if (inlineEditMatchesRename(inlineEdit, "page", page.path)) {
+        row.appendChild(renderPageTreeInlineItem("page", inlineEdit?.value || "", onInlineEditValueChange, onInlineEditCommit, onInlineEditCancel).firstElementChild);
+      } else {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "page-tree-page";
+        makeDragSource(button, { kind: "page", path: page.path });
+        if (selectedPage === page.path) {
+          button.classList.add("active");
+        }
+        button.addEventListener("click", function() {
+          onSelectPage(page.path);
+        });
+        button.addEventListener("contextmenu", function(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenContextMenu({ kind: "page", path: page.path, name: leafName }, event.clientX, event.clientY);
+        });
+        const icon = document.createElement("span");
+        icon.className = "page-tree-icon";
+        icon.textContent = "\u2022";
+        const label = document.createElement("span");
+        label.className = "page-tree-label";
+        label.textContent = leafName;
+        button.appendChild(icon);
+        button.appendChild(label);
+        row.appendChild(button);
       }
-      button.addEventListener("click", function() {
-        onSelectPage(page.path);
-      });
-      button.addEventListener("contextmenu", function(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onOpenContextMenu({ kind: "page", path: page.path, name: leafName }, event.clientX, event.clientY);
-      });
-      const icon = document.createElement("span");
-      icon.className = "page-tree-icon";
-      icon.textContent = "\u2022";
-      const label = document.createElement("span");
-      label.className = "page-tree-label";
-      label.textContent = leafName;
-      button.appendChild(icon);
-      button.appendChild(label);
-      row.appendChild(button);
       item.appendChild(row);
       group.appendChild(item);
     });
@@ -22609,33 +23172,37 @@
       item.className = "page-tree-node page-tree-leaf page-tree-document-leaf";
       const row = document.createElement("div");
       row.className = "page-tree-row";
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "page-tree-page page-tree-document";
-      makeDragSource(button, { kind: "document", path: doc.path });
-      button.addEventListener("click", function() {
-        onOpenDocument(doc);
-      });
-      button.addEventListener("contextmenu", function(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onOpenContextMenu({ kind: "document", path: doc.path, name: leafName, document: doc }, event.clientX, event.clientY);
-      });
-      const icon = document.createElement("span");
-      icon.className = "page-tree-icon";
-      icon.textContent = "\u2197";
-      const label = document.createElement("span");
-      label.className = "page-tree-label";
-      label.textContent = leafName;
-      button.appendChild(icon);
-      button.appendChild(label);
-      row.appendChild(button);
+      if (inlineEditMatchesRename(inlineEdit, "document", doc.path)) {
+        row.appendChild(renderPageTreeInlineItem("document", inlineEdit?.value || "", onInlineEditValueChange, onInlineEditCommit, onInlineEditCancel).firstElementChild);
+      } else {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "page-tree-page page-tree-document";
+        makeDragSource(button, { kind: "document", path: doc.path });
+        button.addEventListener("click", function() {
+          onOpenDocument(doc);
+        });
+        button.addEventListener("contextmenu", function(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenContextMenu({ kind: "document", path: doc.path, name: leafName, document: doc }, event.clientX, event.clientY);
+        });
+        const icon = document.createElement("span");
+        icon.className = "page-tree-icon";
+        icon.textContent = "\u2197";
+        const label = document.createElement("span");
+        label.className = "page-tree-label";
+        label.textContent = leafName;
+        button.appendChild(icon);
+        button.appendChild(label);
+        row.appendChild(button);
+      }
       item.appendChild(row);
       group.appendChild(item);
     });
     return group;
   }
-  function renderPagesTree(container, pages, folders, documents, selectedPage, expandedPageFolders, pageSearchQuery, scopePrefix, rootFolderPath, rootLabelText, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder, onMoveDocument) {
+  function renderPagesTree(container, pages, folders, documents, selectedPage, expandedPageFolders, pageSearchQuery, scopePrefix, rootFolderPath, rootLabelText, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder, onMoveDocument, inlineEdit, onInlineEditValueChange, onInlineEditCommit, onInlineEditCancel, onInlineEditMount) {
     clearNode(container);
     const normalizedScopePrefix = normalizeScopePrefix2(scopePrefix);
     const normalizedRootFolderPath = String(rootFolderPath || "").trim().replace(/^\/+|\/+$/g, "");
@@ -22706,7 +23273,9 @@
     createRootFolder.className = "page-tree-action";
     createRootFolder.title = "New folder";
     createRootFolder.setAttribute("aria-label", "New folder");
-    createRootFolder.textContent = "\u229E";
+    const createRootFolderIcon = makeTreeActionIcon(folderPlusIconPath);
+    createRootFolderIcon.querySelector("path")?.setAttribute("fill-rule", "evenodd");
+    createRootFolder.appendChild(createRootFolderIcon);
     createRootFolder.addEventListener("click", function(event) {
       event.preventDefault();
       event.stopPropagation();
@@ -22776,7 +23345,7 @@
       element.addEventListener("drop", handleRootDrop);
     });
     container.appendChild(rootRow);
-    if (!visiblePages.length && !visibleFolders.length && !visibleDocuments.length) {
+    if (!visiblePages.length && !visibleFolders.length && !visibleDocuments.length && !inlineEdit) {
       const empty = document.createElement("div");
       empty.className = "empty";
       empty.textContent = pageSearchQuery ? "No indexed notes or files match the current search." : "No notes or files yet. Use + to create the first note.";
@@ -22822,7 +23391,34 @@
       }
       onMoveFolder(payload.path, normalizedRootFolderPath);
     };
-    container.appendChild(renderPageTreeNode(buildPageTree(visiblePages, visibleFolders, visibleDocuments, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder, onMoveDocument));
+    container.appendChild(renderPageTreeNode(
+      buildPageTree(visiblePages, visibleFolders, visibleDocuments, normalizedScopePrefix),
+      normalizedRootFolderPath,
+      0,
+      expandedPageFolders,
+      selectedPage,
+      onToggleFolder,
+      onSelectPage,
+      onOpenDocument,
+      onCreatePage,
+      onCreateSubfolder,
+      onRenameFolder,
+      onDeleteFolder,
+      onRenamePage,
+      onDeletePage,
+      onOpenContextMenu,
+      onMovePage,
+      onMoveFolder,
+      onMoveDocument,
+      inlineEdit,
+      onInlineEditValueChange,
+      onInlineEditCommit,
+      onInlineEditCancel
+    ));
+    const inlineInput = container.querySelector('[data-page-tree-inline-input="true"]');
+    if (inlineInput) {
+      onInlineEditMount(inlineInput);
+    }
   }
   function filterTasks(tasks, filters, currentPagePath) {
     if (!tasks || !tasks.length) {
@@ -23026,7 +23622,7 @@
       container.appendChild(chip);
     });
   }
-  var pageTreeDragMimeType, activeDragItem;
+  var pageTreeDragMimeType, activeDragItem, folderPlusIconPath;
   var init_pageViews = __esm({
     "frontend/pageViews.ts"() {
       "use strict";
@@ -23035,6 +23631,7 @@
       init_markdown();
       pageTreeDragMimeType = "application/x-noterious-tree";
       activeDragItem = null;
+      folderPlusIconPath = "M1.5 4.25A1.75 1.75 0 0 1 3.25 2.5h2.38c.33 0 .65.13.88.37l.88.88c.14.14.33.22.53.22h4.83A1.75 1.75 0 0 1 14.5 5.72v4.53A1.75 1.75 0 0 1 12.75 12H3.25A1.75 1.75 0 0 1 1.5 10.25v-6Zm1.75-.75a.75.75 0 0 0-.75.75v6c0 .41.34.75.75.75h9.5c.41 0 .75-.34.75-.75V5.72a.75.75 0 0 0-.75-.75H8.03c-.47 0-.92-.19-1.24-.51l-.88-.88a.25.25 0 0 0-.18-.08h-2.2ZM9.5 6.2c.28 0 .5.22.5.5v1.05h1.05a.5.5 0 0 1 0 1H10v1.05a.5.5 0 0 1-1 0V8.75H7.95a.5.5 0 0 1 0-1H9V6.7c0-.28.22-.5.5-.5Z";
     }
   });
 
@@ -23283,7 +23880,12 @@
         ).catch(function(error) {
           actions.setNoteStatus("Move file failed: " + actions.errorMessage(error));
         });
-      }
+      },
+      state.inlineEdit || null,
+      actions.updateInlineEditValue,
+      actions.commitInlineEdit,
+      actions.cancelInlineEdit,
+      actions.mountInlineEditInput
     );
     updatePageListScrollState(els.pageList);
   }
@@ -23299,7 +23901,7 @@
     treeContextMenu.style.left = Math.max(12, Math.min(left, maxLeft)) + "px";
     treeContextMenu.style.top = Math.max(12, Math.min(top, maxTop)) + "px";
   }
-  function appendTreeContextMenuItem(treeContextMenu, label, iconPath, onSelect, danger) {
+  function appendTreeContextMenuItem(treeContextMenu, label, iconPath, onSelect, danger, fillRule) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = danger ? "tree-context-menu-item danger" : "tree-context-menu-item";
@@ -23310,6 +23912,9 @@
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", iconPath);
     path.setAttribute("fill", "currentColor");
+    if (fillRule) {
+      path.setAttribute("fill-rule", fillRule);
+    }
     icon.appendChild(path);
     button.appendChild(icon);
     const text = document.createElement("span");
@@ -23349,9 +23954,14 @@
         actions.openPageHistory(target.path);
       });
       appendTreeContextMenuDivider(treeContextMenu);
-      appendTreeContextMenuItem(treeContextMenu, "Rename\u2026", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function() {
+      appendTreeContextMenuItem(treeContextMenu, "Rename", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function() {
         actions.requestRenamePage(target.path).catch(function(error) {
           actions.setNoteStatus("Rename note failed: " + actions.errorMessage(error));
+        });
+      });
+      appendTreeContextMenuItem(treeContextMenu, "Move\u2026", "M8.7 2.3 13 6.6l-4.3 4.3-.9-.9 2.8-2.8H3V6.1h7.6L7.8 3.2l.9-.9Z", function() {
+        actions.requestMovePage(target.path).catch(function(error) {
+          actions.setNoteStatus("Move note failed: " + actions.errorMessage(error));
         });
       });
       appendTreeContextMenuItem(treeContextMenu, "Delete", "M5.2 3h5.6l.4 1.2H14v1.2H2V4.2h2.8L5.2 3Zm-1 3.2h7.6l-.5 6.1a1 1 0 0 1-1 .9H5.7a1 1 0 0 1-1-.9L4.2 6.2Z", function() {
@@ -23360,20 +23970,25 @@
         });
       }, true);
     } else if (target.kind === "folder") {
-      appendTreeContextMenuItem(treeContextMenu, "New note", "M8 2.5v11M2.5 8h11", function() {
+      appendTreeContextMenuItem(treeContextMenu, "New note", notePlusIconPath, function() {
         actions.requestCreatePage(target.path).catch(function(error) {
           actions.setNoteStatus("Create page failed: " + actions.errorMessage(error));
         });
       });
-      appendTreeContextMenuItem(treeContextMenu, "New folder", "M8 2.5v11M2.5 8h11", function() {
+      appendTreeContextMenuItem(treeContextMenu, "New folder", folderPlusIconPath2, function() {
         actions.requestCreateSubfolder(target.path).catch(function(error) {
           actions.setNoteStatus("Create folder failed: " + actions.errorMessage(error));
         });
-      });
+      }, false, "evenodd");
       appendTreeContextMenuDivider(treeContextMenu);
-      appendTreeContextMenuItem(treeContextMenu, "Rename\u2026", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function() {
+      appendTreeContextMenuItem(treeContextMenu, "Rename", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function() {
         actions.requestRenameFolder(target.path).catch(function(error) {
           actions.setNoteStatus("Rename folder failed: " + actions.errorMessage(error));
+        });
+      });
+      appendTreeContextMenuItem(treeContextMenu, "Move\u2026", "M8.7 2.3 13 6.6l-4.3 4.3-.9-.9 2.8-2.8H3V6.1h7.6L7.8 3.2l.9-.9Z", function() {
+        actions.requestMoveFolder(target.path).catch(function(error) {
+          actions.setNoteStatus("Move folder failed: " + actions.errorMessage(error));
         });
       });
       appendTreeContextMenuItem(treeContextMenu, "Delete", "M5.2 3h5.6l.4 1.2H14v1.2H2V4.2h2.8L5.2 3Zm-1 3.2h7.6l-.5 6.1a1 1 0 0 1-1 .9H5.7a1 1 0 0 1-1-.9L4.2 6.2Z", function() {
@@ -23389,9 +24004,14 @@
         actions.insertDocumentLink(target.document);
       });
       appendTreeContextMenuDivider(treeContextMenu);
-      appendTreeContextMenuItem(treeContextMenu, "Rename\u2026", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function() {
+      appendTreeContextMenuItem(treeContextMenu, "Rename", "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z", function() {
         actions.requestRenameDocument(target.document).catch(function(error) {
           actions.setNoteStatus("Rename file failed: " + actions.errorMessage(error));
+        });
+      });
+      appendTreeContextMenuItem(treeContextMenu, "Move\u2026", "M8.7 2.3 13 6.6l-4.3 4.3-.9-.9 2.8-2.8H3V6.1h7.6L7.8 3.2l.9-.9Z", function() {
+        actions.requestMoveDocument(target.document).catch(function(error) {
+          actions.setNoteStatus("Move file failed: " + actions.errorMessage(error));
         });
       });
       appendTreeContextMenuItem(treeContextMenu, "Delete", "M5.2 3h5.6l.4 1.2H14v1.2H2V4.2h2.8L5.2 3Zm-1 3.2h7.6l-.5 6.1a1 1 0 0 1-1 .9H5.7a1 1 0 0 1-1-.9L4.2 6.2Z", function() {
@@ -23405,6 +24025,7 @@
       positionTreeContextMenu(treeContextMenu, left, top);
     });
   }
+  var folderPlusIconPath2, notePlusIconPath;
   var init_pageTreeUi = __esm({
     "frontend/pageTreeUi.ts"() {
       "use strict";
@@ -23412,6 +24033,8 @@
       init_dom();
       init_noteTemplates();
       init_pageViews();
+      folderPlusIconPath2 = "M1.5 4.25A1.75 1.75 0 0 1 3.25 2.5h2.38c.33 0 .65.13.88.37l.88.88c.14.14.33.22.53.22h4.83A1.75 1.75 0 0 1 14.5 5.72v4.53A1.75 1.75 0 0 1 12.75 12H3.25A1.75 1.75 0 0 1 1.5 10.25v-6Zm1.75-.75a.75.75 0 0 0-.75.75v6c0 .41.34.75.75.75h9.5c.41 0 .75-.34.75-.75V5.72a.75.75 0 0 0-.75-.75H8.03c-.47 0-.92-.19-1.24-.51l-.88-.88a.25.25 0 0 0-.18-.08h-2.2ZM9.5 6.2c.28 0 .5.22.5.5v1.05h1.05a.5.5 0 0 1 0 1H10v1.05a.5.5 0 0 1-1 0V8.75H7.95a.5.5 0 0 1 0-1H9V6.7c0-.28.22-.5.5-.5Z";
+      notePlusIconPath = "M3.75 2.5A.75.75 0 0 0 3 3.25v9.5c0 .41.34.75.75.75h8.5c.41 0 .75-.34.75-.75V7.35L8.15 2.5H3.75Zm4.65 1.22 3.38 3.38H8.4V3.72ZM6.75 8h1.5v1.5h1.5V11h-1.5v1.5h-1.5V11h-1.5V9.5h1.5V8Z";
     }
   });
 
@@ -24558,7 +25181,11 @@
     }
     const parsedLine = Number(options.lineNumber);
     const pendingLine = Number.isFinite(parsedLine) && parsedLine > 0 ? parsedLine : null;
-    options.onSetPendingFocus(pendingLine, String(options.taskRef || "").trim());
+    options.onSetPendingFocus(
+      pendingLine,
+      String(options.taskRef || "").trim(),
+      String(options.anchor || "").trim()
+    );
     options.onSelectPage(options.pagePath);
     options.onExpandAncestors(options.pagePath);
     options.onSyncURL(Boolean(options.replace));
@@ -28167,6 +28794,7 @@
       init_properties();
       init_noteTemplates();
       init_routing();
+      init_pageAnchors();
       init_sessionUi();
       init_settingsUi();
       init_slashMenu();
@@ -28242,6 +28870,7 @@
           railOpen: false,
           railTab: "files",
           sourceOpen: false,
+          viewOnly: false,
           settings: {
             preferences: cloneClientPreferences(defaultClientPreferences()),
             vault: {
@@ -28297,6 +28926,7 @@
           slashContext: null,
           pendingPageLineFocus: null,
           pendingPageTaskRef: "",
+          pendingPageAnchorFocus: "",
           renamingPageTitle: false,
           taskFilters: {
             currentPage: false,
@@ -28335,7 +28965,9 @@
           helpError: "",
           browserNotificationSyncInFlight: false,
           browserNotificationSessionStartedAt: Date.now(),
-          railWidth: defaultDesktopRailWidth
+          railWidth: defaultDesktopRailWidth,
+          treeInlineEdit: null,
+          treeInlineEditSelectAll: false
         };
         const els = {
           appShell: optionalQuery(".shell"),
@@ -28381,6 +29013,9 @@
           detailTitle: requiredElement("detail-title"),
           detailPath: requiredElement("detail-path"),
           noteHeading: requiredElement("note-heading"),
+          undoPageEdit: requiredElement("undo-page-edit"),
+          redoPageEdit: requiredElement("redo-page-edit"),
+          toggleViewMode: requiredElement("toggle-view-mode"),
           toggleSourceMode: requiredElement("toggle-source-mode"),
           noteStatus: requiredElement("note-status"),
           remoteChangeToast: requiredElement("remote-change-toast"),
@@ -28909,7 +29544,7 @@
           clearPropertyDraft();
           const templateFillActive = openTemplateFillDraft(page);
           els.detailPath.textContent = page.page || page.path || pagePath;
-          setNoteHeadingValue(page.title || page.page || pagePath, true);
+          setNoteHeadingValue(page.title || page.page || pagePath, studioPageEditable());
           setStructuredViews(
             "Page",
             page.title || page.page,
@@ -28982,7 +29617,7 @@
             scrollTop,
             focusEditor,
             loadRemoteDetail: function(targetPage) {
-              return loadPageDetailData(targetPage, encodePath, "", null);
+              return loadPageDetailData(targetPage, encodePath, "", null, "");
             },
             shouldContinue: function() {
               return state.remoteChangeSyncToken === syncToken && state.selectedPage === pagePath;
@@ -29091,10 +29726,16 @@
           return state.currentDerived;
         }
         function studioPageEditable() {
-          return state.appScreen === "notes" && Boolean(state.selectedPage && state.currentPage);
+          return state.appScreen === "notes" && Boolean(state.selectedPage && state.currentPage) && !state.viewOnly;
         }
         function studioPageAvailable() {
           return state.appScreen === "help" || Boolean(state.selectedPage && state.currentPage);
+        }
+        function studioViewOnlyAvailable() {
+          return state.appScreen === "notes" && Boolean(state.selectedPage && state.currentPage);
+        }
+        function notePropertiesHidden() {
+          return state.appScreen === "help" || state.sourceOpen || state.viewOnly;
         }
         function renderAppScreen() {
           if (els.appLayout) {
@@ -29495,9 +30136,10 @@
             onExpandAncestors: function(path) {
               ensureExpandedPageAncestors(path, state.expandedPageFolders);
             },
-            onSetPendingFocus: function(lineNumber, taskRef) {
+            onSetPendingFocus: function(lineNumber, taskRef, anchor) {
               state.pendingPageLineFocus = lineNumber;
               state.pendingPageTaskRef = taskRef;
+              state.pendingPageAnchorFocus = anchor;
             },
             onSelectPage: function(path) {
               clearRemoteChangeToast();
@@ -29535,23 +30177,90 @@
           }
           return scopePrefix + "/" + normalized;
         }
-        function openOrCreatePage(pagePath, replace) {
+        function resolvePageNavigationTarget(pagePath) {
           const normalized = normalizePageDraftPath(pagePath);
           if (!normalized) {
-            return;
+            return { path: "", exists: false };
           }
           const scopedPath = applyCurrentScopePrefix(normalized);
           if (hasPage(scopedPath)) {
-            navigateToPage(scopedPath, replace);
-            return;
+            return { path: scopedPath, exists: true };
           }
           if (hasPage(normalized)) {
-            navigateToPage(normalized, replace);
+            return { path: normalized, exists: true };
+          }
+          return { path: scopedPath || normalized, exists: false };
+        }
+        function focusEditorAtRawOffset(offset, highlightedLine) {
+          const safeOffset = Math.max(0, Math.min(Number(offset) || 0, state.currentMarkdown.length));
+          if (state.markdownEditorApi) {
+            state.markdownEditorApi.setHighlightedLine(
+              typeof highlightedLine === "number" && highlightedLine > 0 ? highlightedLine : null
+            );
+          }
+          window.requestAnimationFrame(function() {
+            focusMarkdownEditor(state, els, { preventScroll: true });
+            setMarkdownEditorSelection(state, els, safeOffset, safeOffset, true);
+            window.requestAnimationFrame(function() {
+              focusMarkdownEditor(state, els, { preventScroll: true });
+              setMarkdownEditorSelection(state, els, safeOffset, safeOffset, true);
+            });
+          });
+        }
+        function focusCurrentPageAnchor(anchor) {
+          if (state.appScreen !== "notes" || !state.selectedPage || !state.currentPage) {
+            return false;
+          }
+          const lineNumber = resolveHeadingAnchorLineInMarkdown(state.currentMarkdown, anchor);
+          if (!lineNumber || lineNumber <= 0) {
+            return false;
+          }
+          state.pendingPageLineFocus = null;
+          state.pendingPageTaskRef = "";
+          state.pendingPageAnchorFocus = "";
+          focusEditorAtRawOffset(rawOffsetForLineNumber(state.currentMarkdown, lineNumber), lineNumber);
+          return true;
+        }
+        function openOrCreatePage(pagePath, replace) {
+          const target = resolvePageNavigationTarget(pagePath);
+          if (!target.path) {
             return;
           }
-          createPage2(scopedPath || normalized).catch(function(error) {
+          if (target.exists) {
+            navigateToPage(target.path, replace);
+            return;
+          }
+          createPage2(target.path).catch(function(error) {
             setNoteStatus("Create page failed: " + errorMessage(error));
           });
+        }
+        function openOrCreatePageLinkTarget(rawTarget, replace) {
+          const target = parsePageAnchorTarget(rawTarget, state.selectedPage || "");
+          if (!target) {
+            return;
+          }
+          if (target.anchor) {
+            const currentPath = normalizePageDraftPath(state.selectedPage || "");
+            if (currentPath && currentPath.toLowerCase() === target.pagePath.toLowerCase()) {
+              if (!focusCurrentPageAnchor(target.anchor)) {
+                setNoteStatus('Section "' + target.anchor + '" was not found in ' + target.pagePath + ".");
+              }
+              return;
+            }
+            const resolved = resolvePageNavigationTarget(target.pagePath);
+            if (!resolved.path) {
+              return;
+            }
+            if (resolved.exists) {
+              navigateToPageAtAnchor(resolved.path, target.anchor, replace);
+              return;
+            }
+            createPage2(resolved.path).catch(function(error) {
+              setNoteStatus("Create page failed: " + errorMessage(error));
+            });
+            return;
+          }
+          openOrCreatePage(target.pagePath, replace);
         }
         function navigateToPageAtLine(pagePath, lineNumber, replace) {
           navigateToPageSelection({
@@ -29561,9 +30270,10 @@
             onExpandAncestors: function(path) {
               ensureExpandedPageAncestors(path, state.expandedPageFolders);
             },
-            onSetPendingFocus: function(nextLineNumber, taskRef) {
+            onSetPendingFocus: function(nextLineNumber, taskRef, anchor) {
               state.pendingPageLineFocus = nextLineNumber;
               state.pendingPageTaskRef = taskRef;
+              state.pendingPageAnchorFocus = anchor;
             },
             onSelectPage: function(path) {
               clearRemoteChangeToast();
@@ -29587,9 +30297,36 @@
             onExpandAncestors: function(path) {
               ensureExpandedPageAncestors(path, state.expandedPageFolders);
             },
-            onSetPendingFocus: function(nextLineNumber, nextTaskRef) {
+            onSetPendingFocus: function(nextLineNumber, nextTaskRef, anchor) {
               state.pendingPageLineFocus = nextLineNumber;
               state.pendingPageTaskRef = nextTaskRef;
+              state.pendingPageAnchorFocus = anchor;
+            },
+            onSelectPage: function(path) {
+              clearRemoteChangeToast();
+              state.appScreen = "notes";
+              state.selectedPage = path;
+              renderAppScreen();
+            },
+            onSyncURL: syncURLState,
+            onRenderPages: renderPages,
+            onLoadPageDetail: function(path) {
+              loadPageDetail(path, true);
+            }
+          });
+        }
+        function navigateToPageAtAnchor(pagePath, anchor, replace) {
+          navigateToPageSelection({
+            pagePath,
+            anchor,
+            replace,
+            onExpandAncestors: function(path) {
+              ensureExpandedPageAncestors(path, state.expandedPageFolders);
+            },
+            onSetPendingFocus: function(nextLineNumber, nextTaskRef, nextAnchor) {
+              state.pendingPageLineFocus = nextLineNumber;
+              state.pendingPageTaskRef = nextTaskRef;
+              state.pendingPageAnchorFocus = nextAnchor;
             },
             onSelectPage: function(path) {
               clearRemoteChangeToast();
@@ -29969,14 +30706,14 @@
           const currentPath = normalizePageDraftPath(state.selectedPage);
           const currentLeaf = pageTitleFromPath(currentPath);
           if (!normalizedDraftPath) {
-            setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
+            setNoteHeadingValue(currentPageTitleValue() || currentLeaf, studioPageEditable());
             return;
           }
           const slash = currentPath.lastIndexOf("/");
           const parentFolder3 = slash >= 0 ? currentPath.slice(0, slash) : "";
           const targetPath = normalizedDraftPath.indexOf("/") >= 0 ? normalizedDraftPath : parentFolder3 ? parentFolder3 + "/" + normalizedDraftPath : normalizedDraftPath;
           if (targetPath === currentPath) {
-            setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
+            setNoteHeadingValue(currentPageTitleValue() || currentLeaf, studioPageEditable());
             return;
           }
           const targetLeaf = pageTitleFromPath(targetPath);
@@ -29992,7 +30729,7 @@
               movedFolders ? "Moved " + currentPath + " to " + targetPath + "." : "Renamed " + currentLeaf + " to " + targetLeaf + "."
             );
           } catch (error) {
-            setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
+            setNoteHeadingValue(currentPageTitleValue() || currentLeaf, studioPageEditable());
             setNoteStatus("Rename failed: " + errorMessage(error));
           } finally {
             state.renamingPageTitle = false;
@@ -30009,9 +30746,28 @@
           const fallbackPath = page.page || page.path || state.selectedPage || "";
           els.detailPath.textContent = fallbackPath;
           els.detailTitle.textContent = page.title || fallbackPath;
-          setNoteHeadingValue(page.title || fallbackPath, true);
+          setNoteHeadingValue(page.title || fallbackPath, studioPageEditable());
           renderPageTags2();
           renderPageProperties2();
+        }
+        function syncCurrentNoteSurfaceMode() {
+          const noteLoaded = state.appScreen === "notes" && Boolean(state.selectedPage && state.currentPage);
+          markdownEditorSetEditable(state, els, noteLoaded && !state.viewOnly);
+          markdownEditorSetViewOnly(state, noteLoaded && state.viewOnly);
+          markdownEditorSetRenderMode(state, !state.sourceOpen);
+          if (els.pageProperties) {
+            els.pageProperties.classList.toggle("hidden", notePropertiesHidden());
+          }
+          if (els.propertyActions) {
+            els.propertyActions.classList.toggle("hidden", notePropertiesHidden() || state.editingPropertyKey === "__new__");
+          }
+        }
+        function renderViewModeButton() {
+          const available = studioViewOnlyAvailable();
+          els.toggleViewMode.disabled = !available;
+          els.toggleViewMode.classList.toggle("active", available && state.viewOnly);
+          els.toggleViewMode.setAttribute("aria-pressed", available && state.viewOnly ? "true" : "false");
+          els.toggleViewMode.title = !available ? "Open a note first" : state.viewOnly ? "Return to editable rendered mode" : "Freeze the rendered note so clicks do not enter edit mode";
         }
         function renderSourceModeButton() {
           const available = studioPageAvailable();
@@ -30020,6 +30776,16 @@
           els.toggleSourceMode.setAttribute("aria-pressed", state.sourceOpen ? "true" : "false");
           els.toggleSourceMode.textContent = state.sourceOpen ? "Preview" : "Raw";
           els.toggleSourceMode.title = state.sourceOpen ? "Switch to rendered preview (" + hotkeyLabel(state.settings.preferences.hotkeys.toggleRawMode) + ")" : "Switch to raw markdown (" + hotkeyLabel(state.settings.preferences.hotkeys.toggleRawMode) + ")";
+          renderViewModeButton();
+        }
+        function renderUndoRedoButtons() {
+          const editable = studioPageEditable();
+          const canUndo = editable && markdownEditorCanUndo(state);
+          const canRedo = editable && markdownEditorCanRedo(state);
+          els.undoPageEdit.disabled = !canUndo;
+          els.redoPageEdit.disabled = !canRedo;
+          els.undoPageEdit.title = editable ? "Undo last edit" : "Open an editable note first";
+          els.redoPageEdit.title = editable ? "Redo last undone edit" : "Open an editable note first";
         }
         function renderPageHistoryButton() {
           const hasHistory = state.appScreen === "notes" && Boolean(state.selectedPage && state.currentPage);
@@ -30066,35 +30832,46 @@
         function setNoteStatus(message) {
           els.noteStatus.textContent = message;
         }
+        function refreshCurrentNoteStatus() {
+          if (state.appScreen !== "notes" || !state.selectedPage || !state.currentPage) {
+            return;
+          }
+          if (hasUnsavedPageChanges()) {
+            setNoteStatus("Unsaved local edits on " + state.selectedPage + ".");
+            scheduleAutosave();
+            return;
+          }
+          clearAutosaveTimer();
+          if (state.viewOnly) {
+            setNoteStatus("Viewing " + state.selectedPage + " in view-only mode.");
+            return;
+          }
+          setNoteStatus("Editing " + state.selectedPage + " directly.");
+        }
         function renderNoteStudio() {
           const helpActive = state.appScreen === "help";
           const page = currentStudioPageView();
           if (!page) {
             closeInlineTableEditor2();
-            setMarkdownEditorValue(state, els, "");
+            resetMarkdownEditorValue(state, els, "");
             markdownEditorSetEditable(state, els, false);
+            markdownEditorSetViewOnly(state, false);
             markdownEditorSetPagePath(state, "");
             setNoteStatus("Select a page to edit and preview markdown.");
+            renderUndoRedoButtons();
             renderSourceModeButton();
             renderPageHistoryButton();
             return;
           }
           const nextMarkdown = helpActive ? helpScreenMarkdown() : state.currentMarkdown;
-          setMarkdownEditorValue(state, els, nextMarkdown);
-          markdownEditorSetEditable(state, els, !helpActive);
+          resetMarkdownEditorValue(state, els, nextMarkdown);
           if (state.markdownEditorApi && state.markdownEditorApi.host) {
             state.markdownEditorApi.host.classList.remove("hidden");
             markdownEditorSetPagePath(state, helpActive ? SYSTEM_HELP_PATH : state.selectedPage);
-            markdownEditorSetRenderMode(state, !state.sourceOpen);
             markdownEditorSetQueryBlocks(state, helpActive ? [] : renderedQueryBlocksForEditor(currentStudioDerived()));
             markdownEditorSetTasks(state, helpActive ? [] : renderedTasksForEditor(page));
           }
-          if (els.pageProperties) {
-            els.pageProperties.classList.toggle("hidden", helpActive || state.sourceOpen);
-          }
-          if (els.propertyActions) {
-            els.propertyActions.classList.toggle("hidden", helpActive || state.sourceOpen);
-          }
+          syncCurrentNoteSurfaceMode();
           els.rawView.textContent = nextMarkdown;
           if (helpActive) {
             setStructuredViews(
@@ -30112,6 +30889,7 @@
             els.detailPath.textContent = SYSTEM_HELP_LABEL;
             setNoteHeadingValue(page.title || SYSTEM_HELP_LABEL, false);
             closeInlineTableEditor2();
+            renderUndoRedoButtons();
             renderSourceModeButton();
             renderPageHistoryButton();
             if (hasUnsavedPageChanges()) {
@@ -30123,6 +30901,7 @@
             return;
           }
           refreshLivePageChrome();
+          renderUndoRedoButtons();
           if (state.sourceOpen) {
             closeInlineTableEditor2();
           } else if (state.tableEditor) {
@@ -30135,13 +30914,7 @@
           }
           renderSourceModeButton();
           renderPageHistoryButton();
-          if (hasUnsavedPageChanges()) {
-            setNoteStatus("Unsaved local edits on " + state.selectedPage + ".");
-            scheduleAutosave();
-          } else {
-            clearAutosaveTimer();
-            setNoteStatus("Editing " + state.selectedPage + " directly.");
-          }
+          refreshCurrentNoteStatus();
         }
         function scheduleAutosave() {
           if (!state.selectedPage || !state.currentPage || !hasUnsavedPageChanges()) {
@@ -30562,7 +31335,7 @@
           }
           const page = currentPageView2();
           if (els.propertyActions) {
-            els.propertyActions.classList.toggle("hidden", state.sourceOpen || state.editingPropertyKey === "__new__");
+            els.propertyActions.classList.toggle("hidden", notePropertiesHidden() || state.editingPropertyKey === "__new__");
           }
           renderPageProperties({
             container: els.pageProperties,
@@ -30987,6 +31760,7 @@
             folders: state.folders,
             documents: visibleDocumentsForRail(),
             expandedPageFolders: state.expandedPageFolders,
+            inlineEdit: state.treeInlineEdit,
             scopePrefix: currentScopePrefix(),
             pruneFoldersToVisiblePages: Boolean(state.pageTagFilter),
             showPages: state.fileTreeFilters.pages,
@@ -31010,8 +31784,10 @@
             requestCreatePage: requestCreatePageInFolder,
             requestCreateSubfolder: requestCreateSubfolderInFolder,
             requestRenameFolder: requestRenameFolderInTree,
+            requestMoveFolder: requestMoveFolderInTree,
             deleteFolder: deleteFolder2,
             requestRenamePage: requestRenamePageInTree,
+            requestMovePage: requestMovePageInTree,
             deletePage: deletePage2,
             movePageToFolder: movePageToFolder2,
             moveFolder: moveFolder2,
@@ -31019,6 +31795,11 @@
             openPageHistory: openPageHistoryFor,
             currentHomePage,
             setHomePage,
+            requestMoveDocument: requestMoveDocumentInTree,
+            updateInlineEditValue: updateTreeInlineEditValue,
+            commitInlineEdit: commitTreeInlineEdit,
+            cancelInlineEdit: cancelTreeInlineEdit,
+            mountInlineEditInput: mountTreeInlineEditInput,
             setNoteStatus,
             errorMessage
           }, openTreeContextMenu2);
@@ -31062,8 +31843,10 @@
             requestCreatePage: requestCreatePageInFolder,
             requestCreateSubfolder: requestCreateSubfolderInFolder,
             requestRenameFolder: requestRenameFolderInTree,
+            requestMoveFolder: requestMoveFolderInTree,
             deleteFolder: deleteFolder2,
             requestRenamePage: requestRenamePageInTree,
+            requestMovePage: requestMovePageInTree,
             deletePage: deletePage2,
             movePageToFolder: movePageToFolder2,
             moveFolder: moveFolder2,
@@ -31071,6 +31854,11 @@
             openPageHistory: openPageHistoryFor,
             currentHomePage,
             setHomePage,
+            requestMoveDocument: requestMoveDocumentInTree,
+            updateInlineEditValue: updateTreeInlineEditValue,
+            commitInlineEdit: commitTreeInlineEdit,
+            cancelInlineEdit: cancelTreeInlineEdit,
+            mountInlineEditInput: mountTreeInlineEditInput,
             setNoteStatus,
             errorMessage
           });
@@ -31138,7 +31926,8 @@
               pagePath,
               encodePath,
               state.pendingPageTaskRef,
-              state.pendingPageLineFocus
+              state.pendingPageLineFocus,
+              state.pendingPageAnchorFocus
             );
             const page = loaded.page;
             const templateFillActive = applyLoadedPageDetailState(pagePath, loaded, page.rawMarkdown || "");
@@ -31149,6 +31938,7 @@
               if (loaded.focusOffset !== null) {
                 state.pendingPageLineFocus = null;
                 state.pendingPageTaskRef = "";
+                state.pendingPageAnchorFocus = "";
                 window.requestAnimationFrame(function() {
                   focusMarkdownEditor(state, els, { preventScroll: true });
                   setMarkdownEditorSelection(state, els, loaded.focusOffset, loaded.focusOffset, true);
@@ -31242,6 +32032,7 @@
           const session = actionDialogSession;
           if (!session) {
             els.actionDialogShell.classList.add("hidden");
+            els.actionDialogShell.classList.remove("action-dialog-shell-picker");
             els.actionDialogEyebrow.textContent = "";
             els.actionDialogTitle.textContent = "";
             els.actionDialogMessage.textContent = "";
@@ -31255,6 +32046,8 @@
           }
           const activeSession = session;
           const options = activeSession.options;
+          const pickerVariant = options.variant === "picker";
+          els.actionDialogShell.classList.toggle("action-dialog-shell-picker", pickerVariant);
           els.actionDialogEyebrow.textContent = options.eyebrow || (options.danger ? "Confirm" : "Action");
           els.actionDialogTitle.textContent = options.title;
           els.actionDialogMessage.textContent = String(options.message || "");
@@ -31282,7 +32075,11 @@
           }
           (Array.isArray(options.fields) ? options.fields : []).forEach(function(field) {
             const row = document.createElement("label");
-            row.className = "search";
+            row.className = "search action-dialog-field";
+            const suggestionPresentation = field.suggestionPresentation || "floating";
+            if (suggestionPresentation === "inline") {
+              row.classList.add("action-dialog-field-inline");
+            }
             const label = document.createElement("span");
             label.textContent = field.label;
             row.appendChild(label);
@@ -31301,6 +32098,9 @@
             row.appendChild(help);
             const suggestionMenu = document.createElement("div");
             suggestionMenu.className = "action-dialog-autocomplete slash-menu hidden";
+            if (suggestionPresentation === "inline") {
+              suggestionMenu.classList.add("action-dialog-autocomplete-inline");
+            }
             const suggestionResults = document.createElement("div");
             suggestionResults.className = "slash-menu-results";
             suggestionMenu.appendChild(suggestionResults);
@@ -31312,6 +32112,9 @@
               selectedSuggestionIndex = -1;
               suggestionMenu.classList.add("hidden");
               suggestionMenu.style.visibility = "";
+              suggestionMenu.style.width = "";
+              suggestionMenu.style.left = "";
+              suggestionMenu.style.top = "";
               clearNode(suggestionResults);
             };
             const applySuggestion = function(suggestion) {
@@ -31373,6 +32176,14 @@
                 button.appendChild(head);
                 suggestionResults.appendChild(button);
               });
+              if (suggestionPresentation === "inline") {
+                suggestionMenu.classList.remove("hidden");
+                suggestionMenu.style.visibility = "";
+                suggestionMenu.style.width = "";
+                suggestionMenu.style.left = "";
+                suggestionMenu.style.top = "";
+                return;
+              }
               const rect = input.getBoundingClientRect();
               const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
               const viewportHeight = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
@@ -31457,6 +32268,14 @@
                 const suggestion = visibleSuggestions[selectedSuggestionIndex];
                 closeSuggestionMenu();
                 applySuggestion(suggestion);
+                if (event.key === "Enter") {
+                  window.requestAnimationFrame(function() {
+                    if (!actionDialogSession) {
+                      return;
+                    }
+                    els.actionDialogForm.requestSubmit();
+                  });
+                }
                 return;
               }
               if (event.key === "Escape") {
@@ -31699,7 +32518,7 @@
           });
         }
         async function loadLatestConflictDetail(pagePath) {
-          return loadPageDetailData(pagePath, encodePath, "", null);
+          return loadPageDetailData(pagePath, encodePath, "", null, "");
         }
         function openPageConflictDialog(mode, pagePath, loadedRemote, options) {
           const remoteMarkdown = loadedRemote.page.rawMarkdown || "";
@@ -32455,6 +33274,166 @@
             return normalizePageDraftPath(document2.path || "") === normalizedPath;
           }) || null;
         }
+        function startTreeInlineEdit(nextSession) {
+          state.treeInlineEdit = {
+            mode: nextSession.mode,
+            kind: nextSession.kind,
+            parentFolder: normalizePageDraftPath(nextSession.parentFolder || ""),
+            sourcePath: normalizePageDraftPath(nextSession.sourcePath || ""),
+            value: String(nextSession.value || "")
+          };
+          state.treeInlineEditSelectAll = true;
+          if (state.treeInlineEdit.parentFolder) {
+            state.expandedPageFolders[state.treeInlineEdit.parentFolder] = true;
+          }
+          renderPages();
+        }
+        function cancelTreeInlineEdit() {
+          if (!state.treeInlineEdit) {
+            return;
+          }
+          state.treeInlineEdit = null;
+          state.treeInlineEditSelectAll = false;
+          renderPages();
+        }
+        function updateTreeInlineEditValue(value) {
+          if (!state.treeInlineEdit) {
+            return;
+          }
+          state.treeInlineEdit.value = String(value || "");
+        }
+        function mountTreeInlineEditInput(input) {
+          window.requestAnimationFrame(function() {
+            if (!state.treeInlineEdit || !document.body.contains(input)) {
+              return;
+            }
+            if (document.activeElement !== input) {
+              focusWithoutScroll(input);
+            }
+            if (state.treeInlineEditSelectAll) {
+              input.select();
+              state.treeInlineEditSelectAll = false;
+            } else {
+              const end = input.value.length;
+              input.setSelectionRange(end, end);
+            }
+          });
+        }
+        function inlineTreeLeafError(kind, value) {
+          const raw = String(value || "").trim();
+          if (!raw) {
+            return "";
+          }
+          if (raw.includes("/") || raw.includes("\\")) {
+            return "Use Move\u2026 to change folders.";
+          }
+          if (kind === "document") {
+            return "";
+          }
+          return "";
+        }
+        function currentTreeInlineLeaf(session) {
+          return pageTitleFromPath(session.kind === "document" ? currentDocumentRecordByPath(session.sourcePath)?.path || session.sourcePath : session.sourcePath);
+        }
+        async function commitTreeInlineEditNow() {
+          const session = state.treeInlineEdit;
+          if (!session) {
+            return;
+          }
+          const rawValue = String(session.value || "").trim();
+          if (!rawValue) {
+            cancelTreeInlineEdit();
+            return;
+          }
+          const leafError = inlineTreeLeafError(session.kind, rawValue);
+          if (leafError) {
+            setNoteStatus(leafError);
+            renderPages();
+            return;
+          }
+          const currentLeaf = currentTreeInlineLeaf(session);
+          if (session.mode === "rename" && normalizePageDraftPath(rawValue) === normalizePageDraftPath(currentLeaf)) {
+            cancelTreeInlineEdit();
+            return;
+          }
+          if (session.kind === "document") {
+            const document2 = currentDocumentRecordByPath(session.sourcePath);
+            if (!document2) {
+              cancelTreeInlineEdit();
+              return;
+            }
+            const assist2 = buildDocumentPathDialogAssist({
+              input: rawValue,
+              sourcePath: document2.path,
+              scopePrefix: currentScopePrefix(),
+              documents: currentDocumentPathInventory(),
+              folders: currentFolderPathInventory()
+            });
+            if (assist2.error) {
+              if (assist2.error === "No change yet.") {
+                cancelTreeInlineEdit();
+                return;
+              }
+              setNoteStatus(assist2.error);
+              renderPages();
+              return;
+            }
+            state.treeInlineEdit = null;
+            state.treeInlineEditSelectAll = false;
+            renderPages();
+            try {
+              const movedDocument = await moveDocument(document2.path, assist2.targetPath);
+              const previousParent = String(document2.path || "").includes("/") ? String(document2.path).slice(0, String(document2.path).lastIndexOf("/")) : "";
+              const nextParent = String(movedDocument.path || "").includes("/") ? String(movedDocument.path).slice(0, String(movedDocument.path).lastIndexOf("/")) : "";
+              setNoteStatus(
+                previousParent !== nextParent ? 'Moved file to "' + movedDocument.path + '".' : 'Renamed file to "' + movedDocument.name + '".'
+              );
+            } catch (error) {
+              state.treeInlineEdit = session;
+              renderPages();
+              setNoteStatus("Rename file failed: " + errorMessage(error));
+            }
+            return;
+          }
+          const assist = buildPathDialogAssist({
+            kind: session.kind === "folder" ? "folder" : "note",
+            action: session.mode,
+            input: rawValue,
+            sourcePath: session.mode === "rename" ? session.sourcePath : void 0,
+            baseFolder: session.mode === "create" ? session.parentFolder : void 0,
+            scopePrefix: currentScopePrefix(),
+            pages: currentPagePathInventory(),
+            folders: currentFolderPathInventory()
+          });
+          if (assist.error) {
+            setNoteStatus(assist.error);
+            renderPages();
+            return;
+          }
+          state.treeInlineEdit = null;
+          state.treeInlineEditSelectAll = false;
+          renderPages();
+          try {
+            if (session.mode === "create") {
+              if (session.kind === "folder") {
+                await createFolder(assist.targetPath);
+              } else {
+                await createPage2(assist.targetPath);
+              }
+            } else if (session.kind === "folder") {
+              await renameFolder2(session.sourcePath, rawValue);
+            } else {
+              await renamePage2(session.sourcePath, rawValue);
+            }
+          } catch (error) {
+            state.treeInlineEdit = session;
+            renderPages();
+            setNoteStatus((session.mode === "create" ? session.kind === "folder" ? "Create folder failed: " : "Create note failed: " : session.kind === "folder" ? "Rename folder failed: " : "Rename note failed: ") + errorMessage(error));
+          }
+        }
+        function commitTreeInlineEdit() {
+          void commitTreeInlineEditNow();
+        }
         function parseTreeDragItem(dataTransfer) {
           if (!dataTransfer) {
             return null;
@@ -32503,13 +33482,11 @@
             kind
           );
         }
-        function pathFieldState(input, options) {
-          const assist = buildPathDialogAssist({
+        function pathMoveFieldState(input, options) {
+          const assist = buildPathMoveAssist({
             kind: options.kind,
-            action: options.action,
             input,
             sourcePath: options.sourcePath,
-            baseFolder: options.baseFolder,
             scopePrefix: currentScopePrefix(),
             pages: currentPagePathInventory(),
             folders: currentFolderPathInventory()
@@ -32521,20 +33498,18 @@
             suggestions: assist.suggestions
           };
         }
-        function pathFieldValidation(input, options) {
-          return buildPathDialogAssist({
+        function pathMoveValidation(input, options) {
+          return buildPathMoveAssist({
             kind: options.kind,
-            action: options.action,
             input,
             sourcePath: options.sourcePath,
-            baseFolder: options.baseFolder,
             scopePrefix: currentScopePrefix(),
             pages: currentPagePathInventory(),
             folders: currentFolderPathInventory()
           }).error;
         }
-        function documentPathFieldState(input, sourcePath) {
-          const assist = buildDocumentPathDialogAssist({
+        function documentMoveFieldState(input, sourcePath) {
+          const assist = buildDocumentMoveAssist({
             input,
             sourcePath,
             scopePrefix: currentScopePrefix(),
@@ -32548,8 +33523,8 @@
             suggestions: assist.suggestions
           };
         }
-        function documentPathValidation(input, sourcePath) {
-          return buildDocumentPathDialogAssist({
+        function documentMoveValidation(input, sourcePath) {
+          return buildDocumentMoveAssist({
             input,
             sourcePath,
             scopePrefix: currentScopePrefix(),
@@ -32558,111 +33533,76 @@
           }).error;
         }
         async function requestCreatePageInFolder(folderKey) {
-          const targetLabel = folderKey || currentScopePrefix() || "vault root";
-          const values = await promptForActionInput({
-            eyebrow: "Notes",
-            title: "New Note",
-            message: 'Create a note in "' + targetLabel + '".',
-            confirmLabel: "Create Note",
-            fields: [{
-              key: "name",
-              label: "Note name or path",
-              placeholder: "meeting-notes",
-              value: "",
-              autocapitalize: "none",
-              spellcheck: false,
-              describe: function(value) {
-                return pathFieldState(value, {
-                  kind: "note",
-                  action: "create",
-                  baseFolder: folderKey
-                });
-              }
-            }],
-            validate: function(nextValues) {
-              return pathFieldValidation(nextValues.name || "", {
-                kind: "note",
-                action: "create",
-                baseFolder: folderKey
-              });
-            }
+          startTreeInlineEdit({
+            mode: "create",
+            kind: "page",
+            parentFolder: folderKey,
+            sourcePath: "",
+            value: ""
           });
-          if (!values) {
-            return;
-          }
-          const normalizedName = normalizePageDraftPath(values.name || "");
-          if (!normalizedName) {
-            return;
-          }
-          const basePath = folderKey ? folderKey + "/" : "";
-          await createPage2(basePath + normalizedName);
         }
         async function requestCreateSubfolderInFolder(folderKey) {
-          const targetLabel = folderKey || currentScopePrefix() || "vault root";
+          startTreeInlineEdit({
+            mode: "create",
+            kind: "folder",
+            parentFolder: folderKey,
+            sourcePath: "",
+            value: ""
+          });
+        }
+        async function requestRenamePageInTree(pagePath) {
+          startTreeInlineEdit({
+            mode: "rename",
+            kind: "page",
+            parentFolder: normalizePageDraftPath(pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : ""),
+            sourcePath: pagePath,
+            value: pageTitleFromPath(pagePath)
+          });
+        }
+        async function requestRenameFolderInTree(folderKey) {
+          startTreeInlineEdit({
+            mode: "rename",
+            kind: "folder",
+            parentFolder: normalizePageDraftPath(folderKey.includes("/") ? folderKey.slice(0, folderKey.lastIndexOf("/")) : ""),
+            sourcePath: folderKey,
+            value: pageTitleFromPath(folderKey)
+          });
+        }
+        async function requestRenameDocumentInTree(document2) {
+          startTreeInlineEdit({
+            mode: "rename",
+            kind: "document",
+            parentFolder: normalizePageDraftPath(document2.path.includes("/") ? document2.path.slice(0, document2.path.lastIndexOf("/")) : ""),
+            sourcePath: document2.path,
+            value: String(document2.name || pageTitleFromPath(document2.path || ""))
+          });
+        }
+        async function requestMovePageInTree(pagePath) {
+          const currentName = pageTitleFromPath(pagePath);
           const values = await promptForActionInput({
-            eyebrow: "Folders",
-            title: "New Folder",
-            message: 'Create a folder in "' + targetLabel + '".',
-            confirmLabel: "Create Folder",
+            eyebrow: "Move note",
+            title: currentName,
+            message: 'Choose a destination folder. Use "/" for the scope root.',
+            confirmLabel: "Move",
+            variant: "picker",
             fields: [{
               key: "folder",
-              label: "Folder name",
-              placeholder: "contacts",
+              label: "Destination folder",
+              placeholder: "/ or folder path",
               value: "",
               autocapitalize: "none",
               spellcheck: false,
+              suggestionPresentation: "inline",
               describe: function(value) {
-                return pathFieldState(value, {
-                  kind: "folder",
-                  action: "create",
-                  baseFolder: folderKey
-                });
-              }
-            }],
-            validate: function(nextValues) {
-              return pathFieldValidation(nextValues.folder || "", {
-                kind: "folder",
-                action: "create",
-                baseFolder: folderKey
-              });
-            }
-          });
-          if (!values) {
-            return;
-          }
-          const subfolder = normalizePageDraftPath(values.folder || "");
-          if (!subfolder) {
-            return;
-          }
-          const basePath = folderKey ? folderKey + "/" : "";
-          await createFolder(basePath + subfolder);
-        }
-        async function requestRenamePageInTree(pagePath) {
-          const currentName = pageTitleFromPath(pagePath);
-          const values = await promptForActionInput({
-            eyebrow: "Notes",
-            title: "Rename Note",
-            message: 'Rename "' + currentName + '". You can also move it by entering a nested path.',
-            confirmLabel: "Save Name",
-            fields: [{
-              key: "name",
-              label: "Note name or path",
-              value: currentName,
-              placeholder: currentName,
-              autocapitalize: "none",
-              spellcheck: false,
-              describe: function(value) {
-                return pathFieldState(value, {
+                return pathMoveFieldState(value, {
                   kind: "note",
-                  action: "rename",
                   sourcePath: pagePath
                 });
               }
             }],
             validate: function(nextValues) {
-              return pathFieldValidation(nextValues.name || "", {
+              return pathMoveValidation(nextValues.folder || "", {
                 kind: "note",
-                action: "rename",
                 sourcePath: pagePath
               });
             }
@@ -32670,38 +33610,46 @@
           if (!values) {
             return;
           }
-          const nextName = normalizePageDraftPath(values.name || "");
-          if (!nextName || nextName === currentName) {
+          const assist = buildPathMoveAssist({
+            kind: "note",
+            input: values.folder || "",
+            sourcePath: pagePath,
+            scopePrefix: currentScopePrefix(),
+            pages: currentPagePathInventory(),
+            folders: currentFolderPathInventory()
+          });
+          if (assist.error) {
             return;
           }
-          await renamePage2(pagePath, nextName);
+          await movePageToFolder2(pagePath, assist.targetFolder);
+          setNoteStatus('Moved note to "' + assist.targetPath + '".');
         }
-        async function requestRenameFolderInTree(folderKey) {
+        async function requestMoveFolderInTree(folderKey) {
           const currentName = pageTitleFromPath(folderKey);
           const values = await promptForActionInput({
-            eyebrow: "Folders",
-            title: "Rename Folder",
-            message: 'Rename "' + currentName + '". You can also move it by entering a nested path.',
-            confirmLabel: "Save Name",
+            eyebrow: "Move folder",
+            title: currentName,
+            message: 'Choose a destination folder. Use "/" for the scope root.',
+            confirmLabel: "Move",
+            variant: "picker",
             fields: [{
-              key: "name",
-              label: "Folder name or path",
-              value: currentName,
-              placeholder: currentName,
+              key: "folder",
+              label: "Destination folder",
+              placeholder: "/ or folder path",
+              value: "",
               autocapitalize: "none",
               spellcheck: false,
+              suggestionPresentation: "inline",
               describe: function(value) {
-                return pathFieldState(value, {
+                return pathMoveFieldState(value, {
                   kind: "folder",
-                  action: "rename",
                   sourcePath: folderKey
                 });
               }
             }],
             validate: function(nextValues) {
-              return pathFieldValidation(nextValues.name || "", {
+              return pathMoveValidation(nextValues.folder || "", {
                 kind: "folder",
-                action: "rename",
                 sourcePath: folderKey
               });
             }
@@ -32709,53 +33657,58 @@
           if (!values) {
             return;
           }
-          const nextName = normalizePageDraftPath(values.name || "");
-          if (!nextName || nextName === currentName) {
+          const assist = buildPathMoveAssist({
+            kind: "folder",
+            input: values.folder || "",
+            sourcePath: folderKey,
+            scopePrefix: currentScopePrefix(),
+            pages: currentPagePathInventory(),
+            folders: currentFolderPathInventory()
+          });
+          if (assist.error) {
             return;
           }
-          await renameFolder2(folderKey, nextName);
+          await moveFolder2(folderKey, assist.targetFolder);
+          setNoteStatus('Moved folder to "' + assist.targetPath + '".');
         }
-        async function requestRenameDocumentInTree(document2) {
+        async function requestMoveDocumentInTree(document2) {
           const currentName = String(document2.name || pageTitleFromPath(document2.path || ""));
           const values = await promptForActionInput({
-            eyebrow: "Files",
-            title: "Rename File",
-            message: 'Rename "' + currentName + '". You can also move it by entering a nested path.',
-            confirmLabel: "Save Name",
+            eyebrow: "Move file",
+            title: currentName,
+            message: 'Choose a destination folder. Use "/" for the scope root.',
+            confirmLabel: "Move",
+            variant: "picker",
             fields: [{
-              key: "name",
-              label: "File name or path",
-              value: currentName,
-              placeholder: currentName,
+              key: "folder",
+              label: "Destination folder",
+              placeholder: "/ or folder path",
+              value: "",
               autocapitalize: "none",
               spellcheck: false,
+              suggestionPresentation: "inline",
               describe: function(value) {
-                return documentPathFieldState(value, document2.path);
+                return documentMoveFieldState(value, document2.path);
               }
             }],
             validate: function(nextValues) {
-              return documentPathValidation(nextValues.name || "", document2.path);
+              return documentMoveValidation(nextValues.folder || "", document2.path);
             }
           });
           if (!values) {
             return;
           }
-          const assist = buildDocumentPathDialogAssist({
-            input: values.name || "",
+          const assist = buildDocumentMoveAssist({
+            input: values.folder || "",
             sourcePath: document2.path,
             scopePrefix: currentScopePrefix(),
             documents: currentDocumentPathInventory(),
             folders: currentFolderPathInventory()
           });
-          if (!assist.targetPath || assist.error) {
+          if (assist.error) {
             return;
           }
-          const movedDocument = await moveDocument(document2.path, assist.targetPath);
-          const previousParent = String(document2.path || "").includes("/") ? String(document2.path).slice(0, String(document2.path).lastIndexOf("/")) : "";
-          const nextParent = String(movedDocument.path || "").includes("/") ? String(movedDocument.path).slice(0, String(movedDocument.path).lastIndexOf("/")) : "";
-          setNoteStatus(
-            previousParent !== nextParent ? 'Moved file to "' + movedDocument.path + '".' : 'Renamed file to "' + movedDocument.name + '".'
-          );
+          await moveDocumentToFolder(document2.path, assist.targetFolder);
         }
         async function moveDocumentToFolder(documentPath, folderKey) {
           const normalizedDocumentPath = normalizePageDraftPath(documentPath);
@@ -32950,6 +33903,7 @@
             encodePath,
             fetchJSON,
             loadPages,
+            loadDocuments,
             currentHomePage,
             setHomePage,
             navigateToPage,
@@ -32961,6 +33915,7 @@
             encodePath,
             fetchJSON,
             loadPages,
+            loadDocuments,
             currentHomePage,
             setHomePage,
             navigateToPage,
@@ -33049,26 +34004,60 @@
         }
         function setSourceOpen(open) {
           const nextOpen = Boolean(open);
-          if (state.sourceOpen === nextOpen) {
+          const nextViewOnly = nextOpen ? false : state.viewOnly;
+          if (state.sourceOpen === nextOpen && state.viewOnly === nextViewOnly) {
             return;
           }
           const scrollTop = markdownEditorScrollTop(state, els);
           const selectionStart = markdownEditorSelectionStart(state, els);
           const selectionEnd = markdownEditorSelectionEnd(state, els);
           state.sourceOpen = nextOpen;
-          markdownEditorSetRenderMode(state, !state.sourceOpen);
-          if (els.pageProperties) {
-            els.pageProperties.classList.toggle("hidden", state.appScreen === "help" || state.sourceOpen);
-          }
-          if (els.propertyActions) {
-            els.propertyActions.classList.toggle("hidden", state.appScreen === "help" || state.sourceOpen);
-          }
+          state.viewOnly = nextViewOnly;
+          syncCurrentNoteSurfaceMode();
           if (els.markdownEditor) {
             els.markdownEditor.classList.add("hidden");
           }
           if (state.markdownEditorApi && state.markdownEditorApi.host) {
             state.markdownEditorApi.host.classList.remove("hidden");
           }
+          refreshLivePageChrome();
+          refreshCurrentNoteStatus();
+          renderUndoRedoButtons();
+          renderSourceModeButton();
+          renderPageHistoryButton();
+          window.setTimeout(function() {
+            focusMarkdownEditor(state, els, { preventScroll: true });
+            setMarkdownEditorSelection(state, els, selectionStart, selectionEnd);
+            setMarkdownEditorScrollTop(state, els, scrollTop);
+          }, 0);
+        }
+        function setViewOnly(open) {
+          const nextOpen = Boolean(open);
+          const nextSourceOpen = nextOpen ? false : state.sourceOpen;
+          if (state.viewOnly === nextOpen && state.sourceOpen === nextSourceOpen) {
+            return;
+          }
+          const scrollTop = markdownEditorScrollTop(state, els);
+          const selectionStart = markdownEditorSelectionStart(state, els);
+          const selectionEnd = markdownEditorSelectionEnd(state, els);
+          state.viewOnly = nextOpen;
+          state.sourceOpen = nextSourceOpen;
+          if (nextOpen) {
+            clearPropertyDraft();
+            closeSlashMenu(state, els);
+            closeTaskPickers2();
+            closeInlineTableEditor2();
+          }
+          syncCurrentNoteSurfaceMode();
+          if (els.markdownEditor) {
+            els.markdownEditor.classList.add("hidden");
+          }
+          if (state.markdownEditorApi && state.markdownEditorApi.host) {
+            state.markdownEditorApi.host.classList.remove("hidden");
+          }
+          refreshLivePageChrome();
+          refreshCurrentNoteStatus();
+          renderUndoRedoButtons();
           renderSourceModeButton();
           renderPageHistoryButton();
           window.setTimeout(function() {
@@ -33620,11 +34609,33 @@
           on(els.historyForward, "click", function() {
             window.history.forward();
           });
+          on(els.undoPageEdit, "click", function() {
+            if (!studioPageEditable()) {
+              return;
+            }
+            if (markdownEditorUndo(state, els)) {
+              renderUndoRedoButtons();
+            }
+          });
+          on(els.redoPageEdit, "click", function() {
+            if (!studioPageEditable()) {
+              return;
+            }
+            if (markdownEditorRedo(state, els)) {
+              renderUndoRedoButtons();
+            }
+          });
           on(els.toggleSourceMode, "click", function() {
             if (!studioPageAvailable()) {
               return;
             }
             setSourceOpen(!state.sourceOpen);
+          });
+          on(els.toggleViewMode, "click", function() {
+            if (!studioViewOnlyAvailable()) {
+              return;
+            }
+            setViewOnly(!state.viewOnly);
           });
           on(els.pageHistoryButton, "click", function() {
             if (state.appScreen !== "notes" || !state.selectedPage) {
@@ -33807,6 +34818,7 @@
           });
           on(els.markdownEditor, "input", function() {
             state.currentMarkdown = els.markdownEditor.value;
+            renderUndoRedoButtons();
             window.requestAnimationFrame(function() {
               const rawContext = currentRawLineContext(state, els);
               const slashAnchor = state.markdownEditorApi && state.markdownEditorApi.host ? state.markdownEditorApi.host : els.markdownEditor;
@@ -33837,6 +34849,13 @@
           });
           const handleMarkdownEditorKeydown = function(rawEvent) {
             const event = rawEvent;
+            if (!studioPageEditable()) {
+              if (event.key === "Escape" && state.slashOpen) {
+                closeSlashMenu(state, els);
+                event.preventDefault();
+              }
+              return;
+            }
             if (matchesHotkey(state.settings.preferences.hotkeys.toggleTaskDone, event) && selectionOnTaskLine()) {
               event.preventDefault();
               event.stopPropagation();
@@ -33888,7 +34907,7 @@
               if (link && link.target) {
                 event.preventDefault();
                 closeSlashMenu(state, els);
-                openOrCreatePage(link.target, false);
+                openOrCreatePageLinkTarget(link.target, false);
                 return;
               }
             }
@@ -34049,7 +35068,7 @@
             }
             if (event.key === "Escape") {
               event.preventDefault();
-              setNoteHeadingValue(currentPageTitleValue() || state.selectedPage || "", Boolean(state.selectedPage && state.currentPage));
+              setNoteHeadingValue(currentPageTitleValue() || state.selectedPage || "", studioPageEditable());
               els.noteHeading.blur();
             }
           });
@@ -34390,7 +35409,7 @@
                   navigateToPageAtLine(page, line, false);
                   return;
                 }
-                openOrCreatePage(page, false);
+                openOrCreatePageLinkTarget(page, false);
               }
             });
             on(markdownEditorApi.host, "noterious:document-download", function(event) {
@@ -34408,6 +35427,9 @@
               });
             });
             on(markdownEditorApi.host, "noterious:task-toggle", function(event) {
+              if (!studioPageEditable()) {
+                return;
+              }
               const detail = event.detail || {};
               const task = resolvePageTask(
                 state.currentPage,
@@ -34419,6 +35441,9 @@
               }
             });
             on(markdownEditorApi.host, "noterious:task-date-edit", function(event) {
+              if (!studioPageEditable()) {
+                return;
+              }
               const detail = event.detail || {};
               const ref = detail.ref ? String(detail.ref) : "";
               const field = detail.field === "remind" ? "remind" : "due";
@@ -34429,6 +35454,9 @@
               openInlineTaskPicker2(ref, field, left, top, anchorTop, anchorBottom);
             });
             on(markdownEditorApi.host, "noterious:task-delete", function(event) {
+              if (!studioPageEditable()) {
+                return;
+              }
               const detail = event.detail || {};
               const ref = detail.ref ? String(detail.ref) : "";
               deleteTaskInline(ref).catch(function(error) {
@@ -34436,6 +35464,9 @@
               });
             });
             on(markdownEditorApi.host, "noterious:table-open", function(event) {
+              if (!studioPageEditable()) {
+                return;
+              }
               const detail = event.detail || {};
               const startLine = Number(detail.startLine) || 0;
               const row = Math.max(0, Number(detail.row) || 0);

@@ -17,6 +17,14 @@ interface PageTreeRoot {
   documents: DocumentRecord[];
 }
 
+export interface PageTreeInlineEditState {
+  mode: "create" | "rename";
+  kind: "page" | "folder" | "document";
+  parentFolder: string;
+  sourcePath: string;
+  value: string;
+}
+
 export type PageTreeMenuTarget =
   | { kind: "page"; path: string; name: string }
   | { kind: "folder"; path: string; name: string }
@@ -60,6 +68,117 @@ function displayPathWithinScope(path: string, scopePrefix: string): string {
     return normalizedPath.slice(normalizedScopePrefix.length + 1);
   }
   return normalizedPath;
+}
+
+function parentFolderPath(path: string): string {
+  const normalizedPath = String(path || "").trim().replace(/^\/+|\/+$/g, "");
+  const lastSlash = normalizedPath.lastIndexOf("/");
+  return lastSlash >= 0 ? normalizedPath.slice(0, lastSlash) : "";
+}
+
+function inlineEditMatchesCreate(inlineEdit: PageTreeInlineEditState | null | undefined, kind: "page" | "folder", parentFolder: string): boolean {
+  return Boolean(
+    inlineEdit
+    && inlineEdit.mode === "create"
+    && inlineEdit.kind === kind
+    && String(inlineEdit.parentFolder || "").trim().replace(/^\/+|\/+$/g, "") === String(parentFolder || "").trim().replace(/^\/+|\/+$/g, "")
+  );
+}
+
+function inlineEditMatchesRename(inlineEdit: PageTreeInlineEditState | null | undefined, kind: "page" | "folder" | "document", path: string): boolean {
+  return Boolean(
+    inlineEdit
+    && inlineEdit.mode === "rename"
+    && inlineEdit.kind === kind
+    && String(inlineEdit.sourcePath || "").trim().replace(/^\/+|\/+$/g, "") === String(path || "").trim().replace(/^\/+|\/+$/g, "")
+  );
+}
+
+function renderPageTreeInlineItem(
+  kind: "page" | "folder" | "document",
+  value: string,
+  onValueChange: (value: string) => void,
+  onCommit: () => void,
+  onCancel: () => void,
+): HTMLDivElement {
+  const item = document.createElement("div");
+  item.className = kind === "folder"
+    ? "page-tree-node page-tree-folder page-tree-inline-node"
+    : ("page-tree-node page-tree-leaf page-tree-inline-node" + (kind === "document" ? " page-tree-document-leaf" : ""));
+
+  const row = document.createElement("div");
+  row.className = "page-tree-row";
+
+  const shell = document.createElement("div");
+  shell.className = "page-tree-inline-editor";
+
+  if (kind === "folder") {
+    const chevron = document.createElement("span");
+    chevron.className = "page-tree-chevron page-tree-chevron-placeholder";
+    chevron.textContent = "▸";
+    shell.appendChild(chevron);
+  }
+
+  const icon = document.createElement("span");
+  icon.className = "page-tree-icon";
+  icon.textContent = kind === "folder" ? "📁" : (kind === "document" ? "↗" : "•");
+  shell.appendChild(icon);
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "page-tree-inline-input";
+  input.value = value;
+  input.placeholder = kind === "folder" ? "Untitled folder" : (kind === "document" ? "untitled-file" : "Untitled");
+  input.autocapitalize = "none";
+  input.spellcheck = false;
+  input.setAttribute("data-page-tree-inline-input", "true");
+
+  let settled = false;
+  function finish(callback: () => void): void {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    callback();
+  }
+
+  input.addEventListener("click", function (event) {
+    event.stopPropagation();
+  });
+  input.addEventListener("mousedown", function (event) {
+    event.stopPropagation();
+  });
+  input.addEventListener("contextmenu", function (event) {
+    event.stopPropagation();
+  });
+  input.addEventListener("input", function () {
+    onValueChange(input.value);
+  });
+  input.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      finish(onCommit);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      finish(onCancel);
+    }
+  });
+  input.addEventListener("blur", function () {
+    window.setTimeout(function () {
+      if (!settled) {
+        finish(onCommit);
+      }
+    }, 0);
+  });
+  shell.appendChild(input);
+
+  row.appendChild(shell);
+  item.appendChild(row);
+  return item;
 }
 
 export function filterPagesByScope(pages: PageSummary[], scopePrefix: string): PageSummary[] {
@@ -269,8 +388,11 @@ function makeTreeActionIcon(pathData: string): SVGSVGElement {
   return svg;
 }
 
+const folderPlusIconPath = "M1.5 4.25A1.75 1.75 0 0 1 3.25 2.5h2.38c.33 0 .65.13.88.37l.88.88c.14.14.33.22.53.22h4.83A1.75 1.75 0 0 1 14.5 5.72v4.53A1.75 1.75 0 0 1 12.75 12H3.25A1.75 1.75 0 0 1 1.5 10.25v-6Zm1.75-.75a.75.75 0 0 0-.75.75v6c0 .41.34.75.75.75h9.5c.41 0 .75-.34.75-.75V5.72a.75.75 0 0 0-.75-.75H8.03c-.47 0-.92-.19-1.24-.51l-.88-.88a.25.25 0 0 0-.18-.08h-2.2ZM9.5 6.2c.28 0 .5.22.5.5v1.05h1.05a.5.5 0 0 1 0 1H10v1.05a.5.5 0 0 1-1 0V8.75H7.95a.5.5 0 0 1 0-1H9V6.7c0-.28.22-.5.5-.5Z";
+
 function renderPageTreeNode(
   node: PageTreeRoot | PageTreeFolder,
+  currentFolderKey: string,
   depth: number,
   expandedPageFolders: Record<string, boolean>,
   selectedPage: string,
@@ -286,10 +408,18 @@ function renderPageTreeNode(
   onOpenContextMenu: (target: PageTreeMenuTarget, left: number, top: number) => void,
   onMovePage: (pagePath: string, folderKey: string) => void,
   onMoveFolder: (folderKey: string, targetFolder: string) => void,
-  onMoveDocument: (documentPath: string, folderKey: string) => void
+  onMoveDocument: (documentPath: string, folderKey: string) => void,
+  inlineEdit: PageTreeInlineEditState | null,
+  onInlineEditValueChange: (value: string) => void,
+  onInlineEditCommit: () => void,
+  onInlineEditCancel: () => void,
 ): HTMLDivElement {
   const group = document.createElement("div");
   group.className = depth === 0 ? "page-tree-root" : "page-tree-children";
+
+  if (inlineEditMatchesCreate(inlineEdit, "folder", currentFolderKey)) {
+    group.appendChild(renderPageTreeInlineItem("folder", inlineEdit?.value || "", onInlineEditValueChange, onInlineEditCommit, onInlineEditCancel));
+  }
 
   Object.keys(node.folders)
     .sort()
@@ -333,42 +463,73 @@ function renderPageTreeNode(
       const row = document.createElement("div");
       row.className = "page-tree-row";
 
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "page-tree-toggle";
-      button.setAttribute("aria-expanded", expandedPageFolders[folder.key] ? "true" : "false");
-      makeDragSource(button, { kind: "folder", path: folder.key });
-      button.addEventListener("click", function () {
-        onToggleFolder(folder.key);
-      });
-      button.addEventListener("contextmenu", function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onOpenContextMenu({ kind: "folder", path: folder.key, name: folder.name }, event.clientX, event.clientY);
-      });
+      if (inlineEditMatchesRename(inlineEdit, "folder", folder.key)) {
+        row.appendChild(renderPageTreeInlineItem("folder", inlineEdit?.value || "", onInlineEditValueChange, onInlineEditCommit, onInlineEditCancel).firstElementChild as HTMLElement);
+      } else {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "page-tree-toggle";
+        button.setAttribute("aria-expanded", expandedPageFolders[folder.key] ? "true" : "false");
+        makeDragSource(button, { kind: "folder", path: folder.key });
+        button.addEventListener("click", function () {
+          onToggleFolder(folder.key);
+        });
+        button.addEventListener("contextmenu", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenContextMenu({ kind: "folder", path: folder.key, name: folder.name }, event.clientX, event.clientY);
+        });
 
-      const chevron = document.createElement("span");
-      chevron.className = "page-tree-chevron";
-      chevron.textContent = expandedPageFolders[folder.key] ? "▾" : "▸";
-      const icon = document.createElement("span");
-      icon.className = "page-tree-icon";
-      icon.textContent = expandedPageFolders[folder.key] ? "📂" : "📁";
-      const label = document.createElement("span");
-      label.className = "page-tree-label";
-      label.textContent = folder.name;
-      button.appendChild(chevron);
-      button.appendChild(icon);
-      button.appendChild(label);
-      row.appendChild(button);
+        const chevron = document.createElement("span");
+        chevron.className = "page-tree-chevron";
+        chevron.textContent = expandedPageFolders[folder.key] ? "▾" : "▸";
+        const icon = document.createElement("span");
+        icon.className = "page-tree-icon";
+        icon.textContent = expandedPageFolders[folder.key] ? "📂" : "📁";
+        const label = document.createElement("span");
+        label.className = "page-tree-label";
+        label.textContent = folder.name;
+        button.appendChild(chevron);
+        button.appendChild(icon);
+        button.appendChild(label);
+        row.appendChild(button);
+      }
 
       item.appendChild(row);
 
       if (expandedPageFolders[folder.key]) {
-        item.appendChild(renderPageTreeNode(folder, depth + 1, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder, onMoveDocument));
+        item.appendChild(renderPageTreeNode(
+          folder,
+          folder.key,
+          depth + 1,
+          expandedPageFolders,
+          selectedPage,
+          onToggleFolder,
+          onSelectPage,
+          onOpenDocument,
+          onCreatePage,
+          onCreateSubfolder,
+          onRenameFolder,
+          onDeleteFolder,
+          onRenamePage,
+          onDeletePage,
+          onOpenContextMenu,
+          onMovePage,
+          onMoveFolder,
+          onMoveDocument,
+          inlineEdit,
+          onInlineEditValueChange,
+          onInlineEditCommit,
+          onInlineEditCancel,
+        ));
       }
 
       group.appendChild(item);
     });
+
+  if (inlineEditMatchesCreate(inlineEdit, "page", currentFolderKey)) {
+    group.appendChild(renderPageTreeInlineItem("page", inlineEdit?.value || "", onInlineEditValueChange, onInlineEditCommit, onInlineEditCancel));
+  }
 
   node.pages
     .slice()
@@ -383,31 +544,35 @@ function renderPageTreeNode(
       const row = document.createElement("div");
       row.className = "page-tree-row";
 
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "page-tree-page";
-      makeDragSource(button, { kind: "page", path: page.path });
-      if (selectedPage === page.path) {
-        button.classList.add("active");
-      }
-      button.addEventListener("click", function () {
-        onSelectPage(page.path);
-      });
-      button.addEventListener("contextmenu", function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onOpenContextMenu({ kind: "page", path: page.path, name: leafName }, event.clientX, event.clientY);
-      });
+      if (inlineEditMatchesRename(inlineEdit, "page", page.path)) {
+        row.appendChild(renderPageTreeInlineItem("page", inlineEdit?.value || "", onInlineEditValueChange, onInlineEditCommit, onInlineEditCancel).firstElementChild as HTMLElement);
+      } else {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "page-tree-page";
+        makeDragSource(button, { kind: "page", path: page.path });
+        if (selectedPage === page.path) {
+          button.classList.add("active");
+        }
+        button.addEventListener("click", function () {
+          onSelectPage(page.path);
+        });
+        button.addEventListener("contextmenu", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenContextMenu({ kind: "page", path: page.path, name: leafName }, event.clientX, event.clientY);
+        });
 
-      const icon = document.createElement("span");
-      icon.className = "page-tree-icon";
-      icon.textContent = "•";
-      const label = document.createElement("span");
-      label.className = "page-tree-label";
-      label.textContent = leafName;
-      button.appendChild(icon);
-      button.appendChild(label);
-      row.appendChild(button);
+        const icon = document.createElement("span");
+        icon.className = "page-tree-icon";
+        icon.textContent = "•";
+        const label = document.createElement("span");
+        label.className = "page-tree-label";
+        label.textContent = leafName;
+        button.appendChild(icon);
+        button.appendChild(label);
+        row.appendChild(button);
+      }
 
       item.appendChild(row);
 
@@ -427,28 +592,32 @@ function renderPageTreeNode(
       const row = document.createElement("div");
       row.className = "page-tree-row";
 
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "page-tree-page page-tree-document";
-      makeDragSource(button, { kind: "document", path: doc.path });
-      button.addEventListener("click", function () {
-        onOpenDocument(doc);
-      });
-      button.addEventListener("contextmenu", function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        onOpenContextMenu({ kind: "document", path: doc.path, name: leafName, document: doc }, event.clientX, event.clientY);
-      });
+      if (inlineEditMatchesRename(inlineEdit, "document", doc.path)) {
+        row.appendChild(renderPageTreeInlineItem("document", inlineEdit?.value || "", onInlineEditValueChange, onInlineEditCommit, onInlineEditCancel).firstElementChild as HTMLElement);
+      } else {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "page-tree-page page-tree-document";
+        makeDragSource(button, { kind: "document", path: doc.path });
+        button.addEventListener("click", function () {
+          onOpenDocument(doc);
+        });
+        button.addEventListener("contextmenu", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenContextMenu({ kind: "document", path: doc.path, name: leafName, document: doc }, event.clientX, event.clientY);
+        });
 
-      const icon = document.createElement("span");
-      icon.className = "page-tree-icon";
-      icon.textContent = "↗";
-      const label = document.createElement("span");
-      label.className = "page-tree-label";
-      label.textContent = leafName;
-      button.appendChild(icon);
-      button.appendChild(label);
-      row.appendChild(button);
+        const icon = document.createElement("span");
+        icon.className = "page-tree-icon";
+        icon.textContent = "↗";
+        const label = document.createElement("span");
+        label.className = "page-tree-label";
+        label.textContent = leafName;
+        button.appendChild(icon);
+        button.appendChild(label);
+        row.appendChild(button);
+      }
 
       item.appendChild(row);
       group.appendChild(item);
@@ -480,7 +649,12 @@ export function renderPagesTree(
   onOpenContextMenu: (target: PageTreeMenuTarget, left: number, top: number) => void,
   onMovePage: (pagePath: string, folderKey: string) => void,
   onMoveFolder: (folderKey: string, targetFolder: string) => void,
-  onMoveDocument: (documentPath: string, folderKey: string) => void
+  onMoveDocument: (documentPath: string, folderKey: string) => void,
+  inlineEdit: PageTreeInlineEditState | null,
+  onInlineEditValueChange: (value: string) => void,
+  onInlineEditCommit: () => void,
+  onInlineEditCancel: () => void,
+  onInlineEditMount: (input: HTMLInputElement) => void,
 ): void {
   clearNode(container);
   const normalizedScopePrefix = normalizeScopePrefix(scopePrefix);
@@ -562,7 +736,9 @@ export function renderPagesTree(
   createRootFolder.className = "page-tree-action";
   createRootFolder.title = "New folder";
   createRootFolder.setAttribute("aria-label", "New folder");
-  createRootFolder.textContent = "⊞";
+  const createRootFolderIcon = makeTreeActionIcon(folderPlusIconPath);
+  createRootFolderIcon.querySelector("path")?.setAttribute("fill-rule", "evenodd");
+  createRootFolder.appendChild(createRootFolderIcon);
   createRootFolder.addEventListener("click", function (event) {
     event.preventDefault();
     event.stopPropagation();
@@ -634,7 +810,7 @@ export function renderPagesTree(
   });
   container.appendChild(rootRow);
 
-  if (!visiblePages.length && !visibleFolders.length && !visibleDocuments.length) {
+  if (!visiblePages.length && !visibleFolders.length && !visibleDocuments.length && !inlineEdit) {
     const empty = document.createElement("div");
     empty.className = "empty";
     empty.textContent = pageSearchQuery
@@ -684,7 +860,35 @@ export function renderPagesTree(
     onMoveFolder(payload.path, normalizedRootFolderPath);
   };
 
-  container.appendChild(renderPageTreeNode(buildPageTree(visiblePages, visibleFolders, visibleDocuments, normalizedScopePrefix), 0, expandedPageFolders, selectedPage, onToggleFolder, onSelectPage, onOpenDocument, onCreatePage, onCreateSubfolder, onRenameFolder, onDeleteFolder, onRenamePage, onDeletePage, onOpenContextMenu, onMovePage, onMoveFolder, onMoveDocument));
+  container.appendChild(renderPageTreeNode(
+    buildPageTree(visiblePages, visibleFolders, visibleDocuments, normalizedScopePrefix),
+    normalizedRootFolderPath,
+    0,
+    expandedPageFolders,
+    selectedPage,
+    onToggleFolder,
+    onSelectPage,
+    onOpenDocument,
+    onCreatePage,
+    onCreateSubfolder,
+    onRenameFolder,
+    onDeleteFolder,
+    onRenamePage,
+    onDeletePage,
+    onOpenContextMenu,
+    onMovePage,
+    onMoveFolder,
+    onMoveDocument,
+    inlineEdit,
+    onInlineEditValueChange,
+    onInlineEditCommit,
+    onInlineEditCancel,
+  ));
+
+  const inlineInput = container.querySelector<HTMLInputElement>('[data-page-tree-inline-input="true"]');
+  if (inlineInput) {
+    onInlineEditMount(inlineInput);
+  }
 }
 
 export interface TaskPanelFilters {

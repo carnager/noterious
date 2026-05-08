@@ -3603,6 +3603,93 @@ func TestMoveFolderRenamesNestedMarkdownAndRebuildsIndex(t *testing.T) {
 	}
 }
 
+func TestMoveFolderRewritesPageAndDocumentReferences(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	for _, dir := range []string{
+		filepath.Join(vaultDir, "notes", "team"),
+		filepath.Join(vaultDir, "daily"),
+		filepath.Join(vaultDir, "archive"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(
+		filepath.Join(vaultDir, "notes", "team", "alpha.md"),
+		[]byte("# Alpha\n\nSee [[notes/team/beta]] and [Spec](spec.pdf).\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile(alpha) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "team", "beta.md"), []byte("# Beta\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(beta) error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(vaultDir, "daily", "today.md"),
+		[]byte("# Today\n\nSee [[notes/team/alpha|Alpha]] and ![Spec](../notes/team/spec.pdf).\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile(today) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "notes", "team", "spec.pdf"), []byte("%PDF-1.4 fake"), 0o644); err != nil {
+		t.Fatalf("WriteFile(spec.pdf) error = %v", err)
+	}
+
+	router := buildTestRouter(t, vaultDir, dataDir)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/folders/notes/team/move", strings.NewReader(`{"targetFolder":"archive"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var payload struct {
+		Folder         string   `json:"folder"`
+		RewrittenPages []string `json:"rewrittenPages"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&payload); err != nil {
+		t.Fatalf("Decode(move folder) error = %v", err)
+	}
+	if payload.Folder != "archive/team" {
+		t.Fatalf("payload.Folder = %q", payload.Folder)
+	}
+	if len(payload.RewrittenPages) != 2 {
+		t.Fatalf("rewritten pages = %#v", payload.RewrittenPages)
+	}
+	if payload.RewrittenPages[0] != "archive/team/alpha" && payload.RewrittenPages[1] != "archive/team/alpha" {
+		t.Fatalf("rewritten pages missing moved page = %#v", payload.RewrittenPages)
+	}
+	if payload.RewrittenPages[0] != "daily/today" && payload.RewrittenPages[1] != "daily/today" {
+		t.Fatalf("rewritten pages missing backlink page = %#v", payload.RewrittenPages)
+	}
+
+	updatedAlpha, err := os.ReadFile(filepath.Join(vaultDir, "archive", "team", "alpha.md"))
+	if err != nil {
+		t.Fatalf("ReadFile(alpha) error = %v", err)
+	}
+	expectedAlpha := "# Alpha\n\nSee [[archive/team/beta]] and [Spec](spec.pdf).\n"
+	if string(updatedAlpha) != expectedAlpha {
+		t.Fatalf("updated alpha = %q, want %q", string(updatedAlpha), expectedAlpha)
+	}
+
+	updatedToday, err := os.ReadFile(filepath.Join(vaultDir, "daily", "today.md"))
+	if err != nil {
+		t.Fatalf("ReadFile(today) error = %v", err)
+	}
+	expectedToday := "# Today\n\nSee [[archive/team/alpha|Alpha]] and ![Spec](../archive/team/spec.pdf).\n"
+	if string(updatedToday) != expectedToday {
+		t.Fatalf("updated today = %q, want %q", string(updatedToday), expectedToday)
+	}
+}
+
 func TestMoveFolderKeepsLiteralTildeName(t *testing.T) {
 	t.Parallel()
 

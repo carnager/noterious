@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDocumentPathDialogAssist } from "./documentPathAssist";
+import { buildDocumentMoveAssist, buildDocumentPathDialogAssist } from "./documentPathAssist";
 
 describe("document path assist", function () {
   it("preserves the source extension when the user omits it", function () {
@@ -57,5 +57,49 @@ describe("document path assist", function () {
       "Work/spec.pdf",
       "Work/archive/spec.pdf",
     ]);
+  });
+});
+
+describe("document move assist", function () {
+  it("treats slash as the current scope root when moving a document", function () {
+    const assist = buildDocumentMoveAssist({
+      input: "/",
+      sourcePath: "Work/docs/spec.pdf",
+      scopePrefix: "Work",
+      documents: ["Work/docs/spec.pdf"],
+      folders: ["Work/docs", "Work/archive"],
+    });
+
+    expect(assist.error).toBe("");
+    expect(assist.targetFolder).toBe("Work");
+    expect(assist.targetPath).toBe("Work/spec.pdf");
+    expect(assist.helper).toContain('/Work/spec.pdf');
+  });
+
+  it("shows full canonical folder paths in move suggestions", function () {
+    const assist = buildDocumentMoveAssist({
+      input: "",
+      sourcePath: "Work/docs/spec.pdf",
+      scopePrefix: "Work",
+      documents: ["Work/docs/spec.pdf"],
+      folders: ["Work/docs", "Work/archive", "Private/files"],
+    });
+
+    expect(assist.suggestions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: "/", label: "/Work" }),
+      expect.objectContaining({ value: "Work/archive", label: "/Work/archive" }),
+      expect.objectContaining({ value: "Private/files", label: "/Private/files" }),
+    ]));
+  });
+
+  it("rejects missing target folders for file moves", function () {
+    const assist = buildDocumentMoveAssist({
+      input: "missing",
+      sourcePath: "notes/meeting-notes.pdf",
+      documents: ["notes/meeting-notes.pdf"],
+      folders: ["notes", "archive"],
+    });
+
+    expect(assist.error).toBe('Folder "missing" does not exist.');
   });
 });

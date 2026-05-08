@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.25] - 2026-05-08
+
+### Added
+- Rendered notes now have a dedicated view-only mode, so query results and other rendered content can be selected and copied without entering edit state.
+- Notes, folders, and documents in the tree now support inline create/rename, while move actions use a separate full-path destination picker with keyboard navigation.
+- Markdown note links can now target heading anchors, and the note header now exposes undo and redo controls directly.
+
+### Changed
+- Tree move flows now use a cleaner rofi-like folder picker that always shows full absolute-style paths, confirms on `Enter`, and separates rename from move in the context menu.
+- Tree actions now use clearer note/folder creation icons, and the web UI consistently treats the note surface as one of three states: raw, editable rendered, or view-only rendered.
+
+### Fixed
+- Moving a folder now rewrites affected page and document references instead of leaving stale links behind.
+- Rendered view-only mode now keeps the note passive without breaking text selection.
+
 ## [v0.1.24] - 2026-05-08
 
 ### Added

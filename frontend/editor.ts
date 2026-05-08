@@ -1,6 +1,6 @@
 import {Compartment, EditorSelection, EditorState, StateEffect, StateField, RangeSetBuilder, Transaction} from "@codemirror/state";
 import {EditorView, keymap, drawSelection, highlightActiveLine, Decoration, type DecorationSet, WidgetType} from "@codemirror/view";
-import {defaultKeymap, indentWithTab, history, historyKeymap} from "@codemirror/commands";
+import {defaultKeymap, indentWithTab, history, historyKeymap, redo, redoDepth, undo, undoDepth} from "@codemirror/commands";
 import {markdown} from "@codemirror/lang-markdown";
 import {LanguageDescription, HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {javascript} from "@codemirror/lang-javascript";
@@ -92,6 +92,7 @@ function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
 }
 
 const setRenderModeEffect = StateEffect.define<boolean>();
+const setViewOnlyEffect = StateEffect.define<boolean>();
 const setQueryBlocksEffect = StateEffect.define<Map<string, string>>();
 const setTasksEffect = StateEffect.define<Map<number, EditorTaskState>>();
 const setPagePathEffect = StateEffect.define<string>();
@@ -280,8 +281,9 @@ class CodeToolbarWidget extends WidgetType {
   canCollapse: boolean;
   expanded: boolean;
   hiddenLineCount: number;
+  viewOnly: boolean;
 
-  constructor(content: string, language: string, toggleKey: string, canCollapse: boolean, expanded: boolean, hiddenLineCount: number) {
+  constructor(content: string, language: string, toggleKey: string, canCollapse: boolean, expanded: boolean, hiddenLineCount: number, viewOnly?: boolean) {
     super();
     this.content = content;
     this.language = language;
@@ -289,6 +291,7 @@ class CodeToolbarWidget extends WidgetType {
     this.canCollapse = Boolean(canCollapse);
     this.expanded = expanded;
     this.hiddenLineCount = Math.max(0, Number(hiddenLineCount) || 0);
+    this.viewOnly = Boolean(viewOnly);
   }
 
   eq(other: CodeToolbarWidget): boolean {
@@ -297,7 +300,8 @@ class CodeToolbarWidget extends WidgetType {
       && other.toggleKey === this.toggleKey
       && other.canCollapse === this.canCollapse
       && other.expanded === this.expanded
-      && other.hiddenLineCount === this.hiddenLineCount;
+      && other.hiddenLineCount === this.hiddenLineCount
+      && other.viewOnly === this.viewOnly;
   }
 
   toDOM(): HTMLSpanElement {
@@ -312,7 +316,7 @@ class CodeToolbarWidget extends WidgetType {
     const actions = document.createElement("span");
     actions.className = "cm-md-code-actions";
 
-    if (this.canCollapse) {
+    if (this.canCollapse && !this.viewOnly) {
       const toggleButton = document.createElement("button");
       toggleButton.type = "button";
       toggleButton.className = "cm-md-code-toggle";
@@ -337,7 +341,7 @@ class CodeToolbarWidget extends WidgetType {
   }
 
   ignoreEvent() {
-    return false;
+    return this.viewOnly;
   }
 }
 
@@ -345,31 +349,40 @@ class TaskCheckboxWidget extends WidgetType {
   done: boolean;
   ref: string;
   indent: number;
+  viewOnly: boolean;
 
-  constructor(done: boolean, ref?: string, indent?: number) {
+  constructor(done: boolean, ref?: string, indent?: number, viewOnly?: boolean) {
     super();
     this.done = done;
     this.ref = ref || "";
     this.indent = Math.max(0, Number(indent) || 0);
+    this.viewOnly = Boolean(viewOnly);
   }
 
   eq(other: TaskCheckboxWidget): boolean {
-    return other.done === this.done && other.ref === this.ref && other.indent === this.indent;
+    return other.done === this.done
+      && other.ref === this.ref
+      && other.indent === this.indent
+      && other.viewOnly === this.viewOnly;
   }
 
   toDOM(): HTMLSpanElement {
     const toggle = document.createElement("span");
-    toggle.className = "cm-md-task-toggle";
-    toggle.setAttribute("data-task-toggle", "true");
+    toggle.className = "cm-md-task-toggle" + (this.viewOnly ? " cm-md-task-toggle-passive" : "");
+    if (!this.viewOnly) {
+      toggle.setAttribute("data-task-toggle", "true");
+    }
     toggle.setAttribute("data-done", this.done ? "true" : "false");
     toggle.style.setProperty("--task-indent", String(this.indent * 0.62) + "rem");
     if (this.ref) {
       toggle.setAttribute("data-task-ref", this.ref);
     }
-    toggle.setAttribute("role", "checkbox");
-    toggle.setAttribute("tabindex", "0");
-    toggle.setAttribute("aria-checked", this.done ? "true" : "false");
-    toggle.setAttribute("aria-label", this.done ? "Mark task incomplete" : "Mark task complete");
+    if (!this.viewOnly) {
+      toggle.setAttribute("role", "checkbox");
+      toggle.setAttribute("tabindex", "0");
+      toggle.setAttribute("aria-checked", this.done ? "true" : "false");
+      toggle.setAttribute("aria-label", this.done ? "Mark task incomplete" : "Mark task complete");
+    }
 
     const box = document.createElement("input");
     box.type = "checkbox";
@@ -383,7 +396,7 @@ class TaskCheckboxWidget extends WidgetType {
   }
 
   ignoreEvent() {
-    return false;
+    return this.viewOnly;
   }
 }
 
@@ -532,82 +545,91 @@ class InlineHTMLWidget extends WidgetType {
 class QueryBlockWidget extends WidgetType {
   html: string;
   editLineNumber: number;
+  viewOnly: boolean;
 
-  constructor(html: string, editLineNumber: number) {
+  constructor(html: string, editLineNumber: number, viewOnly?: boolean) {
     super();
     this.html = html;
     this.editLineNumber = editLineNumber;
+    this.viewOnly = Boolean(viewOnly);
   }
 
   eq(other: QueryBlockWidget): boolean {
-    return other.html === this.html && other.editLineNumber === this.editLineNumber;
+    return other.html === this.html
+      && other.editLineNumber === this.editLineNumber
+      && other.viewOnly === this.viewOnly;
   }
 
   toDOM(): HTMLDivElement {
     const wrapper = document.createElement("div");
     wrapper.className = "cm-md-query-block";
 
-    const toolbar = document.createElement("div");
-    toolbar.className = "cm-md-query-toolbar";
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "cm-md-query-edit";
-    button.setAttribute("data-query-edit", String(this.editLineNumber));
-    button.textContent = "Edit Query";
-    toolbar.appendChild(button);
-
     const content = document.createElement("div");
     content.className = "cm-md-query-content";
     content.innerHTML = this.html;
 
-    wrapper.appendChild(toolbar);
+    if (!this.viewOnly) {
+      const toolbar = document.createElement("div");
+      toolbar.className = "cm-md-query-toolbar";
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "cm-md-query-edit";
+      button.setAttribute("data-query-edit", String(this.editLineNumber));
+      button.textContent = "Edit Query";
+      toolbar.appendChild(button);
+      wrapper.appendChild(toolbar);
+    }
     wrapper.appendChild(content);
     return wrapper;
   }
 
   ignoreEvent() {
-    return false;
+    return this.viewOnly;
   }
 }
 
 class MarkdownTableWidget extends WidgetType {
   html: string;
+  viewOnly: boolean;
 
-  constructor(html: string) {
+  constructor(html: string, viewOnly?: boolean) {
     super();
     this.html = html;
+    this.viewOnly = Boolean(viewOnly);
   }
 
   eq(other: MarkdownTableWidget): boolean {
-    return other.html === this.html;
+    return other.html === this.html && other.viewOnly === this.viewOnly;
   }
 
   toDOM(): HTMLDivElement {
     const wrapper = document.createElement("div");
     wrapper.className = "cm-md-table-block";
     wrapper.innerHTML = this.html;
-    wrapper.addEventListener("click", function (event) {
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      const cell = target ? target.closest("[data-table-cell]") : null;
-      if (cell) {
-        event.preventDefault();
-        const tableBlock = cell.closest(".markdown-table-block");
-        const rect = (tableBlock instanceof HTMLElement ? tableBlock : cell).getBoundingClientRect();
-        cell.dispatchEvent(new CustomEvent("noterious:table-open", {
-          bubbles: true,
-          detail: {
-            startLine: cell.getAttribute("data-table-start-line") || "",
-            row: cell.getAttribute("data-table-row") || "",
-            col: cell.getAttribute("data-table-col") || "",
-            left: String(Math.round(rect.left)),
-            top: String(Math.round(rect.top)),
-            width: String(Math.round(rect.width)),
-          },
-        }));
-        return;
-      }
-    });
+    if (!this.viewOnly) {
+      wrapper.addEventListener("click", function (event) {
+        const target = event.target instanceof HTMLElement ? event.target : null;
+        const cell = target ? target.closest("[data-table-cell]") : null;
+        if (cell) {
+          event.preventDefault();
+          const tableBlock = cell.closest(".markdown-table-block");
+          const rect = (tableBlock instanceof HTMLElement ? tableBlock : cell).getBoundingClientRect();
+          cell.dispatchEvent(new CustomEvent("noterious:table-open", {
+            bubbles: true,
+            detail: {
+              startLine: cell.getAttribute("data-table-start-line") || "",
+              row: cell.getAttribute("data-table-row") || "",
+              col: cell.getAttribute("data-table-col") || "",
+              left: String(Math.round(rect.left)),
+              top: String(Math.round(rect.top)),
+              width: String(Math.round(rect.width)),
+            },
+          }));
+          return;
+        }
+      });
+    }
     return wrapper;
   }
 
@@ -2161,7 +2183,15 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
   const queryBlocks = state.field(queryBlocksField);
   const tasks = state.field(tasksField);
   const expandedCodeBlocks = state.field(expandedCodeBlocksField);
-  const selection = state.selection.main;
+  const viewOnly = state.field(viewOnlyField, false);
+  const selection: InlineSelectionLike = viewOnly
+    ? {
+        from: -1,
+        to: -1,
+        head: -1,
+        empty: true,
+      }
+    : state.selection.main;
   const currentPagePath = state.field(pagePathField);
   const markdown = state.doc.toString();
   const lines = markdown.split("\n");
@@ -2220,7 +2250,7 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
         tableEndLine.to,
         Decoration.replace({
           block: true,
-          widget: new MarkdownTableWidget(tableBlock.html),
+          widget: new MarkdownTableWidget(tableBlock.html, viewOnly),
         })
       );
       addAtomicRange(atomicBuilder, line.from, tableEndLine.to);
@@ -2251,7 +2281,7 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
         endLine.to,
         Decoration.replace({
           block: true,
-          widget: new QueryBlockWidget(html, editLineNumber),
+          widget: new QueryBlockWidget(html, editLineNumber, viewOnly),
         })
       );
       addAtomicRange(atomicBuilder, line.from, endLine.to);
@@ -2303,7 +2333,7 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
         if (codeLineNumber === lineNumber) {
           classNames.push("cm-md-code-block-start");
           replaceDecoration = Decoration.replace({
-            widget: new CodeToolbarWidget(codeBlock.content, codeBlock.language, codeBlockKey, canCollapse, expanded, hiddenLineCount),
+            widget: new CodeToolbarWidget(codeBlock.content, codeBlock.language, codeBlockKey, canCollapse, expanded, hiddenLineCount, viewOnly),
           });
         } else if (codeLineNumber === codeBlock.endLineIndex + 1) {
           classNames.push("cm-md-code-block-end", "cm-md-code-fence-hidden");
@@ -2415,26 +2445,28 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
       const prefixLength = match[0].length;
       const bodyText = text.slice(prefixLength);
       builder.add(from, from, Decoration.line({class: "cm-md-task-line" + (task.done ? " cm-md-task-done" : "")}));
-      builder.add(from, from + prefixLength, Decoration.replace({widget: new TaskCheckboxWidget(task.done, task.ref, indentLength)}));
+      builder.add(from, from + prefixLength, Decoration.replace({widget: new TaskCheckboxWidget(task.done, task.ref, indentLength, viewOnly)}));
       addAtomicRange(atomicBuilder, from, from + prefixLength);
       inlineStart = prefixLength;
 
-      let dateMatch: RegExpExecArray | null = null;
-      while ((dateMatch = taskInlineDatePattern.exec(bodyText)) !== null) {
-        const field = String(dateMatch[1] || "");
-        const start = from + prefixLength + dateMatch.index;
-        const end = start + dateMatch[0].length;
-        inlineExtraDecos.push({
-          from: start,
-          to: end,
-          deco: Decoration.mark({
-            class: "cm-md-task-inline-date",
-            attributes: {
-              "data-task-date-edit": field,
-              "data-task-ref": task.ref || "",
-            },
-          }),
-        });
+      if (!viewOnly) {
+        let dateMatch: RegExpExecArray | null = null;
+        while ((dateMatch = taskInlineDatePattern.exec(bodyText)) !== null) {
+          const field = String(dateMatch[1] || "");
+          const start = from + prefixLength + dateMatch.index;
+          const end = start + dateMatch[0].length;
+          inlineExtraDecos.push({
+            from: start,
+            to: end,
+            deco: Decoration.mark({
+              class: "cm-md-task-inline-date",
+              attributes: {
+                "data-task-date-edit": field,
+                "data-task-ref": task.ref || "",
+              },
+            }),
+          });
+        }
       }
       taskInlineDatePattern.lastIndex = 0;
 
@@ -2579,6 +2611,20 @@ const renderModeField = StateField.define<boolean>({
   },
 });
 
+const viewOnlyField = StateField.define<boolean>({
+  create() {
+    return false;
+  },
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setViewOnlyEffect)) {
+        return Boolean(effect.value);
+      }
+    }
+    return value;
+  },
+});
+
 const pagePathField = StateField.define<string>({
   create() {
     return "";
@@ -2599,9 +2645,10 @@ const renderedDecorationsField = StateField.define<RenderedDecorationSets>({
   },
   update(value, transaction) {
     const modeChanged = transaction.effects.some((effect) => effect.is(setRenderModeEffect));
+    const viewOnlyChanged = transaction.effects.some((effect) => effect.is(setViewOnlyEffect));
     const tasksChanged = transaction.effects.some((effect) => effect.is(setTasksEffect));
     const codeBlocksChanged = transaction.effects.some((effect) => effect.is(toggleCodeBlockExpandedEffect));
-    if (!modeChanged && !tasksChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
+    if (!modeChanged && !viewOnlyChanged && !tasksChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
       return value;
     }
     return buildRenderedDecorations(transaction.state);
@@ -2677,6 +2724,9 @@ window.NoteriousCodeEditor = {
 
     const eventHandlers = EditorView.domEventHandlers({
       paste(event, view) {
+        if (view.state.field(viewOnlyField, false)) {
+          return false;
+        }
         const text = event.clipboardData ? event.clipboardData.getData("text/plain") : "";
         if (!text || !/^https?:\/\/\S+$/i.test(text.trim())) {
           return false;
@@ -2696,6 +2746,7 @@ window.NoteriousCodeEditor = {
       },
       mousedown(event, view) {
         clearSearchHitHighlight(view);
+        const viewOnly = view.state.field(viewOnlyField, false);
         const target = event.target instanceof Element ? event.target : null;
         const pageLink = target ? target.closest("[data-page-link]") : null;
         if (pageLink) {
@@ -2725,6 +2776,9 @@ window.NoteriousCodeEditor = {
 
         const queryEdit = target ? target.closest("[data-query-edit]") : null;
         if (queryEdit) {
+          if (viewOnly) {
+            return true;
+          }
           event.preventDefault();
           const lineNumber = Number(queryEdit.getAttribute("data-query-edit") || "0");
           if (lineNumber > 0 && lineNumber <= view.state.doc.lines) {
@@ -2754,6 +2808,9 @@ window.NoteriousCodeEditor = {
 
         const codeToggle = target ? target.closest("[data-code-toggle]") : null;
         if (codeToggle) {
+          if (viewOnly) {
+            return true;
+          }
           event.preventDefault();
           const key = String(codeToggle.getAttribute("data-code-toggle") || "");
           if (key) {
@@ -2766,6 +2823,9 @@ window.NoteriousCodeEditor = {
 
         const taskToggle = target ? target.closest("[data-task-toggle]") : null;
         if (taskToggle) {
+          if (viewOnly) {
+            return true;
+          }
           event.preventDefault();
           const taskCarrier = target ? target.closest("[data-task-ref]") : null;
           const taskRef = taskCarrier ? taskCarrier.getAttribute("data-task-ref") || "" : "";
@@ -2783,6 +2843,9 @@ window.NoteriousCodeEditor = {
 
         const taskDateEdit = target ? target.closest("[data-task-date-edit]") : null;
         if (taskDateEdit) {
+          if (viewOnly) {
+            return true;
+          }
           event.preventDefault();
           const trigger = taskDateEdit instanceof HTMLElement ? taskDateEdit : null;
           const rect = trigger ? trigger.getBoundingClientRect() : null;
@@ -2802,6 +2865,9 @@ window.NoteriousCodeEditor = {
 
         const taskDelete = target ? target.closest("[data-task-delete]") : null;
         if (taskDelete) {
+          if (viewOnly) {
+            return true;
+          }
           event.preventDefault();
           host.dispatchEvent(new CustomEvent("noterious:task-delete", {
             detail: {
@@ -2815,9 +2881,10 @@ window.NoteriousCodeEditor = {
         return false;
       },
       keydown(event, view) {
+        const viewOnly = view.state.field(viewOnlyField, false);
         const target = event.target instanceof Element ? event.target : null;
         const taskToggle = target ? target.closest("[data-task-toggle]") : null;
-        if (taskToggle && (event.key === " " || event.key === "Enter")) {
+        if (!viewOnly && taskToggle && (event.key === " " || event.key === "Enter")) {
           event.preventDefault();
           const taskRef = taskToggle.getAttribute("data-task-ref") || "";
           const position = view.posAtDOM(taskToggle);
@@ -2859,104 +2926,111 @@ window.NoteriousCodeEditor = {
       },
     });
 
-    const view = new EditorView({
-      state: EditorState.create({
-        doc: textarea.value || "",
-        extensions: [
-          editableCompartment.of(EditorView.editable.of(true)),
-          readOnlyCompartment.of(EditorState.readOnly.of(false)),
-          history(),
-          drawSelection(),
-          highlightActiveLine(),
-          keymap.of([
-            {
-              key: "ArrowUp",
-              run(view) {
-                return handleRenderedVerticalArrow(view, "ArrowUp");
-              },
-            },
-            {
-              key: "ArrowDown",
-              run(view) {
-                return handleRenderedVerticalArrow(view, "ArrowDown");
-              },
-            },
-            {
-              key: "Shift-ArrowUp",
-              run(view) {
-                return handleRenderedVerticalArrow(view, "ArrowUp", true);
-              },
-            },
-            {
-              key: "Shift-ArrowDown",
-              run(view) {
-                return handleRenderedVerticalArrow(view, "ArrowDown", true);
-              },
-            },
-            {
-              key: "ArrowLeft",
-              run(view) {
-                return handleRenderedHiddenPrefixHorizontalBoundary(view, "ArrowLeft");
-              },
-            },
-            {
-              key: "ArrowRight",
-              run(view) {
-                return handleRenderedHiddenPrefixHorizontalBoundary(view, "ArrowRight");
-              },
-            },
-            {
-              key: "Home",
-              run(view) {
-                return handleRenderedLineBoundary(view, "Home");
-              },
-            },
-            {
-              key: "End",
-              run(view) {
-                return handleRenderedLineBoundary(view, "End");
-              },
-            },
-            {
-              key: "Shift-Home",
-              run(view) {
-                return handleRenderedLineBoundary(view, "Home", true);
-              },
-            },
-            {
-              key: "Shift-End",
-              run(view) {
-                return handleRenderedLineBoundary(view, "End", true);
-              },
-            },
-            indentWithTab,
-            ...defaultKeymap,
-            ...historyKeymap,
-          ]),
-          EditorView.lineWrapping,
-          markdown({
-            codeLanguages,
-          }),
-          syntaxHighlighting(themedHighlight, {fallback: true}),
-          renderModeField,
-          pagePathField,
-          highlightedLineField,
-          queryBlocksField,
-          tasksField,
-          expandedCodeBlocksField,
-          highlightedLineDecorationsField,
-          renderedDecorationsField,
-          renderedFrontmatterBoundaryFilter,
-          eventHandlers,
-          EditorView.updateListener.of((update) => {
-            const value = update.state.doc.toString();
-            setTextareaValue(textarea, value);
-            if (update.docChanged && !suppressInput) {
-              syncTextareaValue(textarea, value);
-            }
-          }),
-        ],
+    const extensions = [
+      editableCompartment.of(EditorView.editable.of(true)),
+      readOnlyCompartment.of(EditorState.readOnly.of(false)),
+      history(),
+      drawSelection(),
+      highlightActiveLine(),
+      keymap.of([
+        {
+          key: "ArrowUp",
+          run(view) {
+            return handleRenderedVerticalArrow(view, "ArrowUp");
+          },
+        },
+        {
+          key: "ArrowDown",
+          run(view) {
+            return handleRenderedVerticalArrow(view, "ArrowDown");
+          },
+        },
+        {
+          key: "Shift-ArrowUp",
+          run(view) {
+            return handleRenderedVerticalArrow(view, "ArrowUp", true);
+          },
+        },
+        {
+          key: "Shift-ArrowDown",
+          run(view) {
+            return handleRenderedVerticalArrow(view, "ArrowDown", true);
+          },
+        },
+        {
+          key: "ArrowLeft",
+          run(view) {
+            return handleRenderedHiddenPrefixHorizontalBoundary(view, "ArrowLeft");
+          },
+        },
+        {
+          key: "ArrowRight",
+          run(view) {
+            return handleRenderedHiddenPrefixHorizontalBoundary(view, "ArrowRight");
+          },
+        },
+        {
+          key: "Home",
+          run(view) {
+            return handleRenderedLineBoundary(view, "Home");
+          },
+        },
+        {
+          key: "End",
+          run(view) {
+            return handleRenderedLineBoundary(view, "End");
+          },
+        },
+        {
+          key: "Shift-Home",
+          run(view) {
+            return handleRenderedLineBoundary(view, "Home", true);
+          },
+        },
+        {
+          key: "Shift-End",
+          run(view) {
+            return handleRenderedLineBoundary(view, "End", true);
+          },
+        },
+        indentWithTab,
+        ...defaultKeymap,
+        ...historyKeymap,
+      ]),
+      EditorView.lineWrapping,
+      markdown({
+        codeLanguages,
       }),
+      syntaxHighlighting(themedHighlight, {fallback: true}),
+      renderModeField,
+      viewOnlyField,
+      pagePathField,
+      highlightedLineField,
+      queryBlocksField,
+      tasksField,
+      expandedCodeBlocksField,
+      highlightedLineDecorationsField,
+      renderedDecorationsField,
+      renderedFrontmatterBoundaryFilter,
+      eventHandlers,
+      EditorView.updateListener.of((update) => {
+        const value = update.state.doc.toString();
+        setTextareaValue(textarea, value);
+        if (update.docChanged && !suppressInput) {
+          syncTextareaValue(textarea, value);
+        }
+      }),
+    ];
+
+    function createViewState(value: string): EditorState {
+      return EditorState.create({
+        doc: value,
+        extensions,
+      });
+    }
+
+    const view = new EditorView({
+      state: createViewState(textarea.value || ""),
       parent: host,
     });
     bindTransientScrollClass(view.scrollDOM, "is-scrolling");
@@ -2981,6 +3055,18 @@ window.NoteriousCodeEditor = {
         suppressInput = false;
         setTextareaValue(textarea, nextValue);
       },
+      resetValue(value: string) {
+        const nextValue = String(value || "");
+        const current = view.state.doc.toString();
+        if (nextValue === current) {
+          setTextareaValue(textarea, nextValue);
+          return;
+        }
+        suppressInput = true;
+        view.setState(createViewState(nextValue));
+        suppressInput = false;
+        setTextareaValue(textarea, nextValue);
+      },
       replaceRange(from: number, to: number, insert: string) {
         const max = view.state.doc.length;
         const nextFrom = Math.max(0, Math.min(Number(from) || 0, max));
@@ -2996,6 +3082,18 @@ window.NoteriousCodeEditor = {
         });
         suppressInput = false;
         setTextareaValue(textarea, view.state.doc.toString());
+      },
+      undo() {
+        return undo(view);
+      },
+      redo() {
+        return redo(view);
+      },
+      canUndo() {
+        return undoDepth(view.state) > 0;
+      },
+      canRedo() {
+        return redoDepth(view.state) > 0;
       },
       focus(options?: FocusOptions) {
         try {
@@ -3070,6 +3168,24 @@ window.NoteriousCodeEditor = {
           effects: setRenderModeEffect.of(Boolean(enabled)),
         });
         if (enabled) {
+          const protectedUntil = renderedBodyStartOffset(view.state);
+          let clampedSelection = clampSelectionToOffset(view.state.selection, protectedUntil);
+          clampedSelection = clampSelectionToRenderedVisibleOffsets(view.state, clampedSelection);
+          if (!clampedSelection.eq(view.state.selection, true)) {
+            view.dispatch({
+              selection: clampedSelection,
+              scrollIntoView: true,
+            });
+          }
+        }
+      },
+      setViewOnly(enabled: boolean) {
+        const viewOnly = Boolean(enabled);
+        host.classList.toggle("is-view-only", viewOnly);
+        view.dispatch({
+          effects: setViewOnlyEffect.of(viewOnly),
+        });
+        if (viewOnly && view.state.field(renderModeField, false)) {
           const protectedUntil = renderedBodyStartOffset(view.state);
           let clampedSelection = clampSelectionToOffset(view.state.selection, protectedUntil);
           clampedSelection = clampSelectionToRenderedVisibleOffsets(view.state, clampedSelection);

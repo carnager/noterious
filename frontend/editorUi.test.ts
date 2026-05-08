@@ -208,6 +208,31 @@ function expectArrow(view: EditorView, key: string, lineNumber: number, column: 
 }
 
 describe("mounted editor UI", function () {
+  it("exposes undo and redo through the editor API", function () {
+    const editor = mountEditor("Alpha");
+
+    try {
+      expect(editor.api.canUndo()).toBe(false);
+      expect(editor.api.canRedo()).toBe(false);
+
+      editor.api.replaceRange(5, 5, " beta");
+
+      expect(editor.api.getValue()).toBe("Alpha beta");
+      expect(editor.api.canUndo()).toBe(true);
+      expect(editor.api.canRedo()).toBe(false);
+
+      expect(editor.api.undo()).toBe(true);
+      expect(editor.api.getValue()).toBe("Alpha");
+      expect(editor.api.canUndo()).toBe(false);
+      expect(editor.api.canRedo()).toBe(true);
+
+      expect(editor.api.redo()).toBe(true);
+      expect(editor.api.getValue()).toBe("Alpha beta");
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("clamps render-mode selection out of frontmatter and blank safe space", function () {
     const markdown = [
       "---",
@@ -465,6 +490,66 @@ describe("mounted editor UI", function () {
         anchor: {lineNumber: 6, column: 0},
         head: {lineNumber: 4, column: 0},
       });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps query blocks rendered in view-only mode even when the caret enters the fence", function () {
+    const markdown = [
+      "Intro",
+      "```query",
+      "tag: today",
+      "```",
+      "Outro",
+    ].join("\n");
+    const editor = mountEditor(markdown);
+
+    try {
+      editor.api.setQueryBlocks([{
+        source: "```query\ntag: today\n```",
+        html: '<div class="embedded-query"><div class="query-result">Alpha</div></div>',
+      }]);
+      editor.api.setRenderMode(true);
+      setCursor(editor.view, 3, 0);
+
+      expect(editor.view.contentDOM.querySelector(".cm-md-query-block")).toBeNull();
+
+      editor.api.setViewOnly(true);
+
+      expect(editor.view.contentDOM.querySelector(".cm-md-query-block")).toBeTruthy();
+      expect(editor.view.contentDOM.querySelector("[data-query-edit]")).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps code copy available but removes code collapse controls in view-only mode", function () {
+    const markdown = [
+      "```ts",
+      "const line01 = 1;",
+      "const line02 = 2;",
+      "const line03 = 3;",
+      "const line04 = 4;",
+      "const line05 = 5;",
+      "const line06 = 6;",
+      "const line07 = 7;",
+      "const line08 = 8;",
+      "const line09 = 9;",
+      "const line10 = 10;",
+      "const line11 = 11;",
+      "const line12 = 12;",
+      "const line13 = 13;",
+      "```",
+    ].join("\n");
+    const editor = mountEditor(markdown);
+
+    try {
+      editor.api.setRenderMode(true);
+      editor.api.setViewOnly(true);
+
+      expect(editor.view.contentDOM.querySelector("[data-code-copy]")).toBeTruthy();
+      expect(editor.view.contentDOM.querySelector("[data-code-toggle]")).toBeNull();
     } finally {
       editor.destroy();
     }

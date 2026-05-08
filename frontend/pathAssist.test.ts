@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPathDialogAssist } from "./pathAssist";
+import { buildPathDialogAssist, buildPathMoveAssist } from "./pathAssist";
 
 describe("buildPathDialogAssist", function () {
   it("builds a scoped create preview for notes", function () {
@@ -103,6 +103,54 @@ describe("buildPathDialogAssist", function () {
       scopePrefix: "Private",
       pages: [],
       folders: ["Private/notes", "Private/archive"],
+    });
+
+    expect(assist.error).toBe("A folder cannot be moved into itself.");
+  });
+});
+
+describe("buildPathMoveAssist", function () {
+  it("treats slash as the current scope root when moving a note", function () {
+    const assist = buildPathMoveAssist({
+      kind: "note",
+      input: "/",
+      sourcePath: "Private/notes/alina",
+      scopePrefix: "Private",
+      pages: ["Private/notes/alina"],
+      folders: ["Private/notes", "Private/archive"],
+    });
+
+    expect(assist.error).toBe("");
+    expect(assist.targetFolder).toBe("Private");
+    expect(assist.targetPath).toBe("Private/alina");
+    expect(assist.helper).toContain('/Private/alina');
+  });
+
+  it("shows full canonical paths in move suggestions", function () {
+    const assist = buildPathMoveAssist({
+      kind: "note",
+      input: "",
+      sourcePath: "Private/notes/alina",
+      scopePrefix: "Private",
+      pages: ["Private/notes/alina"],
+      folders: ["Private/notes", "Private/archive", "Work/shared"],
+    });
+
+    expect(assist.suggestions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: "/", label: "/Private" }),
+      expect.objectContaining({ value: "Private/archive", label: "/Private/archive" }),
+      expect.objectContaining({ value: "Work/shared", label: "/Work/shared" }),
+    ]));
+  });
+
+  it("rejects moving a folder into one of its children", function () {
+    const assist = buildPathMoveAssist({
+      kind: "folder",
+      input: "Private/notes/archive",
+      sourcePath: "Private/notes",
+      scopePrefix: "Private",
+      pages: [],
+      folders: ["Private", "Private/notes", "Private/notes/archive"],
     });
 
     expect(assist.error).toBe("A folder cannot be moved into itself.");

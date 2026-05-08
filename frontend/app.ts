@@ -41,9 +41,10 @@ import {
 } from "./details";
 import {
   buildPathDialogAssist,
+  buildPathMoveAssist,
   type PathDialogSuggestion,
 } from "./pathAssist";
-import { buildDocumentPathDialogAssist } from "./documentPathAssist";
+import { buildDocumentMoveAssist, buildDocumentPathDialogAssist } from "./documentPathAssist";
 import {
   formatDateTimeValue,
   formatTimeValue,
@@ -55,9 +56,13 @@ import {
   captureEditorFocusSpec,
   currentRawLineContext,
   focusMarkdownEditor,
+  markdownEditorCanRedo,
+  markdownEditorCanUndo,
   markdownEditorCaretRect,
   markdownEditorHasFocus,
+  markdownEditorRedo,
   markdownEditorSetEditable,
+  markdownEditorSetViewOnly,
   markdownEditorSetPagePath,
   markdownEditorSetDateTimeFormat,
   markdownEditorScrollTop,
@@ -66,8 +71,10 @@ import {
   markdownEditorSetQueryBlocks,
   markdownEditorSetRenderMode,
   markdownEditorSetTasks,
+  markdownEditorUndo,
   markdownEditorValue,
   restoreEditorFocus,
+  resetMarkdownEditorValue,
   setMarkdownEditorScrollTop,
   setMarkdownEditorSelection,
   setMarkdownEditorValue,
@@ -160,6 +167,7 @@ import {
   filterPagesByScope,
   filterPagesByTag,
   pageTreeDragMimeType,
+  type PageTreeInlineEditState,
   type PageTreeMenuTarget,
   type TreeDragItem,
   renderPageContext as renderPageContextUI,
@@ -202,6 +210,7 @@ import {
   templatePropertyKindHints,
 } from "./noteTemplates";
 import { applyURLState as applyURLStateUI, buildSelectionURL, navigateToPageSelection } from "./routing";
+import { parsePageAnchorTarget, resolveHeadingAnchorLineInMarkdown } from "./pageAnchors";
 import {
   applyAuthSessionResponse,
   renderAuthGate as renderAuthGateUI,
@@ -384,6 +393,7 @@ interface AppState {
   railOpen: boolean;
   railTab: string;
   sourceOpen: boolean;
+  viewOnly: boolean;
   settings: SettingsModel;
   appliedVault: VaultSettings;
   settingsRestartRequired: boolean;
@@ -415,6 +425,7 @@ interface AppState {
   slashContext: SlashMenuContext | null;
   pendingPageLineFocus: number | null;
   pendingPageTaskRef: string;
+  pendingPageAnchorFocus: string;
   renamingPageTitle: boolean;
   taskFilters: TaskPanelFilters;
   tableEditor: TableEditorState | null;
@@ -449,6 +460,8 @@ interface AppState {
   browserNotificationSyncInFlight: boolean;
   browserNotificationSessionStartedAt: number;
   railWidth: number;
+  treeInlineEdit: PageTreeInlineEditState | null;
+  treeInlineEditSelectAll: boolean;
 }
 
 interface TemplateFillSession {
@@ -469,6 +482,7 @@ interface ActionDialogFieldSpec {
   value?: string;
   autocapitalize?: string;
   spellcheck?: boolean;
+  suggestionPresentation?: "floating" | "inline";
   describe?: (value: string, values: Record<string, string>) => ActionDialogFieldState;
 }
 
@@ -488,6 +502,7 @@ interface ActionDialogOptions {
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  variant?: "default" | "picker";
   fields?: ActionDialogFieldSpec[];
   validate?: (values: Record<string, string>) => string;
 }
@@ -569,6 +584,7 @@ interface ActionDialogSession {
     railOpen: false,
     railTab: "files",
     sourceOpen: false,
+    viewOnly: false,
     settings: {
       preferences: cloneClientPreferences(defaultClientPreferences()),
       vault: {
@@ -624,6 +640,7 @@ interface ActionDialogSession {
     slashContext: null,
     pendingPageLineFocus: null,
     pendingPageTaskRef: "",
+    pendingPageAnchorFocus: "",
     renamingPageTitle: false,
     taskFilters: {
       currentPage: false,
@@ -663,6 +680,8 @@ interface ActionDialogSession {
     browserNotificationSyncInFlight: false,
     browserNotificationSessionStartedAt: Date.now(),
     railWidth: defaultDesktopRailWidth,
+    treeInlineEdit: null,
+    treeInlineEditSelectAll: false,
   };
 
   const els = {
@@ -709,6 +728,9 @@ interface ActionDialogSession {
     detailTitle: requiredElement<HTMLElement>("detail-title"),
     detailPath: requiredElement<HTMLElement>("detail-path"),
     noteHeading: requiredElement<HTMLInputElement>("note-heading"),
+    undoPageEdit: requiredElement<HTMLButtonElement>("undo-page-edit"),
+    redoPageEdit: requiredElement<HTMLButtonElement>("redo-page-edit"),
+    toggleViewMode: requiredElement<HTMLButtonElement>("toggle-view-mode"),
     toggleSourceMode: requiredElement<HTMLButtonElement>("toggle-source-mode"),
     noteStatus: requiredElement<HTMLElement>("note-status"),
     remoteChangeToast: requiredElement<HTMLElement>("remote-change-toast"),
@@ -1287,7 +1309,7 @@ interface ActionDialogSession {
     clearPropertyDraft();
     const templateFillActive = openTemplateFillDraft(page);
     els.detailPath.textContent = page.page || page.path || pagePath;
-    setNoteHeadingValue(page.title || page.page || pagePath, true);
+    setNoteHeadingValue(page.title || page.page || pagePath, studioPageEditable());
 
     setStructuredViews(
       "Page",
@@ -1369,7 +1391,7 @@ interface ActionDialogSession {
       scrollTop,
       focusEditor,
       loadRemoteDetail: function (targetPage: string) {
-        return loadPageDetailData(targetPage, encodePath, "", null);
+        return loadPageDetailData(targetPage, encodePath, "", null, "");
       },
       shouldContinue: function () {
         return state.remoteChangeSyncToken === syncToken && state.selectedPage === pagePath;
@@ -1493,11 +1515,19 @@ interface ActionDialogSession {
   }
 
   function studioPageEditable(): boolean {
-    return state.appScreen === "notes" && Boolean(state.selectedPage && state.currentPage);
+    return state.appScreen === "notes" && Boolean(state.selectedPage && state.currentPage) && !state.viewOnly;
   }
 
   function studioPageAvailable(): boolean {
     return state.appScreen === "help" || Boolean(state.selectedPage && state.currentPage);
+  }
+
+  function studioViewOnlyAvailable(): boolean {
+    return state.appScreen === "notes" && Boolean(state.selectedPage && state.currentPage);
+  }
+
+  function notePropertiesHidden(): boolean {
+    return state.appScreen === "help" || state.sourceOpen || state.viewOnly;
   }
 
   function renderAppScreen(): void {
@@ -1937,9 +1967,10 @@ interface ActionDialogSession {
       onExpandAncestors: function (path) {
         ensureExpandedPageAncestors(path, state.expandedPageFolders);
       },
-      onSetPendingFocus: function (lineNumber, taskRef) {
+      onSetPendingFocus: function (lineNumber, taskRef, anchor) {
         state.pendingPageLineFocus = lineNumber;
         state.pendingPageTaskRef = taskRef;
+        state.pendingPageAnchorFocus = anchor;
       },
       onSelectPage: function (path) {
         clearRemoteChangeToast();
@@ -1981,23 +2012,97 @@ interface ActionDialogSession {
     return scopePrefix + "/" + normalized;
   }
 
-  function openOrCreatePage(pagePath: string, replace: boolean): void {
+  function resolvePageNavigationTarget(pagePath: string): { path: string; exists: boolean } {
     const normalized = normalizePageDraftPath(pagePath);
     if (!normalized) {
-      return;
+      return { path: "", exists: false };
     }
     const scopedPath = applyCurrentScopePrefix(normalized);
     if (hasPage(scopedPath)) {
-      navigateToPage(scopedPath, replace);
-      return;
+      return { path: scopedPath, exists: true };
     }
     if (hasPage(normalized)) {
-      navigateToPage(normalized, replace);
+      return { path: normalized, exists: true };
+    }
+    return { path: scopedPath || normalized, exists: false };
+  }
+
+  function focusEditorAtRawOffset(offset: number, highlightedLine?: number | null): void {
+    const safeOffset = Math.max(0, Math.min(Number(offset) || 0, state.currentMarkdown.length));
+    if (state.markdownEditorApi) {
+      state.markdownEditorApi.setHighlightedLine(
+        typeof highlightedLine === "number" && highlightedLine > 0 ? highlightedLine : null
+      );
+    }
+    window.requestAnimationFrame(function () {
+      focusMarkdownEditor(state, els, {preventScroll: true});
+      setMarkdownEditorSelection(state, els, safeOffset, safeOffset, true);
+      window.requestAnimationFrame(function () {
+        focusMarkdownEditor(state, els, {preventScroll: true});
+        setMarkdownEditorSelection(state, els, safeOffset, safeOffset, true);
+      });
+    });
+  }
+
+  function focusCurrentPageAnchor(anchor: string): boolean {
+    if (state.appScreen !== "notes" || !state.selectedPage || !state.currentPage) {
+      return false;
+    }
+    const lineNumber = resolveHeadingAnchorLineInMarkdown(state.currentMarkdown, anchor);
+    if (!lineNumber || lineNumber <= 0) {
+      return false;
+    }
+    state.pendingPageLineFocus = null;
+    state.pendingPageTaskRef = "";
+    state.pendingPageAnchorFocus = "";
+    focusEditorAtRawOffset(rawOffsetForLineNumber(state.currentMarkdown, lineNumber), lineNumber);
+    return true;
+  }
+
+  function openOrCreatePage(pagePath: string, replace: boolean): void {
+    const target = resolvePageNavigationTarget(pagePath);
+    if (!target.path) {
       return;
     }
-    createPage(scopedPath || normalized).catch(function (error) {
+    if (target.exists) {
+      navigateToPage(target.path, replace);
+      return;
+    }
+    createPage(target.path).catch(function (error) {
       setNoteStatus("Create page failed: " + errorMessage(error));
     });
+  }
+
+  function openOrCreatePageLinkTarget(rawTarget: string, replace: boolean): void {
+    const target = parsePageAnchorTarget(rawTarget, state.selectedPage || "");
+    if (!target) {
+      return;
+    }
+
+    if (target.anchor) {
+      const currentPath = normalizePageDraftPath(state.selectedPage || "");
+      if (currentPath && currentPath.toLowerCase() === target.pagePath.toLowerCase()) {
+        if (!focusCurrentPageAnchor(target.anchor)) {
+          setNoteStatus('Section "' + target.anchor + '" was not found in ' + target.pagePath + ".");
+        }
+        return;
+      }
+
+      const resolved = resolvePageNavigationTarget(target.pagePath);
+      if (!resolved.path) {
+        return;
+      }
+      if (resolved.exists) {
+        navigateToPageAtAnchor(resolved.path, target.anchor, replace);
+        return;
+      }
+      createPage(resolved.path).catch(function (error) {
+        setNoteStatus("Create page failed: " + errorMessage(error));
+      });
+      return;
+    }
+
+    openOrCreatePage(target.pagePath, replace);
   }
 
   function navigateToPageAtLine(pagePath: string, lineNumber: number | string, replace: boolean) {
@@ -2008,9 +2113,10 @@ interface ActionDialogSession {
       onExpandAncestors: function (path) {
         ensureExpandedPageAncestors(path, state.expandedPageFolders);
       },
-      onSetPendingFocus: function (nextLineNumber, taskRef) {
+      onSetPendingFocus: function (nextLineNumber, taskRef, anchor) {
         state.pendingPageLineFocus = nextLineNumber;
         state.pendingPageTaskRef = taskRef;
+        state.pendingPageAnchorFocus = anchor;
       },
       onSelectPage: function (path) {
         clearRemoteChangeToast();
@@ -2035,9 +2141,37 @@ interface ActionDialogSession {
       onExpandAncestors: function (path) {
         ensureExpandedPageAncestors(path, state.expandedPageFolders);
       },
-      onSetPendingFocus: function (nextLineNumber, nextTaskRef) {
+      onSetPendingFocus: function (nextLineNumber, nextTaskRef, anchor) {
         state.pendingPageLineFocus = nextLineNumber;
         state.pendingPageTaskRef = nextTaskRef;
+        state.pendingPageAnchorFocus = anchor;
+      },
+      onSelectPage: function (path) {
+        clearRemoteChangeToast();
+        state.appScreen = "notes";
+        state.selectedPage = path;
+        renderAppScreen();
+      },
+      onSyncURL: syncURLState,
+      onRenderPages: renderPages,
+      onLoadPageDetail: function (path) {
+        loadPageDetail(path, true);
+      },
+    });
+  }
+
+  function navigateToPageAtAnchor(pagePath: string, anchor: string, replace: boolean) {
+    navigateToPageSelection({
+      pagePath: pagePath,
+      anchor: anchor,
+      replace: replace,
+      onExpandAncestors: function (path) {
+        ensureExpandedPageAncestors(path, state.expandedPageFolders);
+      },
+      onSetPendingFocus: function (nextLineNumber, nextTaskRef, nextAnchor) {
+        state.pendingPageLineFocus = nextLineNumber;
+        state.pendingPageTaskRef = nextTaskRef;
+        state.pendingPageAnchorFocus = nextAnchor;
       },
       onSelectPage: function (path) {
         clearRemoteChangeToast();
@@ -2456,7 +2590,7 @@ interface ActionDialogSession {
     const currentPath = normalizePageDraftPath(state.selectedPage);
     const currentLeaf = pageTitleFromPath(currentPath);
     if (!normalizedDraftPath) {
-      setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
+      setNoteHeadingValue(currentPageTitleValue() || currentLeaf, studioPageEditable());
       return;
     }
 
@@ -2467,7 +2601,7 @@ interface ActionDialogSession {
       : (parentFolder ? (parentFolder + "/" + normalizedDraftPath) : normalizedDraftPath);
 
     if (targetPath === currentPath) {
-      setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
+      setNoteHeadingValue(currentPageTitleValue() || currentLeaf, studioPageEditable());
       return;
     }
 
@@ -2487,7 +2621,7 @@ interface ActionDialogSession {
           : ("Renamed " + currentLeaf + " to " + targetLeaf + ".")
       );
     } catch (error) {
-      setNoteHeadingValue(currentPageTitleValue() || currentLeaf, true);
+      setNoteHeadingValue(currentPageTitleValue() || currentLeaf, studioPageEditable());
       setNoteStatus("Rename failed: " + errorMessage(error));
     } finally {
       state.renamingPageTitle = false;
@@ -2506,9 +2640,34 @@ interface ActionDialogSession {
     const fallbackPath = page.page || page.path || state.selectedPage || "";
     els.detailPath.textContent = fallbackPath;
     els.detailTitle.textContent = page.title || fallbackPath;
-    setNoteHeadingValue(page.title || fallbackPath, true);
+    setNoteHeadingValue(page.title || fallbackPath, studioPageEditable());
     renderPageTags();
     renderPageProperties();
+  }
+
+  function syncCurrentNoteSurfaceMode(): void {
+    const noteLoaded = state.appScreen === "notes" && Boolean(state.selectedPage && state.currentPage);
+    markdownEditorSetEditable(state, els, noteLoaded && !state.viewOnly);
+    markdownEditorSetViewOnly(state, noteLoaded && state.viewOnly);
+    markdownEditorSetRenderMode(state, !state.sourceOpen);
+    if (els.pageProperties) {
+      els.pageProperties.classList.toggle("hidden", notePropertiesHidden());
+    }
+    if (els.propertyActions) {
+      els.propertyActions.classList.toggle("hidden", notePropertiesHidden() || state.editingPropertyKey === "__new__");
+    }
+  }
+
+  function renderViewModeButton(): void {
+    const available = studioViewOnlyAvailable();
+    els.toggleViewMode.disabled = !available;
+    els.toggleViewMode.classList.toggle("active", available && state.viewOnly);
+    els.toggleViewMode.setAttribute("aria-pressed", available && state.viewOnly ? "true" : "false");
+    els.toggleViewMode.title = !available
+      ? "Open a note first"
+      : state.viewOnly
+        ? "Return to editable rendered mode"
+        : "Freeze the rendered note so clicks do not enter edit mode";
   }
 
   function renderSourceModeButton(): void {
@@ -2520,6 +2679,18 @@ interface ActionDialogSession {
     els.toggleSourceMode.title = state.sourceOpen
       ? "Switch to rendered preview (" + hotkeyLabel(state.settings.preferences.hotkeys.toggleRawMode) + ")"
       : "Switch to raw markdown (" + hotkeyLabel(state.settings.preferences.hotkeys.toggleRawMode) + ")";
+    renderViewModeButton();
+  }
+
+  function renderUndoRedoButtons(): void {
+    const editable = studioPageEditable();
+    const canUndo = editable && markdownEditorCanUndo(state);
+    const canRedo = editable && markdownEditorCanRedo(state);
+
+    els.undoPageEdit.disabled = !canUndo;
+    els.redoPageEdit.disabled = !canRedo;
+    els.undoPageEdit.title = editable ? "Undo last edit" : "Open an editable note first";
+    els.redoPageEdit.title = editable ? "Redo last undone edit" : "Open an editable note first";
   }
 
   function renderPageHistoryButton(): void {
@@ -2575,36 +2746,48 @@ interface ActionDialogSession {
     els.noteStatus.textContent = message;
   }
 
+  function refreshCurrentNoteStatus(): void {
+    if (state.appScreen !== "notes" || !state.selectedPage || !state.currentPage) {
+      return;
+    }
+    if (hasUnsavedPageChanges()) {
+      setNoteStatus("Unsaved local edits on " + state.selectedPage + ".");
+      scheduleAutosave();
+      return;
+    }
+    clearAutosaveTimer();
+    if (state.viewOnly) {
+      setNoteStatus("Viewing " + state.selectedPage + " in view-only mode.");
+      return;
+    }
+    setNoteStatus("Editing " + state.selectedPage + " directly.");
+  }
+
   function renderNoteStudio() {
     const helpActive = state.appScreen === "help";
     const page = currentStudioPageView();
     if (!page) {
       closeInlineTableEditor();
-      setMarkdownEditorValue(state, els, "");
+      resetMarkdownEditorValue(state, els, "");
       markdownEditorSetEditable(state, els, false);
+      markdownEditorSetViewOnly(state, false);
       markdownEditorSetPagePath(state, "");
       setNoteStatus("Select a page to edit and preview markdown.");
+      renderUndoRedoButtons();
       renderSourceModeButton();
       renderPageHistoryButton();
       return;
     }
 
     const nextMarkdown = helpActive ? helpScreenMarkdown() : state.currentMarkdown;
-    setMarkdownEditorValue(state, els, nextMarkdown);
-    markdownEditorSetEditable(state, els, !helpActive);
+    resetMarkdownEditorValue(state, els, nextMarkdown);
     if (state.markdownEditorApi && state.markdownEditorApi.host) {
       state.markdownEditorApi.host.classList.remove("hidden");
       markdownEditorSetPagePath(state, helpActive ? SYSTEM_HELP_PATH : state.selectedPage);
-      markdownEditorSetRenderMode(state, !state.sourceOpen);
       markdownEditorSetQueryBlocks(state, helpActive ? [] : renderedQueryBlocksForEditor(currentStudioDerived()));
       markdownEditorSetTasks(state, helpActive ? [] : renderedTasksForEditor(page));
     }
-    if (els.pageProperties) {
-      els.pageProperties.classList.toggle("hidden", helpActive || state.sourceOpen);
-    }
-    if (els.propertyActions) {
-      els.propertyActions.classList.toggle("hidden", helpActive || state.sourceOpen);
-    }
+    syncCurrentNoteSurfaceMode();
     els.rawView.textContent = nextMarkdown;
     if (helpActive) {
       setStructuredViews(
@@ -2622,6 +2805,7 @@ interface ActionDialogSession {
       els.detailPath.textContent = SYSTEM_HELP_LABEL;
       setNoteHeadingValue(page.title || SYSTEM_HELP_LABEL, false);
       closeInlineTableEditor();
+      renderUndoRedoButtons();
       renderSourceModeButton();
       renderPageHistoryButton();
       if (hasUnsavedPageChanges()) {
@@ -2637,6 +2821,7 @@ interface ActionDialogSession {
       return;
     }
     refreshLivePageChrome();
+    renderUndoRedoButtons();
     if (state.sourceOpen) {
       closeInlineTableEditor();
     } else if (state.tableEditor) {
@@ -2650,13 +2835,7 @@ interface ActionDialogSession {
     renderSourceModeButton();
     renderPageHistoryButton();
 
-    if (hasUnsavedPageChanges()) {
-      setNoteStatus("Unsaved local edits on " + state.selectedPage + ".");
-      scheduleAutosave();
-    } else {
-      clearAutosaveTimer();
-      setNoteStatus("Editing " + state.selectedPage + " directly.");
-    }
+    refreshCurrentNoteStatus();
   }
 
   function scheduleAutosave() {
@@ -3155,7 +3334,7 @@ interface ActionDialogSession {
     }
     const page = currentPageView();
     if (els.propertyActions) {
-      els.propertyActions.classList.toggle("hidden", state.sourceOpen || state.editingPropertyKey === "__new__");
+      els.propertyActions.classList.toggle("hidden", notePropertiesHidden() || state.editingPropertyKey === "__new__");
     }
     renderPagePropertiesUI({
       container: els.pageProperties,
@@ -3620,6 +3799,7 @@ interface ActionDialogSession {
       folders: state.folders,
       documents: visibleDocumentsForRail(),
       expandedPageFolders: state.expandedPageFolders,
+      inlineEdit: state.treeInlineEdit,
       scopePrefix: currentScopePrefix(),
       pruneFoldersToVisiblePages: Boolean(state.pageTagFilter),
       showPages: state.fileTreeFilters.pages,
@@ -3643,8 +3823,10 @@ interface ActionDialogSession {
       requestCreatePage: requestCreatePageInFolder,
       requestCreateSubfolder: requestCreateSubfolderInFolder,
       requestRenameFolder: requestRenameFolderInTree,
+      requestMoveFolder: requestMoveFolderInTree,
       deleteFolder: deleteFolder,
       requestRenamePage: requestRenamePageInTree,
+      requestMovePage: requestMovePageInTree,
       deletePage: deletePage,
       movePageToFolder: movePageToFolder,
       moveFolder: moveFolder,
@@ -3652,6 +3834,11 @@ interface ActionDialogSession {
       openPageHistory: openPageHistoryFor,
       currentHomePage: currentHomePage,
       setHomePage: setHomePage,
+      requestMoveDocument: requestMoveDocumentInTree,
+      updateInlineEditValue: updateTreeInlineEditValue,
+      commitInlineEdit: commitTreeInlineEdit,
+      cancelInlineEdit: cancelTreeInlineEdit,
+      mountInlineEditInput: mountTreeInlineEditInput,
       setNoteStatus: setNoteStatus,
       errorMessage: errorMessage,
     }, openTreeContextMenu);
@@ -3698,8 +3885,10 @@ interface ActionDialogSession {
       requestCreatePage: requestCreatePageInFolder,
       requestCreateSubfolder: requestCreateSubfolderInFolder,
       requestRenameFolder: requestRenameFolderInTree,
+      requestMoveFolder: requestMoveFolderInTree,
       deleteFolder: deleteFolder,
       requestRenamePage: requestRenamePageInTree,
+      requestMovePage: requestMovePageInTree,
       deletePage: deletePage,
       movePageToFolder: movePageToFolder,
       moveFolder: moveFolder,
@@ -3707,6 +3896,11 @@ interface ActionDialogSession {
       openPageHistory: openPageHistoryFor,
       currentHomePage: currentHomePage,
       setHomePage: setHomePage,
+      requestMoveDocument: requestMoveDocumentInTree,
+      updateInlineEditValue: updateTreeInlineEditValue,
+      commitInlineEdit: commitTreeInlineEdit,
+      cancelInlineEdit: cancelTreeInlineEdit,
+      mountInlineEditInput: mountTreeInlineEditInput,
       setNoteStatus: setNoteStatus,
       errorMessage: errorMessage,
     });
@@ -3781,7 +3975,8 @@ interface ActionDialogSession {
         pagePath,
         encodePath,
         state.pendingPageTaskRef,
-        state.pendingPageLineFocus
+        state.pendingPageLineFocus,
+        state.pendingPageAnchorFocus
       );
       const page = loaded.page;
       const templateFillActive = applyLoadedPageDetailState(pagePath, loaded, page.rawMarkdown || "");
@@ -3792,6 +3987,7 @@ interface ActionDialogSession {
         if (loaded.focusOffset !== null) {
           state.pendingPageLineFocus = null;
           state.pendingPageTaskRef = "";
+          state.pendingPageAnchorFocus = "";
           window.requestAnimationFrame(function () {
             focusMarkdownEditor(state, els, {preventScroll: true});
             setMarkdownEditorSelection(state, els, loaded.focusOffset as number, loaded.focusOffset as number, true);
@@ -3895,6 +4091,7 @@ interface ActionDialogSession {
     const session = actionDialogSession;
     if (!session) {
       els.actionDialogShell.classList.add("hidden");
+      els.actionDialogShell.classList.remove("action-dialog-shell-picker");
       els.actionDialogEyebrow.textContent = "";
       els.actionDialogTitle.textContent = "";
       els.actionDialogMessage.textContent = "";
@@ -3909,6 +4106,8 @@ interface ActionDialogSession {
 
     const activeSession = session;
     const options = activeSession.options;
+    const pickerVariant = options.variant === "picker";
+    els.actionDialogShell.classList.toggle("action-dialog-shell-picker", pickerVariant);
     els.actionDialogEyebrow.textContent = options.eyebrow || (options.danger ? "Confirm" : "Action");
     els.actionDialogTitle.textContent = options.title;
     els.actionDialogMessage.textContent = String(options.message || "");
@@ -3939,7 +4138,11 @@ interface ActionDialogSession {
 
     (Array.isArray(options.fields) ? options.fields : []).forEach(function (field) {
       const row = document.createElement("label");
-      row.className = "search";
+      row.className = "search action-dialog-field";
+      const suggestionPresentation = field.suggestionPresentation || "floating";
+      if (suggestionPresentation === "inline") {
+        row.classList.add("action-dialog-field-inline");
+      }
 
       const label = document.createElement("span");
       label.textContent = field.label;
@@ -3962,6 +4165,9 @@ interface ActionDialogSession {
 
       const suggestionMenu = document.createElement("div");
       suggestionMenu.className = "action-dialog-autocomplete slash-menu hidden";
+      if (suggestionPresentation === "inline") {
+        suggestionMenu.classList.add("action-dialog-autocomplete-inline");
+      }
       const suggestionResults = document.createElement("div");
       suggestionResults.className = "slash-menu-results";
       suggestionMenu.appendChild(suggestionResults);
@@ -3975,6 +4181,9 @@ interface ActionDialogSession {
         selectedSuggestionIndex = -1;
         suggestionMenu.classList.add("hidden");
         suggestionMenu.style.visibility = "";
+        suggestionMenu.style.width = "";
+        suggestionMenu.style.left = "";
+        suggestionMenu.style.top = "";
         clearNode(suggestionResults);
       };
 
@@ -4043,6 +4252,15 @@ interface ActionDialogSession {
           button.appendChild(head);
           suggestionResults.appendChild(button);
         });
+
+        if (suggestionPresentation === "inline") {
+          suggestionMenu.classList.remove("hidden");
+          suggestionMenu.style.visibility = "";
+          suggestionMenu.style.width = "";
+          suggestionMenu.style.left = "";
+          suggestionMenu.style.top = "";
+          return;
+        }
 
         const rect = input.getBoundingClientRect();
         const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
@@ -4130,6 +4348,14 @@ interface ActionDialogSession {
           const suggestion = visibleSuggestions[selectedSuggestionIndex];
           closeSuggestionMenu();
           applySuggestion(suggestion);
+          if (event.key === "Enter") {
+            window.requestAnimationFrame(function () {
+              if (!actionDialogSession) {
+                return;
+              }
+              els.actionDialogForm.requestSubmit();
+            });
+          }
           return;
         }
         if (event.key === "Escape") {
@@ -4408,7 +4634,7 @@ interface ActionDialogSession {
   }
 
   async function loadLatestConflictDetail(pagePath: string): Promise<LoadedPageDetail> {
-    return loadPageDetailData(pagePath, encodePath, "", null);
+    return loadPageDetailData(pagePath, encodePath, "", null, "");
   }
 
   function openPageConflictDialog(
@@ -5247,6 +5473,186 @@ interface ActionDialogSession {
     }) || null;
   }
 
+  function startTreeInlineEdit(nextSession: PageTreeInlineEditState): void {
+    state.treeInlineEdit = {
+      mode: nextSession.mode,
+      kind: nextSession.kind,
+      parentFolder: normalizePageDraftPath(nextSession.parentFolder || ""),
+      sourcePath: normalizePageDraftPath(nextSession.sourcePath || ""),
+      value: String(nextSession.value || ""),
+    };
+    state.treeInlineEditSelectAll = true;
+    if (state.treeInlineEdit.parentFolder) {
+      state.expandedPageFolders[state.treeInlineEdit.parentFolder] = true;
+    }
+    renderPages();
+  }
+
+  function cancelTreeInlineEdit(): void {
+    if (!state.treeInlineEdit) {
+      return;
+    }
+    state.treeInlineEdit = null;
+    state.treeInlineEditSelectAll = false;
+    renderPages();
+  }
+
+  function updateTreeInlineEditValue(value: string): void {
+    if (!state.treeInlineEdit) {
+      return;
+    }
+    state.treeInlineEdit.value = String(value || "");
+  }
+
+  function mountTreeInlineEditInput(input: HTMLInputElement): void {
+    window.requestAnimationFrame(function () {
+      if (!state.treeInlineEdit || !document.body.contains(input)) {
+        return;
+      }
+      if (document.activeElement !== input) {
+        focusWithoutScroll(input);
+      }
+      if (state.treeInlineEditSelectAll) {
+        input.select();
+        state.treeInlineEditSelectAll = false;
+      } else {
+        const end = input.value.length;
+        input.setSelectionRange(end, end);
+      }
+    });
+  }
+
+  function inlineTreeLeafError(kind: PageTreeInlineEditState["kind"], value: string): string {
+    const raw = String(value || "").trim();
+    if (!raw) {
+      return "";
+    }
+    if (raw.includes("/") || raw.includes("\\")) {
+      return "Use Move… to change folders.";
+    }
+    if (kind === "document") {
+      return "";
+    }
+    return "";
+  }
+
+  function currentTreeInlineLeaf(session: PageTreeInlineEditState): string {
+    return pageTitleFromPath(session.kind === "document"
+      ? (currentDocumentRecordByPath(session.sourcePath)?.path || session.sourcePath)
+      : session.sourcePath);
+  }
+
+  async function commitTreeInlineEditNow(): Promise<void> {
+    const session = state.treeInlineEdit;
+    if (!session) {
+      return;
+    }
+    const rawValue = String(session.value || "").trim();
+    if (!rawValue) {
+      cancelTreeInlineEdit();
+      return;
+    }
+    const leafError = inlineTreeLeafError(session.kind, rawValue);
+    if (leafError) {
+      setNoteStatus(leafError);
+      renderPages();
+      return;
+    }
+
+    const currentLeaf = currentTreeInlineLeaf(session);
+    if (session.mode === "rename" && normalizePageDraftPath(rawValue) === normalizePageDraftPath(currentLeaf)) {
+      cancelTreeInlineEdit();
+      return;
+    }
+
+    if (session.kind === "document") {
+      const document = currentDocumentRecordByPath(session.sourcePath);
+      if (!document) {
+        cancelTreeInlineEdit();
+        return;
+      }
+      const assist = buildDocumentPathDialogAssist({
+        input: rawValue,
+        sourcePath: document.path,
+        scopePrefix: currentScopePrefix(),
+        documents: currentDocumentPathInventory(),
+        folders: currentFolderPathInventory(),
+      });
+      if (assist.error) {
+        if (assist.error === "No change yet.") {
+          cancelTreeInlineEdit();
+          return;
+        }
+        setNoteStatus(assist.error);
+        renderPages();
+        return;
+      }
+
+      state.treeInlineEdit = null;
+      state.treeInlineEditSelectAll = false;
+      renderPages();
+      try {
+        const movedDocument = await moveDocument(document.path, assist.targetPath);
+        const previousParent = String(document.path || "").includes("/") ? String(document.path).slice(0, String(document.path).lastIndexOf("/")) : "";
+        const nextParent = String(movedDocument.path || "").includes("/") ? String(movedDocument.path).slice(0, String(movedDocument.path).lastIndexOf("/")) : "";
+        setNoteStatus(
+          previousParent !== nextParent
+            ? ('Moved file to "' + movedDocument.path + '".')
+            : ('Renamed file to "' + movedDocument.name + '".')
+        );
+      } catch (error) {
+        state.treeInlineEdit = session;
+        renderPages();
+        setNoteStatus("Rename file failed: " + errorMessage(error));
+      }
+      return;
+    }
+
+    const assist = buildPathDialogAssist({
+      kind: session.kind === "folder" ? "folder" : "note",
+      action: session.mode,
+      input: rawValue,
+      sourcePath: session.mode === "rename" ? session.sourcePath : undefined,
+      baseFolder: session.mode === "create" ? session.parentFolder : undefined,
+      scopePrefix: currentScopePrefix(),
+      pages: currentPagePathInventory(),
+      folders: currentFolderPathInventory(),
+    });
+    if (assist.error) {
+      setNoteStatus(assist.error);
+      renderPages();
+      return;
+    }
+
+    state.treeInlineEdit = null;
+    state.treeInlineEditSelectAll = false;
+    renderPages();
+    try {
+      if (session.mode === "create") {
+        if (session.kind === "folder") {
+          await createFolder(assist.targetPath);
+        } else {
+          await createPage(assist.targetPath);
+        }
+      } else if (session.kind === "folder") {
+        await renameFolder(session.sourcePath, rawValue);
+      } else {
+        await renamePage(session.sourcePath, rawValue);
+      }
+    } catch (error) {
+      state.treeInlineEdit = session;
+      renderPages();
+      setNoteStatus((session.mode === "create"
+        ? (session.kind === "folder" ? "Create folder failed: " : "Create note failed: ")
+        : (session.kind === "folder" ? "Rename folder failed: " : "Rename note failed: "))
+        + errorMessage(error));
+    }
+  }
+
+  function commitTreeInlineEdit(): void {
+    void commitTreeInlineEditNow();
+  }
+
   function parseTreeDragItem(dataTransfer: DataTransfer | null): TreeDragItem | null {
     if (!dataTransfer) {
       return null;
@@ -5300,18 +5706,14 @@ interface ActionDialogSession {
     );
   }
 
-  function pathFieldState(input: string, options: {
+  function pathMoveFieldState(input: string, options: {
     kind: "note" | "folder";
-    action: "create" | "rename";
-    sourcePath?: string;
-    baseFolder?: string;
+    sourcePath: string;
   }): ActionDialogFieldState {
-    const assist = buildPathDialogAssist({
+    const assist = buildPathMoveAssist({
       kind: options.kind,
-      action: options.action,
       input: input,
       sourcePath: options.sourcePath,
-      baseFolder: options.baseFolder,
       scopePrefix: currentScopePrefix(),
       pages: currentPagePathInventory(),
       folders: currentFolderPathInventory(),
@@ -5324,26 +5726,22 @@ interface ActionDialogSession {
     };
   }
 
-  function pathFieldValidation(input: string, options: {
+  function pathMoveValidation(input: string, options: {
     kind: "note" | "folder";
-    action: "create" | "rename";
-    sourcePath?: string;
-    baseFolder?: string;
+    sourcePath: string;
   }): string {
-    return buildPathDialogAssist({
+    return buildPathMoveAssist({
       kind: options.kind,
-      action: options.action,
       input: input,
       sourcePath: options.sourcePath,
-      baseFolder: options.baseFolder,
       scopePrefix: currentScopePrefix(),
       pages: currentPagePathInventory(),
       folders: currentFolderPathInventory(),
     }).error;
   }
 
-  function documentPathFieldState(input: string, sourcePath: string): ActionDialogFieldState {
-    const assist = buildDocumentPathDialogAssist({
+  function documentMoveFieldState(input: string, sourcePath: string): ActionDialogFieldState {
+    const assist = buildDocumentMoveAssist({
       input: input,
       sourcePath: sourcePath,
       scopePrefix: currentScopePrefix(),
@@ -5358,8 +5756,8 @@ interface ActionDialogSession {
     };
   }
 
-  function documentPathValidation(input: string, sourcePath: string): string {
-    return buildDocumentPathDialogAssist({
+  function documentMoveValidation(input: string, sourcePath: string): string {
+    return buildDocumentMoveAssist({
       input: input,
       sourcePath: sourcePath,
       scopePrefix: currentScopePrefix(),
@@ -5369,113 +5767,81 @@ interface ActionDialogSession {
   }
 
   async function requestCreatePageInFolder(folderKey: string): Promise<void> {
-    const targetLabel = folderKey || currentScopePrefix() || "vault root";
-    const values = await promptForActionInput({
-      eyebrow: "Notes",
-      title: "New Note",
-      message: 'Create a note in "' + targetLabel + '".',
-      confirmLabel: "Create Note",
-      fields: [{
-        key: "name",
-        label: "Note name or path",
-        placeholder: "meeting-notes",
-        value: "",
-        autocapitalize: "none",
-        spellcheck: false,
-        describe: function (value) {
-          return pathFieldState(value, {
-            kind: "note",
-            action: "create",
-            baseFolder: folderKey,
-          });
-        },
-      }],
-      validate: function (nextValues) {
-        return pathFieldValidation(nextValues.name || "", {
-          kind: "note",
-          action: "create",
-          baseFolder: folderKey,
-        });
-      },
+    startTreeInlineEdit({
+      mode: "create",
+      kind: "page",
+      parentFolder: folderKey,
+      sourcePath: "",
+      value: "",
     });
-    if (!values) {
-      return;
-    }
-    const normalizedName = normalizePageDraftPath(values.name || "");
-    if (!normalizedName) {
-      return;
-    }
-    const basePath = folderKey ? folderKey + "/" : "";
-    await createPage(basePath + normalizedName);
   }
 
   async function requestCreateSubfolderInFolder(folderKey: string): Promise<void> {
-    const targetLabel = folderKey || currentScopePrefix() || "vault root";
-    const values = await promptForActionInput({
-      eyebrow: "Folders",
-      title: "New Folder",
-      message: 'Create a folder in "' + targetLabel + '".',
-      confirmLabel: "Create Folder",
-      fields: [{
-        key: "folder",
-        label: "Folder name",
-        placeholder: "contacts",
-        value: "",
-        autocapitalize: "none",
-        spellcheck: false,
-        describe: function (value) {
-          return pathFieldState(value, {
-            kind: "folder",
-            action: "create",
-            baseFolder: folderKey,
-          });
-        },
-      }],
-      validate: function (nextValues) {
-        return pathFieldValidation(nextValues.folder || "", {
-          kind: "folder",
-          action: "create",
-          baseFolder: folderKey,
-        });
-      },
+    startTreeInlineEdit({
+      mode: "create",
+      kind: "folder",
+      parentFolder: folderKey,
+      sourcePath: "",
+      value: "",
     });
-    if (!values) {
-      return;
-    }
-    const subfolder = normalizePageDraftPath(values.folder || "");
-    if (!subfolder) {
-      return;
-    }
-    const basePath = folderKey ? folderKey + "/" : "";
-    await createFolder(basePath + subfolder);
   }
 
   async function requestRenamePageInTree(pagePath: string): Promise<void> {
+    startTreeInlineEdit({
+      mode: "rename",
+      kind: "page",
+      parentFolder: normalizePageDraftPath(pagePath.includes("/") ? pagePath.slice(0, pagePath.lastIndexOf("/")) : ""),
+      sourcePath: pagePath,
+      value: pageTitleFromPath(pagePath),
+    });
+  }
+
+  async function requestRenameFolderInTree(folderKey: string): Promise<void> {
+    startTreeInlineEdit({
+      mode: "rename",
+      kind: "folder",
+      parentFolder: normalizePageDraftPath(folderKey.includes("/") ? folderKey.slice(0, folderKey.lastIndexOf("/")) : ""),
+      sourcePath: folderKey,
+      value: pageTitleFromPath(folderKey),
+    });
+  }
+
+  async function requestRenameDocumentInTree(document: DocumentRecord): Promise<void> {
+    startTreeInlineEdit({
+      mode: "rename",
+      kind: "document",
+      parentFolder: normalizePageDraftPath(document.path.includes("/") ? document.path.slice(0, document.path.lastIndexOf("/")) : ""),
+      sourcePath: document.path,
+      value: String(document.name || pageTitleFromPath(document.path || "")),
+    });
+  }
+
+  async function requestMovePageInTree(pagePath: string): Promise<void> {
     const currentName = pageTitleFromPath(pagePath);
     const values = await promptForActionInput({
-      eyebrow: "Notes",
-      title: "Rename Note",
-      message: 'Rename "' + currentName + '". You can also move it by entering a nested path.',
-      confirmLabel: "Save Name",
+      eyebrow: "Move note",
+      title: currentName,
+      message: 'Choose a destination folder. Use "/" for the scope root.',
+      confirmLabel: "Move",
+      variant: "picker",
       fields: [{
-        key: "name",
-        label: "Note name or path",
-        value: currentName,
-        placeholder: currentName,
+        key: "folder",
+        label: "Destination folder",
+        placeholder: "/ or folder path",
+        value: "",
         autocapitalize: "none",
         spellcheck: false,
+        suggestionPresentation: "inline",
         describe: function (value) {
-          return pathFieldState(value, {
+          return pathMoveFieldState(value, {
             kind: "note",
-            action: "rename",
             sourcePath: pagePath,
           });
         },
       }],
       validate: function (nextValues) {
-        return pathFieldValidation(nextValues.name || "", {
+        return pathMoveValidation(nextValues.folder || "", {
           kind: "note",
-          action: "rename",
           sourcePath: pagePath,
         });
       },
@@ -5483,39 +5849,47 @@ interface ActionDialogSession {
     if (!values) {
       return;
     }
-    const nextName = normalizePageDraftPath(values.name || "");
-    if (!nextName || nextName === currentName) {
+    const assist = buildPathMoveAssist({
+      kind: "note",
+      input: values.folder || "",
+      sourcePath: pagePath,
+      scopePrefix: currentScopePrefix(),
+      pages: currentPagePathInventory(),
+      folders: currentFolderPathInventory(),
+    });
+    if (assist.error) {
       return;
     }
-    await renamePage(pagePath, nextName);
+    await movePageToFolder(pagePath, assist.targetFolder);
+    setNoteStatus('Moved note to "' + assist.targetPath + '".');
   }
 
-  async function requestRenameFolderInTree(folderKey: string): Promise<void> {
+  async function requestMoveFolderInTree(folderKey: string): Promise<void> {
     const currentName = pageTitleFromPath(folderKey);
     const values = await promptForActionInput({
-      eyebrow: "Folders",
-      title: "Rename Folder",
-      message: 'Rename "' + currentName + '". You can also move it by entering a nested path.',
-      confirmLabel: "Save Name",
+      eyebrow: "Move folder",
+      title: currentName,
+      message: 'Choose a destination folder. Use "/" for the scope root.',
+      confirmLabel: "Move",
+      variant: "picker",
       fields: [{
-        key: "name",
-        label: "Folder name or path",
-        value: currentName,
-        placeholder: currentName,
+        key: "folder",
+        label: "Destination folder",
+        placeholder: "/ or folder path",
+        value: "",
         autocapitalize: "none",
         spellcheck: false,
+        suggestionPresentation: "inline",
         describe: function (value) {
-          return pathFieldState(value, {
+          return pathMoveFieldState(value, {
             kind: "folder",
-            action: "rename",
             sourcePath: folderKey,
           });
         },
       }],
       validate: function (nextValues) {
-        return pathFieldValidation(nextValues.name || "", {
+        return pathMoveValidation(nextValues.folder || "", {
           kind: "folder",
-          action: "rename",
           sourcePath: folderKey,
         });
       },
@@ -5523,58 +5897,59 @@ interface ActionDialogSession {
     if (!values) {
       return;
     }
-    const nextName = normalizePageDraftPath(values.name || "");
-    if (!nextName || nextName === currentName) {
+    const assist = buildPathMoveAssist({
+      kind: "folder",
+      input: values.folder || "",
+      sourcePath: folderKey,
+      scopePrefix: currentScopePrefix(),
+      pages: currentPagePathInventory(),
+      folders: currentFolderPathInventory(),
+    });
+    if (assist.error) {
       return;
     }
-    await renameFolder(folderKey, nextName);
+    await moveFolder(folderKey, assist.targetFolder);
+    setNoteStatus('Moved folder to "' + assist.targetPath + '".');
   }
 
-  async function requestRenameDocumentInTree(document: DocumentRecord): Promise<void> {
+  async function requestMoveDocumentInTree(document: DocumentRecord): Promise<void> {
     const currentName = String(document.name || pageTitleFromPath(document.path || ""));
     const values = await promptForActionInput({
-      eyebrow: "Files",
-      title: "Rename File",
-      message: 'Rename "' + currentName + '". You can also move it by entering a nested path.',
-      confirmLabel: "Save Name",
+      eyebrow: "Move file",
+      title: currentName,
+      message: 'Choose a destination folder. Use "/" for the scope root.',
+      confirmLabel: "Move",
+      variant: "picker",
       fields: [{
-        key: "name",
-        label: "File name or path",
-        value: currentName,
-        placeholder: currentName,
+        key: "folder",
+        label: "Destination folder",
+        placeholder: "/ or folder path",
+        value: "",
         autocapitalize: "none",
         spellcheck: false,
+        suggestionPresentation: "inline",
         describe: function (value) {
-          return documentPathFieldState(value, document.path);
+          return documentMoveFieldState(value, document.path);
         },
       }],
       validate: function (nextValues) {
-        return documentPathValidation(nextValues.name || "", document.path);
+        return documentMoveValidation(nextValues.folder || "", document.path);
       },
     });
     if (!values) {
       return;
     }
-
-    const assist = buildDocumentPathDialogAssist({
-      input: values.name || "",
+    const assist = buildDocumentMoveAssist({
+      input: values.folder || "",
       sourcePath: document.path,
       scopePrefix: currentScopePrefix(),
       documents: currentDocumentPathInventory(),
       folders: currentFolderPathInventory(),
     });
-    if (!assist.targetPath || assist.error) {
+    if (assist.error) {
       return;
     }
-
-    const movedDocument = await moveDocument(document.path, assist.targetPath);
-    const previousParent = String(document.path || "").includes("/") ? String(document.path).slice(0, String(document.path).lastIndexOf("/")) : "";
-    const nextParent = String(movedDocument.path || "").includes("/") ? String(movedDocument.path).slice(0, String(movedDocument.path).lastIndexOf("/")) : "";
-    setNoteStatus(
-      previousParent !== nextParent
-        ? ('Moved file to "' + movedDocument.path + '".')
-        : ('Renamed file to "' + movedDocument.name + '".')
-    );
+    await moveDocumentToFolder(document.path, assist.targetFolder);
   }
 
   async function moveDocumentToFolder(documentPath: string, folderKey: string): Promise<void> {
@@ -5787,6 +6162,7 @@ interface ActionDialogSession {
       encodePath: encodePath,
       fetchJSON: fetchJSON,
       loadPages: loadPages,
+      loadDocuments: loadDocuments,
       currentHomePage: currentHomePage,
       setHomePage: setHomePage,
       navigateToPage: navigateToPage,
@@ -5799,6 +6175,7 @@ interface ActionDialogSession {
       encodePath: encodePath,
       fetchJSON: fetchJSON,
       loadPages: loadPages,
+      loadDocuments: loadDocuments,
       currentHomePage: currentHomePage,
       setHomePage: setHomePage,
       navigateToPage: navigateToPage,
@@ -5890,26 +6267,61 @@ interface ActionDialogSession {
 
   function setSourceOpen(open: boolean): void {
     const nextOpen = Boolean(open);
-    if (state.sourceOpen === nextOpen) {
+    const nextViewOnly = nextOpen ? false : state.viewOnly;
+    if (state.sourceOpen === nextOpen && state.viewOnly === nextViewOnly) {
       return;
     }
     const scrollTop = markdownEditorScrollTop(state, els);
     const selectionStart = markdownEditorSelectionStart(state, els);
     const selectionEnd = markdownEditorSelectionEnd(state, els);
     state.sourceOpen = nextOpen;
-    markdownEditorSetRenderMode(state, !state.sourceOpen);
-    if (els.pageProperties) {
-      els.pageProperties.classList.toggle("hidden", state.appScreen === "help" || state.sourceOpen);
-    }
-    if (els.propertyActions) {
-      els.propertyActions.classList.toggle("hidden", state.appScreen === "help" || state.sourceOpen);
-    }
+    state.viewOnly = nextViewOnly;
+    syncCurrentNoteSurfaceMode();
     if (els.markdownEditor) {
       els.markdownEditor.classList.add("hidden");
     }
     if (state.markdownEditorApi && state.markdownEditorApi.host) {
       state.markdownEditorApi.host.classList.remove("hidden");
     }
+    refreshLivePageChrome();
+    refreshCurrentNoteStatus();
+    renderUndoRedoButtons();
+    renderSourceModeButton();
+    renderPageHistoryButton();
+    window.setTimeout(function () {
+      focusMarkdownEditor(state, els, {preventScroll: true});
+      setMarkdownEditorSelection(state, els, selectionStart, selectionEnd);
+      setMarkdownEditorScrollTop(state, els, scrollTop);
+    }, 0);
+  }
+
+  function setViewOnly(open: boolean): void {
+    const nextOpen = Boolean(open);
+    const nextSourceOpen = nextOpen ? false : state.sourceOpen;
+    if (state.viewOnly === nextOpen && state.sourceOpen === nextSourceOpen) {
+      return;
+    }
+    const scrollTop = markdownEditorScrollTop(state, els);
+    const selectionStart = markdownEditorSelectionStart(state, els);
+    const selectionEnd = markdownEditorSelectionEnd(state, els);
+    state.viewOnly = nextOpen;
+    state.sourceOpen = nextSourceOpen;
+    if (nextOpen) {
+      clearPropertyDraft();
+      closeSlashMenu(state, els);
+      closeTaskPickers();
+      closeInlineTableEditor();
+    }
+    syncCurrentNoteSurfaceMode();
+    if (els.markdownEditor) {
+      els.markdownEditor.classList.add("hidden");
+    }
+    if (state.markdownEditorApi && state.markdownEditorApi.host) {
+      state.markdownEditorApi.host.classList.remove("hidden");
+    }
+    refreshLivePageChrome();
+    refreshCurrentNoteStatus();
+    renderUndoRedoButtons();
     renderSourceModeButton();
     renderPageHistoryButton();
     window.setTimeout(function () {
@@ -6483,11 +6895,33 @@ interface ActionDialogSession {
     on(els.historyForward, "click", function () {
       window.history.forward();
     });
+    on(els.undoPageEdit, "click", function () {
+      if (!studioPageEditable()) {
+        return;
+      }
+      if (markdownEditorUndo(state, els)) {
+        renderUndoRedoButtons();
+      }
+    });
+    on(els.redoPageEdit, "click", function () {
+      if (!studioPageEditable()) {
+        return;
+      }
+      if (markdownEditorRedo(state, els)) {
+        renderUndoRedoButtons();
+      }
+    });
     on(els.toggleSourceMode, "click", function () {
       if (!studioPageAvailable()) {
         return;
       }
       setSourceOpen(!state.sourceOpen);
+    });
+    on(els.toggleViewMode, "click", function () {
+      if (!studioViewOnlyAvailable()) {
+        return;
+      }
+      setViewOnly(!state.viewOnly);
     });
     on(els.pageHistoryButton, "click", function () {
       if (state.appScreen !== "notes" || !state.selectedPage) {
@@ -6676,6 +7110,7 @@ interface ActionDialogSession {
     });
     on(els.markdownEditor, "input", function () {
       state.currentMarkdown = els.markdownEditor.value;
+      renderUndoRedoButtons();
       window.requestAnimationFrame(function () {
         const rawContext = currentRawLineContext(state, els);
         const slashAnchor = state.markdownEditorApi && state.markdownEditorApi.host ? state.markdownEditorApi.host : els.markdownEditor;
@@ -6706,6 +7141,13 @@ interface ActionDialogSession {
     });
     const handleMarkdownEditorKeydown: EventListener = function (rawEvent): void {
       const event = rawEvent as KeyboardEvent;
+      if (!studioPageEditable()) {
+        if (event.key === "Escape" && state.slashOpen) {
+          closeSlashMenu(state, els);
+          event.preventDefault();
+        }
+        return;
+      }
       if (matchesHotkey(state.settings.preferences.hotkeys.toggleTaskDone, event) && selectionOnTaskLine()) {
         event.preventDefault();
         event.stopPropagation();
@@ -6757,7 +7199,7 @@ interface ActionDialogSession {
         if (link && link.target) {
           event.preventDefault();
           closeSlashMenu(state, els);
-          openOrCreatePage(link.target, false);
+          openOrCreatePageLinkTarget(link.target, false);
           return;
         }
       }
@@ -6918,7 +7360,7 @@ interface ActionDialogSession {
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        setNoteHeadingValue(currentPageTitleValue() || state.selectedPage || "", Boolean(state.selectedPage && state.currentPage));
+        setNoteHeadingValue(currentPageTitleValue() || state.selectedPage || "", studioPageEditable());
         els.noteHeading.blur();
       }
     });
@@ -7267,7 +7709,7 @@ interface ActionDialogSession {
             navigateToPageAtLine(page, line, false);
             return;
           }
-          openOrCreatePage(page, false);
+          openOrCreatePageLinkTarget(page, false);
         }
       });
       on(markdownEditorApi.host, "noterious:document-download", function (event) {
@@ -7285,6 +7727,9 @@ interface ActionDialogSession {
         });
       });
       on(markdownEditorApi.host, "noterious:task-toggle", function (event) {
+        if (!studioPageEditable()) {
+          return;
+        }
         const detail = (event as CustomEvent<TaskToggleDetail>).detail || {};
         const task = resolvePageTask(
           state.currentPage,
@@ -7296,6 +7741,9 @@ interface ActionDialogSession {
         }
       });
       on(markdownEditorApi.host, "noterious:task-date-edit", function (event) {
+        if (!studioPageEditable()) {
+          return;
+        }
         const detail = (event as CustomEvent<TaskDateEditDetail>).detail || {};
         const ref = detail.ref ? String(detail.ref) : "";
         const field = detail.field === "remind" ? "remind" : "due";
@@ -7306,6 +7754,9 @@ interface ActionDialogSession {
         openInlineTaskPicker(ref, field, left, top, anchorTop, anchorBottom);
       });
       on(markdownEditorApi.host, "noterious:task-delete", function (event) {
+        if (!studioPageEditable()) {
+          return;
+        }
         const detail = (event as CustomEvent<TaskDeleteDetail>).detail || {};
         const ref = detail.ref ? String(detail.ref) : "";
         deleteTaskInline(ref).catch(function (error) {
@@ -7313,6 +7764,9 @@ interface ActionDialogSession {
         });
       });
       on(markdownEditorApi.host, "noterious:table-open", function (event) {
+        if (!studioPageEditable()) {
+          return;
+        }
         const detail = (event as CustomEvent<TableOpenDetail>).detail || {};
         const startLine = Number(detail.startLine) || 0;
         const row = Math.max(0, Number(detail.row) || 0);

@@ -1,5 +1,6 @@
 import { fetchJSON } from "./http";
 import { rawOffsetForLineNumber, rawOffsetForTaskLine } from "./markdown";
+import { resolveHeadingAnchorLine } from "./pageAnchors";
 import type { DerivedPage, PageRecord, QueryWorkbenchResult, SavedQueryRecord, TaskRecord } from "./types";
 
 interface SavedQueryWorkbenchResponse extends SavedQueryRecord {
@@ -67,7 +68,8 @@ export async function loadPageDetailData(
   pagePath: string,
   encodePath: (pagePath: string) => string,
   pendingPageTaskRef: string,
-  pendingPageLineFocus: number | null
+  pendingPageLineFocus: number | null,
+  pendingPageAnchorFocus = ""
 ): Promise<LoadedPageDetail> {
   const [page, derived] = await Promise.all([
     fetchJSON<PageRecord>("/api/pages/" + encodePath(pagePath)),
@@ -80,10 +82,12 @@ export async function loadPageDetailData(
     if (matchedTask && matchedTask.line) {
       targetLine = matchedTask.line;
     }
+  } else if (pendingPageAnchorFocus) {
+    targetLine = resolveHeadingAnchorLine(derived.toc || [], pendingPageAnchorFocus);
   }
 
   const markdown = page.rawMarkdown || "";
-  const focusOffset = pendingPageTaskRef || pendingPageLineFocus
+  const focusOffset = pendingPageTaskRef || pendingPageLineFocus || pendingPageAnchorFocus
     ? (pendingPageTaskRef
         ? rawOffsetForTaskLine(markdown, targetLine || 1)
         : rawOffsetForLineNumber(markdown, targetLine || 1))

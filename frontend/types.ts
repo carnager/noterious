@@ -581,7 +581,12 @@ export interface NoteriousEditorApi {
   view: unknown;
   getValue(): string;
   setValue(value: string): void;
+  resetValue(value: string): void;
   replaceRange(from: number, to: number, insert: string): void;
+  undo(): boolean;
+  redo(): boolean;
+  canUndo(): boolean;
+  canRedo(): boolean;
   focus(options?: FocusOptions): void;
   blur(): void;
   hasFocus(): boolean;
@@ -595,6 +600,7 @@ export interface NoteriousEditorApi {
   setPagePath(path: string): void;
   setDateTimeFormat(format: "browser" | "iso" | "de"): void;
   setEditable(enabled: boolean): void;
+  setViewOnly(enabled: boolean): void;
   setRenderMode(enabled: boolean): void;
   setQueryBlocks(blocks: QueryBlockRender[]): void;
   setTasks(tasks: TaskRender[]): void;

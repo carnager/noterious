@@ -114,8 +114,8 @@ describe("routing helpers", function () {
       onExpandAncestors: function (pagePath: string) {
         calls.push("expand:" + pagePath);
       },
-      onSetPendingFocus: function (lineNumber: number | null, taskRef: string) {
-        calls.push("pending:" + lineNumber + ":" + taskRef);
+      onSetPendingFocus: function (lineNumber: number | null, taskRef: string, anchor: string) {
+        calls.push("pending:" + lineNumber + ":" + taskRef + ":" + anchor);
       },
       onSelectPage: function (pagePath: string) {
         calls.push("select:" + pagePath);
@@ -132,12 +132,34 @@ describe("routing helpers", function () {
     });
 
     expect(calls).toEqual([
-      "pending:12:task-1",
+      "pending:12:task-1:",
       "select:notes/alpha",
       "expand:notes/alpha",
       "sync:false",
       "render-pages",
       "load:notes/alpha",
+    ]);
+  });
+
+  it("threads anchors through selection callbacks", function () {
+    const calls: string[] = [];
+
+    navigateToPageSelection({
+      pagePath: "notes/alpha",
+      anchor: "ship-it",
+      replace: true,
+      onExpandAncestors: function () {},
+      onSetPendingFocus: function (lineNumber: number | null, taskRef: string, anchor: string) {
+        calls.push("pending:" + lineNumber + ":" + taskRef + ":" + anchor);
+      },
+      onSelectPage: function () {},
+      onSyncURL: function () {},
+      onRenderPages: function () {},
+      onLoadPageDetail: function () {},
+    });
+
+    expect(calls).toEqual([
+      "pending:null::ship-it",
     ]);
   });
 });

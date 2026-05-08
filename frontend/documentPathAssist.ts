@@ -17,6 +17,24 @@ export interface BuildDocumentPathDialogAssistOptions {
   folders: string[];
 }
 
+export interface DocumentMoveAssist {
+  normalizedInput: string;
+  targetFolder: string;
+  targetPath: string;
+  error: string;
+  helper: string;
+  helperTone: "neutral" | "warn";
+  suggestions: PathDialogSuggestion[];
+}
+
+export interface BuildDocumentMoveAssistOptions {
+  input: string;
+  sourcePath: string;
+  scopePrefix?: string;
+  documents: string[];
+  folders: string[];
+}
+
 function collapseDashes(value: string): string {
   let result = "";
   let lastDash = false;
@@ -177,6 +195,11 @@ function displayPathWithinScope(path: string, scopePrefix: string): string {
   return normalizedPath;
 }
 
+function displayAbsolutePath(path: string): string {
+  const normalizedPath = normalizeFolderPath(path);
+  return normalizedPath ? ("/" + normalizedPath) : "/";
+}
+
 function sortedUniqueFolders(folders: string[]): string[] {
   return Array.from(new Set((Array.isArray(folders) ? folders : []).map(normalizeFolderPath).filter(Boolean))).sort();
 }
@@ -203,6 +226,86 @@ function filterSuggestions(input: string, suggestions: PathDialogSuggestion[]): 
     }).slice(0, 6);
   }
   return filtered.slice(0, 6);
+}
+
+function normalizeMoveFolderInput(input: string): { raw: string; root: boolean; normalized: string } {
+  const raw = String(input || "").trim().replace(/\\/g, "/");
+  if (raw === "/") {
+    return { raw, root: true, normalized: "" };
+  }
+  return {
+    raw,
+    root: false,
+    normalized: normalizeFolderPath(raw),
+  };
+}
+
+function applyScopePrefix(path: string, scopePrefix: string): string {
+  const normalizedPath = normalizeFolderPath(path);
+  const normalizedScope = normalizeFolderPath(scopePrefix);
+  if (!normalizedPath) {
+    return "";
+  }
+  if (!normalizedScope || normalizedPath === normalizedScope || normalizedPath.startsWith(normalizedScope + "/")) {
+    return normalizedPath;
+  }
+  return normalizedScope + "/" + normalizedPath;
+}
+
+function resolveMoveTargetFolder(input: string, scopePrefix: string, folders: Set<string>): { normalizedInput: string; targetFolder: string; root: boolean } {
+  const normalizedScope = normalizeFolderPath(scopePrefix);
+  const parsed = normalizeMoveFolderInput(input);
+  if (parsed.root) {
+    return {
+      normalizedInput: "/",
+      targetFolder: normalizedScope,
+      root: true,
+    };
+  }
+  if (!parsed.normalized) {
+    return {
+      normalizedInput: "",
+      targetFolder: "",
+      root: false,
+    };
+  }
+  if (!normalizedScope || pathWithinScope(parsed.normalized, normalizedScope) || folders.has(parsed.normalized.toLowerCase())) {
+    return {
+      normalizedInput: parsed.normalized,
+      targetFolder: parsed.normalized,
+      root: false,
+    };
+  }
+  return {
+    normalizedInput: parsed.normalized,
+    targetFolder: applyScopePrefix(parsed.normalized, normalizedScope),
+    root: false,
+  };
+}
+
+function buildMoveSuggestions(sourcePath: string, scopePrefix: string, folders: string[]): PathDialogSuggestion[] {
+  const normalizedScope = normalizeFolderPath(scopePrefix);
+  const sourceLeaf = pathLeaf(sourcePath);
+  const suggestions: PathDialogSuggestion[] = [{
+    value: "/",
+    label: displayAbsolutePath(normalizedScope),
+  }];
+
+  sortedUniqueFolders(folders).forEach(function (folder) {
+    if (!folder || samePath(folder, normalizedScope)) {
+      return;
+    }
+    const targetPath = joinPath(folder, sourceLeaf);
+    if (samePath(targetPath, sourcePath)) {
+      return;
+    }
+    suggestions.push({
+      value: folder,
+      label: displayAbsolutePath(folder),
+    });
+  });
+
+  return suggestions;
 }
 
 function buildRenameSuggestions(sourcePath: string, scopePrefix: string, folders: string[]): PathDialogSuggestion[] {
@@ -282,5 +385,48 @@ export function buildDocumentPathDialogAssist(options: BuildDocumentPathDialogAs
     helper: helper,
     helperTone: helperTone,
     suggestions: filterSuggestions(normalizedInput, buildRenameSuggestions(normalizedSource, normalizedScope, options.folders)),
+  };
+}
+
+export function buildDocumentMoveAssist(options: BuildDocumentMoveAssistOptions): DocumentMoveAssist {
+  const normalizedSource = normalizeDocumentDraftPath(options.sourcePath || "");
+  const normalizedScope = normalizeFolderPath(options.scopePrefix || "");
+  const documents = pathSet(options.documents);
+  const folders = pathSet(options.folders);
+  const resolved = resolveMoveTargetFolder(options.input, normalizedScope, folders);
+  const targetFolder = resolved.targetFolder;
+  const targetPath = joinPath(targetFolder, pathLeaf(normalizedSource));
+
+  let error = "";
+  if (!normalizedSource) {
+    error = "Missing source path.";
+  } else if (!resolved.root && !resolved.normalizedInput) {
+    error = "Choose a target folder.";
+  } else if (!resolved.root && targetFolder && !folders.has(targetFolder.toLowerCase())) {
+    error = 'Folder "' + targetFolder + '" does not exist.';
+  } else if (samePath(targetPath, normalizedSource)) {
+    error = "No change yet.";
+  } else if (documents.has(targetPath.toLowerCase())) {
+    error = 'A file already exists at "' + targetPath + '".';
+  }
+
+  let helper = "";
+  let helperTone: "neutral" | "warn" = "neutral";
+  if (!error && targetPath) {
+    helper = 'Destination: "' + displayAbsolutePath(targetPath) + '".';
+    if (normalizedScope && !pathWithinScope(targetPath, normalizedScope)) {
+      helper += " Leaves the current scope.";
+      helperTone = "warn";
+    }
+  }
+
+  return {
+    normalizedInput: resolved.normalizedInput,
+    targetFolder,
+    targetPath,
+    error,
+    helper,
+    helperTone,
+    suggestions: filterSuggestions(resolved.normalizedInput === "/" ? "" : resolved.normalizedInput, buildMoveSuggestions(normalizedSource, normalizedScope, options.folders)),
   };
 }

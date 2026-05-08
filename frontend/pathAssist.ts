@@ -26,6 +26,25 @@ export interface BuildPathDialogAssistOptions {
   folders: string[];
 }
 
+export interface PathMoveAssist {
+  normalizedInput: string;
+  targetFolder: string;
+  targetPath: string;
+  error: string;
+  helper: string;
+  helperTone: "neutral" | "warn";
+  suggestions: PathDialogSuggestion[];
+}
+
+export interface BuildPathMoveAssistOptions {
+  kind: "note" | "folder";
+  input: string;
+  sourcePath: string;
+  scopePrefix?: string;
+  pages: string[];
+  folders: string[];
+}
+
 function normalizePath(path: string): string {
   return normalizePageDraftPath(path || "");
 }
@@ -91,6 +110,11 @@ function displayPathWithinScope(path: string, scopePrefix: string): string {
     return normalizedPath.slice(normalizedScope.length + 1);
   }
   return normalizedPath;
+}
+
+function displayAbsolutePath(path: string): string {
+  const normalizedPath = normalizePath(path);
+  return normalizedPath ? ("/" + normalizedPath) : "/";
 }
 
 function samePath(left: string, right: string): boolean {
@@ -196,6 +220,91 @@ function filterSuggestions(input: string, suggestions: PathDialogSuggestion[]): 
   return filtered.slice(0, 6);
 }
 
+function normalizeMoveFolderInput(input: string): { raw: string; root: boolean; normalized: string } {
+  const raw = String(input || "").trim().replace(/\\/g, "/");
+  if (raw === "/") {
+    return { raw, root: true, normalized: "" };
+  }
+  return {
+    raw,
+    root: false,
+    normalized: normalizePath(raw),
+  };
+}
+
+function resolveMoveTargetFolder(input: string, scopePrefix: string, folders: Set<string>): { raw: string; root: boolean; normalizedInput: string; targetFolder: string } {
+  const normalizedScope = normalizePath(scopePrefix);
+  const parsed = normalizeMoveFolderInput(input);
+  if (parsed.root) {
+    return {
+      raw: parsed.raw,
+      root: true,
+      normalizedInput: "/",
+      targetFolder: normalizedScope,
+    };
+  }
+  if (!parsed.normalized) {
+    return {
+      raw: parsed.raw,
+      root: false,
+      normalizedInput: "",
+      targetFolder: "",
+    };
+  }
+  if (!normalizedScope) {
+    return {
+      raw: parsed.raw,
+      root: false,
+      normalizedInput: parsed.normalized,
+      targetFolder: parsed.normalized,
+    };
+  }
+  if (pathWithinScope(parsed.normalized, normalizedScope) || folders.has(parsed.normalized.toLowerCase())) {
+    return {
+      raw: parsed.raw,
+      root: false,
+      normalizedInput: parsed.normalized,
+      targetFolder: parsed.normalized,
+    };
+  }
+  return {
+    raw: parsed.raw,
+    root: false,
+    normalizedInput: parsed.normalized,
+    targetFolder: applyScopePrefix(parsed.normalized, normalizedScope),
+  };
+}
+
+function buildMoveSuggestions(kind: "note" | "folder", sourcePath: string, scopePrefix: string, folders: string[]): PathDialogSuggestion[] {
+  const normalizedSource = normalizePath(sourcePath);
+  const normalizedScope = normalizePath(scopePrefix);
+  const sourceLeaf = pageTitleFromPath(normalizedSource);
+  const allFolders = sortedUniqueFolders(folders);
+  const suggestions: PathDialogSuggestion[] = [{
+    value: "/",
+    label: displayAbsolutePath(normalizedScope),
+  }];
+
+  allFolders.forEach(function (folder) {
+    if (!folder || samePath(folder, normalizedScope)) {
+      return;
+    }
+    if (kind === "folder" && (samePath(folder, normalizedSource) || folder.startsWith(normalizedSource + "/"))) {
+      return;
+    }
+    const targetPath = joinPath(folder, sourceLeaf);
+    if (samePath(targetPath, normalizedSource)) {
+      return;
+    }
+    suggestions.push({
+      value: folder,
+      label: displayAbsolutePath(folder),
+    });
+  });
+
+  return suggestions;
+}
+
 export function buildPathDialogAssist(options: BuildPathDialogAssistOptions): PathDialogAssist {
   const kind = options.kind;
   const action = options.action;
@@ -268,5 +377,53 @@ export function buildPathDialogAssist(options: BuildPathDialogAssistOptions): Pa
     helper: helper,
     helperTone: helperTone,
     suggestions: filterSuggestions(normalizedInput, suggestionPool),
+  };
+}
+
+export function buildPathMoveAssist(options: BuildPathMoveAssistOptions): PathMoveAssist {
+  const normalizedSource = normalizePath(options.sourcePath || "");
+  const normalizedScope = normalizePath(options.scopePrefix || "");
+  const pages = pathSet(options.pages);
+  const folderList = sortedUniqueFolders(options.folders);
+  const folders = pathSet(folderList);
+  const resolved = resolveMoveTargetFolder(options.input, normalizedScope, folders);
+  const targetFolder = resolved.targetFolder;
+  const targetPath = targetFolder ? joinPath(targetFolder, pageTitleFromPath(normalizedSource)) : pageTitleFromPath(normalizedSource);
+
+  let error = "";
+  if (!normalizedSource) {
+    error = "Missing source path.";
+  } else if (!resolved.root && !resolved.normalizedInput) {
+    error = "Choose a target folder.";
+  } else if (!resolved.root && targetFolder && !folders.has(targetFolder.toLowerCase())) {
+    error = 'Folder "' + targetFolder + '" does not exist.';
+  } else if (samePath(targetPath, normalizedSource)) {
+    error = "No change yet.";
+  } else if (options.kind === "folder" && (samePath(targetFolder, normalizedSource) || targetFolder.startsWith(normalizedSource + "/"))) {
+    error = "A folder cannot be moved into itself.";
+  } else if (options.kind === "note" && pages.has(targetPath.toLowerCase())) {
+    error = 'A note already exists at "' + targetPath + '".';
+  } else if (options.kind === "folder" && folders.has(targetPath.toLowerCase())) {
+    error = 'A folder already exists at "' + targetPath + '".';
+  }
+
+  let helper = "";
+  let helperTone: "neutral" | "warn" = "neutral";
+  if (!error && targetPath) {
+    helper = 'Destination: "' + displayAbsolutePath(targetPath) + '".';
+    if (normalizedScope && !pathWithinScope(targetPath, normalizedScope)) {
+      helper += " Leaves the current scope.";
+      helperTone = "warn";
+    }
+  }
+
+  return {
+    normalizedInput: resolved.normalizedInput,
+    targetFolder,
+    targetPath,
+    error,
+    helper,
+    helperTone,
+    suggestions: filterSuggestions(resolved.normalizedInput === "/" ? "" : resolved.normalizedInput, buildMoveSuggestions(options.kind, normalizedSource, normalizedScope, folderList)),
   };
 }

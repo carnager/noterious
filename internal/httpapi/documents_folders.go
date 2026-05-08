@@ -48,10 +48,11 @@ type deletedDocumentResponse struct {
 }
 
 type movedFolderResponse struct {
-	Folder       string `json:"folder"`
-	SourceFolder string `json:"sourceFolder"`
-	TargetFolder string `json:"targetFolder"`
-	Name         string `json:"name"`
+	Folder         string   `json:"folder"`
+	SourceFolder   string   `json:"sourceFolder"`
+	TargetFolder   string   `json:"targetFolder"`
+	Name           string   `json:"name"`
+	RewrittenPages []string `json:"rewrittenPages,omitempty"`
 }
 
 type deletedFolderResponse struct {
@@ -310,6 +311,24 @@ func handleFolderActionRequest(w http.ResponseWriter, r *http.Request, deps Depe
 	}
 
 	if move {
+		pageFiles, err := vaultService.ScanMarkdownPages(r.Context())
+		if err != nil {
+			http.Error(w, "failed to scan folder pages", http.StatusInternalServerError)
+			return
+		}
+		movedPagePaths := collectMovedFolderPagePaths(pageFiles, folderPath)
+		documentsService, err := currentDocuments(r.Context(), deps)
+		if err != nil {
+			http.Error(w, "document service unavailable", http.StatusInternalServerError)
+			return
+		}
+		documentsList, err := documentsService.List(r.Context(), "")
+		if err != nil {
+			http.Error(w, "failed to scan folder documents", http.StatusInternalServerError)
+			return
+		}
+		movedDocumentPaths := collectMovedFolderDocumentPaths(documentsList, folderPath)
+
 		var request struct {
 			TargetFolder string `json:"targetFolder"`
 			Name         string `json:"name"`
@@ -352,12 +371,32 @@ func handleFolderActionRequest(w http.ResponseWriter, r *http.Request, deps Depe
 			http.Error(w, "failed to rebuild vault state", http.StatusInternalServerError)
 			return
 		}
+		rewrittenPages, err := rewriteMovedFolderReferences(
+			r.Context(),
+			deps,
+			vaultService,
+			movedFolderMappings(movedPagePaths, folderPath, movedFolderPath),
+			movedFolderMappings(movedDocumentPaths, folderPath, movedFolderPath),
+		)
+		if err != nil {
+			http.Error(w, "failed to rewrite links to moved folder", http.StatusInternalServerError)
+			return
+		}
+		rewrittenPagePaths := make([]string, 0, len(rewrittenPages))
+		for _, rewrittenPage := range rewrittenPages {
+			rewrittenPagePaths = append(rewrittenPagePaths, rewrittenPage.path)
+			PublishInvalidationEvents(r.Context(), deps.Events, deps.Index, deps.Query, rewrittenPage.path, []query.PageChange{{
+				Before: rewrittenPage.before.summary,
+				After:  rewrittenPage.after.summary,
+			}}, query.DiffTaskChanges(rewrittenPage.before.tasks, rewrittenPage.after.tasks))
+		}
 		acknowledgePageChanges(r.Context(), deps, folderPath, movedFolderPath)
 		writeJSON(w, http.StatusOK, movedFolderResponse{
-			Folder:       movedFolderPath,
-			SourceFolder: folderPath,
-			TargetFolder: targetFolder,
-			Name:         targetName,
+			Folder:         movedFolderPath,
+			SourceFolder:   folderPath,
+			TargetFolder:   targetFolder,
+			Name:           targetName,
+			RewrittenPages: rewrittenPagePaths,
 		})
 		return
 	}
@@ -492,6 +531,131 @@ func rewriteMovedDocumentLinks(ctx context.Context, deps Dependencies, vaultServ
 			return nil, err
 		}
 		nextRaw, changed := markdown.RewriteDocumentLinks(string(raw), page.Path, fromDocument, toDocument)
+		if !changed {
+			continue
+		}
+		before, err := loadIndexedPageState(ctx, deps.Index, page.Path)
+		if err != nil {
+			return nil, err
+		}
+		if err := vaultService.WritePage(page.Path, []byte(nextRaw)); err != nil {
+			return nil, err
+		}
+		acknowledgePageChanges(ctx, deps, page.Path)
+		if deps.History != nil {
+			if _, err := deps.History.SaveRevision(page.Path, []byte(nextRaw)); err != nil {
+				return nil, err
+			}
+		}
+		if err := refreshPageDerivedState(ctx, deps, vaultService, page.Path); err != nil {
+			return nil, err
+		}
+		after, err := loadIndexedPageState(ctx, deps.Index, page.Path)
+		if err != nil {
+			return nil, err
+		}
+		rewritten = append(rewritten, rewrittenPageState{
+			path:   page.Path,
+			before: before,
+			after:  after,
+		})
+	}
+	return rewritten, nil
+}
+
+type movedPathMapping struct {
+	from string
+	to   string
+}
+
+func collectMovedFolderPagePaths(pageFiles []vault.PageFile, folderPath string) []string {
+	return collectMovedFolderPaths(folderPath, len(pageFiles), func(index int) string {
+		return pageFiles[index].Path
+	})
+}
+
+func collectMovedFolderDocumentPaths(documentsList []documents.Document, folderPath string) []string {
+	return collectMovedFolderPaths(folderPath, len(documentsList), func(index int) string {
+		return documentsList[index].Path
+	})
+}
+
+func collectMovedFolderPaths(folderPath string, count int, valueAt func(index int) string) []string {
+	normalizedFolder := strings.Trim(strings.TrimSpace(folderPath), "/")
+	if normalizedFolder == "" {
+		return nil
+	}
+	prefix := normalizedFolder + "/"
+	paths := make([]string, 0)
+	for index := 0; index < count; index += 1 {
+		value := strings.Trim(strings.TrimSpace(valueAt(index)), "/")
+		if strings.HasPrefix(value, prefix) {
+			paths = append(paths, value)
+		}
+	}
+	return paths
+}
+
+func movedFolderMappings(paths []string, sourceFolder string, movedFolder string) []movedPathMapping {
+	normalizedSource := strings.Trim(strings.TrimSpace(sourceFolder), "/")
+	normalizedMoved := strings.Trim(strings.TrimSpace(movedFolder), "/")
+	if normalizedSource == "" || normalizedMoved == "" {
+		return nil
+	}
+	prefix := normalizedSource + "/"
+	mappings := make([]movedPathMapping, 0, len(paths))
+	for _, rawPath := range paths {
+		normalizedPath := strings.Trim(strings.TrimSpace(rawPath), "/")
+		if !strings.HasPrefix(normalizedPath, prefix) {
+			continue
+		}
+		mappings = append(mappings, movedPathMapping{
+			from: normalizedPath,
+			to:   normalizedMoved + normalizedPath[len(normalizedSource):],
+		})
+	}
+	return mappings
+}
+
+func rewriteMovedFolderReferences(
+	ctx context.Context,
+	deps Dependencies,
+	vaultService *vault.Service,
+	pageMappings []movedPathMapping,
+	documentMappings []movedPathMapping,
+) ([]rewrittenPageState, error) {
+	if len(pageMappings) == 0 && len(documentMappings) == 0 {
+		return nil, nil
+	}
+
+	pages, err := vaultService.ScanMarkdownPages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rewritten := make([]rewrittenPageState, 0)
+	for _, page := range pages {
+		raw, err := vaultService.ReadPage(page.Path)
+		if err != nil {
+			return nil, err
+		}
+		nextRaw := string(raw)
+		changed := false
+		for _, mapping := range pageMappings {
+			updated, updatedChanged := markdown.RewritePageLinks(nextRaw, page.Path, mapping.from, mapping.to)
+			if !updatedChanged {
+				continue
+			}
+			nextRaw = updated
+			changed = true
+		}
+		for _, mapping := range documentMappings {
+			updated, updatedChanged := markdown.RewriteDocumentLinks(nextRaw, page.Path, mapping.from, mapping.to)
+			if !updatedChanged {
+				continue
+			}
+			nextRaw = updated
+			changed = true
+		}
 		if !changed {
 			continue
 		}

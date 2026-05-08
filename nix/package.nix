@@ -1,6 +1,6 @@
 { lib
 , buildGoModule
-, version ? "unstable"
+, version ? "0.1.25"
 , src ? lib.cleanSource ../.
 }:
 

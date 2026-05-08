@@ -80,13 +80,45 @@ describe("detail helpers", function () {
 
     const loaded = await loadPageDetailData("notes/alpha", function (pagePath: string) {
       return pagePath;
-    }, "task-1", null);
+    }, "task-1", null, "");
 
     expect(mockedFetchJSON).toHaveBeenNthCalledWith(1, "/api/pages/notes/alpha");
     expect(mockedFetchJSON).toHaveBeenNthCalledWith(2, "/api/pages/notes/alpha/derived");
     expect(loaded.page).toBe(page);
     expect(loaded.derived).toBe(derived);
     expect(loaded.focusOffset).toBe(rawOffsetForTaskLine(page.rawMarkdown, 3));
+  });
+
+  it("loads page detail data and computes focus offsets for heading anchors", async function () {
+    const page: PageRecord = {
+      page: "notes/alpha",
+      path: "notes/alpha",
+      title: "Alpha",
+      rawMarkdown: "# Alpha\n\n## Ship It\n\nBody\n",
+      frontmatter: {},
+      links: [],
+      tasks: [],
+    };
+    const derived: DerivedPage = {
+      toc: [
+        { level: 1, text: "Alpha", anchor: "alpha", line: 1 },
+        { level: 2, text: "Ship It", anchor: "ship-it", line: 3 },
+      ],
+      backlinks: [],
+      queryBlocks: [],
+      linkCounts: {},
+      taskCounts: {},
+    };
+
+    mockedFetchJSON
+      .mockResolvedValueOnce(page)
+      .mockResolvedValueOnce(derived);
+
+    const loaded = await loadPageDetailData("notes/alpha", function (pagePath: string) {
+      return pagePath;
+    }, "", null, "ship-it");
+
+    expect(loaded.focusOffset).toBe(9);
   });
 
   it("resolves page tasks by ref before falling back to raw line numbers", function () {

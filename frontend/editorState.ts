@@ -55,6 +55,15 @@ export function setMarkdownEditorValue(state: EditorControllerState, elements: E
   elements.markdownEditor.value = value;
 }
 
+export function resetMarkdownEditorValue(state: EditorControllerState, elements: EditorControllerElements, value: string): void {
+  const api = markdownEditorAPI(state);
+  if (api && typeof api.resetValue === "function") {
+    api.resetValue(value);
+    return;
+  }
+  elements.markdownEditor.value = value;
+}
+
 export function markdownEditorSelectionStart(state: EditorControllerState, elements: EditorControllerElements): number {
   const api = markdownEditorAPI(state);
   return api ? api.getSelectionStart() : (elements.markdownEditor.selectionStart || 0);
@@ -63,6 +72,38 @@ export function markdownEditorSelectionStart(state: EditorControllerState, eleme
 export function markdownEditorSelectionEnd(state: EditorControllerState, elements: EditorControllerElements): number {
   const api = markdownEditorAPI(state);
   return api ? api.getSelectionEnd() : (elements.markdownEditor.selectionEnd || 0);
+}
+
+export function markdownEditorUndo(state: EditorControllerState, elements: EditorControllerElements): boolean {
+  const api = markdownEditorAPI(state);
+  if (api && typeof api.undo === "function") {
+    return api.undo();
+  }
+  if (document.activeElement !== elements.markdownEditor) {
+    focusWithoutScroll(elements.markdownEditor);
+  }
+  return document.execCommand("undo");
+}
+
+export function markdownEditorRedo(state: EditorControllerState, elements: EditorControllerElements): boolean {
+  const api = markdownEditorAPI(state);
+  if (api && typeof api.redo === "function") {
+    return api.redo();
+  }
+  if (document.activeElement !== elements.markdownEditor) {
+    focusWithoutScroll(elements.markdownEditor);
+  }
+  return document.execCommand("redo");
+}
+
+export function markdownEditorCanUndo(state: EditorControllerState): boolean {
+  const api = markdownEditorAPI(state);
+  return api && typeof api.canUndo === "function" ? api.canUndo() : true;
+}
+
+export function markdownEditorCanRedo(state: EditorControllerState): boolean {
+  const api = markdownEditorAPI(state);
+  return api && typeof api.canRedo === "function" ? api.canRedo() : true;
 }
 
 export function setMarkdownEditorSelection(
@@ -149,6 +190,13 @@ export function markdownEditorSetEditable(state: EditorControllerState, elements
   }
   elements.markdownEditor.readOnly = !enabled;
   elements.markdownEditor.disabled = !enabled;
+}
+
+export function markdownEditorSetViewOnly(state: EditorControllerState, enabled: boolean): void {
+  const api = markdownEditorAPI(state);
+  if (api && typeof api.setViewOnly === "function") {
+    api.setViewOnly(Boolean(enabled));
+  }
 }
 
 export function markdownEditorSetQueryBlocks(state: EditorControllerState, blocks: QueryBlockRender[]): void {
