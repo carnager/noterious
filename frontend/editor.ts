@@ -679,7 +679,17 @@ class MarkdownTableWidget extends WidgetType {
   toDOM(): HTMLDivElement {
     const wrapper = document.createElement("div");
     wrapper.className = "cm-md-table-block";
+    wrapper.style.display = "block";
+    wrapper.style.width = "100%";
+    wrapper.style.boxSizing = "border-box";
+    // Keep vertical spacing on the measured widget wrapper. Margins on the inner
+    // rendered block are not included in CodeMirror's block-widget height mapping.
+    wrapper.style.padding = "0.4rem 0 0.7rem";
     wrapper.innerHTML = this.html;
+    const tableBlock = wrapper.querySelector(".markdown-table-block");
+    if (tableBlock instanceof HTMLElement) {
+      tableBlock.style.margin = "0";
+    }
     if (!this.viewOnly) {
       wrapper.addEventListener("click", function (event) {
         const target = event.target instanceof HTMLElement ? event.target : null;

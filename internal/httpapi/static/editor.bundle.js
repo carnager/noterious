@@ -40659,15 +40659,23 @@
         toDOM() {
           const wrapper = document.createElement("div");
           wrapper.className = "cm-md-table-block";
+          wrapper.style.display = "block";
+          wrapper.style.width = "100%";
+          wrapper.style.boxSizing = "border-box";
+          wrapper.style.padding = "0.4rem 0 0.7rem";
           wrapper.innerHTML = this.html;
+          const tableBlock = wrapper.querySelector(".markdown-table-block");
+          if (tableBlock instanceof HTMLElement) {
+            tableBlock.style.margin = "0";
+          }
           if (!this.viewOnly) {
             wrapper.addEventListener("click", function(event) {
               const target = event.target instanceof HTMLElement ? event.target : null;
               const cell = target ? target.closest("[data-table-cell]") : null;
               if (cell) {
                 event.preventDefault();
-                const tableBlock = cell.closest(".markdown-table-block");
-                const rect = (tableBlock instanceof HTMLElement ? tableBlock : cell).getBoundingClientRect();
+                const tableBlock2 = cell.closest(".markdown-table-block");
+                const rect = (tableBlock2 instanceof HTMLElement ? tableBlock2 : cell).getBoundingClientRect();
                 cell.dispatchEvent(new CustomEvent("noterious:table-open", {
                   bubbles: true,
                   detail: {

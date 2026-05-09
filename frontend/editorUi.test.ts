@@ -496,6 +496,10 @@ describe("mounted editor UI", function () {
       expect(widget).toBeTruthy();
       expect(block).toBeTruthy();
       expect(window.getComputedStyle(widget as HTMLElement).display).toBe("block");
+      expect((widget as HTMLElement).style.paddingTop).toBe("0.4rem");
+      expect((widget as HTMLElement).style.paddingBottom).toBe("0.7rem");
+      expect((block as HTMLElement).style.marginTop).toBe("0px");
+      expect((block as HTMLElement).style.marginBottom).toBe("0px");
       expect(cells.map((cell) => window.getComputedStyle(cell).textAlign)).toEqual([
         "left",
         "center",
@@ -529,6 +533,9 @@ describe("mounted editor UI", function () {
     try {
       editor.api.setRenderMode(true);
       setCursor(editor.view, 1, 0);
+
+      const codeStartLine = renderedLineElement(editor.view, 2);
+      expect(Number.parseFloat(window.getComputedStyle(codeStartLine as HTMLElement).marginTop || "0")).toBe(0);
 
       expect(pressKey(editor.view, "ArrowDown")).toBe(true);
       expect(lineColumn(editor.view)).toEqual({
@@ -648,6 +655,7 @@ describe("mounted editor UI", function () {
 
       expect(editor.view.contentDOM.querySelector(".cm-md-query-block")).toBeTruthy();
       expect(editor.view.contentDOM.querySelector("[data-query-edit]")).toBeNull();
+      expect(Number.parseFloat(window.getComputedStyle(editor.view.contentDOM.querySelector(".cm-md-query-block") as HTMLElement).marginBottom || "0")).toBe(0);
     } finally {
       editor.destroy();
     }
@@ -743,6 +751,7 @@ describe("mounted editor UI", function () {
 
       const linkLine = renderedLineElement(editor.view, 1);
       const imageLine = renderedLineElement(editor.view, 2);
+      const imageLink = imageLine?.querySelector(".cm-md-image-link") as HTMLElement | null;
 
       expect(linkLine?.querySelector(".cm-md-link")?.getAttribute("data-document-download")).toBe(
         "/api/documents/download?path=notes%2FDocs%2FQuarterly%20Report.pdf"
@@ -750,6 +759,8 @@ describe("mounted editor UI", function () {
       expect(imageLine?.querySelector("img.cm-md-image")?.getAttribute("src")).toBe(
         "/api/documents/download?path=notes%2FAssets%2FQuarterly%20Chart.png&inline=1"
       );
+      expect(Number.parseFloat(window.getComputedStyle(imageLink as HTMLElement).marginTop || "0")).toBe(0);
+      expect(Number.parseFloat(window.getComputedStyle(imageLink as HTMLElement).marginBottom || "0")).toBe(0);
     } finally {
       editor.destroy();
     }

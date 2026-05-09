@@ -2844,8 +2844,8 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 }
 
 .markdown-editor-host.render-mode .cm-md-code-block-start {
-  margin-top: 0.38rem;
-  padding: 0.46rem 0.68rem 0.44rem !important;
+  margin-top: 0;
+  padding: calc(0.46rem + 0.38rem) 0.68rem 0.44rem !important;
   border-top: 1px solid var(--line-strong);
   border-left: 1px solid var(--line-strong);
   border-right: 1px solid var(--line-strong);
@@ -2979,7 +2979,9 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   display: inline-flex;
   align-items: flex-start;
   max-width: min(100%, 42rem);
-  margin: 0.24rem 0;
+  margin: 0;
+  padding: 0.24rem 0;
+  box-sizing: border-box;
   line-height: 0;
   text-decoration: none;
 }
@@ -3108,9 +3110,9 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   display: block;
   width: 100%;
   box-sizing: border-box;
-  margin: 0 0 0.48rem;
+  margin: 0;
   position: relative;
-  padding: 1.6rem 0.85rem 0.8rem;
+  padding: 1.6rem 0.85rem calc(0.8rem + 0.48rem);
   border: 1px solid var(--line);
   border-radius: 12px;
   background:
