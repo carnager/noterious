@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.27] - 2026-05-09
+
+### Added
+- Appearance settings now include a client-side option to keep rendered code blocks always expanded.
+
+### Fixed
+- Toggling rendered task checkboxes in the note editor no longer jumps the viewport or flickers from full note reloads.
+- Rendered task toggles now update locally without polluting undo history, while still refreshing surrounding task/query state in the background.
+
 ## [v0.1.26] - 2026-05-08
 
 ### Fixed
