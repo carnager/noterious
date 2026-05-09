@@ -14,6 +14,7 @@ describe("clientPreferences", function () {
     expect(defaultClientPreferences().notifications.browserEnabled).toBe(false);
     expect(defaultClientPreferences().ui.showDocumentsInTree).toBe(false);
     expect(defaultClientPreferences().ui.showTemplatesInTree).toBe(false);
+    expect(defaultClientPreferences().ui.expandCodeBlocks).toBe(false);
     expect(defaultClientPreferences().templates).toEqual([]);
   });
 
@@ -33,6 +34,7 @@ describe("clientPreferences", function () {
       ui: {
         showDocumentsInTree: true,
         showTemplatesInTree: true,
+        expandCodeBlocks: true,
       },
       templates: [
         {
@@ -56,6 +58,7 @@ describe("clientPreferences", function () {
     expect(normalized.notifications.browserEnabled).toBe(true);
     expect(normalized.ui.showDocumentsInTree).toBe(true);
     expect(normalized.ui.showTemplatesInTree).toBe(true);
+    expect(normalized.ui.expandCodeBlocks).toBe(true);
     expect(normalized.templates).toEqual([
       {
         id: "contact",
@@ -76,6 +79,7 @@ describe("clientPreferences", function () {
     expect(cloned.notifications.browserEnabled).toBe(true);
     expect(cloned.ui.showDocumentsInTree).toBe(true);
     expect(cloned.ui.showTemplatesInTree).toBe(true);
+    expect(cloned.ui.expandCodeBlocks).toBe(true);
     expect(cloned.templates).toEqual(normalized.templates);
     expect(cloned.templates).not.toBe(normalized.templates);
   });

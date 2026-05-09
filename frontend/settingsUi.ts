@@ -76,6 +76,7 @@ export interface SettingsUiElements {
   settingsAIHelp: HTMLElement;
   settingsTreeDefaultDocuments: HTMLInputElement;
   settingsTreeDefaultTemplates: HTMLInputElement;
+  settingsExpandCodeBlocks: HTMLInputElement;
   settingsFontFamily: HTMLSelectElement;
   settingsFontSize: HTMLSelectElement;
   settingsDateTimeFormat: HTMLSelectElement;
@@ -632,6 +633,7 @@ export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElemen
   els.settingsAIHelp.textContent = "OpenAI-compatible only in v1. Example base URLs: https://api.openai.com/v1 or https://api.deepseek.com/v1. Browser-local keys are intentionally not supported.";
   els.settingsTreeDefaultDocuments.checked = Boolean(state.settings.preferences.ui.showDocumentsInTree);
   els.settingsTreeDefaultTemplates.checked = Boolean(state.settings.preferences.ui.showTemplatesInTree);
+  els.settingsExpandCodeBlocks.checked = Boolean(state.settings.preferences.ui.expandCodeBlocks);
   renderThemeOptions(state, els);
   els.settingsFontFamily.value = state.settings.preferences.ui.fontFamily || "mono";
   els.settingsFontSize.value = state.settings.preferences.ui.fontSize || "16";

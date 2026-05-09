@@ -65,6 +65,7 @@ import {
   markdownEditorSetViewOnly,
   markdownEditorSetPagePath,
   markdownEditorSetDateTimeFormat,
+  markdownEditorSetCodeBlocksAlwaysExpanded,
   markdownEditorScrollTop,
   markdownEditorSelectionEnd,
   markdownEditorSelectionStart,
@@ -898,6 +899,7 @@ interface ActionDialogSession {
     settingsAIHelp: requiredElement<HTMLElement>("settings-ai-help"),
     settingsTreeDefaultDocuments: requiredElement<HTMLInputElement>("settings-tree-default-documents"),
     settingsTreeDefaultTemplates: requiredElement<HTMLInputElement>("settings-tree-default-templates"),
+    settingsExpandCodeBlocks: requiredElement<HTMLInputElement>("settings-ui-expand-code-blocks"),
     settingsTheme: requiredElement<HTMLSelectElement>("settings-ui-theme"),
     settingsThemeUpload: requiredElement<HTMLButtonElement>("settings-theme-upload"),
     settingsThemeDelete: requiredElement<HTMLButtonElement>("settings-theme-delete"),
@@ -2901,6 +2903,7 @@ interface ActionDialogSession {
     markdownEditorSetEditable(state, els, noteLoaded && !state.viewOnly);
     markdownEditorSetViewOnly(state, noteLoaded && state.viewOnly);
     markdownEditorSetRenderMode(state, !state.sourceOpen);
+    markdownEditorSetCodeBlocksAlwaysExpanded(state, Boolean(state.settings.preferences.ui.expandCodeBlocks));
     if (els.pageProperties) {
       els.pageProperties.classList.toggle("hidden", notePropertiesHidden());
     }
@@ -3837,6 +3840,7 @@ interface ActionDialogSession {
     const fontFamily = state.settings.preferences.ui.fontFamily || "mono";
     const fontSize = state.settings.preferences.ui.fontSize || "16";
     const dateTimeFormat = state.settings.preferences.ui.dateTimeFormat || "browser";
+    const expandCodeBlocks = Boolean(state.settings.preferences.ui.expandCodeBlocks);
     const fontMap: Record<string, string> = {
       mono: '"IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace',
       sans: '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif',
@@ -3847,6 +3851,7 @@ interface ActionDialogSession {
     root.style.setProperty("--app-font-size", fontSize + "px");
     setDateTimeDisplayFormat(dateTimeFormat);
     markdownEditorSetDateTimeFormat(state, dateTimeFormat);
+    markdownEditorSetCodeBlocksAlwaysExpanded(state, expandCodeBlocks);
     applyCurrentTheme(currentThemeID());
   }
 
@@ -5354,6 +5359,7 @@ interface ActionDialogSession {
         dateTimeFormat: String(els.settingsDateTimeFormat.value || "browser").trim(),
         showDocumentsInTree: Boolean(els.settingsTreeDefaultDocuments.checked),
         showTemplatesInTree: Boolean(els.settingsTreeDefaultTemplates.checked),
+        expandCodeBlocks: Boolean(els.settingsExpandCodeBlocks.checked),
       },
       vaults: {
         topLevelFoldersAsVaults: true,

@@ -169,6 +169,7 @@ const setQueryBlocksEffect = StateEffect.define<Map<string, string>>();
 const setTasksEffect = StateEffect.define<Map<number, EditorTaskState>>();
 const setPagePathEffect = StateEffect.define<string>();
 const setHighlightedLineEffect = StateEffect.define<number | null>();
+const setCodeBlocksAlwaysExpandedEffect = StateEffect.define<boolean>();
 const toggleCodeBlockExpandedEffect = StateEffect.define<string>();
 const editableCompartment = new Compartment();
 const readOnlyCompartment = new Compartment();
@@ -757,6 +758,20 @@ const expandedCodeBlocksField = StateField.define<Record<string, boolean>>({
       }
     }
     return next;
+  },
+});
+
+const codeBlocksAlwaysExpandedField = StateField.define<boolean>({
+  create() {
+    return false;
+  },
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setCodeBlocksAlwaysExpandedEffect)) {
+        return Boolean(effect.value);
+      }
+    }
+    return value;
   },
 });
 
@@ -2255,6 +2270,7 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
   const queryBlocks = state.field(queryBlocksField);
   const tasks = state.field(tasksField);
   const expandedCodeBlocks = state.field(expandedCodeBlocksField);
+  const codeBlocksAlwaysExpanded = state.field(codeBlocksAlwaysExpandedField);
   const viewOnly = state.field(viewOnlyField, false);
   const selection: InlineSelectionLike = viewOnly
     ? {
@@ -2393,8 +2409,8 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
       }
       const bodyLineCount = Math.max(0, codeBlock.content ? codeBlock.content.split("\n").length : 0);
       const codeBlockKey = codeBlockStateKey(lineNumber, codeBlock.content, codeBlock.language);
-      const canCollapse = bodyLineCount > collapsedCodeBlockVisibleLines;
-      const expanded = canCollapse ? Boolean(expandedCodeBlocks[codeBlockKey]) : false;
+      const canCollapse = bodyLineCount > collapsedCodeBlockVisibleLines && !codeBlocksAlwaysExpanded;
+      const expanded = codeBlocksAlwaysExpanded || (canCollapse ? Boolean(expandedCodeBlocks[codeBlockKey]) : false);
       const hiddenLineCount = canCollapse && !expanded
         ? bodyLineCount - collapsedCodeBlockVisibleLines
         : 0;
@@ -2719,8 +2735,9 @@ const renderedDecorationsField = StateField.define<RenderedDecorationSets>({
     const modeChanged = transaction.effects.some((effect) => effect.is(setRenderModeEffect));
     const viewOnlyChanged = transaction.effects.some((effect) => effect.is(setViewOnlyEffect));
     const tasksChanged = transaction.effects.some((effect) => effect.is(setTasksEffect));
+    const codeBlockPreferenceChanged = transaction.effects.some((effect) => effect.is(setCodeBlocksAlwaysExpandedEffect));
     const codeBlocksChanged = transaction.effects.some((effect) => effect.is(toggleCodeBlockExpandedEffect));
-    if (!modeChanged && !viewOnlyChanged && !tasksChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
+    if (!modeChanged && !viewOnlyChanged && !tasksChanged && !codeBlockPreferenceChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
       return value;
     }
     return buildRenderedDecorations(transaction.state);
@@ -3081,6 +3098,7 @@ window.NoteriousCodeEditor = {
       queryBlocksField,
       tasksField,
       expandedCodeBlocksField,
+      codeBlocksAlwaysExpandedField,
       highlightedLineDecorationsField,
       renderedDecorationsField,
       renderedFrontmatterBoundaryFilter,
@@ -3310,6 +3328,11 @@ window.NoteriousCodeEditor = {
         setDateTimeDisplayFormat(normalizeDateTimeDisplayFormat(format));
         view.dispatch({
           effects: setTasksEffect.of(new Map(view.state.field(tasksField))),
+        });
+      },
+      setCodeBlocksAlwaysExpanded(enabled: boolean) {
+        view.dispatch({
+          effects: setCodeBlocksAlwaysExpandedEffect.of(Boolean(enabled)),
         });
       },
       setEditable(enabled: boolean) {

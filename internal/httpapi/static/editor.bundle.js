@@ -40280,6 +40280,7 @@
       var setTasksEffect = StateEffect.define();
       var setPagePathEffect = StateEffect.define();
       var setHighlightedLineEffect = StateEffect.define();
+      var setCodeBlocksAlwaysExpandedEffect = StateEffect.define();
       var toggleCodeBlockExpandedEffect = StateEffect.define();
       var editableCompartment = new Compartment();
       var readOnlyCompartment = new Compartment();
@@ -40733,6 +40734,19 @@
             }
           }
           return next;
+        }
+      });
+      var codeBlocksAlwaysExpandedField = StateField.define({
+        create() {
+          return false;
+        },
+        update(value, transaction) {
+          for (const effect of transaction.effects) {
+            if (effect.is(setCodeBlocksAlwaysExpandedEffect)) {
+              return Boolean(effect.value);
+            }
+          }
+          return value;
         }
       });
       var highlightedLineField = StateField.define({
@@ -41923,6 +41937,7 @@
         const queryBlocks = state.field(queryBlocksField);
         const tasks = state.field(tasksField);
         const expandedCodeBlocks = state.field(expandedCodeBlocksField);
+        const codeBlocksAlwaysExpanded = state.field(codeBlocksAlwaysExpandedField);
         const viewOnly = state.field(viewOnlyField, false);
         const selection = viewOnly ? {
           from: -1,
@@ -42054,8 +42069,8 @@
             }
             const bodyLineCount = Math.max(0, codeBlock.content ? codeBlock.content.split("\n").length : 0);
             const codeBlockKey = codeBlockStateKey(lineNumber, codeBlock.content, codeBlock.language);
-            const canCollapse = bodyLineCount > collapsedCodeBlockVisibleLines;
-            const expanded = canCollapse ? Boolean(expandedCodeBlocks[codeBlockKey]) : false;
+            const canCollapse = bodyLineCount > collapsedCodeBlockVisibleLines && !codeBlocksAlwaysExpanded;
+            const expanded = codeBlocksAlwaysExpanded || (canCollapse ? Boolean(expandedCodeBlocks[codeBlockKey]) : false);
             const hiddenLineCount = canCollapse && !expanded ? bodyLineCount - collapsedCodeBlockVisibleLines : 0;
             for (let codeLineNumber = lineNumber; codeLineNumber <= codeBlock.endLineIndex + 1; codeLineNumber += 1) {
               const codeLine = state.doc.line(codeLineNumber);
@@ -42355,8 +42370,9 @@
           const modeChanged = transaction.effects.some((effect) => effect.is(setRenderModeEffect));
           const viewOnlyChanged = transaction.effects.some((effect) => effect.is(setViewOnlyEffect));
           const tasksChanged = transaction.effects.some((effect) => effect.is(setTasksEffect));
+          const codeBlockPreferenceChanged = transaction.effects.some((effect) => effect.is(setCodeBlocksAlwaysExpandedEffect));
           const codeBlocksChanged = transaction.effects.some((effect) => effect.is(toggleCodeBlockExpandedEffect));
-          if (!modeChanged && !viewOnlyChanged && !tasksChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
+          if (!modeChanged && !viewOnlyChanged && !tasksChanged && !codeBlockPreferenceChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
             return value;
           }
           return buildRenderedDecorations(transaction.state);
@@ -42690,6 +42706,7 @@
             queryBlocksField,
             tasksField,
             expandedCodeBlocksField,
+            codeBlocksAlwaysExpandedField,
             highlightedLineDecorationsField,
             renderedDecorationsField,
             renderedFrontmatterBoundaryFilter,
@@ -42915,6 +42932,11 @@
               setDateTimeDisplayFormat(normalizeDateTimeDisplayFormat(format));
               view.dispatch({
                 effects: setTasksEffect.of(new Map(view.state.field(tasksField)))
+              });
+            },
+            setCodeBlocksAlwaysExpanded(enabled) {
+              view.dispatch({
+                effects: setCodeBlocksAlwaysExpandedEffect.of(Boolean(enabled))
               });
             },
             setEditable(enabled) {

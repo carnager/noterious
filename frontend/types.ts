@@ -353,6 +353,7 @@ export interface UISettings {
   themeId: string;
   showDocumentsInTree: boolean;
   showTemplatesInTree: boolean;
+  expandCodeBlocks: boolean;
 }
 
 export interface VaultPreferences {
@@ -605,6 +606,7 @@ export interface NoteriousEditorApi {
   setEditable(enabled: boolean): void;
   setViewOnly(enabled: boolean): void;
   setRenderMode(enabled: boolean): void;
+  setCodeBlocksAlwaysExpanded(enabled: boolean): void;
   setQueryBlocks(blocks: QueryBlockRender[]): void;
   setTasks(tasks: TaskRender[]): void;
   isRenderMode(): boolean;

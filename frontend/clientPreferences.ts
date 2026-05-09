@@ -32,6 +32,7 @@ export function defaultClientPreferences(): ClientPreferences {
       themeId: "noterious-night",
       showDocumentsInTree: false,
       showTemplatesInTree: false,
+      expandCodeBlocks: false,
     },
     vaults: {
       topLevelFoldersAsVaults: true,
@@ -64,6 +65,7 @@ export function cloneClientPreferences(input: ClientPreferences): ClientPreferen
       themeId: input.ui.themeId,
       showDocumentsInTree: Boolean(input.ui.showDocumentsInTree),
       showTemplatesInTree: Boolean(input.ui.showTemplatesInTree),
+      expandCodeBlocks: Boolean(input.ui.expandCodeBlocks),
     },
     vaults: {
       topLevelFoldersAsVaults: true,
@@ -127,6 +129,7 @@ export function normalizeClientPreferences(input: unknown): ClientPreferences {
       themeId: themeId || defaults.ui.themeId,
       showDocumentsInTree: Boolean(uiSource.showDocumentsInTree),
       showTemplatesInTree: Boolean(uiSource.showTemplatesInTree),
+      expandCodeBlocks: Boolean(uiSource.expandCodeBlocks),
     },
     vaults: {
       topLevelFoldersAsVaults: true,

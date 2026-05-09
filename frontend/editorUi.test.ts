@@ -586,6 +586,44 @@ describe("mounted editor UI", function () {
     }
   });
 
+  it("keeps long code blocks expanded when the preference is enabled", function () {
+    const markdown = [
+      "Intro",
+      "```ts",
+      "const line1 = 1;",
+      "const line2 = 2;",
+      "const line3 = 3;",
+      "const line4 = 4;",
+      "const line5 = 5;",
+      "const line6 = 6;",
+      "const line7 = 7;",
+      "const line8 = 8;",
+      "const line9 = 9;",
+      "const line10 = 10;",
+      "const line11 = 11;",
+      "const line12 = 12;",
+      "const line13 = 13;",
+      "const line14 = 14;",
+      "```",
+      "Outro",
+    ].join("\n");
+    const editor = mountEditor(markdown);
+
+    try {
+      editor.api.setRenderMode(true);
+
+      expect(editor.view.contentDOM.querySelectorAll(".cm-md-code-block-hidden").length).toBeGreaterThan(0);
+      expect(editor.view.contentDOM.querySelector(".cm-md-code-toggle")).not.toBeNull();
+
+      editor.api.setCodeBlocksAlwaysExpanded(true);
+
+      expect(editor.view.contentDOM.querySelectorAll(".cm-md-code-block-hidden")).toHaveLength(0);
+      expect(editor.view.contentDOM.querySelector(".cm-md-code-toggle")).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("keeps query blocks rendered in view-only mode even when the caret enters the fence", function () {
     const markdown = [
       "Intro",

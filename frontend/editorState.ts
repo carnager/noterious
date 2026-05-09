@@ -211,6 +211,13 @@ export function markdownEditorSetDateTimeFormat(state: EditorControllerState, fo
   }
 }
 
+export function markdownEditorSetCodeBlocksAlwaysExpanded(state: EditorControllerState, enabled: boolean): void {
+  const api = markdownEditorAPI(state);
+  if (api && typeof api.setCodeBlocksAlwaysExpanded === "function") {
+    api.setCodeBlocksAlwaysExpanded(Boolean(enabled));
+  }
+}
+
 export function markdownEditorSetEditable(state: EditorControllerState, elements: EditorControllerElements, enabled: boolean): void {
   const api = markdownEditorAPI(state);
   if (api && typeof api.setEditable === "function") {

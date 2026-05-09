@@ -18844,7 +18844,8 @@
         dateTimeFormat: "browser",
         themeId: "noterious-night",
         showDocumentsInTree: false,
-        showTemplatesInTree: false
+        showTemplatesInTree: false,
+        expandCodeBlocks: false
       },
       vaults: {
         topLevelFoldersAsVaults: true,
@@ -18875,7 +18876,8 @@
         dateTimeFormat: input.ui.dateTimeFormat,
         themeId: input.ui.themeId,
         showDocumentsInTree: Boolean(input.ui.showDocumentsInTree),
-        showTemplatesInTree: Boolean(input.ui.showTemplatesInTree)
+        showTemplatesInTree: Boolean(input.ui.showTemplatesInTree),
+        expandCodeBlocks: Boolean(input.ui.expandCodeBlocks)
       },
       vaults: {
         topLevelFoldersAsVaults: true,
@@ -18925,7 +18927,8 @@
         dateTimeFormat: dateTimeFormat === "iso" || dateTimeFormat === "de" ? dateTimeFormat : "browser",
         themeId: themeId || defaults.ui.themeId,
         showDocumentsInTree: Boolean(uiSource.showDocumentsInTree),
-        showTemplatesInTree: Boolean(uiSource.showTemplatesInTree)
+        showTemplatesInTree: Boolean(uiSource.showTemplatesInTree),
+        expandCodeBlocks: Boolean(uiSource.expandCodeBlocks)
       },
       vaults: {
         topLevelFoldersAsVaults: true,
@@ -20817,6 +20820,12 @@
     const api = markdownEditorAPI(state);
     if (api && typeof api.setDateTimeFormat === "function") {
       api.setDateTimeFormat(format);
+    }
+  }
+  function markdownEditorSetCodeBlocksAlwaysExpanded(state, enabled) {
+    const api = markdownEditorAPI(state);
+    if (api && typeof api.setCodeBlocksAlwaysExpanded === "function") {
+      api.setCodeBlocksAlwaysExpanded(Boolean(enabled));
     }
   }
   function markdownEditorSetEditable(state, elements, enabled) {
@@ -25819,6 +25828,7 @@
     els.settingsAIHelp.textContent = "OpenAI-compatible only in v1. Example base URLs: https://api.openai.com/v1 or https://api.deepseek.com/v1. Browser-local keys are intentionally not supported.";
     els.settingsTreeDefaultDocuments.checked = Boolean(state.settings.preferences.ui.showDocumentsInTree);
     els.settingsTreeDefaultTemplates.checked = Boolean(state.settings.preferences.ui.showTemplatesInTree);
+    els.settingsExpandCodeBlocks.checked = Boolean(state.settings.preferences.ui.expandCodeBlocks);
     renderThemeOptions(state, els);
     els.settingsFontFamily.value = state.settings.preferences.ui.fontFamily || "mono";
     els.settingsFontSize.value = state.settings.preferences.ui.fontSize || "16";
@@ -29211,6 +29221,7 @@
           settingsAIHelp: requiredElement("settings-ai-help"),
           settingsTreeDefaultDocuments: requiredElement("settings-tree-default-documents"),
           settingsTreeDefaultTemplates: requiredElement("settings-tree-default-templates"),
+          settingsExpandCodeBlocks: requiredElement("settings-ui-expand-code-blocks"),
           settingsTheme: requiredElement("settings-ui-theme"),
           settingsThemeUpload: requiredElement("settings-theme-upload"),
           settingsThemeDelete: requiredElement("settings-theme-delete"),
@@ -31000,6 +31011,7 @@
           markdownEditorSetEditable(state, els, noteLoaded && !state.viewOnly);
           markdownEditorSetViewOnly(state, noteLoaded && state.viewOnly);
           markdownEditorSetRenderMode(state, !state.sourceOpen);
+          markdownEditorSetCodeBlocksAlwaysExpanded(state, Boolean(state.settings.preferences.ui.expandCodeBlocks));
           if (els.pageProperties) {
             els.pageProperties.classList.toggle("hidden", notePropertiesHidden());
           }
@@ -31807,6 +31819,7 @@
           const fontFamily = state.settings.preferences.ui.fontFamily || "mono";
           const fontSize = state.settings.preferences.ui.fontSize || "16";
           const dateTimeFormat = state.settings.preferences.ui.dateTimeFormat || "browser";
+          const expandCodeBlocks = Boolean(state.settings.preferences.ui.expandCodeBlocks);
           const fontMap = {
             mono: '"IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace',
             sans: '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif',
@@ -31817,6 +31830,7 @@
           root.style.setProperty("--app-font-size", fontSize + "px");
           setDateTimeDisplayFormat(dateTimeFormat);
           markdownEditorSetDateTimeFormat(state, dateTimeFormat);
+          markdownEditorSetCodeBlocksAlwaysExpanded(state, expandCodeBlocks);
           applyCurrentTheme(currentThemeID());
         }
         async function loadThemes() {
@@ -33178,7 +33192,8 @@
               fontSize: String(els.settingsFontSize.value || "16").trim(),
               dateTimeFormat: String(els.settingsDateTimeFormat.value || "browser").trim(),
               showDocumentsInTree: Boolean(els.settingsTreeDefaultDocuments.checked),
-              showTemplatesInTree: Boolean(els.settingsTreeDefaultTemplates.checked)
+              showTemplatesInTree: Boolean(els.settingsTreeDefaultTemplates.checked),
+              expandCodeBlocks: Boolean(els.settingsExpandCodeBlocks.checked)
             },
             vaults: {
               topLevelFoldersAsVaults: true,
