@@ -25404,7 +25404,7 @@
     return "appearance";
   }
   function availableSettingsSections() {
-    return ["appearance", "hotkeys", "notifications", "ai", "vault"];
+    return ["appearance", "hotkeys", "notifications", "ai", "automation", "vault"];
   }
   function normalizeSettingsSection(state) {
     if (!availableSettingsSections().includes(state.settingsSection)) {
@@ -25422,6 +25422,7 @@
       { button: els.settingsNavTemplates, section: "templates" },
       { button: els.settingsNavNotifications, section: "notifications" },
       { button: els.settingsNavAI, section: "ai" },
+      { button: els.settingsNavAutomation, section: "automation" },
       { button: els.settingsNavVault, section: "vault" }
     ];
     navButtons.forEach(function(entry) {
@@ -25435,8 +25436,9 @@
     els.settingsGroupTemplates.classList.toggle("hidden", activeSection !== "templates");
     els.settingsGroupUserNotifications.classList.toggle("hidden", activeSection !== "notifications");
     els.settingsGroupAI.classList.toggle("hidden", activeSection !== "ai");
+    els.settingsGroupAutomation.classList.toggle("hidden", activeSection !== "automation");
     els.settingsGroupServer.classList.toggle("hidden", activeSection !== "vault");
-    els.saveSettings.classList.remove("hidden");
+    els.saveSettings.classList.toggle("hidden", activeSection === "automation");
     els.saveSettings.textContent = "Save Settings";
   }
   function renderBackupManifestValidation(state, els) {
@@ -25718,8 +25720,146 @@
       els.settingsTemplateList.appendChild(card);
     });
   }
+  function automationEmptyNotice(text) {
+    const empty = document.createElement("div");
+    empty.className = "settings-automation-empty";
+    empty.textContent = text;
+    return empty;
+  }
+  function renderCreatedAPIToken(state, els) {
+    clearNode(els.settingsTokenCreated);
+    const created = state.createdAPIToken;
+    els.settingsTokenCreated.classList.toggle("hidden", !created);
+    if (!created) {
+      return;
+    }
+    const head = document.createElement("div");
+    head.className = "settings-token-created-head";
+    const title = document.createElement("strong");
+    title.textContent = "Token \u201C" + created.label + "\u201D created";
+    head.appendChild(title);
+    const note = document.createElement("span");
+    note.textContent = "Copy it now \u2014 it will not be shown again.";
+    head.appendChild(note);
+    els.settingsTokenCreated.appendChild(head);
+    const row = document.createElement("div");
+    row.className = "settings-token-created-row";
+    const value = document.createElement("code");
+    value.className = "settings-token-created-value";
+    value.textContent = created.token;
+    row.appendChild(value);
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "ghost";
+    copy.textContent = "Copy";
+    copy.setAttribute("data-automation-action", "copy-token");
+    row.appendChild(copy);
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "ghost";
+    dismiss.textContent = "Dismiss";
+    dismiss.setAttribute("data-automation-action", "dismiss-token");
+    row.appendChild(dismiss);
+    els.settingsTokenCreated.appendChild(row);
+  }
+  function renderAPITokenList(state, els) {
+    clearNode(els.settingsTokenList);
+    if (!state.automationLoaded) {
+      els.settingsTokenList.appendChild(automationEmptyNotice("Loading tokens\u2026"));
+      return;
+    }
+    if (!state.apiTokens.length) {
+      els.settingsTokenList.appendChild(automationEmptyNotice("No API tokens yet. Create one for scripts or companion apps."));
+      return;
+    }
+    state.apiTokens.forEach(function(token) {
+      const row = document.createElement("div");
+      row.className = "settings-automation-row";
+      const info = document.createElement("div");
+      info.className = "settings-automation-info";
+      const label = document.createElement("strong");
+      label.textContent = token.label || "(unlabeled)";
+      info.appendChild(label);
+      const meta2 = document.createElement("span");
+      meta2.textContent = [
+        "Created " + formatDateTimeValue(token.createdAt),
+        token.lastUsedAt ? "last used " + formatDateTimeValue(token.lastUsedAt) : "never used"
+      ].join(" \xB7 ");
+      info.appendChild(meta2);
+      row.appendChild(info);
+      const revoke = document.createElement("button");
+      revoke.type = "button";
+      revoke.className = "ghost settings-automation-remove";
+      revoke.textContent = "Revoke";
+      revoke.setAttribute("data-automation-action", "revoke-token");
+      revoke.setAttribute("data-token-id", String(token.id));
+      row.appendChild(revoke);
+      els.settingsTokenList.appendChild(row);
+    });
+  }
+  function renderWebhookList(state, els) {
+    clearNode(els.settingsWebhookList);
+    if (!state.automationLoaded) {
+      els.settingsWebhookList.appendChild(automationEmptyNotice("Loading webhooks\u2026"));
+      return;
+    }
+    if (!state.webhooks.length) {
+      els.settingsWebhookList.appendChild(automationEmptyNotice("No webhooks yet. Add one to POST change events to your own services."));
+      return;
+    }
+    state.webhooks.forEach(function(hook) {
+      const row = document.createElement("div");
+      row.className = "settings-automation-row";
+      const info = document.createElement("div");
+      info.className = "settings-automation-info";
+      const label = document.createElement("strong");
+      label.textContent = hook.label || "(unlabeled)";
+      info.appendChild(label);
+      const url = document.createElement("span");
+      url.className = "settings-automation-url";
+      url.textContent = hook.url;
+      info.appendChild(url);
+      const meta2 = document.createElement("span");
+      meta2.textContent = [
+        "Events: " + (hook.events.length ? hook.events.join(", ") : "(none)"),
+        hook.secret ? "signed" : "",
+        hook.enabled ? "" : "disabled"
+      ].filter(Boolean).join(" \xB7 ");
+      info.appendChild(meta2);
+      const delivery = document.createElement("span");
+      delivery.className = "settings-automation-delivery";
+      if (hook.delivery && hook.delivery.lastFiredAt) {
+        delivery.textContent = [
+          "Last delivery " + formatDateTimeValue(hook.delivery.lastFiredAt),
+          hook.delivery.lastStatus || "",
+          hook.delivery.lastError ? "error: " + hook.delivery.lastError : ""
+        ].filter(Boolean).join(" \xB7 ");
+        delivery.classList.toggle("is-warning", Boolean(hook.delivery.lastError));
+      } else {
+        delivery.textContent = "No deliveries yet.";
+      }
+      info.appendChild(delivery);
+      row.appendChild(info);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "ghost settings-automation-remove";
+      remove.textContent = "Delete";
+      remove.setAttribute("data-automation-action", "delete-webhook");
+      remove.setAttribute("data-webhook-id", String(hook.id));
+      row.appendChild(remove);
+      els.settingsWebhookList.appendChild(row);
+    });
+  }
+  function renderAutomationSettings(state, els) {
+    renderCreatedAPIToken(state, els);
+    renderAPITokenList(state, els);
+    renderWebhookList(state, els);
+    els.settingsTokenCreate.disabled = !state.automationLoaded;
+    els.settingsWebhookCreate.disabled = !state.automationLoaded;
+  }
   function renderSettingsForm(state, els) {
     renderSettingsModal(state, els);
+    renderAutomationSettings(state, els);
     const serverFields = [
       els.settingsNtfyInterval,
       els.settingsDocumentsPlacement,
@@ -25965,6 +26105,7 @@
       "use strict";
       init_dom();
       init_browserNotifications();
+      init_datetime();
       init_hotkeys();
     }
   });
@@ -28976,6 +29117,10 @@
           },
           aiAPIKeyConfigured: false,
           aiClearKeyPending: false,
+          automationLoaded: false,
+          apiTokens: [],
+          webhooks: [],
+          createdAPIToken: null,
           activeScopePrefix: "",
           homePage: "",
           topLevelFoldersAsVaults: true,
@@ -29202,6 +29347,7 @@
           settingsNavTemplates: requiredElement("settings-nav-templates"),
           settingsNavNotifications: requiredElement("settings-nav-notifications"),
           settingsNavAI: requiredElement("settings-nav-ai"),
+          settingsNavAutomation: requiredElement("settings-nav-automation"),
           settingsNavVault: requiredElement("settings-nav-vault"),
           settingsGroupServer: requiredElement("settings-group-server"),
           settingsGroupSession: requiredElement("settings-group-session"),
@@ -29209,6 +29355,7 @@
           settingsGroupTemplates: requiredElement("settings-group-templates"),
           settingsGroupUserNotifications: requiredElement("settings-group-user-notifications"),
           settingsGroupAI: requiredElement("settings-group-ai"),
+          settingsGroupAutomation: requiredElement("settings-group-automation"),
           cancelSettings: requiredElement("cancel-settings"),
           saveSettings: requiredElement("save-settings"),
           settingsNtfyInterval: requiredElement("settings-ntfy-interval"),
@@ -29270,6 +29417,16 @@
           settingsTemplateList: requiredElement("settings-template-list"),
           settingsTemplateAdd: requiredElement("settings-template-add"),
           settingsTemplateHelp: requiredElement("settings-template-help"),
+          settingsTokenCreated: requiredElement("settings-token-created"),
+          settingsTokenList: requiredElement("settings-token-list"),
+          settingsTokenLabel: requiredElement("settings-token-label"),
+          settingsTokenCreate: requiredElement("settings-token-create"),
+          settingsWebhookList: requiredElement("settings-webhook-list"),
+          settingsWebhookLabel: requiredElement("settings-webhook-label"),
+          settingsWebhookUrl: requiredElement("settings-webhook-url"),
+          settingsWebhookEvents: requiredElement("settings-webhook-events"),
+          settingsWebhookSecret: requiredElement("settings-webhook-secret"),
+          settingsWebhookCreate: requiredElement("settings-webhook-create"),
           settingsStatus: requiredElement("settings-status"),
           slashMenu: requiredElement("slash-menu"),
           slashMenuResults: requiredElement("slash-menu-results")
@@ -31972,6 +32129,120 @@
             throw error;
           }
         }
+        async function loadAutomationSettings() {
+          try {
+            const [tokens, hooks] = await Promise.all([
+              fetchJSON("/api/auth/tokens"),
+              fetchJSON("/api/webhooks")
+            ]);
+            state.apiTokens = Array.isArray(tokens.tokens) ? tokens.tokens : [];
+            state.webhooks = Array.isArray(hooks.webhooks) ? hooks.webhooks : [];
+            state.automationLoaded = true;
+            renderSettingsForm2();
+          } catch (error) {
+            state.automationLoaded = false;
+            renderSettingsForm2();
+            els.settingsStatus.textContent = errorMessage(error);
+          }
+        }
+        async function createAPIToken() {
+          const label = els.settingsTokenLabel.value.trim();
+          if (!label) {
+            els.settingsStatus.textContent = "Enter a token label first.";
+            focusWithoutScroll(els.settingsTokenLabel);
+            return;
+          }
+          els.settingsTokenCreate.disabled = true;
+          try {
+            const created = await fetchJSON("/api/auth/tokens", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ label })
+            });
+            state.createdAPIToken = {
+              label: created.apiToken && created.apiToken.label ? created.apiToken.label : label,
+              token: created.token
+            };
+            els.settingsTokenLabel.value = "";
+            els.settingsStatus.textContent = "";
+            await loadAutomationSettings();
+          } catch (error) {
+            els.settingsStatus.textContent = errorMessage(error);
+            renderSettingsForm2();
+          }
+        }
+        async function revokeAPIToken(tokenID) {
+          try {
+            await fetchJSON("/api/auth/tokens/" + encodeURIComponent(tokenID), { method: "DELETE" });
+            els.settingsStatus.textContent = "";
+            await loadAutomationSettings();
+          } catch (error) {
+            els.settingsStatus.textContent = errorMessage(error);
+          }
+        }
+        async function createWebhook() {
+          const label = els.settingsWebhookLabel.value.trim();
+          const url = els.settingsWebhookUrl.value.trim();
+          const events = els.settingsWebhookEvents.value.split(/[\s,]+/).map(function(event) {
+            return event.trim();
+          }).filter(Boolean);
+          const secret = els.settingsWebhookSecret.value.trim();
+          if (!label || !url || !events.length) {
+            els.settingsStatus.textContent = "Webhooks need a label, a URL, and at least one event.";
+            return;
+          }
+          els.settingsWebhookCreate.disabled = true;
+          try {
+            await fetchJSON("/api/webhooks", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ label, url, events, secret })
+            });
+            els.settingsWebhookLabel.value = "";
+            els.settingsWebhookUrl.value = "";
+            els.settingsWebhookEvents.value = "";
+            els.settingsWebhookSecret.value = "";
+            els.settingsStatus.textContent = "";
+            await loadAutomationSettings();
+          } catch (error) {
+            els.settingsStatus.textContent = errorMessage(error);
+            renderSettingsForm2();
+          }
+        }
+        async function deleteWebhook(webhookID) {
+          try {
+            await fetchJSON("/api/webhooks/" + encodeURIComponent(webhookID), { method: "DELETE" });
+            els.settingsStatus.textContent = "";
+            await loadAutomationSettings();
+          } catch (error) {
+            els.settingsStatus.textContent = errorMessage(error);
+          }
+        }
+        async function copyCreatedAPIToken() {
+          const created = state.createdAPIToken;
+          if (!created) {
+            return;
+          }
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(created.token);
+            els.settingsStatus.textContent = "Token copied to clipboard.";
+            return;
+          }
+          const textarea = document.createElement("textarea");
+          textarea.value = created.token;
+          textarea.setAttribute("readonly", "true");
+          textarea.style.position = "fixed";
+          textarea.style.opacity = "0";
+          textarea.style.pointerEvents = "none";
+          document.body.appendChild(textarea);
+          textarea.select();
+          try {
+            document.execCommand("copy");
+            els.settingsStatus.textContent = "Token copied to clipboard.";
+          } finally {
+            document.body.removeChild(textarea);
+          }
+        }
         async function loadMeta() {
           try {
             const meta2 = await fetchJSON("/api/meta");
@@ -33211,9 +33482,16 @@
             if (!state.settingsLoaded) {
               loadSettings();
             }
+            if (state.settingsSection === "automation" && !state.automationLoaded) {
+              loadAutomationSettings();
+            }
             window.requestAnimationFrame(function() {
               if (state.settingsSection === "vault" && state.settingsLoaded) {
                 focusWithoutScroll(els.settingsNtfyInterval);
+                return;
+              }
+              if (state.settingsSection === "automation") {
+                focusWithoutScroll(els.settingsTokenLabel);
                 return;
               }
               if (state.settingsSection === "notifications") {
@@ -33237,6 +33515,10 @@
             return;
           }
           resetSettingsTemplateDrafts();
+          if (state.createdAPIToken) {
+            state.createdAPIToken = null;
+            renderSettingsForm2();
+          }
           els.settingsModalShell.classList.add("hidden");
         }
         function closeSettingsModal() {
@@ -34827,9 +35109,75 @@
             state.settingsSection = "ai";
             renderSettingsForm2();
           });
+          on(els.settingsNavAutomation, "click", function() {
+            state.settingsSection = "automation";
+            renderSettingsForm2();
+            if (!state.automationLoaded) {
+              loadAutomationSettings();
+            }
+          });
           on(els.settingsNavVault, "click", function() {
             state.settingsSection = "vault";
             renderSettingsForm2();
+          });
+          on(els.settingsTokenCreate, "click", function() {
+            createAPIToken();
+          });
+          on(els.settingsTokenLabel, "keydown", function(rawEvent) {
+            const event = rawEvent;
+            if (event.key === "Enter") {
+              event.preventDefault();
+              createAPIToken();
+            }
+          });
+          on(els.settingsTokenCreated, "click", function(event) {
+            const target = event.target instanceof HTMLElement ? event.target : null;
+            const actionTarget = target ? target.closest("[data-automation-action]") : null;
+            if (!actionTarget) {
+              return;
+            }
+            const action = String(actionTarget.getAttribute("data-automation-action") || "");
+            if (action === "dismiss-token") {
+              state.createdAPIToken = null;
+              renderSettingsForm2();
+              return;
+            }
+            if (action === "copy-token") {
+              copyCreatedAPIToken();
+            }
+          });
+          on(els.settingsTokenList, "click", function(event) {
+            const target = event.target instanceof HTMLElement ? event.target : null;
+            const actionTarget = target ? target.closest("[data-automation-action]") : null;
+            if (!actionTarget || actionTarget.getAttribute("data-automation-action") !== "revoke-token") {
+              return;
+            }
+            const tokenID = String(actionTarget.getAttribute("data-token-id") || "").trim();
+            if (!tokenID) {
+              return;
+            }
+            if (!window.confirm("Revoke this API token? Clients using it will stop working immediately.")) {
+              return;
+            }
+            revokeAPIToken(tokenID);
+          });
+          on(els.settingsWebhookCreate, "click", function() {
+            createWebhook();
+          });
+          on(els.settingsWebhookList, "click", function(event) {
+            const target = event.target instanceof HTMLElement ? event.target : null;
+            const actionTarget = target ? target.closest("[data-automation-action]") : null;
+            if (!actionTarget || actionTarget.getAttribute("data-automation-action") !== "delete-webhook") {
+              return;
+            }
+            const webhookID = String(actionTarget.getAttribute("data-webhook-id") || "").trim();
+            if (!webhookID) {
+              return;
+            }
+            if (!window.confirm("Delete this webhook?")) {
+              return;
+            }
+            deleteWebhook(webhookID);
           });
           on(els.settingsAIClearKey, "click", function() {
             state.aiClearKeyPending = !state.aiClearKeyPending;

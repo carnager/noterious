@@ -4606,6 +4606,128 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   line-height: 1.45;
 }
 
+.settings-automation-empty {
+  padding: 0.85rem 0.95rem;
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  background: color-mix(in srgb, var(--surface-soft) 78%, transparent);
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.settings-automation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.settings-automation-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--overlay) 76%, var(--surface));
+}
+
+.settings-automation-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.settings-automation-info strong {
+  font-size: 0.88rem;
+  line-height: 1.25;
+  color: var(--ink);
+}
+
+.settings-automation-info span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.settings-automation-url {
+  font-family: var(--mono, monospace);
+}
+
+.settings-automation-delivery.is-warning {
+  color: var(--warn);
+}
+
+.settings-automation-remove {
+  flex-shrink: 0;
+}
+
+.settings-automation-create {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.settings-automation-create .search {
+  flex: 1 1 12rem;
+}
+
+.settings-automation-create button {
+  flex-shrink: 0;
+}
+
+.settings-webhook-create .modal-field-wide {
+  flex: 1 1 100%;
+}
+
+.settings-token-created {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.settings-token-created-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.14rem;
+}
+
+.settings-token-created-head strong {
+  font-size: 0.86rem;
+  color: var(--ink);
+}
+
+.settings-token-created-head span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.settings-token-created-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.settings-token-created-value {
+  flex: 1 1 12rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 .settings-template-card {
   display: flex;
   flex-direction: column;

@@ -1,11 +1,17 @@
 import { clearNode } from "./dom";
 import type { BackupManifestValidationResult } from "./backupValidation";
 import { browserNotificationPermission, browserNotificationsSupported, browserNotificationStatus } from "./browserNotifications";
+import { formatDateTimeValue } from "./datetime";
 import { analyzeHotkeys, detectHotkeyPlatform, hotkeyDefinitions, hotkeyDefaultGuidance } from "./hotkeys";
-import type { AISettings, AppSettings as SettingsModel, FrontmatterKind, MetaResponse, NoteTemplate, NoteTemplateField, ThemeRecord } from "./types";
+import type { AISettings, APITokenRecord, AppSettings as SettingsModel, FrontmatterKind, MetaResponse, NoteTemplate, NoteTemplateField, ThemeRecord, WebhookRecord } from "./types";
 import type { Hotkeys } from "./types";
 
-export type SettingsSection = "appearance" | "hotkeys" | "templates" | "notifications" | "ai" | "vault";
+export type SettingsSection = "appearance" | "hotkeys" | "templates" | "notifications" | "ai" | "automation" | "vault";
+
+export interface CreatedAPIToken {
+  label: string;
+  token: string;
+}
 
 export interface SettingsUiState {
   settingsSection: SettingsSection;
@@ -20,6 +26,10 @@ export interface SettingsUiState {
   aiSettings: AISettings;
   aiAPIKeyConfigured: boolean;
   aiClearKeyPending: boolean;
+  automationLoaded: boolean;
+  apiTokens: APITokenRecord[];
+  webhooks: WebhookRecord[];
+  createdAPIToken: CreatedAPIToken | null;
 }
 
 export interface SettingsUiElements {
@@ -30,6 +40,7 @@ export interface SettingsUiElements {
   settingsNavTemplates: HTMLButtonElement;
   settingsNavNotifications: HTMLButtonElement;
   settingsNavAI: HTMLButtonElement;
+  settingsNavAutomation: HTMLButtonElement;
   settingsNavVault: HTMLButtonElement;
   settingsGroupServer: HTMLElement;
   settingsGroupSession: HTMLElement;
@@ -37,6 +48,7 @@ export interface SettingsUiElements {
   settingsGroupTemplates: HTMLElement;
   settingsGroupUserNotifications: HTMLElement;
   settingsGroupAI: HTMLElement;
+  settingsGroupAutomation: HTMLElement;
   saveSettings: HTMLButtonElement;
   settingsNtfyInterval: HTMLInputElement;
   settingsDocumentsPlacement: HTMLSelectElement;
@@ -96,6 +108,16 @@ export interface SettingsUiElements {
   settingsTemplateList: HTMLDivElement;
   settingsTemplateAdd: HTMLButtonElement;
   settingsTemplateHelp: HTMLElement;
+  settingsTokenCreated: HTMLDivElement;
+  settingsTokenList: HTMLDivElement;
+  settingsTokenLabel: HTMLInputElement;
+  settingsTokenCreate: HTMLButtonElement;
+  settingsWebhookList: HTMLDivElement;
+  settingsWebhookLabel: HTMLInputElement;
+  settingsWebhookUrl: HTMLInputElement;
+  settingsWebhookEvents: HTMLInputElement;
+  settingsWebhookSecret: HTMLInputElement;
+  settingsWebhookCreate: HTMLButtonElement;
   settingsStatus: HTMLElement;
 }
 
@@ -104,7 +126,7 @@ export function defaultSettingsSection(): SettingsSection {
 }
 
 export function availableSettingsSections(): SettingsSection[] {
-  return ["appearance", "hotkeys", "notifications", "ai", "vault"];
+  return ["appearance", "hotkeys", "notifications", "ai", "automation", "vault"];
 }
 
 export function normalizeSettingsSection(state: SettingsUiState): void {
@@ -126,6 +148,7 @@ export function renderSettingsModal(state: SettingsUiState, els: SettingsUiEleme
     { button: els.settingsNavTemplates, section: "templates" },
     { button: els.settingsNavNotifications, section: "notifications" },
     { button: els.settingsNavAI, section: "ai" },
+    { button: els.settingsNavAutomation, section: "automation" },
     { button: els.settingsNavVault, section: "vault" },
   ];
 
@@ -141,8 +164,11 @@ export function renderSettingsModal(state: SettingsUiState, els: SettingsUiEleme
   els.settingsGroupTemplates.classList.toggle("hidden", activeSection !== "templates");
   els.settingsGroupUserNotifications.classList.toggle("hidden", activeSection !== "notifications");
   els.settingsGroupAI.classList.toggle("hidden", activeSection !== "ai");
+  els.settingsGroupAutomation.classList.toggle("hidden", activeSection !== "automation");
   els.settingsGroupServer.classList.toggle("hidden", activeSection !== "vault");
-  els.saveSettings.classList.remove("hidden");
+  // Token and webhook changes apply immediately; the save button only
+  // submits the form-style sections.
+  els.saveSettings.classList.toggle("hidden", activeSection === "automation");
   els.saveSettings.textContent = "Save Settings";
 }
 
@@ -470,8 +496,171 @@ function renderTemplateDrafts(state: SettingsUiState, els: SettingsUiElements): 
   });
 }
 
+function automationEmptyNotice(text: string): HTMLDivElement {
+  const empty = document.createElement("div");
+  empty.className = "settings-automation-empty";
+  empty.textContent = text;
+  return empty;
+}
+
+function renderCreatedAPIToken(state: SettingsUiState, els: SettingsUiElements): void {
+  clearNode(els.settingsTokenCreated);
+  const created = state.createdAPIToken;
+  els.settingsTokenCreated.classList.toggle("hidden", !created);
+  if (!created) {
+    return;
+  }
+
+  const head = document.createElement("div");
+  head.className = "settings-token-created-head";
+  const title = document.createElement("strong");
+  title.textContent = "Token “" + created.label + "” created";
+  head.appendChild(title);
+  const note = document.createElement("span");
+  note.textContent = "Copy it now — it will not be shown again.";
+  head.appendChild(note);
+  els.settingsTokenCreated.appendChild(head);
+
+  const row = document.createElement("div");
+  row.className = "settings-token-created-row";
+
+  const value = document.createElement("code");
+  value.className = "settings-token-created-value";
+  value.textContent = created.token;
+  row.appendChild(value);
+
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "ghost";
+  copy.textContent = "Copy";
+  copy.setAttribute("data-automation-action", "copy-token");
+  row.appendChild(copy);
+
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "ghost";
+  dismiss.textContent = "Dismiss";
+  dismiss.setAttribute("data-automation-action", "dismiss-token");
+  row.appendChild(dismiss);
+
+  els.settingsTokenCreated.appendChild(row);
+}
+
+function renderAPITokenList(state: SettingsUiState, els: SettingsUiElements): void {
+  clearNode(els.settingsTokenList);
+  if (!state.automationLoaded) {
+    els.settingsTokenList.appendChild(automationEmptyNotice("Loading tokens…"));
+    return;
+  }
+  if (!state.apiTokens.length) {
+    els.settingsTokenList.appendChild(automationEmptyNotice("No API tokens yet. Create one for scripts or companion apps."));
+    return;
+  }
+
+  state.apiTokens.forEach(function (token) {
+    const row = document.createElement("div");
+    row.className = "settings-automation-row";
+
+    const info = document.createElement("div");
+    info.className = "settings-automation-info";
+
+    const label = document.createElement("strong");
+    label.textContent = token.label || "(unlabeled)";
+    info.appendChild(label);
+
+    const meta = document.createElement("span");
+    meta.textContent = [
+      "Created " + formatDateTimeValue(token.createdAt),
+      token.lastUsedAt ? "last used " + formatDateTimeValue(token.lastUsedAt) : "never used",
+    ].join(" · ");
+    info.appendChild(meta);
+    row.appendChild(info);
+
+    const revoke = document.createElement("button");
+    revoke.type = "button";
+    revoke.className = "ghost settings-automation-remove";
+    revoke.textContent = "Revoke";
+    revoke.setAttribute("data-automation-action", "revoke-token");
+    revoke.setAttribute("data-token-id", String(token.id));
+    row.appendChild(revoke);
+
+    els.settingsTokenList.appendChild(row);
+  });
+}
+
+function renderWebhookList(state: SettingsUiState, els: SettingsUiElements): void {
+  clearNode(els.settingsWebhookList);
+  if (!state.automationLoaded) {
+    els.settingsWebhookList.appendChild(automationEmptyNotice("Loading webhooks…"));
+    return;
+  }
+  if (!state.webhooks.length) {
+    els.settingsWebhookList.appendChild(automationEmptyNotice("No webhooks yet. Add one to POST change events to your own services."));
+    return;
+  }
+
+  state.webhooks.forEach(function (hook) {
+    const row = document.createElement("div");
+    row.className = "settings-automation-row";
+
+    const info = document.createElement("div");
+    info.className = "settings-automation-info";
+
+    const label = document.createElement("strong");
+    label.textContent = hook.label || "(unlabeled)";
+    info.appendChild(label);
+
+    const url = document.createElement("span");
+    url.className = "settings-automation-url";
+    url.textContent = hook.url;
+    info.appendChild(url);
+
+    const meta = document.createElement("span");
+    meta.textContent = [
+      "Events: " + (hook.events.length ? hook.events.join(", ") : "(none)"),
+      hook.secret ? "signed" : "",
+      hook.enabled ? "" : "disabled",
+    ].filter(Boolean).join(" · ");
+    info.appendChild(meta);
+
+    const delivery = document.createElement("span");
+    delivery.className = "settings-automation-delivery";
+    if (hook.delivery && hook.delivery.lastFiredAt) {
+      delivery.textContent = [
+        "Last delivery " + formatDateTimeValue(hook.delivery.lastFiredAt),
+        hook.delivery.lastStatus || "",
+        hook.delivery.lastError ? "error: " + hook.delivery.lastError : "",
+      ].filter(Boolean).join(" · ");
+      delivery.classList.toggle("is-warning", Boolean(hook.delivery.lastError));
+    } else {
+      delivery.textContent = "No deliveries yet.";
+    }
+    info.appendChild(delivery);
+    row.appendChild(info);
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "ghost settings-automation-remove";
+    remove.textContent = "Delete";
+    remove.setAttribute("data-automation-action", "delete-webhook");
+    remove.setAttribute("data-webhook-id", String(hook.id));
+    row.appendChild(remove);
+
+    els.settingsWebhookList.appendChild(row);
+  });
+}
+
+export function renderAutomationSettings(state: SettingsUiState, els: SettingsUiElements): void {
+  renderCreatedAPIToken(state, els);
+  renderAPITokenList(state, els);
+  renderWebhookList(state, els);
+  els.settingsTokenCreate.disabled = !state.automationLoaded;
+  els.settingsWebhookCreate.disabled = !state.automationLoaded;
+}
+
 export function renderSettingsForm(state: SettingsUiState, els: SettingsUiElements): void {
   renderSettingsModal(state, els);
+  renderAutomationSettings(state, els);
 
   const serverFields: Array<HTMLInputElement | HTMLSelectElement | HTMLButtonElement> = [
     els.settingsNtfyInterval,

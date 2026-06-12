@@ -437,6 +437,44 @@ export interface UserSettingsResponse {
   settings: UserSettings;
 }
 
+export interface APITokenRecord {
+  id: number;
+  label: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
+export interface APITokensResponse {
+  tokens: APITokenRecord[];
+}
+
+export interface APITokenCreatedResponse {
+  token: string;
+  apiToken: APITokenRecord;
+}
+
+export interface WebhookDeliveryState {
+  lastFiredAt?: string;
+  lastStatus?: string;
+  lastError?: string;
+}
+
+export interface WebhookRecord {
+  id: number;
+  label: string;
+  url: string;
+  events: string[];
+  secret?: string;
+  enabled: boolean;
+  createdAt: string;
+  delivery: WebhookDeliveryState;
+}
+
+export interface WebhooksResponse {
+  webhooks: WebhookRecord[];
+  count: number;
+}
+
 export interface PageListResponse {
   pages: PageSummary[];
   count: number;

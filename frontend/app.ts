@@ -256,6 +256,9 @@ import {
 import type {
   AISettings,
   AISettingsResponse,
+  APITokenCreatedResponse,
+  APITokenRecord,
+  APITokensResponse,
   AppSettings as SettingsModel,
   AppScreen,
   AuthSessionResponse,
@@ -295,10 +298,12 @@ import type {
   VaultListResponse,
   VaultRecord,
   VaultSettings,
+  WebhookRecord,
+  WebhooksResponse,
 } from "./types";
 import type { PropertyRow } from "./properties";
 import type { AuthGateMode } from "./sessionUi";
-import type { SettingsSection } from "./settingsUi";
+import type { CreatedAPIToken, SettingsSection } from "./settingsUi";
 
 interface PageLinkDetail {
   page?: string;
@@ -418,6 +423,10 @@ interface AppState {
   aiSettings: AISettings;
   aiAPIKeyConfigured: boolean;
   aiClearKeyPending: boolean;
+  automationLoaded: boolean;
+  apiTokens: APITokenRecord[];
+  webhooks: WebhookRecord[];
+  createdAPIToken: CreatedAPIToken | null;
   activeScopePrefix: string;
   homePage: string;
   topLevelFoldersAsVaults: boolean;
@@ -633,6 +642,10 @@ interface ActionDialogSession {
     },
     aiAPIKeyConfigured: false,
     aiClearKeyPending: false,
+    automationLoaded: false,
+    apiTokens: [],
+    webhooks: [],
+    createdAPIToken: null,
     activeScopePrefix: "",
     homePage: "",
     topLevelFoldersAsVaults: true,
@@ -860,6 +873,7 @@ interface ActionDialogSession {
     settingsNavTemplates: requiredElement<HTMLButtonElement>("settings-nav-templates"),
     settingsNavNotifications: requiredElement<HTMLButtonElement>("settings-nav-notifications"),
     settingsNavAI: requiredElement<HTMLButtonElement>("settings-nav-ai"),
+    settingsNavAutomation: requiredElement<HTMLButtonElement>("settings-nav-automation"),
     settingsNavVault: requiredElement<HTMLButtonElement>("settings-nav-vault"),
     settingsGroupServer: requiredElement<HTMLElement>("settings-group-server"),
     settingsGroupSession: requiredElement<HTMLElement>("settings-group-session"),
@@ -867,6 +881,7 @@ interface ActionDialogSession {
     settingsGroupTemplates: requiredElement<HTMLElement>("settings-group-templates"),
     settingsGroupUserNotifications: requiredElement<HTMLElement>("settings-group-user-notifications"),
     settingsGroupAI: requiredElement<HTMLElement>("settings-group-ai"),
+    settingsGroupAutomation: requiredElement<HTMLElement>("settings-group-automation"),
     cancelSettings: requiredElement<HTMLButtonElement>("cancel-settings"),
     saveSettings: requiredElement<HTMLButtonElement>("save-settings"),
     settingsNtfyInterval: requiredElement<HTMLInputElement>("settings-ntfy-interval"),
@@ -928,6 +943,16 @@ interface ActionDialogSession {
     settingsTemplateList: requiredElement<HTMLDivElement>("settings-template-list"),
     settingsTemplateAdd: requiredElement<HTMLButtonElement>("settings-template-add"),
     settingsTemplateHelp: requiredElement<HTMLElement>("settings-template-help"),
+    settingsTokenCreated: requiredElement<HTMLDivElement>("settings-token-created"),
+    settingsTokenList: requiredElement<HTMLDivElement>("settings-token-list"),
+    settingsTokenLabel: requiredElement<HTMLInputElement>("settings-token-label"),
+    settingsTokenCreate: requiredElement<HTMLButtonElement>("settings-token-create"),
+    settingsWebhookList: requiredElement<HTMLDivElement>("settings-webhook-list"),
+    settingsWebhookLabel: requiredElement<HTMLInputElement>("settings-webhook-label"),
+    settingsWebhookUrl: requiredElement<HTMLInputElement>("settings-webhook-url"),
+    settingsWebhookEvents: requiredElement<HTMLInputElement>("settings-webhook-events"),
+    settingsWebhookSecret: requiredElement<HTMLInputElement>("settings-webhook-secret"),
+    settingsWebhookCreate: requiredElement<HTMLButtonElement>("settings-webhook-create"),
     settingsStatus: requiredElement<HTMLElement>("settings-status"),
     slashMenu: requiredElement<HTMLElement>("slash-menu"),
     slashMenuResults: requiredElement<HTMLDivElement>("slash-menu-results"),
@@ -3982,6 +4007,129 @@ interface ActionDialogSession {
     }
   }
 
+  async function loadAutomationSettings() {
+    try {
+      const [tokens, hooks] = await Promise.all([
+        fetchJSON<APITokensResponse>("/api/auth/tokens"),
+        fetchJSON<WebhooksResponse>("/api/webhooks"),
+      ]);
+      state.apiTokens = Array.isArray(tokens.tokens) ? tokens.tokens : [];
+      state.webhooks = Array.isArray(hooks.webhooks) ? hooks.webhooks : [];
+      state.automationLoaded = true;
+      renderSettingsForm();
+    } catch (error) {
+      state.automationLoaded = false;
+      renderSettingsForm();
+      els.settingsStatus.textContent = errorMessage(error);
+    }
+  }
+
+  async function createAPIToken(): Promise<void> {
+    const label = els.settingsTokenLabel.value.trim();
+    if (!label) {
+      els.settingsStatus.textContent = "Enter a token label first.";
+      focusWithoutScroll(els.settingsTokenLabel);
+      return;
+    }
+    els.settingsTokenCreate.disabled = true;
+    try {
+      const created = await fetchJSON<APITokenCreatedResponse>("/api/auth/tokens", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({label}),
+      });
+      state.createdAPIToken = {
+        label: created.apiToken && created.apiToken.label ? created.apiToken.label : label,
+        token: created.token,
+      };
+      els.settingsTokenLabel.value = "";
+      els.settingsStatus.textContent = "";
+      await loadAutomationSettings();
+    } catch (error) {
+      els.settingsStatus.textContent = errorMessage(error);
+      renderSettingsForm();
+    }
+  }
+
+  async function revokeAPIToken(tokenID: string): Promise<void> {
+    try {
+      await fetchJSON("/api/auth/tokens/" + encodeURIComponent(tokenID), {method: "DELETE"});
+      els.settingsStatus.textContent = "";
+      await loadAutomationSettings();
+    } catch (error) {
+      els.settingsStatus.textContent = errorMessage(error);
+    }
+  }
+
+  async function createWebhook(): Promise<void> {
+    const label = els.settingsWebhookLabel.value.trim();
+    const url = els.settingsWebhookUrl.value.trim();
+    const events = els.settingsWebhookEvents.value
+      .split(/[\s,]+/)
+      .map(function (event) {
+        return event.trim();
+      })
+      .filter(Boolean);
+    const secret = els.settingsWebhookSecret.value.trim();
+    if (!label || !url || !events.length) {
+      els.settingsStatus.textContent = "Webhooks need a label, a URL, and at least one event.";
+      return;
+    }
+    els.settingsWebhookCreate.disabled = true;
+    try {
+      await fetchJSON("/api/webhooks", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({label, url, events, secret}),
+      });
+      els.settingsWebhookLabel.value = "";
+      els.settingsWebhookUrl.value = "";
+      els.settingsWebhookEvents.value = "";
+      els.settingsWebhookSecret.value = "";
+      els.settingsStatus.textContent = "";
+      await loadAutomationSettings();
+    } catch (error) {
+      els.settingsStatus.textContent = errorMessage(error);
+      renderSettingsForm();
+    }
+  }
+
+  async function deleteWebhook(webhookID: string): Promise<void> {
+    try {
+      await fetchJSON("/api/webhooks/" + encodeURIComponent(webhookID), {method: "DELETE"});
+      els.settingsStatus.textContent = "";
+      await loadAutomationSettings();
+    } catch (error) {
+      els.settingsStatus.textContent = errorMessage(error);
+    }
+  }
+
+  async function copyCreatedAPIToken(): Promise<void> {
+    const created = state.createdAPIToken;
+    if (!created) {
+      return;
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(created.token);
+      els.settingsStatus.textContent = "Token copied to clipboard.";
+      return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = created.token;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    textarea.style.pointerEvents = "none";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand("copy");
+      els.settingsStatus.textContent = "Token copied to clipboard.";
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  }
+
   async function loadMeta() {
     try {
       const meta = await fetchJSON<MetaResponse>("/api/meta");
@@ -5367,9 +5515,16 @@ interface ActionDialogSession {
       if (!state.settingsLoaded) {
         loadSettings();
       }
+      if (state.settingsSection === "automation" && !state.automationLoaded) {
+        loadAutomationSettings();
+      }
       window.requestAnimationFrame(function () {
         if (state.settingsSection === "vault" && state.settingsLoaded) {
           focusWithoutScroll(els.settingsNtfyInterval);
+          return;
+        }
+        if (state.settingsSection === "automation") {
+          focusWithoutScroll(els.settingsTokenLabel);
           return;
         }
         if (state.settingsSection === "notifications") {
@@ -5393,6 +5548,10 @@ interface ActionDialogSession {
       return;
     }
     resetSettingsTemplateDrafts();
+    if (state.createdAPIToken) {
+      state.createdAPIToken = null;
+      renderSettingsForm();
+    }
     els.settingsModalShell.classList.add("hidden");
   }
 
@@ -7102,9 +7261,75 @@ interface ActionDialogSession {
       state.settingsSection = "ai";
       renderSettingsForm();
     });
+    on(els.settingsNavAutomation, "click", function () {
+      state.settingsSection = "automation";
+      renderSettingsForm();
+      if (!state.automationLoaded) {
+        loadAutomationSettings();
+      }
+    });
     on(els.settingsNavVault, "click", function () {
       state.settingsSection = "vault";
       renderSettingsForm();
+    });
+    on(els.settingsTokenCreate, "click", function () {
+      createAPIToken();
+    });
+    on(els.settingsTokenLabel, "keydown", function (rawEvent) {
+      const event = rawEvent as KeyboardEvent;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        createAPIToken();
+      }
+    });
+    on(els.settingsTokenCreated, "click", function (event) {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const actionTarget = target ? target.closest<HTMLElement>("[data-automation-action]") : null;
+      if (!actionTarget) {
+        return;
+      }
+      const action = String(actionTarget.getAttribute("data-automation-action") || "");
+      if (action === "dismiss-token") {
+        state.createdAPIToken = null;
+        renderSettingsForm();
+        return;
+      }
+      if (action === "copy-token") {
+        copyCreatedAPIToken();
+      }
+    });
+    on(els.settingsTokenList, "click", function (event) {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const actionTarget = target ? target.closest<HTMLElement>("[data-automation-action]") : null;
+      if (!actionTarget || actionTarget.getAttribute("data-automation-action") !== "revoke-token") {
+        return;
+      }
+      const tokenID = String(actionTarget.getAttribute("data-token-id") || "").trim();
+      if (!tokenID) {
+        return;
+      }
+      if (!window.confirm("Revoke this API token? Clients using it will stop working immediately.")) {
+        return;
+      }
+      revokeAPIToken(tokenID);
+    });
+    on(els.settingsWebhookCreate, "click", function () {
+      createWebhook();
+    });
+    on(els.settingsWebhookList, "click", function (event) {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const actionTarget = target ? target.closest<HTMLElement>("[data-automation-action]") : null;
+      if (!actionTarget || actionTarget.getAttribute("data-automation-action") !== "delete-webhook") {
+        return;
+      }
+      const webhookID = String(actionTarget.getAttribute("data-webhook-id") || "").trim();
+      if (!webhookID) {
+        return;
+      }
+      if (!window.confirm("Delete this webhook?")) {
+        return;
+      }
+      deleteWebhook(webhookID);
     });
     on(els.settingsAIClearKey, "click", function () {
       state.aiClearKeyPending = !state.aiClearKeyPending;

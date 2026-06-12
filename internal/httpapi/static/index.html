@@ -549,6 +549,7 @@
             <button type="button" class="settings-nav-button" id="settings-nav-templates">Templates</button>
             <button type="button" class="settings-nav-button" id="settings-nav-notifications">Notifications</button>
             <button type="button" class="settings-nav-button" id="settings-nav-ai">AI</button>
+            <button type="button" class="settings-nav-button" id="settings-nav-automation">Automation</button>
             <button type="button" class="settings-nav-button hidden" id="settings-nav-vault">Vault &amp; Server</button>
           </aside>
           <div class="settings-main">
@@ -732,6 +733,56 @@
               </div>
               <p class="settings-theme-help modal-field-wide" id="settings-ai-key-status">No API key stored yet.</p>
               <p class="settings-theme-help modal-field-wide" id="settings-ai-help">OpenAI-compatible only in v1.</p>
+            </div>
+          </section>
+
+          <section class="settings-group-card hidden" id="settings-group-automation">
+            <div class="settings-group-head">
+              <h3>Automation</h3>
+            </div>
+            <div class="settings-form-stack settings-group-fields">
+              <p class="settings-section-intro">Long-lived API tokens for scripts and companion apps, plus outbound webhooks that POST JSON when pages, tasks, or queries change. Changes here apply immediately.</p>
+              <div class="settings-subsection">
+                <div class="settings-subsection-head">
+                  <strong>API Tokens</strong>
+                  <span>Clients authenticate with <code>Authorization: Bearer ntr_…</code>. The token value is shown exactly once after creation; only its hash is stored.</span>
+                </div>
+                <div id="settings-token-created" class="settings-token-created hidden"></div>
+                <div id="settings-token-list" class="settings-automation-list"></div>
+                <div class="settings-automation-create">
+                  <label class="search">
+                    <span>Token Label</span>
+                    <input id="settings-token-label" type="text" placeholder="backup-script" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  </label>
+                  <button type="button" id="settings-token-create">Create Token</button>
+                </div>
+              </div>
+              <div class="settings-subsection">
+                <div class="settings-subsection-head">
+                  <strong>Webhooks</strong>
+                  <span>POST JSON to your URLs on change events. Subscribe to events like <code>page.changed</code>, <code>task.changed</code>, <code>query.changed</code>, or <code>reminder.fired</code>; use <code>*</code> for everything. Delivery is best-effort without retries.</span>
+                </div>
+                <div id="settings-webhook-list" class="settings-automation-list"></div>
+                <div class="settings-automation-create settings-webhook-create">
+                  <label class="search">
+                    <span>Label</span>
+                    <input id="settings-webhook-label" type="text" placeholder="home-assistant" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  </label>
+                  <label class="search modal-field-wide">
+                    <span>URL</span>
+                    <input id="settings-webhook-url" type="text" placeholder="https://example.net/hooks/noterious" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  </label>
+                  <label class="search">
+                    <span>Events</span>
+                    <input id="settings-webhook-events" type="text" placeholder="task.changed, reminder.fired" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  </label>
+                  <label class="search">
+                    <span>Secret (optional)</span>
+                    <input id="settings-webhook-secret" type="password" placeholder="HMAC signing secret" autocomplete="new-password" autocorrect="off" autocapitalize="none" spellcheck="false">
+                  </label>
+                  <button type="button" id="settings-webhook-create">Add Webhook</button>
+                </div>
+              </div>
             </div>
           </section>
 
