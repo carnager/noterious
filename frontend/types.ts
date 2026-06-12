@@ -597,6 +597,7 @@ export interface NoteriousEditorApi {
   getSelectionStart(): number;
   getSelectionEnd(): number;
   setSelectionRange(anchor: number, head?: number, reveal?: boolean): void;
+  jumpToOffset(offset: number): void;
   getScrollTop(): number;
   setScrollTop(value: number): void;
   getCaretRect(): DOMRect | null;

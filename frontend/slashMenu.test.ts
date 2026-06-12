@@ -45,6 +45,9 @@ describe("slash menu", function () {
     expect(commands.some(function (command) {
       return command.id === "table";
     })).toBe(true);
+    expect(commands.some(function (command) {
+      return command.id === "document";
+    })).toBe(true);
   });
 
   it("filters commands with fuzzy matching", function () {
@@ -128,6 +131,24 @@ describe("slash menu", function () {
 
     expect(file).toBeTruthy();
     expect(file?.apply("See /file")).toBe("See");
+  });
+
+  it("advertises document linking in the slash menu", function () {
+    const documentCommand = slashCommandsForText("/doc").find(function (command) {
+      return command.id === "document";
+    });
+
+    expect(documentCommand).toBeTruthy();
+    expect(documentCommand?.hint).toBe("/doc");
+    expect(documentCommand?.apply("See /doc")).toBe("See /doc ");
+  });
+
+  it("keeps the document slash command visible while typing a query", function () {
+    const commands = slashCommandsForText("/doc meeting");
+
+    expect(commands.map(function (command) {
+      return command.id;
+    })).toEqual(["document"]);
   });
 
   it("offers page links when typing a wikilink", function () {

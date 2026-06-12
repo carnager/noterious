@@ -569,7 +569,7 @@ function shouldRenderMarkdownLinkAsImage(label: string, target: string): boolean
 }
 
 function renderExternalAnchor(href: string, labelHTML: string): string {
-  return '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
+  return '<a class="markdown-external-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
 }
 
 function renderWikiButton(target: string, labelHTML: string): string {

@@ -31,6 +31,7 @@ import {
   findMarkdownInlineSpecialSpans,
   markdownReferenceDefinitions,
   markdownResolvedLinkInfo,
+  normalizeMarkdownLinkLabel,
   parseInlineMarkdownTree,
   visibleTextFromChildren,
   type MarkdownInlineNode,
@@ -718,6 +719,75 @@ class MarkdownTableWidget extends WidgetType {
 
   ignoreEvent() {
     return true;
+  }
+}
+
+class ReferenceDefinitionsWidget extends WidgetType {
+  definitions: MarkdownReferenceDefinition[];
+
+  constructor(definitions: MarkdownReferenceDefinition[]) {
+    super();
+    this.definitions = definitions.slice();
+  }
+
+  eq(other: ReferenceDefinitionsWidget): boolean {
+    return JSON.stringify(other.definitions) === JSON.stringify(this.definitions);
+  }
+
+  toDOM(): HTMLDivElement {
+    const wrapper = document.createElement("div");
+    wrapper.className = "cm-md-reference-definitions";
+
+    const details = document.createElement("details");
+    details.className = "cm-md-reference-definitions-details";
+
+    const summary = document.createElement("summary");
+    summary.className = "cm-md-reference-definitions-summary";
+    summary.textContent = "References (" + String(this.definitions.length) + ")";
+    details.appendChild(summary);
+
+    const list = document.createElement("div");
+    list.className = "cm-md-reference-definitions-list";
+
+    this.definitions.forEach(function (definition) {
+      const item = document.createElement("div");
+      item.className = "cm-md-reference-definition-item";
+
+      const jump = document.createElement("button");
+      jump.type = "button";
+      jump.className = "cm-md-reference-definition-jump";
+      jump.setAttribute("data-reference-jump", String(definition.from));
+      jump.setAttribute("title", "Jump to reference definition");
+      jump.textContent = "[" + String(definition.label || "") + "]";
+      item.appendChild(jump);
+
+      if (definition.target) {
+        const target = document.createElement("a");
+        target.className = "cm-md-reference-definition-target markdown-external-link";
+        target.href = definition.target;
+        target.target = "_blank";
+        target.rel = "noopener";
+        target.textContent = definition.target;
+        item.appendChild(target);
+      }
+
+      if (definition.title) {
+        const title = document.createElement("span");
+        title.className = "cm-md-reference-definition-title";
+        title.textContent = '"' + definition.title + '"';
+        item.appendChild(title);
+      }
+
+      list.appendChild(item);
+    });
+
+    details.appendChild(list);
+    wrapper.appendChild(details);
+    return wrapper;
+  }
+
+  ignoreEvent() {
+    return false;
   }
 }
 
@@ -1542,7 +1612,8 @@ function addInlineDocumentLinkDecoration(
   labelFrom: number,
   labelTo: number,
   linkTo: number,
-  href: string
+  href: string,
+  extraAttributes?: Record<string, string>
 ): boolean {
   return addInlineLinkLabelDecoration(
     decos,
@@ -1553,6 +1624,30 @@ function addInlineDocumentLinkDecoration(
     "cm-md-link",
     {
       "data-document-download": href,
+      ...(extraAttributes || {}),
+    }
+  );
+}
+
+function addInlineExternalLinkDecoration(
+  decos: InlineDeco[],
+  linkFrom: number,
+  labelFrom: number,
+  labelTo: number,
+  linkTo: number,
+  href: string,
+  extraAttributes?: Record<string, string>
+): boolean {
+  return addInlineLinkLabelDecoration(
+    decos,
+    linkFrom,
+    labelFrom,
+    labelTo,
+    linkTo,
+    "cm-md-link",
+    {
+      "data-external-link": href,
+      ...(extraAttributes || {}),
     }
   );
 }
@@ -1563,7 +1658,8 @@ function addInlinePageLinkDecoration(
   labelFrom: number,
   labelTo: number,
   linkTo: number,
-  target: string
+  target: string,
+  extraAttributes?: Record<string, string>
 ): boolean {
   return addInlineLinkLabelDecoration(
     decos,
@@ -1574,8 +1670,25 @@ function addInlinePageLinkDecoration(
     "cm-md-link",
     {
       "data-page-link": target,
+      ...(extraAttributes || {}),
     }
   );
+}
+
+function referenceDefinitionDecorationAttributes(
+  referenceDefinitions: Map<string, MarkdownReferenceDefinition> | null,
+  referenceLabel?: string
+): Record<string, string> | undefined {
+  if (!referenceDefinitions || !referenceLabel) {
+    return undefined;
+  }
+  const definition = referenceDefinitions.get(normalizeMarkdownLinkLabel(referenceLabel));
+  if (!definition || definition.from < 0) {
+    return undefined;
+  }
+  return {
+    "data-reference-definition-offset": String(definition.from),
+  };
 }
 
 interface SpecialSpanLabelRange {
@@ -1702,12 +1815,23 @@ function addSpecialInlineSpanDecoration(
             atomic: true,
           });
         } else {
-          decos.push({
-            from: spanFrom,
-            to: spanTo,
-            deco: Decoration.replace({widget: new ExternalLinkWidget(target, label || target)}),
-            atomic: true,
-          });
+          if (editing) {
+            decos.push({
+              from: spanFrom,
+              to: spanTo,
+              deco: Decoration.mark({class: "cm-md-link-raw"}),
+            });
+            blockedRanges.push({from: spanFrom, to: spanTo});
+            continue;
+          }
+          if (!labelRange || !addInlineExternalLinkDecoration(decos, spanFrom, labelFrom, labelTo, spanTo, target)) {
+            decos.push({
+              from: spanFrom,
+              to: spanTo,
+              deco: Decoration.replace({widget: new ExternalLinkWidget(target, label || target)}),
+              atomic: true,
+            });
+          }
         }
         blockedRanges.push({from: spanFrom, to: spanTo});
         continue;
@@ -1985,6 +2109,7 @@ function addParsedInlineDecorationNode(
       const label = visibleTextFromChildren(node, body, info.labelFrom, info.labelTo).trim() || pageTitleFromPath(target);
       const labelFrom = bodyFrom + info.labelFrom;
       const labelTo = bodyFrom + info.labelTo;
+      const referenceAttributes = referenceDefinitionDecorationAttributes(referenceDefinitions, info.referenceLabel);
       const editing = selectionEditsInlineLink(selection, nodeFrom, labelFrom, labelTo, nodeTo);
       if (editing) {
         decos.push({
@@ -2005,12 +2130,14 @@ function addParsedInlineDecorationNode(
             atomic: true,
           });
         } else {
-          decos.push({
-            from: nodeFrom,
-            to: nodeTo,
-            deco: Decoration.replace({widget: new ExternalLinkWidget(target, label || target)}),
-            atomic: true,
-          });
+          if (!addInlineExternalLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, target, referenceAttributes)) {
+            decos.push({
+              from: nodeFrom,
+              to: nodeTo,
+              deco: Decoration.replace({widget: new ExternalLinkWidget(target, label || target)}),
+              atomic: true,
+            });
+          }
         }
         blockedRanges.push({from: nodeFrom, to: nodeTo});
         return;
@@ -2026,7 +2153,7 @@ function addParsedInlineDecorationNode(
             deco: Decoration.replace({widget: new MarkdownImageWidget(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image")}),
             atomic: true,
           });
-        } else if (!addInlineDocumentLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, documentDownloadURL(resolvedPath))) {
+        } else if (!addInlineDocumentLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, documentDownloadURL(resolvedPath), referenceAttributes)) {
           decos.push({
             from: nodeFrom,
             to: nodeTo,
@@ -2038,7 +2165,7 @@ function addParsedInlineDecorationNode(
         return;
       }
 
-      if (!addInlinePageLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, target)) {
+      if (!addInlinePageLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, target, referenceAttributes)) {
         decos.push({
           from: nodeFrom,
           to: nodeTo,
@@ -2295,13 +2422,22 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
   const lines = markdown.split("\n");
   const abbreviationDefinitions = markdownAbbreviationDefinitions(markdown);
   const referenceDefinitions = markdownReferenceDefinitions(markdown);
-  const hiddenReferenceDefinitionLines = new Set<number>();
+  const referenceDefinitionStarts = new Map<number, { definition: MarkdownReferenceDefinition; endLineNumber: number }>();
+  const referenceDefinitionEntries: Array<{ definition: MarkdownReferenceDefinition; endLineNumber: number }> = [];
   referenceDefinitions.forEach(function (definition) {
     const fromLine = state.doc.lineAt(definition.from).number;
     const toLine = state.doc.lineAt(Math.max(definition.from, definition.to - 1)).number;
-    for (let lineNumber = fromLine; lineNumber <= toLine; lineNumber += 1) {
-      hiddenReferenceDefinitionLines.add(lineNumber);
-    }
+    const entry = {
+      definition,
+      endLineNumber: toLine,
+    };
+    referenceDefinitionStarts.set(fromLine, entry);
+    referenceDefinitionEntries.push(entry);
+  });
+  const editingReferenceDefinitions = referenceDefinitionEntries.some(function (entry) {
+    const startLine = state.doc.lineAt(entry.definition.from);
+    const endLine = state.doc.line(entry.endLineNumber);
+    return selection.from <= endLine.to && selection.to >= startLine.from;
   });
   let hiddenFrontmatterUntil = 0;
 
@@ -2326,9 +2462,15 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
     const text = line.text;
     const from = line.from;
     const editingLine = selection.from <= line.to && selection.to >= line.from;
-    if (hiddenReferenceDefinitionLines.has(lineNumber) && !editingLine) {
-      builder.add(line.from, line.to, Decoration.replace({}));
-      addAtomicRange(atomicBuilder, line.from, line.to);
+    const referenceDefinitionEntry = referenceDefinitionStarts.get(lineNumber);
+    if (referenceDefinitionEntry && !editingReferenceDefinitions) {
+      const endLine = state.doc.line(referenceDefinitionEntry.endLineNumber);
+      const hiddenTo = referenceDefinitionEntry.endLineNumber < state.doc.lines
+        ? endLine.to + 1
+        : endLine.to;
+      builder.add(line.from, hiddenTo, Decoration.replace({block: true}));
+      addAtomicRange(atomicBuilder, line.from, hiddenTo);
+      lineNumber = referenceDefinitionEntry.endLineNumber;
       continue;
     }
     const tableBlock = markdownTableBlockAt(lines, lineNumber - 1, {
@@ -2689,6 +2831,20 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
     }
   }
 
+  if (referenceDefinitionEntries.length && !editingReferenceDefinitions) {
+    builder.add(
+      state.doc.length,
+      state.doc.length,
+      Decoration.widget({
+        block: true,
+        side: 1,
+        widget: new ReferenceDefinitionsWidget(referenceDefinitionEntries.map(function (entry) {
+          return entry.definition;
+        })),
+      })
+    );
+  }
+
   return {
     decorations: builder.finish(),
     atomicRanges: atomicBuilder.finish(),
@@ -2847,8 +3003,30 @@ window.NoteriousCodeEditor = {
         clearSearchHitHighlight(view);
         const viewOnly = view.state.field(viewOnlyField, false);
         const target = event.target instanceof Element ? event.target : null;
+        const referenceJump = target ? target.closest("[data-reference-jump]") : null;
+        if (referenceJump) {
+          if (event.button !== 0) {
+            return false;
+          }
+          event.preventDefault();
+          const offset = Number(referenceJump.getAttribute("data-reference-jump") || "-1");
+          if (offset >= 0 && offset <= view.state.doc.length) {
+            focusEditorView(view, host, {preventScroll: true});
+            view.dispatch({
+              selection: {
+                anchor: offset,
+              },
+              scrollIntoView: true,
+            });
+          }
+          return true;
+        }
+
         const pageLink = target ? target.closest("[data-page-link]") : null;
         if (pageLink) {
+          if (event.button !== 0) {
+            return false;
+          }
           event.preventDefault();
           host.dispatchEvent(new CustomEvent("noterious:page-link", {
             detail: {
@@ -2863,6 +3041,9 @@ window.NoteriousCodeEditor = {
 
         const documentLink = target ? target.closest("[data-document-download]") : null;
         if (documentLink) {
+          if (event.button !== 0) {
+            return false;
+          }
           event.preventDefault();
           host.dispatchEvent(new CustomEvent("noterious:document-download", {
             detail: {
@@ -2870,6 +3051,23 @@ window.NoteriousCodeEditor = {
             },
             bubbles: true,
           }));
+          return true;
+        }
+
+        const externalLink = target ? target.closest("[data-external-link]") : null;
+        if (externalLink) {
+          if (event.button !== 0) {
+            return false;
+          }
+          event.preventDefault();
+          const href = externalLink.getAttribute("data-external-link") || "";
+          if (href) {
+            try {
+              window.open(href, "_blank", "noopener");
+            } catch (_error) {
+              // Ignore blocked popup environments.
+            }
+          }
           return true;
         }
 
@@ -2978,6 +3176,28 @@ window.NoteriousCodeEditor = {
         }
 
         return false;
+      },
+      contextmenu(event) {
+        const target = event.target instanceof Element ? event.target : null;
+        const referenceLink = target
+          ? target.closest("[data-reference-definition-offset][data-page-link], [data-reference-definition-offset][data-document-download], [data-reference-definition-offset][data-external-link]")
+          : null;
+        if (!referenceLink) {
+          return false;
+        }
+        event.preventDefault();
+        host.dispatchEvent(new CustomEvent("noterious:reference-link-contextmenu", {
+          detail: {
+            page: referenceLink.getAttribute("data-page-link") || "",
+            documentHref: referenceLink.getAttribute("data-document-download") || "",
+            externalHref: referenceLink.getAttribute("data-external-link") || "",
+            definitionOffset: referenceLink.getAttribute("data-reference-definition-offset") || "",
+            left: event.clientX,
+            top: event.clientY,
+          },
+          bubbles: true,
+        }));
+        return true;
       },
       keydown(event, view) {
         const viewOnly = view.state.field(viewOnlyField, false);
@@ -3262,6 +3482,18 @@ window.NoteriousCodeEditor = {
         view.dispatch({
           selection: clampedSelection,
           scrollIntoView: Boolean(reveal),
+        });
+      },
+      jumpToOffset(offset) {
+        const max = view.state.doc.length;
+        const protectedUntil = renderedBodyStartOffset(view.state);
+        const nextOffset = Math.max(protectedUntil, Math.min(Number(offset) || 0, max));
+        let clampedSelection = clampSelectionToOffset(EditorSelection.single(nextOffset), protectedUntil);
+        clampedSelection = clampSelectionToRenderedVisibleOffsets(view.state, clampedSelection);
+        focusEditorView(view, host, {preventScroll: true});
+        view.dispatch({
+          selection: clampedSelection,
+          scrollIntoView: true,
         });
       },
       getScrollTop() {

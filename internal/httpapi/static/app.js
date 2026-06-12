@@ -17398,7 +17398,7 @@
     return trimmedLabel === documentPathLeaf(target);
   }
   function renderExternalAnchor(href, labelHTML) {
-    return '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
+    return '<a class="markdown-external-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
   }
   function renderWikiButton(target, labelHTML) {
     return '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + labelHTML + "</button>";
@@ -26067,6 +26067,9 @@
     if (command.id === "query") {
       return Boolean(String(args || "").trim());
     }
+    if (command.id === "document") {
+      return true;
+    }
     return false;
   }
   function slashCommandCatalog() {
@@ -26184,6 +26187,19 @@
         hint: "/query <intent>",
         apply: function(lineText) {
           return replaceSlashToken(lineText, "query", "").replace(/\s+$/, "");
+        },
+        caret: function(updatedLine) {
+          return updatedLine.length;
+        }
+      },
+      {
+        id: "document",
+        title: "Insert document link",
+        description: "Search existing documents and insert a markdown link.",
+        keywords: "doc docs document documents attach attachment asset media file existing",
+        hint: "/doc",
+        apply: function(lineText) {
+          return replaceSlashToken(lineText, "document", "/doc ");
         },
         caret: function(updatedLine) {
           return updatedLine.length;
@@ -32067,6 +32083,95 @@
           treeContextMenuState.target = null;
           closeTreeContextMenu(els.treeContextMenu);
         }
+        function positionFloatingContextMenu(left, top) {
+          const width = els.treeContextMenu.offsetWidth || 220;
+          const height = els.treeContextMenu.offsetHeight || 200;
+          const maxLeft = Math.max(12, window.innerWidth - width - 12);
+          const maxTop = Math.max(12, window.innerHeight - height - 12);
+          els.treeContextMenu.style.left = Math.max(12, Math.min(left, maxLeft)) + "px";
+          els.treeContextMenu.style.top = Math.max(12, Math.min(top, maxTop)) + "px";
+        }
+        function appendFloatingContextMenuItem(label, iconPath, onSelect) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "tree-context-menu-item";
+          button.setAttribute("role", "menuitem");
+          const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          icon.setAttribute("viewBox", "0 0 16 16");
+          icon.setAttribute("aria-hidden", "true");
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", iconPath);
+          path.setAttribute("fill", "currentColor");
+          icon.appendChild(path);
+          button.appendChild(icon);
+          const text = document.createElement("span");
+          text.textContent = label;
+          button.appendChild(text);
+          button.addEventListener("click", function() {
+            closeTreeContextMenu2();
+            onSelect();
+          });
+          els.treeContextMenu.appendChild(button);
+        }
+        function openReferenceLinkContextMenu(detail) {
+          const page = detail.page ? String(detail.page) : "";
+          const documentHref = detail.documentHref ? String(detail.documentHref) : "";
+          const externalHref = detail.externalHref ? String(detail.externalHref) : "";
+          const definitionOffset = Number(detail.definitionOffset);
+          const left = Number(detail.left) || 0;
+          const top = Number(detail.top) || 0;
+          if (!page && !documentHref && !externalHref) {
+            return;
+          }
+          const openIconPath = "M3 2.5h5.7L13 6.8V13a1 1 0 0 1-1 1H3.9a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Zm5 .9v3.2h3.2";
+          const editIconPath = "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z";
+          treeContextMenuState.target = null;
+          treeContextMenuState.left = left;
+          treeContextMenuState.top = top;
+          clearNode(els.treeContextMenu);
+          appendFloatingContextMenuItem("Open", openIconPath, function() {
+            if (page) {
+              openOrCreatePageLinkTarget(page, false);
+              return;
+            }
+            if (documentHref) {
+              window.location.href = documentHref;
+              return;
+            }
+            if (externalHref) {
+              try {
+                window.open(externalHref, "_blank", "noopener");
+              } catch (_error) {
+              }
+            }
+          });
+          if (Number.isFinite(definitionOffset) && definitionOffset >= 0) {
+            appendFloatingContextMenuItem("Edit link", editIconPath, function() {
+              const jumpToDefinition = function() {
+                if (state.markdownEditorApi && typeof state.markdownEditorApi.jumpToOffset === "function") {
+                  state.markdownEditorApi.jumpToOffset(definitionOffset);
+                  return;
+                }
+                focusMarkdownEditor(state, els, { preventScroll: true });
+                setMarkdownEditorSelection(state, els, definitionOffset, definitionOffset, true);
+              };
+              if (state.viewOnly) {
+                setViewOnly(false);
+                window.setTimeout(jumpToDefinition, 0);
+                return;
+              }
+              jumpToDefinition();
+            });
+          }
+          els.treeContextMenu.classList.remove("hidden");
+          window.requestAnimationFrame(function() {
+            positionFloatingContextMenu(left, top);
+            const firstItem = els.treeContextMenu.querySelector(".tree-context-menu-item");
+            if (firstItem) {
+              firstItem.focus({ preventScroll: true });
+            }
+          });
+        }
         function openPageHistoryFor(pagePath) {
           if (!pagePath) {
             return;
@@ -35704,6 +35809,10 @@
               copyCodeBlock(detail.code ? String(detail.code) : "").catch(function(error) {
                 setNoteStatus("Copy failed: " + errorMessage(error));
               });
+            });
+            on(markdownEditorApi.host, "noterious:reference-link-contextmenu", function(event) {
+              const detail = event.detail || {};
+              openReferenceLinkContextMenu(detail);
             });
             on(markdownEditorApi.host, "noterious:task-toggle", function(event) {
               if (!studioPageEditable()) {

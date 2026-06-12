@@ -2094,6 +2094,7 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 }
 
 .markdown-document-link,
+.markdown-external-link,
 .wiki-link {
   color: color-mix(in srgb, var(--accent) 90%, white 10%);
   text-decoration: underline;
@@ -2103,6 +2104,8 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 }
 
 .markdown-document-link:hover,
+.markdown-external-link:hover,
+.markdown-external-link:focus-visible,
 .markdown-document-link:focus-visible,
 .wiki-link:hover,
 .wiki-link:focus-visible {
@@ -2760,6 +2763,82 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definitions {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.3rem 0 0;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definitions-details {
+  border: 1px solid color-mix(in srgb, var(--line-strong) 82%, var(--accent-soft));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-soft) 76%, transparent);
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definitions-summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.62rem 0.78rem;
+  color: color-mix(in srgb, var(--ink) 88%, var(--muted));
+  font-weight: 600;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definitions-summary::-webkit-details-marker {
+  display: none;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definitions-summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 0.46rem;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definitions-details[open] .cm-md-reference-definitions-summary::before {
+  transform: rotate(90deg);
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definitions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.34rem;
+  padding: 0 0.78rem 0.74rem;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definition-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.46rem;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definition-jump {
+  border: 1px solid color-mix(in srgb, var(--line-strong) 82%, var(--accent-soft));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--editor-overlay) 92%, var(--surface));
+  color: color-mix(in srgb, var(--accent) 78%, var(--ink));
+  padding: 0.08rem 0.52rem;
+  font: inherit;
+  font-size: 0.82em;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definition-jump:hover,
+.markdown-editor-host.render-mode .cm-md-reference-definition-jump:focus-visible {
+  border-color: var(--line-strong);
+  background: var(--accent-soft);
+  color: var(--accent);
+  outline: none;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definition-title {
+  color: color-mix(in srgb, var(--ink) 82%, var(--muted));
+  font-style: italic;
 }
 
 .markdown-editor-host.render-mode .cm-md-definition-term {
