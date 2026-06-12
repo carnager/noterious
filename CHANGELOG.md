@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- An Automation section in settings: create, list, and revoke API tokens (the plaintext token is shown exactly once with a copy button), and manage webhooks (label, URL, events, optional signing secret, last delivery state) without using the API directly.
+- The task due-date picker now includes a repeat option: choose daily, weekly, monthly, yearly, or a custom interval like `2w`, or clear it. Previously the `[repeat: ...]` field could only be edited as raw markdown.
 - Outbound webhooks: configure URLs via `/api/webhooks` to receive JSON POSTs for `page.changed`, `task.changed`, `query.changed`, `reminder.fired`, and other events, with optional HMAC-SHA256 body signatures. Delivery is best-effort (async, 10s timeout, no retries) with per-hook delivery state in the list endpoint.
 - Recurring tasks via `[repeat: weekly]` (also `daily`, `monthly`, `yearly`, or `2d`/`3w`/`6m`/`1y`). Completing a repeating task rolls it forward instead of checking it off: the task stays open and its due/remind dates advance by the interval, with overdue tasks catching up past today. The repeat field is indexed and queryable (`where repeat != ""`).
 - Query datasets now push pinned equality filters into SQL: queries constraining `tasks.page`, `links.sourcePage`, or `links.targetPage` to one value load only those rows instead of the whole dataset.

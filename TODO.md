@@ -94,13 +94,13 @@ otherwise). The Go server embeds these, so restart to see changes.
 - [x] Generic outbound automation hooks — shipped as webhooks
       (`/api/webhooks`, see docs/api.md): page/task/query change events plus
       `reminder.fired`, optional HMAC signatures, best-effort delivery.
-- [ ] Frontend settings UI for the new automation features, which are
-      currently API-only:
-      - API token management (create/list/revoke; backend done, see
-        `/api/auth/tokens`)
-      - webhook management (backend done, see `/api/webhooks`)
-      - a repeat option in the task date editor (backend done via
-        `[repeat: ...]`, see help page)
+- [x] Frontend settings UI for the new automation features (2026-06-12):
+      - API token management lives in the new Automation settings section
+        (create with one-time plaintext display and copy, list, revoke)
+      - webhook management in the same section (create with label/URL/
+        events/secret, delivery state display, delete)
+      - the task due-date picker has a Repeat row (presets plus custom
+        intervals like `2w`, clearable)
 
 ## Nice To Have
 
@@ -111,7 +111,7 @@ otherwise). The Go server embeds these, so restart to see changes.
 ## Current Stop Point
 
 - [ ] Next most useful slices:
-      - settings UI for tokens/webhooks/repeat (Priority 4 above)
       - last structured-editor conflict edge cases
       - decide whether restore should become a real product flow
       - local Ollama override for AI query generation
+      - better attachment insertion UX (nice-to-have above)
