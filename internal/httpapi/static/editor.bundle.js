@@ -40154,6 +40154,208 @@
     }
   });
 
+  // frontend/renderedPositions.ts
+  function markdownBlockquotePrefixMatch(text) {
+    const match = String(text || "").match(/^((?: {0,3}>\s*)+)/);
+    if (!match) {
+      return null;
+    }
+    const prefix = String(match[1] || "");
+    const depth2 = (prefix.match(/>/g) || []).length;
+    if (!depth2) {
+      return null;
+    }
+    return {
+      prefixLength: prefix.length,
+      depth: depth2
+    };
+  }
+  function markdownListPrefixMatch(text, startOffset = 0) {
+    const source = String(text || "").slice(Math.max(0, Number(startOffset) || 0));
+    let match = source.match(/^(\s*)([-+*])(\s+)/);
+    if (match) {
+      return {
+        prefixLength: match[0].length,
+        indentLength: match[1].length,
+        markerText: "\u2022",
+        ordered: false
+      };
+    }
+    match = source.match(/^(\s*)(\d+)([.)])(\s+)/);
+    if (match) {
+      return {
+        prefixLength: match[0].length,
+        indentLength: match[1].length,
+        markerText: String(match[2] || "") + String(match[3] || "."),
+        ordered: true
+      };
+    }
+    return null;
+  }
+  function renderedHiddenPrefixLength(text) {
+    const taskPrefix = taskPrefixLength(text);
+    if (taskPrefix) {
+      return taskPrefix;
+    }
+    const headingMatch = String(text || "").match(/^(#{1,6})(\s+)/);
+    if (headingMatch) {
+      return headingMatch[0].length;
+    }
+    const quoteMatch = markdownBlockquotePrefixMatch(text);
+    const quotePrefix = quoteMatch ? quoteMatch.prefixLength : 0;
+    const listPrefix = markdownListPrefixMatch(text, quotePrefix);
+    let prefixLength = quotePrefix + (listPrefix ? listPrefix.prefixLength : 0);
+    const footnoteDefinition = markdownFootnoteDefinitionMatch(text, prefixLength);
+    if (footnoteDefinition && footnoteDefinition.prefixLength) {
+      return prefixLength + footnoteDefinition.prefixLength;
+    }
+    const abbreviationDefinition = markdownAbbreviationDefinitionMatch(text, prefixLength);
+    if (abbreviationDefinition && abbreviationDefinition.prefixLength) {
+      return prefixLength + abbreviationDefinition.prefixLength;
+    }
+    const definitionPrefix = markdownDefinitionListPrefixMatch(text, prefixLength);
+    if (definitionPrefix) {
+      prefixLength += definitionPrefix.prefixLength;
+    }
+    return prefixLength;
+  }
+  function renderedVisibleColumn(text) {
+    const source = String(text || "");
+    return Math.min(source.length, renderedHiddenPrefixLength(source));
+  }
+  function codeBlockEndingAtLine(lines, endLineIndex) {
+    for (let index = Math.max(0, endLineIndex); index >= 0; index -= 1) {
+      const block = markdownCodeFenceBlockAt(lines, index);
+      if (block && block.endLineIndex === endLineIndex) {
+        return block;
+      }
+    }
+    return null;
+  }
+  function tableBlockEndingAtLine(lines, endLineIndex) {
+    for (let index = Math.max(0, endLineIndex); index >= 0; index -= 1) {
+      const block = markdownTableBlockAt(lines, index);
+      if (block && block.endLineIndex === endLineIndex) {
+        return block;
+      }
+    }
+    return null;
+  }
+  function moveColumnToLine(lines, column, targetLineIndex) {
+    if (targetLineIndex < 0 || targetLineIndex >= lines.length) {
+      return null;
+    }
+    const text = String(lines[targetLineIndex] || "");
+    const targetColumn = Math.min(Math.max(0, Number(column) || 0), text.length);
+    return {
+      lineIndex: targetLineIndex,
+      column: Math.max(renderedVisibleColumn(text), targetColumn)
+    };
+  }
+  function renderedTableArrowTarget(lines, key, position) {
+    const lineIndex = position.lineIndex;
+    if (key === "ArrowUp") {
+      if (lineIndex <= 0) {
+        return null;
+      }
+      const tableEndingOnPreviousLine = tableBlockEndingAtLine(lines, lineIndex - 1);
+      if (tableEndingOnPreviousLine) {
+        return moveColumnToLine(lines, position.column, tableEndingOnPreviousLine.endLineIndex);
+      }
+      const tableEndingTwoLinesAbove = tableBlockEndingAtLine(lines, lineIndex - 2);
+      if (tableEndingTwoLinesAbove) {
+        return moveColumnToLine(lines, position.column, lineIndex - 1);
+      }
+      return null;
+    }
+    if (lineIndex >= lines.length - 1) {
+      return null;
+    }
+    const tableStartingOnNextLine = markdownTableBlockAt(lines, lineIndex + 1);
+    if (tableStartingOnNextLine) {
+      return moveColumnToLine(lines, position.column, tableStartingOnNextLine.startLineIndex);
+    }
+    const tableStartingTwoLinesBelow = markdownTableBlockAt(lines, lineIndex + 2);
+    if (tableStartingTwoLinesBelow) {
+      return moveColumnToLine(lines, position.column, lineIndex + 1);
+    }
+    return null;
+  }
+  function renderedTaskArrowTarget(lines, key, position) {
+    const targetLineIndex = key === "ArrowDown" ? position.lineIndex + 1 : position.lineIndex - 1;
+    if (targetLineIndex < 0 || targetLineIndex >= lines.length) {
+      return null;
+    }
+    const currentText = String(lines[position.lineIndex] || "");
+    const targetText = String(lines[targetLineIndex] || "");
+    const currentTaskPrefix = taskPrefixLength(currentText);
+    const targetTaskPrefix = taskPrefixLength(targetText);
+    if (!currentTaskPrefix && !targetTaskPrefix && !taskLineHasInlineDate(currentText) && !taskLineHasInlineDate(targetText)) {
+      return null;
+    }
+    const visibleColumn = renderedTaskVisibleColumn(currentText, position.column);
+    const targetRawColumn = renderedTaskRawColumn(targetText, visibleColumn);
+    return {
+      lineIndex: targetLineIndex,
+      column: Math.min(targetRawColumn, targetText.length)
+    };
+  }
+  function renderedCodeBlockArrowTarget(lines, key, position) {
+    const lineIndex = position.lineIndex;
+    const column = Math.max(0, position.column);
+    if (key === "ArrowDown") {
+      if (lineIndex >= lines.length - 1) {
+        return null;
+      }
+      const block2 = markdownCodeFenceBlockAt(lines, lineIndex + 1);
+      if (!block2) {
+        return null;
+      }
+      const targetText2 = String(lines[block2.startLineIndex] || "");
+      return {
+        lineIndex: block2.startLineIndex,
+        column: Math.min(column, targetText2.length)
+      };
+    }
+    if (lineIndex <= 0) {
+      return null;
+    }
+    const block = codeBlockEndingAtLine(lines, lineIndex - 1);
+    if (!block) {
+      return null;
+    }
+    const targetLineIndex = block.closed && block.endLineIndex > block.startLineIndex + 1 ? block.endLineIndex - 1 : block.endLineIndex;
+    const targetText = String(lines[targetLineIndex] || "");
+    return {
+      lineIndex: targetLineIndex,
+      column: Math.min(column, targetText.length)
+    };
+  }
+  function renderedVerticalArrowTarget(lines, key, position) {
+    const taskTarget = renderedTaskArrowTarget(lines, key, position);
+    if (taskTarget !== null) {
+      return taskTarget;
+    }
+    const tableTarget = renderedTableArrowTarget(lines, key, position);
+    if (tableTarget !== null) {
+      return tableTarget;
+    }
+    const codeBlockTarget = renderedCodeBlockArrowTarget(lines, key, position);
+    if (codeBlockTarget !== null) {
+      return codeBlockTarget;
+    }
+    const targetLineIndex = key === "ArrowDown" ? position.lineIndex + 1 : position.lineIndex - 1;
+    return moveColumnToLine(lines, position.column, targetLineIndex);
+  }
+  var init_renderedPositions = __esm({
+    "frontend/renderedPositions.ts"() {
+      "use strict";
+      init_markdownExtensions();
+      init_markdown();
+      init_taskNavigation();
+    }
+  });
+
   // frontend/editor.ts
   var require_editor = __commonJS({
     "frontend/editor.ts"() {
@@ -40177,7 +40379,7 @@
       init_markdown();
       init_markdownExtensions();
       init_markdownInline();
-      init_taskNavigation();
+      init_renderedPositions();
       var collapsedCodeBlockVisibleLines = 12;
       var measureCanvas = document.createElement("canvas");
       var measureContext = measureCanvas.getContext("2d");
@@ -40869,66 +41071,11 @@
           });
         }
       }
-      function codeBlockEndingAtLine(lines, endLineIndex) {
-        for (let index = Math.max(0, endLineIndex); index >= 0; index -= 1) {
-          const block = markdownCodeFenceBlockAt(lines, index);
-          if (block && block.endLineIndex === endLineIndex) {
-            return block;
-          }
-        }
-        return null;
-      }
-      function tableBlockEndingAtLine(lines, endLineIndex) {
-        for (let index = Math.max(0, endLineIndex); index >= 0; index -= 1) {
-          const block = markdownTableBlockAt(lines, index);
-          if (block && block.endLineIndex === endLineIndex) {
-            return block;
-          }
-        }
-        return null;
-      }
-      function markdownBlockquotePrefixMatch(text) {
-        const match = String(text || "").match(/^((?: {0,3}>\s*)+)/);
-        if (!match) {
-          return null;
-        }
-        const prefix = String(match[1] || "");
-        const depth2 = (prefix.match(/>/g) || []).length;
-        if (!depth2) {
-          return null;
-        }
-        return {
-          prefixLength: prefix.length,
-          depth: depth2
-        };
-      }
       function quoteLineStyle(depth2, connectAbove, connectBelow) {
         const safeDepth = Math.max(1, Number(depth2) || 1);
         const quoteStepWidth = 0.72;
         const gutterWidth = String(safeDepth * quoteStepWidth) + "rem";
         return "--quote-depth:" + String(safeDepth) + ";--quote-gutter-width:" + gutterWidth + ";--quote-step-width:" + String(quoteStepWidth) + "rem;--quote-top-gap:" + (connectAbove ? "0" : "0.14em") + ";--quote-bottom-gap:" + (connectBelow ? "0" : "0.14em") + ";";
-      }
-      function markdownListPrefixMatch(text, startOffset = 0) {
-        const source = String(text || "").slice(Math.max(0, Number(startOffset) || 0));
-        let match = source.match(/^(\s*)([-+*])(\s+)/);
-        if (match) {
-          return {
-            prefixLength: match[0].length,
-            indentLength: match[1].length,
-            markerText: "\u2022",
-            ordered: false
-          };
-        }
-        match = source.match(/^(\s*)(\d+)([.)])(\s+)/);
-        if (match) {
-          return {
-            prefixLength: match[0].length,
-            indentLength: match[1].length,
-            markerText: String(match[2] || "") + String(match[3] || "."),
-            ordered: true
-          };
-        }
-        return null;
       }
       function isMarkdownThematicBreak(text) {
         const source = String(text || "").trim();
@@ -41116,7 +41263,7 @@
         return touched;
       }
       function renderedVisibleLineStart(line) {
-        return Math.min(line.to, line.from + renderedHiddenPrefixLength(line.text));
+        return line.from + renderedVisibleColumn(line.text);
       }
       function dispatchRenderedSelection(view, head, extend = false) {
         const protectedUntil = renderedBodyStartOffset(view.state);
@@ -41128,126 +41275,6 @@
           scrollIntoView: true
         });
         return true;
-      }
-      function moveHeadToLine(state, sourceHead, lineNumber) {
-        if (lineNumber < 1 || lineNumber > state.doc.lines) {
-          return null;
-        }
-        const currentLine = state.doc.lineAt(sourceHead);
-        const column = Math.max(0, sourceHead - currentLine.from);
-        const targetLine = state.doc.line(lineNumber);
-        const visibleStart = state.field(renderModeField, false) ? renderedVisibleLineStart(targetLine) : targetLine.from;
-        const targetHead = Math.min(targetLine.from + column, targetLine.to);
-        return Math.max(visibleStart, targetHead);
-      }
-      function renderedTableArrowTarget(view, key, sourceHead) {
-        if (!view.state.field(renderModeField, false)) {
-          return null;
-        }
-        const currentLine = view.state.doc.lineAt(sourceHead);
-        const lines = view.state.doc.toString().split("\n");
-        if (key === "ArrowUp") {
-          if (currentLine.number <= 1) {
-            return null;
-          }
-          const tableEndingOnPreviousLine = tableBlockEndingAtLine(lines, currentLine.number - 2);
-          if (tableEndingOnPreviousLine) {
-            return moveHeadToLine(view.state, sourceHead, tableEndingOnPreviousLine.endLineIndex + 1);
-          }
-          const tableEndingTwoLinesAbove = tableBlockEndingAtLine(lines, currentLine.number - 3);
-          if (tableEndingTwoLinesAbove) {
-            return moveHeadToLine(view.state, sourceHead, currentLine.number - 1);
-          }
-          return null;
-        }
-        if (currentLine.number >= view.state.doc.lines) {
-          return null;
-        }
-        const tableStartingOnNextLine = markdownTableBlockAt(lines, currentLine.number);
-        if (tableStartingOnNextLine) {
-          return moveHeadToLine(view.state, sourceHead, tableStartingOnNextLine.startLineIndex + 1);
-        }
-        const tableStartingTwoLinesBelow = markdownTableBlockAt(lines, currentLine.number + 1);
-        if (tableStartingTwoLinesBelow) {
-          return moveHeadToLine(view.state, sourceHead, currentLine.number + 1);
-        }
-        return null;
-      }
-      function renderedTaskArrowTarget(view, key, sourceHead) {
-        if (!view.state.field(renderModeField, false)) {
-          return null;
-        }
-        const currentLine = view.state.doc.lineAt(sourceHead);
-        const targetLineNumber = key === "ArrowDown" ? currentLine.number + 1 : currentLine.number - 1;
-        if (targetLineNumber < 1 || targetLineNumber > view.state.doc.lines) {
-          return null;
-        }
-        const targetLine = view.state.doc.line(targetLineNumber);
-        const currentTaskPrefix = taskPrefixLength(currentLine.text);
-        const targetTaskPrefix = taskPrefixLength(targetLine.text);
-        if (!currentTaskPrefix && !targetTaskPrefix && !taskLineHasInlineDate(currentLine.text) && !taskLineHasInlineDate(targetLine.text)) {
-          return null;
-        }
-        const rawColumn = Math.max(0, sourceHead - currentLine.from);
-        const visibleColumn = renderedTaskVisibleColumn(currentLine.text, rawColumn);
-        const targetRawColumn = renderedTaskRawColumn(targetLine.text, visibleColumn);
-        return Math.min(targetLine.from + targetRawColumn, targetLine.to);
-      }
-      function renderedCodeBlockArrowTarget(view, key, sourceHead) {
-        if (!view.state.field(renderModeField, false)) {
-          return null;
-        }
-        const currentLine = view.state.doc.lineAt(sourceHead);
-        const column = Math.max(0, sourceHead - currentLine.from);
-        const lines = view.state.doc.toString().split("\n");
-        if (key === "ArrowDown") {
-          if (currentLine.number >= view.state.doc.lines) {
-            return null;
-          }
-          const block2 = markdownCodeFenceBlockAt(lines, currentLine.number);
-          if (!block2) {
-            return null;
-          }
-          const targetLine2 = view.state.doc.line(block2.startLineIndex + 1);
-          return Math.min(targetLine2.from + column, targetLine2.to);
-        }
-        if (currentLine.number <= 1) {
-          return null;
-        }
-        const block = codeBlockEndingAtLine(lines, currentLine.number - 2);
-        if (!block) {
-          return null;
-        }
-        const targetLineNumber = block.closed && block.endLineIndex > block.startLineIndex + 1 ? block.endLineIndex : block.endLineIndex + 1;
-        const targetLine = view.state.doc.line(targetLineNumber);
-        return Math.min(targetLine.from + column, targetLine.to);
-      }
-      function renderedHiddenPrefixLength(text) {
-        const taskPrefix = taskPrefixLength(text);
-        if (taskPrefix) {
-          return taskPrefix;
-        }
-        const headingMatch = String(text || "").match(/^(#{1,6})(\s+)/);
-        if (headingMatch) {
-          return headingMatch[0].length;
-        }
-        const quoteMatch = markdownBlockquotePrefixMatch(text);
-        const quotePrefix = quoteMatch ? quoteMatch.prefixLength : 0;
-        const listPrefix = markdownListPrefixMatch(text, quotePrefix);
-        let prefixLength = quotePrefix + (listPrefix ? listPrefix.prefixLength : 0);
-        const footnoteDefinition = markdownFootnoteDefinitionMatch(text, prefixLength);
-        if (footnoteDefinition && footnoteDefinition.prefixLength) {
-          return prefixLength + footnoteDefinition.prefixLength;
-        }
-        const abbreviationDefinition = markdownAbbreviationDefinitionMatch(text, prefixLength);
-        if (abbreviationDefinition && abbreviationDefinition.prefixLength) {
-          return prefixLength + abbreviationDefinition.prefixLength;
-        }
-        const definitionPrefix = markdownDefinitionListPrefixMatch(text, prefixLength);
-        if (definitionPrefix) {
-          prefixLength += definitionPrefix.prefixLength;
-        }
-        return prefixLength;
       }
       function handleRenderedLineBoundary(view, key, extend = false) {
         if (!view.state.field(renderModeField, false)) {
@@ -41292,6 +41319,17 @@
         }
         return dispatchRenderedSelection(view, nextLine.from + nextPrefix);
       }
+      function renderedLinePosition(view, offset) {
+        const line = view.state.doc.lineAt(offset);
+        return {
+          lineIndex: line.number - 1,
+          column: Math.max(0, offset - line.from)
+        };
+      }
+      function renderedOffsetForLinePosition(view, position) {
+        const line = view.state.doc.line(position.lineIndex + 1);
+        return Math.min(line.from + position.column, line.to);
+      }
       function handleRenderedVerticalArrow(view, key, extend = false) {
         if (!view.state.field(renderModeField, false)) {
           return false;
@@ -41300,26 +41338,12 @@
         if (!extend && !selection.empty) {
           return false;
         }
-        const sourceHead = selection.head;
-        const taskTarget = renderedTaskArrowTarget(view, key, sourceHead);
-        if (taskTarget !== null) {
-          return dispatchRenderedSelection(view, taskTarget, extend);
-        }
-        const tableTarget = renderedTableArrowTarget(view, key, sourceHead);
-        if (tableTarget !== null) {
-          return dispatchRenderedSelection(view, tableTarget, extend);
-        }
-        const codeBlockTarget = renderedCodeBlockArrowTarget(view, key, sourceHead);
-        if (codeBlockTarget !== null) {
-          return dispatchRenderedSelection(view, codeBlockTarget, extend);
-        }
-        const currentLine = view.state.doc.lineAt(sourceHead);
-        const targetLineNumber = key === "ArrowDown" ? currentLine.number + 1 : currentLine.number - 1;
-        const targetHead = moveHeadToLine(view.state, sourceHead, targetLineNumber);
-        if (targetHead === null) {
+        const lines = view.state.doc.toString().split("\n");
+        const target = renderedVerticalArrowTarget(lines, key, renderedLinePosition(view, selection.head));
+        if (target === null) {
           return false;
         }
-        return dispatchRenderedSelection(view, targetHead, extend);
+        return dispatchRenderedSelection(view, renderedOffsetForLinePosition(view, target), extend);
       }
       var atomicRangeDecoration = Decoration.mark({});
       function addAtomicRange(builder, from, to) {
