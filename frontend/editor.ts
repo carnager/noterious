@@ -12,7 +12,7 @@ import {go} from "@codemirror/lang-go";
 import {yaml} from "@codemirror/lang-yaml";
 import {sql} from "@codemirror/lang-sql";
 import {tags} from "@lezer/highlight";
-import { formatDateTimeValue, formatDateValue, normalizeDateTimeDisplayFormat, setDateTimeDisplayFormat } from "./datetime";
+import { normalizeDateTimeDisplayFormat, setDateTimeDisplayFormat } from "./datetime";
 import { pageTitleFromPath } from "./commands";
 import { documentDownloadURL, documentPathLeaf, inlineDocumentURL, isImagePath, resolveDocumentPath } from "./documents";
 import { escapeHTML, markdownCodeFenceBlockAt, markdownTableBlockAt, renderInline, renderedBodyBoundaryStart, splitFrontmatter } from "./markdown";
@@ -41,6 +41,7 @@ import {
   markdownBlockquotePrefixMatch,
   markdownListPrefixMatch,
   renderedHiddenPrefixLength,
+  renderedInlineLinkSpans,
   renderedVerticalArrowTarget,
   renderedVisibleColumn,
   scanRenderedBlocks,
@@ -1185,6 +1186,47 @@ function handleRenderedLineBoundary(view: EditorView, key: "Home" | "End", exten
   return dispatchRenderedSelection(view, targetHead, extend);
 }
 
+function renderedAtomicRangeCovers(view: EditorView, from: number, to: number): boolean {
+  const value = view.state.field(renderedDecorationsField, false);
+  if (!value) {
+    return false;
+  }
+  let covered = false;
+  value.atomicRanges.between(from, to, function (rangeFrom, rangeTo) {
+    if (rangeFrom <= from && rangeTo >= to) {
+      covered = true;
+      return false;
+    }
+    return undefined;
+  });
+  return covered;
+}
+
+// Links whose label stays visible expose it through partial atomic ranges,
+// so the default arrow motion already lands the caret on the label edge and
+// reveals the raw markdown. Links rendered as a single widget (images,
+// label-less document links) are atomic across the whole span, and a plain
+// arrow press would jump over them; step one character into the span instead
+// so the raw markdown is revealed and the caret can walk through it.
+function renderedLinkStepTarget(view: EditorView, key: "ArrowLeft" | "ArrowRight", currentLine: { from: number; text: string }, rawColumn: number): number | null {
+  const spans = renderedInlineLinkSpans(currentLine.text);
+  for (let index = 0; index < spans.length; index += 1) {
+    const span = spans[index];
+    if (span.to - span.from <= 1) {
+      continue;
+    }
+    const boundaryColumn = key === "ArrowRight" ? span.from : span.to;
+    if (boundaryColumn !== rawColumn) {
+      continue;
+    }
+    if (!renderedAtomicRangeCovers(view, currentLine.from + span.from, currentLine.from + span.to)) {
+      return null;
+    }
+    return key === "ArrowRight" ? rawColumn + 1 : rawColumn - 1;
+  }
+  return null;
+}
+
 function handleRenderedHiddenPrefixHorizontalBoundary(view: EditorView, key: "ArrowLeft" | "ArrowRight"): boolean {
   if (!view.state.field(renderModeField, false)) {
     return false;
@@ -1200,6 +1242,10 @@ function handleRenderedHiddenPrefixHorizontalBoundary(view: EditorView, key: "Ar
   const rawColumn = Math.max(0, selection.head - currentLine.from);
 
   if (key === "ArrowLeft") {
+    const linkStep = renderedLinkStepTarget(view, key, currentLine, rawColumn);
+    if (linkStep !== null) {
+      return dispatchRenderedSelection(view, currentLine.from + linkStep);
+    }
     if (!currentPrefix || rawColumn > currentPrefix) {
       return false;
     }
@@ -1212,6 +1258,11 @@ function handleRenderedHiddenPrefixHorizontalBoundary(view: EditorView, key: "Ar
 
   if (currentPrefix && rawColumn < currentPrefix) {
     return dispatchRenderedSelection(view, currentLine.from + currentPrefix);
+  }
+
+  const linkStep = renderedLinkStepTarget(view, key, currentLine, rawColumn);
+  if (linkStep !== null) {
+    return dispatchRenderedSelection(view, currentLine.from + linkStep);
   }
 
   if (rawColumn !== currentLine.length || currentLine.number >= view.state.doc.lines) {
@@ -2605,11 +2656,17 @@ function renderedBlockCacheKey(block: RenderedBlockRange, context: RenderedBlock
       const lastLine = block.endLineIndex + 1 >= context.state.doc.lines ? "1" : "0";
       return "r\u0001" + lastLine + "\u0001" + content;
     }
+    case "query": {
+      // Query blocks bake their 1-based start line into widget state and
+      // depend on the externally supplied result HTML.
+      const editing = renderedBlockEditingState(block, context) ? "1" : "0";
+      const html = context.queryBlocks.get(content.trim()) || "";
+      return "q\u0001" + String(block.startLineIndex) + "\u0001" + editing + "\u0001" + html + "\u0001" + content;
+    }
     case "table":
-    case "query":
     case "code": {
-      // Tables, query blocks, and code fences bake their 1-based start line
-      // into rendered HTML or widget state keys.
+      // Tables and code fences bake their 1-based start line into rendered
+      // HTML or widget state keys.
       const editing = renderedBlockEditingState(block, context) ? "1" : "0";
       return block.kind.charAt(0) + "\u0001" + String(block.startLineIndex) + "\u0001" + editing + "\u0001" + content;
     }
@@ -2663,11 +2720,13 @@ interface RenderedBlockCacheEntry {
   specs: RenderedRangeSpec[];
 }
 
+// Query HTML and task entries are covered by the per-block cache keys, so a
+// new queryBlocks or tasks map only rebuilds the blocks whose resolved values
+// changed. The expanded-code-blocks record is compared by reference instead
+// because the expansion state is not part of the code block keys.
 interface RenderedDecorationsFieldValue extends RenderedDecorationSets {
   blockCache: RenderedBlockCacheEntry[] | null;
   blockCacheGlobalKey: string;
-  blockCacheQueryBlocks: Map<string, string> | null;
-  blockCacheTasks: Map<number, EditorTaskState> | null;
   blockCacheExpandedCodeBlocks: Record<string, boolean> | null;
 }
 
@@ -2690,8 +2749,6 @@ const emptyRenderedDecorations: RenderedDecorationsFieldValue = {
   atomicRanges: Decoration.none,
   blockCache: null,
   blockCacheGlobalKey: "",
-  blockCacheQueryBlocks: null,
-  blockCacheTasks: null,
   blockCacheExpandedCodeBlocks: null,
 };
 
@@ -2750,8 +2807,6 @@ function buildRenderedDecorations(state: EditorState, previous: RenderedDecorati
   const reusable = previous
     && previous.blockCache
     && previous.blockCacheGlobalKey === globalKey
-    && previous.blockCacheQueryBlocks === context.queryBlocks
-    && previous.blockCacheTasks === context.tasks
     && previous.blockCacheExpandedCodeBlocks === context.expandedCodeBlocks
     ? previous.blockCache
     : null;
@@ -2809,8 +2864,6 @@ function buildRenderedDecorations(state: EditorState, previous: RenderedDecorati
     atomicRanges: atomicBuilder.finish(),
     blockCache,
     blockCacheGlobalKey: globalKey,
-    blockCacheQueryBlocks: context.queryBlocks,
-    blockCacheTasks: context.tasks,
     blockCacheExpandedCodeBlocks: context.expandedCodeBlocks,
   };
 }
@@ -2865,9 +2918,10 @@ const renderedDecorationsField = StateField.define<RenderedDecorationsFieldValue
     const modeChanged = transaction.effects.some((effect) => effect.is(setRenderModeEffect));
     const viewOnlyChanged = transaction.effects.some((effect) => effect.is(setViewOnlyEffect));
     const tasksChanged = transaction.effects.some((effect) => effect.is(setTasksEffect));
+    const queryBlocksChanged = transaction.effects.some((effect) => effect.is(setQueryBlocksEffect));
     const codeBlockPreferenceChanged = transaction.effects.some((effect) => effect.is(setCodeBlocksAlwaysExpandedEffect));
     const codeBlocksChanged = transaction.effects.some((effect) => effect.is(toggleCodeBlockExpandedEffect));
-    if (!modeChanged && !viewOnlyChanged && !tasksChanged && !codeBlockPreferenceChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
+    if (!modeChanged && !viewOnlyChanged && !tasksChanged && !queryBlocksChanged && !codeBlockPreferenceChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
       return value;
     }
     return buildRenderedDecorations(transaction.state, value);

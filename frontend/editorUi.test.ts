@@ -1575,6 +1575,66 @@ describe("mounted editor UI", function () {
     }
   });
 
+  it("steps into widget-rendered links with horizontal arrows instead of jumping over them", function () {
+    // A label-less markdown link renders as a single atomic widget, so a
+    // plain arrow press used to snap the caret across the whole span.
+    const markdown = "docs [](My Docs.pdf) end";
+    const editor = mountEditor(markdown);
+
+    try {
+      editor.api.setRenderMode(true);
+
+      const line = editor.view.state.doc.line(1);
+      const linkStart = line.text.indexOf("[");
+      const linkEnd = line.text.indexOf(")") + 1;
+
+      // ArrowRight from the link start enters the raw link text and then
+      // walks it per character.
+      setCursor(editor.view, 1, linkStart);
+      expectArrow(editor.view, "ArrowRight", 1, linkStart + 1);
+      expectArrow(editor.view, "ArrowRight", 1, linkStart + 2);
+
+      // ArrowLeft from the link end does the same backwards.
+      setCursor(editor.view, 1, 0);
+      setCursor(editor.view, 1, linkEnd);
+      expectArrow(editor.view, "ArrowLeft", 1, linkEnd - 1);
+      expectArrow(editor.view, "ArrowLeft", 1, linkEnd - 2);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps unrelated task lines cached when a task is toggled and synced", function () {
+    const markdownLines: string[] = [];
+    const tasks: TaskRender[] = [];
+    for (let index = 1; index <= 200; index += 1) {
+      markdownLines.push("- [ ] Task " + String(index));
+      tasks.push(createTask(index, "Task " + String(index)));
+    }
+    const editor = mountEditor(markdownLines.join("\n"), tasks);
+
+    function blockBuilds(): number {
+      return window.NoteriousCodeEditor ? window.NoteriousCodeEditor.debugRenderedBlockBuilds() : 0;
+    }
+
+    try {
+      editor.api.setRenderMode(true);
+
+      const line = editor.view.state.doc.line(5);
+      const before = blockBuilds();
+      editor.api.syncReplaceRange(line.from + 3, line.from + 4, "x");
+      const toggledTasks = tasks.slice();
+      toggledTasks[4] = createTask(5, "Task 5", {done: true});
+      editor.api.setTasks(toggledTasks);
+
+      const builds = blockBuilds() - before;
+      expect(builds).toBeGreaterThan(0);
+      expect(builds).toBeLessThanOrEqual(4);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("rebuilds only the affected blocks when typing or moving the cursor in a large note", function () {
     const markdownLines: string[] = [];
     for (let index = 0; index < 1000; index += 1) {

@@ -11,8 +11,14 @@ import {
   markdownAbbreviationDefinitionMatch,
   markdownDefinitionListPrefixMatch,
   markdownFootnoteDefinitionMatch,
+  markdownFootnoteReferenceMatch,
 } from "./markdownExtensions";
 import { markdownCodeFenceBlockAt, markdownTableBlockAt, markdownTableBlockRangeAt } from "./markdown";
+import {
+  findMarkdownInlineSpecialSpans,
+  parseInlineMarkdownTree,
+  type MarkdownInlineNode,
+} from "./markdownInline";
 import {
   renderedTaskRawColumn,
   renderedTaskVisibleColumn,
@@ -273,6 +279,67 @@ export function renderedCodeBlockArrowTarget(
     lineIndex: targetLineIndex,
     column: Math.min(column, targetText.length),
   };
+}
+
+// An inline span the rendered layer replaces with (or partially hides behind)
+// a link or image rendering. Columns are relative to the line start.
+export interface RenderedInlineSpan {
+  from: number;
+  to: number;
+}
+
+function collectRenderedLinkNodes(
+  node: MarkdownInlineNode,
+  body: string,
+  startOffset: number,
+  spans: RenderedInlineSpan[]
+): void {
+  if (node.name === "Link" || node.name === "Image") {
+    if (node.name === "Link" && markdownFootnoteReferenceMatch(body.slice(node.from, node.to))) {
+      return;
+    }
+    const from = startOffset + node.from;
+    const to = startOffset + node.to;
+    const overlaps = spans.some(function (span) {
+      return from < span.to && span.from < to;
+    });
+    if (!overlaps) {
+      spans.push({from, to});
+    }
+    return;
+  }
+  for (let index = 0; index < node.children.length; index += 1) {
+    collectRenderedLinkNodes(node.children[index], body, startOffset, spans);
+  }
+}
+
+// Link and image spans on a rendered line. The caret cannot sit inside these
+// while they are rendered (they are atomic), so horizontal arrow handling
+// steps the caret into the span to reveal the raw markdown instead of
+// jumping over it.
+export function renderedInlineLinkSpans(text: string): RenderedInlineSpan[] {
+  const source = String(text || "");
+  const startOffset = renderedHiddenPrefixLength(source);
+  const body = source.slice(startOffset);
+  if (!body) {
+    return [];
+  }
+
+  const spans: RenderedInlineSpan[] = [];
+  const specialSpans = findMarkdownInlineSpecialSpans(body);
+  for (let index = 0; index < specialSpans.length; index += 1) {
+    spans.push({
+      from: startOffset + specialSpans[index].from,
+      to: startOffset + specialSpans[index].to,
+    });
+  }
+
+  collectRenderedLinkNodes(parseInlineMarkdownTree(body), body, startOffset, spans);
+
+  spans.sort(function (a, b) {
+    return a.from - b.from || a.to - b.to;
+  });
+  return spans;
 }
 
 export interface MarkdownMathBlock {

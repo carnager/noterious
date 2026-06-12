@@ -8,6 +8,7 @@ import {
   renderedBlockContaining,
   renderedCodeBlockArrowTarget,
   renderedHiddenPrefixLength,
+  renderedInlineLinkSpans,
   renderedTableArrowTarget,
   renderedTaskArrowTarget,
   renderedVerticalArrowTarget,
@@ -271,6 +272,32 @@ describe("scanRenderedBlocks", function () {
     expect(blocks[0]).toEqual({ kind: "line", startLineIndex: 0, endLineIndex: 0 });
     expect(blocks[1]).toEqual({ kind: "code", startLineIndex: 1, endLineIndex: 3 });
     expect(blocks.length).toBe(2);
+  });
+});
+
+describe("renderedInlineLinkSpans", function () {
+  it("finds wiki link spans", function () {
+    const spans = renderedInlineLinkSpans("before [[Target Page]] after");
+    expect(spans).toEqual([{ from: 7, to: 22 }]);
+  });
+
+  it("finds markdown link spans", function () {
+    const text = "see [docs](https://example.com) now";
+    const spans = renderedInlineLinkSpans(text);
+    expect(spans).toEqual([{ from: 4, to: 31 }]);
+  });
+
+  it("offsets spans past hidden task prefixes", function () {
+    const spans = renderedInlineLinkSpans("- [ ] read [[Notes]]");
+    expect(spans).toEqual([{ from: 11, to: 20 }]);
+  });
+
+  it("skips footnote references", function () {
+    expect(renderedInlineLinkSpans("text with a footnote[^1]")).toEqual([]);
+  });
+
+  it("returns an empty list for plain text", function () {
+    expect(renderedInlineLinkSpans("plain text")).toEqual([]);
   });
 });
 
