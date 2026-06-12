@@ -13,7 +13,12 @@ All notable changes to this project will be documented in this file.
 - Full-text search index (SQLite FTS5) behind `/api/search` page results, with bm25 relevance ranking that weights path and title matches above body matches. Existing databases are backfilled automatically on first start; mid-word fragment queries still fall back to the previous substring scan.
 - Optional page-history retention via `NOTERIOUS_HISTORY_MAX_REVISIONS` and `NOTERIOUS_HISTORY_MAX_AGE`. Defaults keep every revision; when set, older revisions are pruned on save and the newest revision is always kept.
 
+### Changed
+- The editable rendered markdown mode now updates incrementally: typing or moving the cursor rebuilds only the affected block instead of re-rendering the whole note, and toggling a task re-renders only the toggled line. Large notes no longer pay a full-document decoration rebuild on every keystroke.
+
 ### Fixed
+- `ArrowLeft`/`ArrowRight` now step into links rendered as a single widget (images, label-less document links) and walk the raw link text per character instead of snapping across the whole span.
+- Embedded query results in the editor now refresh as soon as new results arrive instead of waiting for the next edit or cursor movement.
 - Note saves and history/trash writes are now atomic (temp file plus rename), so a crash mid-write can no longer leave a torn note or revision behind.
 - Login attempts are rate limited per client address (10 failures per 15 minutes), so the single account can no longer be brute-forced unthrottled.
 - Both SQLite connection pools now set `busy_timeout=5000` via the DSN, preventing spurious `SQLITE_BUSY` errors when auth and index access overlap on the shared database file.
