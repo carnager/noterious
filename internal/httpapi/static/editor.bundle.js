@@ -39625,7 +39625,7 @@
     const source = String(line || "").trim();
     return source.indexOf("|") >= 0 && splitMarkdownTableRow(source).length >= 2;
   }
-  function markdownTableBlockAt(lines, startLineIndex, options) {
+  function markdownTableBlockRangeAt(lines, startLineIndex) {
     if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex + 1 >= lines.length) {
       return null;
     }
@@ -39638,6 +39638,27 @@
     if (headerCells.length < 2) {
       return null;
     }
+    let endLineIndex = startLineIndex + 1;
+    for (let index = startLineIndex + 2; index < lines.length; index += 1) {
+      if (!looksLikeMarkdownTableRow(String(lines[index] || ""))) {
+        break;
+      }
+      endLineIndex = index;
+    }
+    return {
+      startLineIndex,
+      endLineIndex,
+      columnCount: headerCells.length
+    };
+  }
+  function markdownTableBlockAt(lines, startLineIndex, options) {
+    const range = markdownTableBlockRangeAt(lines, startLineIndex);
+    if (!range) {
+      return null;
+    }
+    const headerLine = String(lines[startLineIndex] || "");
+    const separatorLine = String(lines[startLineIndex + 1] || "");
+    const headerCells = splitMarkdownTableRow(headerLine);
     const alignments = splitMarkdownTableRow(separatorLine).map(function(cell) {
       const text = String(cell || "");
       const left = text.startsWith(":");
@@ -39651,14 +39672,8 @@
       return "left";
     });
     const rows = [];
-    let endLineIndex = startLineIndex + 1;
-    for (let index = startLineIndex + 2; index < lines.length; index += 1) {
-      const rowLine = String(lines[index] || "");
-      if (!looksLikeMarkdownTableRow(rowLine)) {
-        break;
-      }
-      rows.push(splitMarkdownTableRow(rowLine));
-      endLineIndex = index;
+    for (let index = startLineIndex + 2; index <= range.endLineIndex; index += 1) {
+      rows.push(splitMarkdownTableRow(String(lines[index] || "")));
     }
     const renderCell = function(cell, rowIndex, index, tag) {
       const alignment = alignments[index] || "left";
@@ -39672,9 +39687,7 @@
       }).join("") + "</tr>";
     }).join("") + "</tbody></table></div>";
     return {
-      startLineIndex,
-      endLineIndex,
-      columnCount: headerCells.length,
+      ...range,
       html: html2
     };
   }
@@ -40331,6 +40344,112 @@
       column: Math.min(column, targetText.length)
     };
   }
+  function markdownMathBlockAt(lines, startLineIndex) {
+    if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex >= lines.length) {
+      return null;
+    }
+    if (String(lines[startLineIndex] || "").trim() !== "$$") {
+      return null;
+    }
+    let endLineIndex = lines.length - 1;
+    for (let index = startLineIndex + 1; index < lines.length; index += 1) {
+      if (String(lines[index] || "").trim() === "$$") {
+        endLineIndex = index;
+        break;
+      }
+    }
+    return {
+      startLineIndex,
+      endLineIndex
+    };
+  }
+  function markdownQueryFenceEndLine(lines, startLineIndex) {
+    let endLineIndex = startLineIndex;
+    while (endLineIndex < lines.length - 1) {
+      endLineIndex += 1;
+      if (/^```/.test(String(lines[endLineIndex] || "").trim())) {
+        break;
+      }
+    }
+    return endLineIndex;
+  }
+  function isMarkdownQueryFenceStart(text) {
+    return /^```query(?:\s|$)/i.test(String(text || "").trim());
+  }
+  function scanRenderedBlocks(lines, options) {
+    const blocks = [];
+    const frontmatterLineCount = Math.max(0, Number(options && options.frontmatterLineCount) || 0);
+    const referenceDefinitionStarts = options && options.referenceDefinitionStarts ? options.referenceDefinitionStarts : null;
+    let lineIndex = 0;
+    if (frontmatterLineCount > 0) {
+      blocks.push({
+        kind: "frontmatter",
+        startLineIndex: 0,
+        endLineIndex: Math.min(frontmatterLineCount, lines.length) - 1
+      });
+      lineIndex = frontmatterLineCount;
+    }
+    while (lineIndex < lines.length) {
+      const text = String(lines[lineIndex] || "");
+      const referenceEndLineIndex = referenceDefinitionStarts ? referenceDefinitionStarts.get(lineIndex) : void 0;
+      if (typeof referenceEndLineIndex === "number") {
+        blocks.push({
+          kind: "reference",
+          startLineIndex: lineIndex,
+          endLineIndex: Math.max(lineIndex, referenceEndLineIndex)
+        });
+        lineIndex = Math.max(lineIndex, referenceEndLineIndex) + 1;
+        continue;
+      }
+      const tableRange = markdownTableBlockRangeAt(lines, lineIndex);
+      if (tableRange) {
+        blocks.push({
+          kind: "table",
+          startLineIndex: tableRange.startLineIndex,
+          endLineIndex: tableRange.endLineIndex
+        });
+        lineIndex = tableRange.endLineIndex + 1;
+        continue;
+      }
+      if (isMarkdownQueryFenceStart(text)) {
+        const endLineIndex = markdownQueryFenceEndLine(lines, lineIndex);
+        blocks.push({
+          kind: "query",
+          startLineIndex: lineIndex,
+          endLineIndex
+        });
+        lineIndex = endLineIndex + 1;
+        continue;
+      }
+      const mathBlock = markdownMathBlockAt(lines, lineIndex);
+      if (mathBlock) {
+        blocks.push({
+          kind: "math",
+          startLineIndex: mathBlock.startLineIndex,
+          endLineIndex: mathBlock.endLineIndex
+        });
+        lineIndex = mathBlock.endLineIndex + 1;
+        continue;
+      }
+      const codeBlock = markdownCodeFenceBlockAt(lines, lineIndex);
+      if (codeBlock) {
+        blocks.push({
+          kind: "code",
+          startLineIndex: codeBlock.startLineIndex,
+          endLineIndex: codeBlock.endLineIndex
+        });
+        lineIndex = codeBlock.endLineIndex + 1;
+        continue;
+      }
+      blocks.push({
+        kind: "line",
+        startLineIndex: lineIndex,
+        endLineIndex: lineIndex
+      });
+      lineIndex += 1;
+    }
+    return blocks;
+  }
   function renderedVerticalArrowTarget(lines, key, position) {
     const taskTarget = renderedTaskArrowTarget(lines, key, position);
     if (taskTarget !== null) {
@@ -40905,7 +41024,13 @@
           this.definitions = definitions.slice();
         }
         eq(other) {
-          return JSON.stringify(other.definitions) === JSON.stringify(this.definitions);
+          if (other.definitions.length !== this.definitions.length) {
+            return false;
+          }
+          return this.definitions.every(function(definition, index) {
+            const candidate = other.definitions[index];
+            return candidate.label === definition.label && candidate.target === definition.target && candidate.title === definition.title && candidate.from === definition.from && candidate.to === definition.to;
+          });
         }
         toDOM() {
           const wrapper = document.createElement("div");
@@ -41080,25 +41205,6 @@
       function isMarkdownThematicBreak(text) {
         const source = String(text || "").trim();
         return /^((-\s*){3,}|(\*\s*){3,}|(_\s*){3,})$/.test(source);
-      }
-      function markdownMathBlockAt(lines, startLineIndex) {
-        if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex >= lines.length) {
-          return null;
-        }
-        if (String(lines[startLineIndex] || "").trim() !== "$$") {
-          return null;
-        }
-        let endLineIndex = lines.length - 1;
-        for (let index = startLineIndex + 1; index < lines.length; index += 1) {
-          if (String(lines[index] || "").trim() === "$$") {
-            endLineIndex = index;
-            break;
-          }
-        }
-        return {
-          startLineIndex,
-          endLineIndex
-        };
       }
       function markdownHtmlLineMatch(text) {
         const source = String(text || "").trim();
@@ -42032,7 +42138,7 @@
           );
         }
       }
-      function addInlineDecorations(builder, atomicBuilder, lineFrom, text, startOffset, editingLine, selection, currentPagePath, referenceDefinitions, abbreviationDefinitions, extraDecos) {
+      function addInlineDecorations(specs, lineFrom, text, startOffset, editingLine, selection, currentPagePath, referenceDefinitions, abbreviationDefinitions, extraDecos) {
         const decos = extraDecos.slice();
         const blockedRanges = [];
         const body = text.slice(startOffset);
@@ -42046,11 +42152,383 @@
         decos.sort(function(a, b) {
           return a.from - b.from || a.to - b.to;
         });
-        for (let i = 0; i < decos.length; i += 1) {
-          builder.add(decos[i].from, decos[i].to, decos[i].deco);
-          if (decos[i].atomic) {
-            addAtomicRange(atomicBuilder, decos[i].from, decos[i].to);
+        specs.push(...decos);
+      }
+      function renderedBlockEditingState(block, context) {
+        const startLine = context.state.doc.line(block.startLineIndex + 1);
+        const endLine = context.state.doc.line(block.endLineIndex + 1);
+        return context.selection.from <= endLine.to && context.selection.to >= startLine.from;
+      }
+      function buildFrontmatterBlockSpecs(context) {
+        return [{
+          from: 0,
+          to: context.frontmatterLength,
+          deco: Decoration.replace({
+            block: true
+          }),
+          atomic: true
+        }];
+      }
+      function buildReferenceBlockSpecs(block, context) {
+        const state = context.state;
+        const startLine = state.doc.line(block.startLineIndex + 1);
+        const endLine = state.doc.line(block.endLineIndex + 1);
+        const hiddenTo = block.endLineIndex + 1 < state.doc.lines ? endLine.to + 1 : endLine.to;
+        return [{
+          from: startLine.from,
+          to: hiddenTo,
+          deco: Decoration.replace({ block: true }),
+          atomic: true
+        }];
+      }
+      function buildTableBlockSpecs(block, context) {
+        if (renderedBlockEditingState(block, context)) {
+          return [];
+        }
+        const tableBlock = markdownTableBlockAt(context.lines, block.startLineIndex, {
+          abbreviationDefinitions: context.abbreviationDefinitions,
+          currentPagePath: context.currentPagePath,
+          referenceDefinitions: context.referenceDefinitions
+        });
+        if (!tableBlock) {
+          return [];
+        }
+        const startLine = context.state.doc.line(block.startLineIndex + 1);
+        const endLine = context.state.doc.line(block.endLineIndex + 1);
+        return [{
+          from: startLine.from,
+          to: endLine.to,
+          deco: Decoration.replace({
+            block: true,
+            widget: new MarkdownTableWidget(tableBlock.html, context.viewOnly)
+          }),
+          atomic: true
+        }];
+      }
+      function buildQueryBlockSpecs(block, context) {
+        if (renderedBlockEditingState(block, context)) {
+          return [];
+        }
+        const state = context.state;
+        const startLine = state.doc.line(block.startLineIndex + 1);
+        const endLine = state.doc.line(block.endLineIndex + 1);
+        const blockSource = state.doc.sliceString(startLine.from, endLine.to).replace(/\r\n/g, "\n").trim();
+        const html2 = context.queryBlocks.get(blockSource) || '<div class="embedded-query embedded-query-empty"><small>No results.</small></div>';
+        const startLineNumber = block.startLineIndex + 1;
+        const endLineNumber = block.endLineIndex + 1;
+        const editLineNumber = endLineNumber > startLineNumber + 1 ? startLineNumber + 1 : startLineNumber;
+        return [{
+          from: startLine.from,
+          to: endLine.to,
+          deco: Decoration.replace({
+            block: true,
+            widget: new QueryBlockWidget(html2, editLineNumber, context.viewOnly)
+          }),
+          atomic: true
+        }];
+      }
+      function buildMathBlockSpecs(block, context) {
+        if (renderedBlockEditingState(block, context)) {
+          return [];
+        }
+        const state = context.state;
+        const specs = [];
+        for (let mathLineNumber = block.startLineIndex + 1; mathLineNumber <= block.endLineIndex + 1; mathLineNumber += 1) {
+          const mathLine = state.doc.line(mathLineNumber);
+          if (mathLineNumber === block.startLineIndex + 1 || mathLineNumber === block.endLineIndex + 1) {
+            specs.push({ from: mathLine.from, to: mathLine.from, deco: Decoration.line({ class: "cm-md-math-block-fence" }) });
+            specs.push({ from: mathLine.from, to: mathLine.to, deco: Decoration.replace({}), atomic: true });
+          } else {
+            specs.push({ from: mathLine.from, to: mathLine.from, deco: Decoration.line({ class: "cm-md-math-block-body" }) });
           }
+        }
+        return specs;
+      }
+      function buildCodeBlockSpecs(block, context) {
+        if (renderedBlockEditingState(block, context)) {
+          return [];
+        }
+        const codeBlock = markdownCodeFenceBlockAt(context.lines, block.startLineIndex);
+        if (!codeBlock) {
+          return [];
+        }
+        const state = context.state;
+        const startLineNumber = block.startLineIndex + 1;
+        const bodyLineCount = Math.max(0, codeBlock.content ? codeBlock.content.split("\n").length : 0);
+        const codeBlockKey = codeBlockStateKey(startLineNumber, codeBlock.content, codeBlock.language);
+        const canCollapse = bodyLineCount > collapsedCodeBlockVisibleLines && !context.codeBlocksAlwaysExpanded;
+        const expanded = context.codeBlocksAlwaysExpanded || (canCollapse ? Boolean(context.expandedCodeBlocks[codeBlockKey]) : false);
+        const hiddenLineCount = canCollapse && !expanded ? bodyLineCount - collapsedCodeBlockVisibleLines : 0;
+        const specs = [];
+        for (let codeLineNumber = startLineNumber; codeLineNumber <= codeBlock.endLineIndex + 1; codeLineNumber += 1) {
+          const codeLine = state.doc.line(codeLineNumber);
+          const classNames = ["cm-md-code-block"];
+          let replaceDecoration = null;
+          if (codeLineNumber === startLineNumber) {
+            classNames.push("cm-md-code-block-start");
+            replaceDecoration = Decoration.replace({
+              widget: new CodeToolbarWidget(codeBlock.content, codeBlock.language, codeBlockKey, canCollapse, expanded, hiddenLineCount, context.viewOnly)
+            });
+          } else if (codeLineNumber === codeBlock.endLineIndex + 1) {
+            classNames.push("cm-md-code-block-end", "cm-md-code-fence-hidden");
+            replaceDecoration = Decoration.replace({});
+          } else {
+            classNames.push("cm-md-code-block-body");
+            const bodyLineIndex = codeLineNumber - startLineNumber - 1;
+            if (canCollapse && !expanded && bodyLineIndex >= collapsedCodeBlockVisibleLines) {
+              classNames.push("cm-md-code-block-hidden");
+              specs.push({ from: codeLine.from, to: codeLine.to, deco: null, atomic: true });
+            } else if (canCollapse && !expanded && bodyLineIndex === collapsedCodeBlockVisibleLines - 1) {
+              classNames.push("cm-md-code-block-truncated");
+            }
+          }
+          specs.push({ from: codeLine.from, to: codeLine.from, deco: Decoration.line({ class: classNames.join(" ") }) });
+          if (replaceDecoration) {
+            specs.push({ from: codeLine.from, to: codeLine.to, deco: replaceDecoration, atomic: true });
+          }
+        }
+        return specs;
+      }
+      function buildLineBlockSpecs(block, context) {
+        const state = context.state;
+        const lines = context.lines;
+        const selection = context.selection;
+        const tasks = context.tasks;
+        const viewOnly = context.viewOnly;
+        const currentPagePath = context.currentPagePath;
+        const abbreviationDefinitions = context.abbreviationDefinitions;
+        const referenceDefinitions = context.referenceDefinitions;
+        const specs = [];
+        const lineNumber = block.startLineIndex + 1;
+        const line = state.doc.line(lineNumber);
+        const text = line.text;
+        const from = line.from;
+        const editingLine = selection.from <= line.to && selection.to >= line.from;
+        let inlineStart = 0;
+        const inlineExtraDecos = [];
+        let taskMetaWidget = null;
+        const htmlLine = markdownHtmlLineMatch(text);
+        if (htmlLine) {
+          if (!editingLine) {
+            if (htmlLine.kind === "details_open" || htmlLine.kind === "details_close" || htmlLine.kind === "dl_open" || htmlLine.kind === "dl_close") {
+              specs.push({ from, to: line.to, deco: Decoration.replace({}), atomic: true });
+              return specs;
+            }
+            const innerHTML = renderInline(String(htmlLine.inner || ""), {
+              abbreviationDefinitions,
+              currentPagePath,
+              referenceDefinitions
+            });
+            let className = "cm-md-html-line";
+            let html2 = innerHTML;
+            if (htmlLine.kind === "summary") {
+              className += " cm-md-html-summary";
+              html2 = '<span class="cm-md-html-summary-marker" aria-hidden="true">\u25BE</span><span class="cm-md-html-summary-text">' + innerHTML + "</span>";
+            } else if (htmlLine.kind === "dt") {
+              className += " cm-md-html-dt";
+            } else if (htmlLine.kind === "dd") {
+              className += " cm-md-html-dd";
+            }
+            specs.push({ from, to: from, deco: Decoration.line({ class: className }) });
+            specs.push({ from, to: line.to, deco: Decoration.replace({ widget: new HtmlLineWidget(className, html2) }), atomic: true });
+            return specs;
+          }
+        }
+        let match = text.match(/^(#{1,6})(\s+)/);
+        if (match) {
+          specs.push({ from, to: from, deco: Decoration.line({ class: "cm-md-heading cm-md-heading-" + String(match[1].length) }) });
+          if (editingLine) {
+            specs.push({ from, to: from + match[0].length, deco: Decoration.mark({ class: "cm-md-heading-raw" }) });
+          } else {
+            specs.push({ from, to: from + match[0].length, deco: Decoration.replace({}), atomic: true });
+            inlineStart = match[0].length;
+          }
+        }
+        const quoteMatch = markdownBlockquotePrefixMatch(text);
+        if (quoteMatch) {
+          const previousQuoteMatch = lineNumber > 1 ? markdownBlockquotePrefixMatch(lines[lineNumber - 2] || "") : null;
+          const nextQuoteMatch = lineNumber < lines.length ? markdownBlockquotePrefixMatch(lines[lineNumber] || "") : null;
+          specs.push({
+            from,
+            to: from,
+            deco: Decoration.line({
+              class: "cm-md-quote",
+              attributes: {
+                style: quoteLineStyle(quoteMatch.depth, Boolean(previousQuoteMatch), Boolean(nextQuoteMatch))
+              }
+            })
+          });
+          specs.push({ from, to: from + quoteMatch.prefixLength, deco: Decoration.replace({}), atomic: true });
+          if (quoteMatch.prefixLength > inlineStart) {
+            inlineStart = quoteMatch.prefixLength;
+          }
+        }
+        match = text.match(/^(\s*)-\s+\[([ xX])\]\s+/);
+        if (match) {
+          const task = tasks.get(lineNumber) || {
+            ref: "",
+            text: text.replace(/^(\s*)-\s+\[[ xX]\]\s+/, ""),
+            done: /[xX]/.test(match[2] || ""),
+            due: "",
+            remind: "",
+            who: []
+          };
+          const indentLength = String(match[1] || "").length;
+          const prefixLength = match[0].length;
+          const bodyText = text.slice(prefixLength);
+          specs.push({ from, to: from, deco: Decoration.line({ class: "cm-md-task-line" + (task.done ? " cm-md-task-done" : "") }) });
+          specs.push({ from, to: from + prefixLength, deco: Decoration.replace({ widget: new TaskCheckboxWidget(task.done, task.ref, indentLength, viewOnly) }), atomic: true });
+          inlineStart = prefixLength;
+          if (!viewOnly) {
+            let dateMatch = null;
+            while ((dateMatch = taskInlineDatePattern2.exec(bodyText)) !== null) {
+              const field = String(dateMatch[1] || "");
+              const start = from + prefixLength + dateMatch.index;
+              const end = start + dateMatch[0].length;
+              inlineExtraDecos.push({
+                from: start,
+                to: end,
+                deco: Decoration.mark({
+                  class: "cm-md-task-inline-date",
+                  attributes: {
+                    "data-task-date-edit": field,
+                    "data-task-ref": task.ref || ""
+                  }
+                })
+              });
+            }
+          }
+          taskInlineDatePattern2.lastIndex = 0;
+          if (task.text && bodyText.startsWith(task.text) && task.who && task.who.length) {
+            taskMetaWidget = new TaskMetaWidget(task);
+          }
+        }
+        const listPrefix = markdownListPrefixMatch(text, inlineStart);
+        if (listPrefix) {
+          if (editingLine) {
+            specs.push({
+              from: from + inlineStart,
+              to: from + inlineStart + listPrefix.prefixLength,
+              deco: Decoration.mark({ class: "cm-md-list-raw" })
+            });
+          } else {
+            specs.push({
+              from: from + inlineStart,
+              to: from + inlineStart + listPrefix.prefixLength,
+              deco: Decoration.replace({ widget: new ListMarkerWidget(listPrefix.markerText, listPrefix.prefixLength, listPrefix.indentLength, listPrefix.ordered) }),
+              atomic: true
+            });
+          }
+          inlineStart += listPrefix.prefixLength;
+        }
+        const footnoteDefinition = markdownFootnoteDefinitionMatch(text, inlineStart);
+        if (footnoteDefinition && footnoteDefinition.prefixLength) {
+          if (!editingLine) {
+            specs.push({ from, to: from, deco: Decoration.line({ class: "cm-md-footnote-line" }) });
+            specs.push({
+              from: from + inlineStart,
+              to: from + inlineStart + footnoteDefinition.prefixLength,
+              deco: Decoration.replace({
+                widget: new InlineHTMLWidget(
+                  "cm-md-inline-widget cm-md-footnote-label",
+                  '<sup class="cm-md-footnote-ref">' + escapeHTML(footnoteDefinition.displayLabel) + "</sup>",
+                  {
+                    "--md-prefix-width": String(footnoteDefinition.prefixLength * 0.62) + "rem"
+                  }
+                )
+              }),
+              atomic: true
+            });
+            inlineStart += footnoteDefinition.prefixLength;
+          }
+        } else {
+          const abbreviationDefinition = markdownAbbreviationDefinitionMatch(text, inlineStart);
+          if (abbreviationDefinition && abbreviationDefinition.prefixLength) {
+            if (!editingLine) {
+              specs.push({ from, to: from, deco: Decoration.line({ class: "cm-md-abbr-definition-line" }) });
+              specs.push({
+                from: from + inlineStart,
+                to: from + inlineStart + abbreviationDefinition.prefixLength,
+                deco: Decoration.replace({
+                  widget: new InlineHTMLWidget(
+                    "cm-md-inline-widget cm-md-abbr-definition-label",
+                    '<span class="cm-md-abbr-definition-chip">' + escapeHTML(abbreviationDefinition.label) + "</span>",
+                    {
+                      "--md-prefix-width": String(abbreviationDefinition.prefixLength * 0.62) + "rem"
+                    }
+                  )
+                }),
+                atomic: true
+              });
+              inlineStart += abbreviationDefinition.prefixLength;
+            }
+          } else {
+            const definitionPrefix = markdownDefinitionListPrefixMatch(text, inlineStart);
+            if (definitionPrefix) {
+              if (!editingLine) {
+                specs.push({ from, to: from, deco: Decoration.line({ class: "cm-md-definition-desc" }) });
+                specs.push({
+                  from: from + inlineStart,
+                  to: from + inlineStart + definitionPrefix.prefixLength,
+                  deco: Decoration.replace({
+                    widget: new InlineHTMLWidget(
+                      "cm-md-inline-widget cm-md-definition-marker",
+                      '<span class="cm-md-definition-marker-glyph" aria-hidden="true">\u203A</span>',
+                      {
+                        "--md-prefix-width": String(definitionPrefix.prefixLength * 0.62) + "rem"
+                      }
+                    )
+                  }),
+                  atomic: true
+                });
+                inlineStart += definitionPrefix.prefixLength;
+              }
+            } else if (!editingLine) {
+              const nextLineText = lineNumber < state.doc.lines ? state.doc.line(lineNumber + 1).text : "";
+              if (isMarkdownDefinitionTermLine(text, nextLineText, inlineStart)) {
+                specs.push({ from, to: from, deco: Decoration.line({ class: "cm-md-definition-term" }) });
+              }
+            }
+          }
+        }
+        if (isMarkdownThematicBreak(text) && !editingLine) {
+          specs.push({ from, to: from, deco: Decoration.line({ class: "cm-md-rule-line" }) });
+          specs.push({ from, to: line.to, deco: Decoration.replace({ widget: new ThematicBreakWidget() }), atomic: true });
+          return specs;
+        }
+        addInlineDecorations(
+          specs,
+          from,
+          text,
+          inlineStart,
+          editingLine,
+          selection,
+          currentPagePath,
+          referenceDefinitions,
+          abbreviationDefinitions,
+          inlineExtraDecos
+        );
+        if (taskMetaWidget) {
+          specs.push({ from: line.to, to: line.to, deco: Decoration.widget({ widget: taskMetaWidget, side: 1 }) });
+        }
+        return specs;
+      }
+      function buildRenderedBlockSpecs(block, context) {
+        switch (block.kind) {
+          case "frontmatter":
+            return buildFrontmatterBlockSpecs(context);
+          case "reference":
+            return buildReferenceBlockSpecs(block, context);
+          case "table":
+            return buildTableBlockSpecs(block, context);
+          case "query":
+            return buildQueryBlockSpecs(block, context);
+          case "math":
+            return buildMathBlockSpecs(block, context);
+          case "code":
+            return buildCodeBlockSpecs(block, context);
+          case "line":
+            return buildLineBlockSpecs(block, context);
         }
       }
       function buildRenderedDecorations(state) {
@@ -42060,403 +42538,59 @@
             atomicRanges: Decoration.none
           };
         }
-        const builder = new RangeSetBuilder();
-        const atomicBuilder = new RangeSetBuilder();
-        const queryBlocks = state.field(queryBlocksField);
-        const tasks = state.field(tasksField);
-        const expandedCodeBlocks = state.field(expandedCodeBlocksField);
-        const codeBlocksAlwaysExpanded = state.field(codeBlocksAlwaysExpandedField);
-        const viewOnly = state.field(viewOnlyField, false);
+        const viewOnly = Boolean(state.field(viewOnlyField, false));
         const selection = viewOnly ? {
           from: -1,
           to: -1,
           head: -1,
           empty: true
         } : state.selection.main;
-        const currentPagePath = state.field(pagePathField);
         const markdown2 = state.doc.toString();
         const lines = markdown2.split("\n");
-        const abbreviationDefinitions = markdownAbbreviationDefinitions(markdown2);
         const referenceDefinitions = markdownReferenceDefinitions(markdown2);
         const referenceDefinitionStarts = /* @__PURE__ */ new Map();
         const referenceDefinitionEntries = [];
+        let editingReferenceDefinitions = false;
         referenceDefinitions.forEach(function(definition) {
-          const fromLine = state.doc.lineAt(definition.from).number;
-          const toLine = state.doc.lineAt(Math.max(definition.from, definition.to - 1)).number;
-          const entry = {
-            definition,
-            endLineNumber: toLine
-          };
-          referenceDefinitionStarts.set(fromLine, entry);
-          referenceDefinitionEntries.push(entry);
+          const startLine = state.doc.lineAt(definition.from);
+          const endLine = state.doc.lineAt(Math.max(definition.from, definition.to - 1));
+          referenceDefinitionStarts.set(startLine.number - 1, endLine.number - 1);
+          referenceDefinitionEntries.push(definition);
+          if (selection.from <= endLine.to && selection.to >= startLine.from) {
+            editingReferenceDefinitions = true;
+          }
         });
-        const editingReferenceDefinitions = referenceDefinitionEntries.some(function(entry) {
-          const startLine = state.doc.lineAt(entry.definition.from);
-          const endLine = state.doc.line(entry.endLineNumber);
-          return selection.from <= endLine.to && selection.to >= startLine.from;
-        });
-        let hiddenFrontmatterUntil = 0;
         const frontmatter = splitFrontmatter(markdown2).frontmatter;
-        if (frontmatter) {
-          builder.add(
-            0,
-            frontmatter.length,
-            Decoration.replace({
-              block: true
-            })
-          );
-          addAtomicRange(atomicBuilder, 0, frontmatter.length);
-          hiddenFrontmatterUntil = frontmatter.split("\n").length - 1;
-        }
-        for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
-          if (lineNumber <= hiddenFrontmatterUntil) {
-            continue;
-          }
-          const line = state.doc.line(lineNumber);
-          const text = line.text;
-          const from = line.from;
-          const editingLine = selection.from <= line.to && selection.to >= line.from;
-          const referenceDefinitionEntry = referenceDefinitionStarts.get(lineNumber);
-          if (referenceDefinitionEntry && !editingReferenceDefinitions) {
-            const endLine = state.doc.line(referenceDefinitionEntry.endLineNumber);
-            const hiddenTo = referenceDefinitionEntry.endLineNumber < state.doc.lines ? endLine.to + 1 : endLine.to;
-            builder.add(line.from, hiddenTo, Decoration.replace({ block: true }));
-            addAtomicRange(atomicBuilder, line.from, hiddenTo);
-            lineNumber = referenceDefinitionEntry.endLineNumber;
-            continue;
-          }
-          const tableBlock = markdownTableBlockAt(lines, lineNumber - 1, {
-            abbreviationDefinitions,
-            currentPagePath,
-            referenceDefinitions
-          });
-          if (tableBlock) {
-            const tableEndLine = state.doc.line(tableBlock.endLineIndex + 1);
-            const editingTable = selection.from <= tableEndLine.to && selection.to >= line.from;
-            if (editingTable) {
-              lineNumber = tableBlock.endLineIndex + 1;
-              continue;
+        const context = {
+          state,
+          lines,
+          selection,
+          viewOnly,
+          currentPagePath: state.field(pagePathField),
+          tasks: state.field(tasksField),
+          queryBlocks: state.field(queryBlocksField),
+          expandedCodeBlocks: state.field(expandedCodeBlocksField),
+          codeBlocksAlwaysExpanded: state.field(codeBlocksAlwaysExpandedField),
+          abbreviationDefinitions: markdownAbbreviationDefinitions(markdown2),
+          referenceDefinitions,
+          frontmatterLength: frontmatter.length
+        };
+        const blocks = scanRenderedBlocks(lines, {
+          frontmatterLineCount: frontmatter ? frontmatter.split("\n").length - 1 : 0,
+          referenceDefinitionStarts: editingReferenceDefinitions ? null : referenceDefinitionStarts
+        });
+        const builder = new RangeSetBuilder();
+        const atomicBuilder = new RangeSetBuilder();
+        for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
+          const specs = buildRenderedBlockSpecs(blocks[blockIndex], context);
+          for (let specIndex = 0; specIndex < specs.length; specIndex += 1) {
+            const spec = specs[specIndex];
+            if (spec.deco) {
+              builder.add(spec.from, spec.to, spec.deco);
             }
-            builder.add(
-              line.from,
-              tableEndLine.to,
-              Decoration.replace({
-                block: true,
-                widget: new MarkdownTableWidget(tableBlock.html, viewOnly)
-              })
-            );
-            addAtomicRange(atomicBuilder, line.from, tableEndLine.to);
-            lineNumber = tableBlock.endLineIndex + 1;
-            continue;
-          }
-          if (/^```query(?:\s|$)/i.test(text.trim())) {
-            let endLineNumber = lineNumber;
-            while (endLineNumber < state.doc.lines) {
-              const candidate = state.doc.line(endLineNumber + 1);
-              endLineNumber += 1;
-              if (/^```/.test(candidate.text.trim())) {
-                break;
-              }
+            if (spec.atomic) {
+              addAtomicRange(atomicBuilder, spec.from, spec.to);
             }
-            const endLine = state.doc.line(endLineNumber);
-            const editingQuery = selection.from <= endLine.to && selection.to >= line.from;
-            if (editingQuery) {
-              lineNumber = endLineNumber;
-              continue;
-            }
-            const blockSource = state.doc.sliceString(line.from, endLine.to).replace(/\r\n/g, "\n").trim();
-            const html2 = queryBlocks.get(blockSource) || '<div class="embedded-query embedded-query-empty"><small>No results.</small></div>';
-            const editLineNumber = endLineNumber > lineNumber + 1 ? lineNumber + 1 : lineNumber;
-            builder.add(
-              line.from,
-              endLine.to,
-              Decoration.replace({
-                block: true,
-                widget: new QueryBlockWidget(html2, editLineNumber, viewOnly)
-              })
-            );
-            addAtomicRange(atomicBuilder, line.from, endLine.to);
-            lineNumber = endLineNumber;
-            continue;
-          }
-          const mathBlock = markdownMathBlockAt(lines, lineNumber - 1);
-          if (mathBlock) {
-            const endLine = state.doc.line(mathBlock.endLineIndex + 1);
-            const editingMathBlock = selection.from <= endLine.to && selection.to >= line.from;
-            if (editingMathBlock) {
-              lineNumber = mathBlock.endLineIndex + 1;
-              continue;
-            }
-            for (let mathLineNumber = lineNumber; mathLineNumber <= mathBlock.endLineIndex + 1; mathLineNumber += 1) {
-              const mathLine = state.doc.line(mathLineNumber);
-              if (mathLineNumber === lineNumber || mathLineNumber === mathBlock.endLineIndex + 1) {
-                builder.add(mathLine.from, mathLine.from, Decoration.line({ class: "cm-md-math-block-fence" }));
-                builder.add(mathLine.from, mathLine.to, Decoration.replace({}));
-                addAtomicRange(atomicBuilder, mathLine.from, mathLine.to);
-              } else {
-                builder.add(mathLine.from, mathLine.from, Decoration.line({ class: "cm-md-math-block-body" }));
-              }
-            }
-            lineNumber = mathBlock.endLineIndex + 1;
-            continue;
-          }
-          const codeBlock = markdownCodeFenceBlockAt(lines, lineNumber - 1);
-          if (codeBlock) {
-            const endLine = state.doc.line(codeBlock.endLineIndex + 1);
-            const editingCodeBlock = selection.from <= endLine.to && selection.to >= line.from;
-            if (editingCodeBlock) {
-              lineNumber = codeBlock.endLineIndex + 1;
-              continue;
-            }
-            const bodyLineCount = Math.max(0, codeBlock.content ? codeBlock.content.split("\n").length : 0);
-            const codeBlockKey = codeBlockStateKey(lineNumber, codeBlock.content, codeBlock.language);
-            const canCollapse = bodyLineCount > collapsedCodeBlockVisibleLines && !codeBlocksAlwaysExpanded;
-            const expanded = codeBlocksAlwaysExpanded || (canCollapse ? Boolean(expandedCodeBlocks[codeBlockKey]) : false);
-            const hiddenLineCount = canCollapse && !expanded ? bodyLineCount - collapsedCodeBlockVisibleLines : 0;
-            for (let codeLineNumber = lineNumber; codeLineNumber <= codeBlock.endLineIndex + 1; codeLineNumber += 1) {
-              const codeLine = state.doc.line(codeLineNumber);
-              const classNames = ["cm-md-code-block"];
-              let replaceDecoration = null;
-              if (codeLineNumber === lineNumber) {
-                classNames.push("cm-md-code-block-start");
-                replaceDecoration = Decoration.replace({
-                  widget: new CodeToolbarWidget(codeBlock.content, codeBlock.language, codeBlockKey, canCollapse, expanded, hiddenLineCount, viewOnly)
-                });
-              } else if (codeLineNumber === codeBlock.endLineIndex + 1) {
-                classNames.push("cm-md-code-block-end", "cm-md-code-fence-hidden");
-                replaceDecoration = Decoration.replace({});
-              } else {
-                classNames.push("cm-md-code-block-body");
-                const bodyLineIndex = codeLineNumber - lineNumber - 1;
-                if (canCollapse && !expanded && bodyLineIndex >= collapsedCodeBlockVisibleLines) {
-                  classNames.push("cm-md-code-block-hidden");
-                  addAtomicRange(atomicBuilder, codeLine.from, codeLine.to);
-                } else if (canCollapse && !expanded && bodyLineIndex === collapsedCodeBlockVisibleLines - 1) {
-                  classNames.push("cm-md-code-block-truncated");
-                }
-              }
-              builder.add(codeLine.from, codeLine.from, Decoration.line({ class: classNames.join(" ") }));
-              if (replaceDecoration) {
-                builder.add(codeLine.from, codeLine.to, replaceDecoration);
-                addAtomicRange(atomicBuilder, codeLine.from, codeLine.to);
-              }
-            }
-            lineNumber = codeBlock.endLineIndex + 1;
-            continue;
-          }
-          let inlineStart = 0;
-          const inlineExtraDecos = [];
-          let taskMetaWidget = null;
-          const htmlLine = markdownHtmlLineMatch(text);
-          if (htmlLine) {
-            if (!editingLine) {
-              if (htmlLine.kind === "details_open" || htmlLine.kind === "details_close" || htmlLine.kind === "dl_open" || htmlLine.kind === "dl_close") {
-                builder.add(from, line.to, Decoration.replace({}));
-                addAtomicRange(atomicBuilder, from, line.to);
-                continue;
-              }
-              const innerHTML = renderInline(String(htmlLine.inner || ""), {
-                abbreviationDefinitions,
-                currentPagePath,
-                referenceDefinitions
-              });
-              let className = "cm-md-html-line";
-              let html2 = innerHTML;
-              if (htmlLine.kind === "summary") {
-                className += " cm-md-html-summary";
-                html2 = '<span class="cm-md-html-summary-marker" aria-hidden="true">\u25BE</span><span class="cm-md-html-summary-text">' + innerHTML + "</span>";
-              } else if (htmlLine.kind === "dt") {
-                className += " cm-md-html-dt";
-              } else if (htmlLine.kind === "dd") {
-                className += " cm-md-html-dd";
-              }
-              builder.add(from, from, Decoration.line({ class: className }));
-              builder.add(from, line.to, Decoration.replace({ widget: new HtmlLineWidget(className, html2) }));
-              addAtomicRange(atomicBuilder, from, line.to);
-              continue;
-            }
-          }
-          let match = text.match(/^(#{1,6})(\s+)/);
-          if (match) {
-            builder.add(from, from, Decoration.line({ class: "cm-md-heading cm-md-heading-" + String(match[1].length) }));
-            if (editingLine) {
-              builder.add(from, from + match[0].length, Decoration.mark({ class: "cm-md-heading-raw" }));
-            } else {
-              builder.add(from, from + match[0].length, Decoration.replace({}));
-              addAtomicRange(atomicBuilder, from, from + match[0].length);
-              inlineStart = match[0].length;
-            }
-          }
-          const quoteMatch = markdownBlockquotePrefixMatch(text);
-          if (quoteMatch) {
-            const previousQuoteMatch = lineNumber > 1 ? markdownBlockquotePrefixMatch(lines[lineNumber - 2] || "") : null;
-            const nextQuoteMatch = lineNumber < lines.length ? markdownBlockquotePrefixMatch(lines[lineNumber] || "") : null;
-            builder.add(
-              from,
-              from,
-              Decoration.line({
-                class: "cm-md-quote",
-                attributes: {
-                  style: quoteLineStyle(quoteMatch.depth, Boolean(previousQuoteMatch), Boolean(nextQuoteMatch))
-                }
-              })
-            );
-            builder.add(from, from + quoteMatch.prefixLength, Decoration.replace({}));
-            addAtomicRange(atomicBuilder, from, from + quoteMatch.prefixLength);
-            if (quoteMatch.prefixLength > inlineStart) {
-              inlineStart = quoteMatch.prefixLength;
-            }
-          }
-          match = text.match(/^(\s*)-\s+\[([ xX])\]\s+/);
-          if (match) {
-            const task = tasks.get(lineNumber) || {
-              ref: "",
-              text: text.replace(/^(\s*)-\s+\[[ xX]\]\s+/, ""),
-              done: /[xX]/.test(match[2] || ""),
-              due: "",
-              remind: "",
-              who: []
-            };
-            const indentLength = String(match[1] || "").length;
-            const prefixLength = match[0].length;
-            const bodyText = text.slice(prefixLength);
-            builder.add(from, from, Decoration.line({ class: "cm-md-task-line" + (task.done ? " cm-md-task-done" : "") }));
-            builder.add(from, from + prefixLength, Decoration.replace({ widget: new TaskCheckboxWidget(task.done, task.ref, indentLength, viewOnly) }));
-            addAtomicRange(atomicBuilder, from, from + prefixLength);
-            inlineStart = prefixLength;
-            if (!viewOnly) {
-              let dateMatch = null;
-              while ((dateMatch = taskInlineDatePattern2.exec(bodyText)) !== null) {
-                const field = String(dateMatch[1] || "");
-                const start = from + prefixLength + dateMatch.index;
-                const end = start + dateMatch[0].length;
-                inlineExtraDecos.push({
-                  from: start,
-                  to: end,
-                  deco: Decoration.mark({
-                    class: "cm-md-task-inline-date",
-                    attributes: {
-                      "data-task-date-edit": field,
-                      "data-task-ref": task.ref || ""
-                    }
-                  })
-                });
-              }
-            }
-            taskInlineDatePattern2.lastIndex = 0;
-            if (task.text && bodyText.startsWith(task.text) && task.who && task.who.length) {
-              taskMetaWidget = new TaskMetaWidget(task);
-            }
-          }
-          const listPrefix = markdownListPrefixMatch(text, inlineStart);
-          if (listPrefix) {
-            if (editingLine) {
-              builder.add(
-                from + inlineStart,
-                from + inlineStart + listPrefix.prefixLength,
-                Decoration.mark({ class: "cm-md-list-raw" })
-              );
-            } else {
-              builder.add(
-                from + inlineStart,
-                from + inlineStart + listPrefix.prefixLength,
-                Decoration.replace({ widget: new ListMarkerWidget(listPrefix.markerText, listPrefix.prefixLength, listPrefix.indentLength, listPrefix.ordered) })
-              );
-              addAtomicRange(atomicBuilder, from + inlineStart, from + inlineStart + listPrefix.prefixLength);
-            }
-            inlineStart += listPrefix.prefixLength;
-          }
-          const footnoteDefinition = markdownFootnoteDefinitionMatch(text, inlineStart);
-          if (footnoteDefinition && footnoteDefinition.prefixLength) {
-            if (!editingLine) {
-              builder.add(from, from, Decoration.line({ class: "cm-md-footnote-line" }));
-              builder.add(
-                from + inlineStart,
-                from + inlineStart + footnoteDefinition.prefixLength,
-                Decoration.replace({
-                  widget: new InlineHTMLWidget(
-                    "cm-md-inline-widget cm-md-footnote-label",
-                    '<sup class="cm-md-footnote-ref">' + escapeHTML(footnoteDefinition.displayLabel) + "</sup>",
-                    {
-                      "--md-prefix-width": String(footnoteDefinition.prefixLength * 0.62) + "rem"
-                    }
-                  )
-                })
-              );
-              addAtomicRange(atomicBuilder, from + inlineStart, from + inlineStart + footnoteDefinition.prefixLength);
-              inlineStart += footnoteDefinition.prefixLength;
-            }
-          } else {
-            const abbreviationDefinition = markdownAbbreviationDefinitionMatch(text, inlineStart);
-            if (abbreviationDefinition && abbreviationDefinition.prefixLength) {
-              if (!editingLine) {
-                builder.add(from, from, Decoration.line({ class: "cm-md-abbr-definition-line" }));
-                builder.add(
-                  from + inlineStart,
-                  from + inlineStart + abbreviationDefinition.prefixLength,
-                  Decoration.replace({
-                    widget: new InlineHTMLWidget(
-                      "cm-md-inline-widget cm-md-abbr-definition-label",
-                      '<span class="cm-md-abbr-definition-chip">' + escapeHTML(abbreviationDefinition.label) + "</span>",
-                      {
-                        "--md-prefix-width": String(abbreviationDefinition.prefixLength * 0.62) + "rem"
-                      }
-                    )
-                  })
-                );
-                addAtomicRange(atomicBuilder, from + inlineStart, from + inlineStart + abbreviationDefinition.prefixLength);
-                inlineStart += abbreviationDefinition.prefixLength;
-              }
-            } else {
-              const definitionPrefix = markdownDefinitionListPrefixMatch(text, inlineStart);
-              if (definitionPrefix) {
-                if (!editingLine) {
-                  builder.add(from, from, Decoration.line({ class: "cm-md-definition-desc" }));
-                  builder.add(
-                    from + inlineStart,
-                    from + inlineStart + definitionPrefix.prefixLength,
-                    Decoration.replace({
-                      widget: new InlineHTMLWidget(
-                        "cm-md-inline-widget cm-md-definition-marker",
-                        '<span class="cm-md-definition-marker-glyph" aria-hidden="true">\u203A</span>',
-                        {
-                          "--md-prefix-width": String(definitionPrefix.prefixLength * 0.62) + "rem"
-                        }
-                      )
-                    })
-                  );
-                  addAtomicRange(atomicBuilder, from + inlineStart, from + inlineStart + definitionPrefix.prefixLength);
-                  inlineStart += definitionPrefix.prefixLength;
-                }
-              } else if (!editingLine) {
-                const nextLineText = lineNumber < state.doc.lines ? state.doc.line(lineNumber + 1).text : "";
-                if (isMarkdownDefinitionTermLine(text, nextLineText, inlineStart)) {
-                  builder.add(from, from, Decoration.line({ class: "cm-md-definition-term" }));
-                }
-              }
-            }
-          }
-          if (isMarkdownThematicBreak(text) && !editingLine) {
-            builder.add(from, from, Decoration.line({ class: "cm-md-rule-line" }));
-            builder.add(from, line.to, Decoration.replace({ widget: new ThematicBreakWidget() }));
-            addAtomicRange(atomicBuilder, from, line.to);
-            continue;
-          }
-          addInlineDecorations(
-            builder,
-            atomicBuilder,
-            from,
-            text,
-            inlineStart,
-            editingLine,
-            selection,
-            currentPagePath,
-            referenceDefinitions,
-            abbreviationDefinitions,
-            inlineExtraDecos
-          );
-          if (taskMetaWidget) {
-            builder.add(line.to, line.to, Decoration.widget({ widget: taskMetaWidget, side: 1 }));
           }
         }
         if (referenceDefinitionEntries.length && !editingReferenceDefinitions) {
@@ -42466,9 +42600,7 @@
             Decoration.widget({
               block: true,
               side: 1,
-              widget: new ReferenceDefinitionsWidget(referenceDefinitionEntries.map(function(entry) {
-                return entry.definition;
-              }))
+              widget: new ReferenceDefinitionsWidget(referenceDefinitionEntries)
             })
           );
         }

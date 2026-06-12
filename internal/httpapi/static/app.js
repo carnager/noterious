@@ -17258,7 +17258,7 @@
     const source = String(line || "").trim();
     return source.indexOf("|") >= 0 && splitMarkdownTableRow(source).length >= 2;
   }
-  function markdownTableBlockAt(lines, startLineIndex, options) {
+  function markdownTableBlockRangeAt(lines, startLineIndex) {
     if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex + 1 >= lines.length) {
       return null;
     }
@@ -17271,6 +17271,27 @@
     if (headerCells.length < 2) {
       return null;
     }
+    let endLineIndex = startLineIndex + 1;
+    for (let index = startLineIndex + 2; index < lines.length; index += 1) {
+      if (!looksLikeMarkdownTableRow(String(lines[index] || ""))) {
+        break;
+      }
+      endLineIndex = index;
+    }
+    return {
+      startLineIndex,
+      endLineIndex,
+      columnCount: headerCells.length
+    };
+  }
+  function markdownTableBlockAt(lines, startLineIndex, options) {
+    const range = markdownTableBlockRangeAt(lines, startLineIndex);
+    if (!range) {
+      return null;
+    }
+    const headerLine = String(lines[startLineIndex] || "");
+    const separatorLine = String(lines[startLineIndex + 1] || "");
+    const headerCells = splitMarkdownTableRow(headerLine);
     const alignments = splitMarkdownTableRow(separatorLine).map(function(cell) {
       const text = String(cell || "");
       const left = text.startsWith(":");
@@ -17284,14 +17305,8 @@
       return "left";
     });
     const rows = [];
-    let endLineIndex = startLineIndex + 1;
-    for (let index = startLineIndex + 2; index < lines.length; index += 1) {
-      const rowLine = String(lines[index] || "");
-      if (!looksLikeMarkdownTableRow(rowLine)) {
-        break;
-      }
-      rows.push(splitMarkdownTableRow(rowLine));
-      endLineIndex = index;
+    for (let index = startLineIndex + 2; index <= range.endLineIndex; index += 1) {
+      rows.push(splitMarkdownTableRow(String(lines[index] || "")));
     }
     const renderCell = function(cell, rowIndex, index, tag) {
       const alignment = alignments[index] || "left";
@@ -17305,9 +17320,7 @@
       }).join("") + "</tr>";
     }).join("") + "</tbody></table></div>";
     return {
-      startLineIndex,
-      endLineIndex,
-      columnCount: headerCells.length,
+      ...range,
       html
     };
   }

@@ -12,7 +12,7 @@ import {
   markdownDefinitionListPrefixMatch,
   markdownFootnoteDefinitionMatch,
 } from "./markdownExtensions";
-import { markdownCodeFenceBlockAt, markdownTableBlockAt } from "./markdown";
+import { markdownCodeFenceBlockAt, markdownTableBlockAt, markdownTableBlockRangeAt } from "./markdown";
 import {
   renderedTaskRawColumn,
   renderedTaskVisibleColumn,
@@ -273,6 +273,182 @@ export function renderedCodeBlockArrowTarget(
     lineIndex: targetLineIndex,
     column: Math.min(column, targetText.length),
   };
+}
+
+export interface MarkdownMathBlock {
+  startLineIndex: number;
+  endLineIndex: number;
+}
+
+export function markdownMathBlockAt(lines: string[], startLineIndex: number): MarkdownMathBlock | null {
+  if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex >= lines.length) {
+    return null;
+  }
+  if (String(lines[startLineIndex] || "").trim() !== "$$") {
+    return null;
+  }
+
+  let endLineIndex = lines.length - 1;
+  for (let index = startLineIndex + 1; index < lines.length; index += 1) {
+    if (String(lines[index] || "").trim() === "$$") {
+      endLineIndex = index;
+      break;
+    }
+  }
+
+  return {
+    startLineIndex,
+    endLineIndex,
+  };
+}
+
+export function markdownQueryFenceEndLine(lines: string[], startLineIndex: number): number {
+  let endLineIndex = startLineIndex;
+  while (endLineIndex < lines.length - 1) {
+    endLineIndex += 1;
+    if (/^```/.test(String(lines[endLineIndex] || "").trim())) {
+      break;
+    }
+  }
+  return endLineIndex;
+}
+
+export function isMarkdownQueryFenceStart(text: string): boolean {
+  return /^```query(?:\s|$)/i.test(String(text || "").trim());
+}
+
+export type RenderedBlockKind =
+  | "frontmatter"
+  | "reference"
+  | "table"
+  | "query"
+  | "math"
+  | "code"
+  | "line";
+
+// One rendered block: a contiguous run of raw lines the rendered layer treats
+// as a unit (a widget, a hidden range, or a single visible line). Line
+// indexes are 0-based and inclusive.
+export interface RenderedBlockRange {
+  kind: RenderedBlockKind;
+  startLineIndex: number;
+  endLineIndex: number;
+}
+
+export interface RenderedBlockScanOptions {
+  // Number of leading lines hidden as frontmatter (0 when none).
+  frontmatterLineCount?: number;
+  // Reference-definition runs to hide, keyed by 0-based start line index.
+  // Omit entries (or the map) while definitions are being edited — the lines
+  // then scan as ordinary blocks, matching the rendered reveal behavior.
+  referenceDefinitionStarts?: Map<number, number> | null;
+}
+
+// Partition the document into rendered blocks. Mirrors the walk order of the
+// decoration builder: frontmatter, then per line reference definitions,
+// tables, query fences, math fences, code fences, and single visible lines.
+export function scanRenderedBlocks(lines: string[], options?: RenderedBlockScanOptions): RenderedBlockRange[] {
+  const blocks: RenderedBlockRange[] = [];
+  const frontmatterLineCount = Math.max(0, Number(options && options.frontmatterLineCount) || 0);
+  const referenceDefinitionStarts = options && options.referenceDefinitionStarts
+    ? options.referenceDefinitionStarts
+    : null;
+
+  let lineIndex = 0;
+  if (frontmatterLineCount > 0) {
+    blocks.push({
+      kind: "frontmatter",
+      startLineIndex: 0,
+      endLineIndex: Math.min(frontmatterLineCount, lines.length) - 1,
+    });
+    lineIndex = frontmatterLineCount;
+  }
+
+  while (lineIndex < lines.length) {
+    const text = String(lines[lineIndex] || "");
+
+    const referenceEndLineIndex = referenceDefinitionStarts ? referenceDefinitionStarts.get(lineIndex) : undefined;
+    if (typeof referenceEndLineIndex === "number") {
+      blocks.push({
+        kind: "reference",
+        startLineIndex: lineIndex,
+        endLineIndex: Math.max(lineIndex, referenceEndLineIndex),
+      });
+      lineIndex = Math.max(lineIndex, referenceEndLineIndex) + 1;
+      continue;
+    }
+
+    const tableRange = markdownTableBlockRangeAt(lines, lineIndex);
+    if (tableRange) {
+      blocks.push({
+        kind: "table",
+        startLineIndex: tableRange.startLineIndex,
+        endLineIndex: tableRange.endLineIndex,
+      });
+      lineIndex = tableRange.endLineIndex + 1;
+      continue;
+    }
+
+    if (isMarkdownQueryFenceStart(text)) {
+      const endLineIndex = markdownQueryFenceEndLine(lines, lineIndex);
+      blocks.push({
+        kind: "query",
+        startLineIndex: lineIndex,
+        endLineIndex,
+      });
+      lineIndex = endLineIndex + 1;
+      continue;
+    }
+
+    const mathBlock = markdownMathBlockAt(lines, lineIndex);
+    if (mathBlock) {
+      blocks.push({
+        kind: "math",
+        startLineIndex: mathBlock.startLineIndex,
+        endLineIndex: mathBlock.endLineIndex,
+      });
+      lineIndex = mathBlock.endLineIndex + 1;
+      continue;
+    }
+
+    const codeBlock = markdownCodeFenceBlockAt(lines, lineIndex);
+    if (codeBlock) {
+      blocks.push({
+        kind: "code",
+        startLineIndex: codeBlock.startLineIndex,
+        endLineIndex: codeBlock.endLineIndex,
+      });
+      lineIndex = codeBlock.endLineIndex + 1;
+      continue;
+    }
+
+    blocks.push({
+      kind: "line",
+      startLineIndex: lineIndex,
+      endLineIndex: lineIndex,
+    });
+    lineIndex += 1;
+  }
+
+  return blocks;
+}
+
+// Which rendered block contains the given 0-based line index.
+export function renderedBlockContaining(blocks: RenderedBlockRange[], lineIndex: number): RenderedBlockRange | null {
+  let low = 0;
+  let high = blocks.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    const block = blocks[middle];
+    if (lineIndex < block.startLineIndex) {
+      high = middle - 1;
+    } else if (lineIndex > block.endLineIndex) {
+      low = middle + 1;
+    } else {
+      return block;
+    }
+  }
+  return null;
 }
 
 // Combined vertical arrow target for rendered mode: task columns first, then

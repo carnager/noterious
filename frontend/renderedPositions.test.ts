@@ -4,12 +4,15 @@ import {
   codeBlockEndingAtLine,
   markdownBlockquotePrefixMatch,
   markdownListPrefixMatch,
+  markdownMathBlockAt,
+  renderedBlockContaining,
   renderedCodeBlockArrowTarget,
   renderedHiddenPrefixLength,
   renderedTableArrowTarget,
   renderedTaskArrowTarget,
   renderedVerticalArrowTarget,
   renderedVisibleColumn,
+  scanRenderedBlocks,
   tableBlockEndingAtLine,
 } from "./renderedPositions";
 
@@ -197,5 +200,86 @@ describe("renderedVerticalArrowTarget", function () {
     const lines = ["- [ ] Alpha", "- [ ] Bravo"];
     const target = renderedVerticalArrowTarget(lines, "ArrowDown", { lineIndex: 0, column: 7 });
     expect(target).toEqual({ lineIndex: 1, column: 7 });
+  });
+});
+
+describe("markdownMathBlockAt", function () {
+  it("finds a closed math fence", function () {
+    expect(markdownMathBlockAt(["$$", "x^2", "$$", "after"], 0)).toEqual({ startLineIndex: 0, endLineIndex: 2 });
+  });
+
+  it("extends an unclosed math fence to the last line", function () {
+    expect(markdownMathBlockAt(["$$", "x^2"], 0)).toEqual({ startLineIndex: 0, endLineIndex: 1 });
+  });
+
+  it("returns null when the line is not a math fence", function () {
+    expect(markdownMathBlockAt(["x^2"], 0)).toBeNull();
+  });
+});
+
+describe("scanRenderedBlocks", function () {
+  it("partitions a document into rendered blocks", function () {
+    const lines = [
+      "# Title",
+      "",
+      "| A | B |",
+      "| --- | --- |",
+      "| 1 | 2 |",
+      "```query",
+      "tag:foo",
+      "```",
+      "$$",
+      "x^2",
+      "$$",
+      "```js",
+      "const a = 1;",
+      "```",
+      "tail",
+    ];
+    expect(scanRenderedBlocks(lines)).toEqual([
+      { kind: "line", startLineIndex: 0, endLineIndex: 0 },
+      { kind: "line", startLineIndex: 1, endLineIndex: 1 },
+      { kind: "table", startLineIndex: 2, endLineIndex: 4 },
+      { kind: "query", startLineIndex: 5, endLineIndex: 7 },
+      { kind: "math", startLineIndex: 8, endLineIndex: 10 },
+      { kind: "code", startLineIndex: 11, endLineIndex: 13 },
+      { kind: "line", startLineIndex: 14, endLineIndex: 14 },
+    ]);
+  });
+
+  it("hides frontmatter lines as a single block", function () {
+    const lines = ["---", "title: Note", "---", "body"];
+    expect(scanRenderedBlocks(lines, { frontmatterLineCount: 3 })).toEqual([
+      { kind: "frontmatter", startLineIndex: 0, endLineIndex: 2 },
+      { kind: "line", startLineIndex: 3, endLineIndex: 3 },
+    ]);
+  });
+
+  it("treats reference definition runs as blocks when provided", function () {
+    const lines = ["text", "[ref]: https://example.com", "tail"];
+    const referenceDefinitionStarts = new Map<number, number>([[1, 1]]);
+    expect(scanRenderedBlocks(lines, { referenceDefinitionStarts })).toEqual([
+      { kind: "line", startLineIndex: 0, endLineIndex: 0 },
+      { kind: "reference", startLineIndex: 1, endLineIndex: 1 },
+      { kind: "line", startLineIndex: 2, endLineIndex: 2 },
+    ]);
+  });
+
+  it("covers every line exactly once", function () {
+    const lines = ["a", "```", "unclosed fence", "still inside"];
+    const blocks = scanRenderedBlocks(lines);
+    expect(blocks[0]).toEqual({ kind: "line", startLineIndex: 0, endLineIndex: 0 });
+    expect(blocks[1]).toEqual({ kind: "code", startLineIndex: 1, endLineIndex: 3 });
+    expect(blocks.length).toBe(2);
+  });
+});
+
+describe("renderedBlockContaining", function () {
+  it("finds the block containing a line", function () {
+    const blocks = scanRenderedBlocks(["a", "```", "b", "```", "c"]);
+    expect(renderedBlockContaining(blocks, 0)?.kind).toBe("line");
+    expect(renderedBlockContaining(blocks, 2)?.kind).toBe("code");
+    expect(renderedBlockContaining(blocks, 4)?.kind).toBe("line");
+    expect(renderedBlockContaining(blocks, 9)).toBeNull();
   });
 });

@@ -38,10 +38,13 @@ export interface WikiLinkMatch {
   label: string;
 }
 
-export interface MarkdownTableBlock {
+export interface MarkdownTableBlockRange {
   startLineIndex: number;
   endLineIndex: number;
   columnCount: number;
+}
+
+export interface MarkdownTableBlock extends MarkdownTableBlockRange {
   html: string;
 }
 
@@ -359,7 +362,7 @@ function looksLikeMarkdownTableRow(line: string): boolean {
   return source.indexOf("|") >= 0 && splitMarkdownTableRow(source).length >= 2;
 }
 
-export function markdownTableBlockAt(lines: string[], startLineIndex: number, options?: RenderInlineOptions): MarkdownTableBlock | null {
+export function markdownTableBlockRangeAt(lines: string[], startLineIndex: number): MarkdownTableBlockRange | null {
   if (!Array.isArray(lines) || startLineIndex < 0 || startLineIndex + 1 >= lines.length) {
     return null;
   }
@@ -375,6 +378,31 @@ export function markdownTableBlockAt(lines: string[], startLineIndex: number, op
     return null;
   }
 
+  let endLineIndex = startLineIndex + 1;
+  for (let index = startLineIndex + 2; index < lines.length; index += 1) {
+    if (!looksLikeMarkdownTableRow(String(lines[index] || ""))) {
+      break;
+    }
+    endLineIndex = index;
+  }
+
+  return {
+    startLineIndex,
+    endLineIndex,
+    columnCount: headerCells.length,
+  };
+}
+
+export function markdownTableBlockAt(lines: string[], startLineIndex: number, options?: RenderInlineOptions): MarkdownTableBlock | null {
+  const range = markdownTableBlockRangeAt(lines, startLineIndex);
+  if (!range) {
+    return null;
+  }
+
+  const headerLine = String(lines[startLineIndex] || "");
+  const separatorLine = String(lines[startLineIndex + 1] || "");
+  const headerCells = splitMarkdownTableRow(headerLine);
+
   const alignments = splitMarkdownTableRow(separatorLine).map(function (cell) {
     const text = String(cell || "");
     const left = text.startsWith(":");
@@ -389,14 +417,8 @@ export function markdownTableBlockAt(lines: string[], startLineIndex: number, op
   });
 
   const rows: string[][] = [];
-  let endLineIndex = startLineIndex + 1;
-  for (let index = startLineIndex + 2; index < lines.length; index += 1) {
-    const rowLine = String(lines[index] || "");
-    if (!looksLikeMarkdownTableRow(rowLine)) {
-      break;
-    }
-    rows.push(splitMarkdownTableRow(rowLine));
-    endLineIndex = index;
+  for (let index = startLineIndex + 2; index <= range.endLineIndex; index += 1) {
+    rows.push(splitMarkdownTableRow(String(lines[index] || "")));
   }
 
   const renderCell = function (cell: string, rowIndex: number, index: number, tag: "th" | "td"): string {
@@ -420,9 +442,7 @@ export function markdownTableBlockAt(lines: string[], startLineIndex: number, op
     "</tbody></table></div>";
 
   return {
-    startLineIndex,
-    endLineIndex,
-    columnCount: headerCells.length,
+    ...range,
     html,
   };
 }
