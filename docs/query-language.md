@@ -61,6 +61,30 @@ select path, nachname, vorname, birthday, daysUntilAnnual(birthday) as daysUntil
 ```
 ````
 
+Comparison values can use relative date keywords, resolved when the query
+runs:
+
+- `today` resolves to the current date (`YYYY-MM-DD`)
+- `now` resolves to the current date and time (`YYYY-MM-DD HH:MM`)
+- both accept offsets: `today + 7d`, `today - 2w`, `today + 1m`, `today - 1y`,
+  and `now + 2h` (units: `d`ays, `w`eeks, `m`onths, `y`ears, plus `h`ours for
+  `now`)
+
+````markdown
+```query
+from tasks
+where done = false and due is not null and due <= today + 7d
+order by due, page
+select ref, page, due
+```
+````
+
+To match the literal word instead, quote it: `status = "today"`.
+
+Like `daysUntilAnnual`, relative dates resolve when a query block's cache is
+refreshed (on page or data changes), so a result rendered yesterday can lag
+until the next refresh.
+
 `order by` can reference those aliases:
 
 ````markdown
@@ -300,6 +324,8 @@ Block IDs should be unique within a page.
 `not` binds tighter than `and` and `or`. Negation currently works by inverting supported leaf operators such as `=`, `!=`, `contains`, `is null`, and the ordered comparison operators.
 
 Ordered comparisons use the query field's natural ordering. This works well for numeric fields like `line` and ISO-style date strings like `due`, `createdAt`, and `updatedAt`.
+
+Unquoted comparison values `today` and `now` (optionally with `+`/`-` offsets like `today + 7d`) resolve to the current date or datetime when the query runs. Quote the word to compare against the literal text.
 
 Use `is null` and `is not null` for missing values like undated tasks.
 

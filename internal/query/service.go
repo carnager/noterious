@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -320,6 +321,12 @@ func DescribeExamples() []QueryExample {
 			Dataset:     "tasks",
 			Description: "List unfinished tasks ordered by due date and source page.",
 			Query:       "from tasks\nwhere done = false\norder by due, page\nselect ref, page, due",
+		},
+		{
+			Name:        "Tasks Due This Week",
+			Dataset:     "tasks",
+			Description: "List unfinished tasks due within the next seven days using relative dates.",
+			Query:       "from tasks\nwhere done = false and due is not null and due <= today + 7d\norder by due, page\nselect ref, page, due",
 		},
 		{
 			Name:        "Tasks Per Page",
@@ -2073,10 +2080,20 @@ func parseSingleFilter(tokens []whereToken) (Filter, error) {
 		len(tokens) == 3 {
 		return Filter{Field: field, Op: "contains", Value: parseLiteral(tokens[2].Raw)}, nil
 	}
-	if len(tokens) == 3 && tokens[1].kind == whereTokenOperator {
+	if len(tokens) >= 3 && tokens[1].kind == whereTokenOperator {
 		switch tokens[1].Raw {
 		case "!=", ">=", "<=", ">", "<", "=":
-			return Filter{Field: field, Op: tokens[1].Raw, Value: parseLiteral(tokens[2].Raw)}, nil
+			if len(tokens) == 3 {
+				return Filter{Field: field, Op: tokens[1].Raw, Value: parseLiteral(tokens[2].Raw)}, nil
+			}
+			// Allow spaced relative-date expressions: due <= today + 7d
+			joined := strings.Builder{}
+			for _, token := range tokens[2:] {
+				joined.WriteString(strings.TrimSpace(token.Raw))
+			}
+			if resolved, ok := resolveDateExpression(joined.String(), time.Now().In(time.Local)); ok {
+				return Filter{Field: field, Op: tokens[1].Raw, Value: resolved}, nil
+			}
 		}
 	}
 
@@ -2578,6 +2595,9 @@ func parseLiteral(raw string) any {
 	case "null":
 		return nil
 	}
+	if resolved, ok := resolveDateExpression(value, time.Now().In(time.Local)); ok {
+		return resolved
+	}
 	if i, err := strconv.ParseInt(value, 10, 64); err == nil {
 		return i
 	}
@@ -2585,6 +2605,51 @@ func parseLiteral(raw string) any {
 		return f
 	}
 	return value
+}
+
+var dateExpressionPattern = regexp.MustCompile(`^(?i)(today|now)(?:([+-])(\d+)([dwmyh]))?$`)
+
+// resolveDateExpression turns relative date keywords like "today", "now",
+// "today+7d", or "now-2h" into the literal strings the rest of the engine
+// already compares lexicographically: "2006-01-02" for today-based values and
+// "2006-01-02 15:04" for now-based values. Offset units are d(ays), w(eeks),
+// m(onths), y(ears), plus h(ours) for now. Quote the word to match the
+// literal text instead.
+func resolveDateExpression(raw string, now time.Time) (string, bool) {
+	match := dateExpressionPattern.FindStringSubmatch(strings.TrimSpace(raw))
+	if match == nil {
+		return "", false
+	}
+	base := strings.ToLower(match[1])
+	value := now
+	if match[2] != "" {
+		amount, err := strconv.Atoi(match[3])
+		if err != nil {
+			return "", false
+		}
+		if match[2] == "-" {
+			amount = -amount
+		}
+		switch strings.ToLower(match[4]) {
+		case "d":
+			value = value.AddDate(0, 0, amount)
+		case "w":
+			value = value.AddDate(0, 0, 7*amount)
+		case "m":
+			value = value.AddDate(0, amount, 0)
+		case "y":
+			value = value.AddDate(amount, 0, 0)
+		case "h":
+			if base != "now" {
+				return "", false
+			}
+			value = value.Add(time.Duration(amount) * time.Hour)
+		}
+	}
+	if base == "now" {
+		return value.Format("2006-01-02 15:04"), true
+	}
+	return value.Format("2006-01-02"), true
 }
 
 func validateQuery(query ParsedQuery) error {

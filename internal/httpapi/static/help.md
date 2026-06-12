@@ -115,9 +115,9 @@ To write a query block manually:
 ````md
 ```query
 from pages
-where contains(tags, "project")
+where tags contains "project"
+order by updatedAt desc
 select path, title, updatedAt
-sort updatedAt desc
 limit 10
 ```
 ````
@@ -127,6 +127,18 @@ Main datasets:
 - `pages`
 - `tasks`
 - `links`
+
+Comparison values understand relative dates, resolved when the query runs:
+`today`, `now`, and offsets like `today + 7d`, `today - 2w`, or `now + 2h`.
+
+````md
+```query
+from tasks
+where done = false and due is not null and due <= today + 7d
+order by due, page
+select ref, page, due
+```
+````
 
 Typical query flow:
 

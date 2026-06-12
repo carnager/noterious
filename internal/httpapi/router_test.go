@@ -7141,7 +7141,7 @@ func TestGetQuerySchemaReturnsCombinedDiscoveryPayload(t *testing.T) {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
 
-	if payload.Counts.Datasets != 3 || payload.Counts.Examples != 6 || payload.Counts.SavedQueries != 1 {
+	if payload.Counts.Datasets != 3 || payload.Counts.Examples != 7 || payload.Counts.SavedQueries != 1 {
 		t.Fatalf("counts = %#v", payload.Counts)
 	}
 	if len(payload.Datasets) != payload.Counts.Datasets || len(payload.Examples) != payload.Counts.Examples || len(payload.SavedQueries) != payload.Counts.SavedQueries {
@@ -7192,7 +7192,7 @@ func TestGetQueryExamplesReturnsBuiltInExamples(t *testing.T) {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
 
-	if payload.Dataset != "" || payload.Count != 6 || len(payload.Examples) != 6 {
+	if payload.Dataset != "" || payload.Count != 7 || len(payload.Examples) != 7 {
 		t.Fatalf("payload = %#v", payload)
 	}
 	if payload.Examples[0].Dataset != "tasks" || payload.Examples[0].Name == "" || payload.Examples[0].Description == "" || !strings.Contains(payload.Examples[0].Query, "from tasks") {
@@ -7542,7 +7542,7 @@ func TestGetQueryEditorReturnsBootstrapMetadata(t *testing.T) {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
 
-	if len(payload.Schema.Datasets) != 3 || len(payload.Schema.Examples) != 6 || len(payload.Schema.SavedQueries) != 1 {
+	if len(payload.Schema.Datasets) != 3 || len(payload.Schema.Examples) != 7 || len(payload.Schema.SavedQueries) != 1 {
 		t.Fatalf("schema = %#v", payload.Schema)
 	}
 	if payload.Schema.SavedQueries[0].Name != "open-tasks" || payload.Schema.SavedQueries[0].Title != "Open Tasks" || payload.Schema.SavedQueries[0].Description != "Saved editor query" || payload.Schema.SavedQueries[0].Folder != "dashboards/tasks" || !reflect.DeepEqual(payload.Schema.SavedQueries[0].Tags, []string{"work", "ops"}) || payload.Schema.SavedQueries[0].UpdatedAt == "" {

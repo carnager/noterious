@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Relative date keywords in query comparisons: `today` and `now`, with offsets like `today + 7d`, `today - 2w`, or `now + 2h`, enabling queries such as "tasks due in the next seven days" without hardcoded dates. Quoted values keep matching the literal text.
 - API bearer tokens for automation clients: `GET/POST /api/auth/tokens` and `DELETE /api/auth/tokens/<id>`, with `Authorization: Bearer ntr_...` accepted on all authenticated endpoints. Token management requires a browser session; only token hashes are stored.
 - Full-text search index (SQLite FTS5) behind `/api/search` page results, with bm25 relevance ranking that weights path and title matches above body matches. Existing databases are backfilled automatically on first start; mid-word fragment queries still fall back to the previous substring scan.
 - Optional page-history retention via `NOTERIOUS_HISTORY_MAX_REVISIONS` and `NOTERIOUS_HISTORY_MAX_AGE`. Defaults keep every revision; when set, older revisions are pruned on save and the newest revision is always kept.
