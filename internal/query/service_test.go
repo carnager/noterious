@@ -97,6 +97,73 @@ func TestParseWhereClauseStillRejectsInvalidMultiTokenValues(t *testing.T) {
 	}
 }
 
+func TestCommonEqualityValue(t *testing.T) {
+	t.Parallel()
+
+	pinned := [][]Filter{
+		{{Field: "page", Op: "=", Value: "daily/today"}, {Field: "done", Op: "=", Value: false}},
+		{{Field: "page", Op: "=", Value: "daily/today"}},
+	}
+	if value, ok := commonEqualityValue(pinned, "page"); !ok || value != "daily/today" {
+		t.Fatalf("commonEqualityValue(pinned) = %q, %v", value, ok)
+	}
+
+	for name, groups := range map[string][][]Filter{
+		"empty":           {},
+		"missing in one":  {{{Field: "page", Op: "=", Value: "a"}}, {{Field: "done", Op: "=", Value: true}}},
+		"different value": {{{Field: "page", Op: "=", Value: "a"}}, {{Field: "page", Op: "=", Value: "b"}}},
+		"not equality":    {{{Field: "page", Op: "!=", Value: "a"}}},
+		"non string":      {{{Field: "page", Op: "=", Value: int64(3)}}},
+	} {
+		if _, ok := commonEqualityValue(groups, "page"); ok {
+			t.Fatalf("commonEqualityValue(%s) = true, want false", name)
+		}
+	}
+}
+
+func TestExecutePushesPageEqualityDown(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	if err := os.MkdirAll(vaultDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "alpha.md"), []byte("- [ ] One\n- [x] Two\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(alpha) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "beta.md"), []byte("- [ ] Other\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(beta) error = %v", err)
+	}
+
+	vaultService := vault.NewService(vaultDir)
+	indexService := index.NewService(filepath.Join(rootDir, "data"))
+	if err := indexService.Open(ctx); err != nil {
+		t.Fatalf("index.Open() error = %v", err)
+	}
+	defer func() {
+		_ = indexService.Close()
+	}()
+	if err := indexService.RebuildFromVault(ctx, vaultService); err != nil {
+		t.Fatalf("RebuildFromVault() error = %v", err)
+	}
+
+	queryService := NewService()
+	result, err := queryService.Execute(ctx, indexService, "from tasks\nwhere page = \"alpha\"\nselect ref, text, done")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(result.Rows) != 2 {
+		t.Fatalf("Execute() rows = %#v, want 2", result.Rows)
+	}
+	for _, row := range result.Rows {
+		if fmt.Sprint(row["text"]) == "Other" {
+			t.Fatalf("Execute() leaked row from other page: %#v", row)
+		}
+	}
+}
+
 func TestExecuteFiltersTasksByRelativeDueDate(t *testing.T) {
 	t.Parallel()
 

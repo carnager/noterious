@@ -1446,7 +1446,7 @@ func (s *Service) Execute(ctx context.Context, indexService *index.Service, sour
 }
 
 func executeParsed(ctx context.Context, indexService *index.Service, parsed ParsedQuery) (Result, error) {
-	rows, err := loadDataset(ctx, indexService, parsed.From)
+	rows, err := loadDataset(ctx, indexService, parsed.From, whereGroups(parsed))
 	if err != nil {
 		return Result{}, err
 	}
@@ -3412,10 +3412,46 @@ func orderFieldNames(fields []OrderField) []string {
 	return names
 }
 
-func loadDataset(ctx context.Context, indexService *index.Service, dataset string) ([]map[string]any, error) {
+// commonEqualityValue reports the string every OR-group pins field to with a
+// plain equality filter, which makes the constraint safe to push into SQL.
+func commonEqualityValue(groups [][]Filter, field string) (string, bool) {
+	if len(groups) == 0 {
+		return "", false
+	}
+	common := ""
+	for groupIdx, group := range groups {
+		value, found := "", false
+		for _, filter := range group {
+			if filter.Field != field || filter.Op != "=" {
+				continue
+			}
+			if text, ok := filter.Value.(string); ok && text != "" {
+				value, found = text, true
+				break
+			}
+		}
+		if !found {
+			return "", false
+		}
+		if groupIdx == 0 {
+			common = value
+		} else if value != common {
+			return "", false
+		}
+	}
+	return common, true
+}
+
+func loadDataset(ctx context.Context, indexService *index.Service, dataset string, groups [][]Filter) ([]map[string]any, error) {
 	switch dataset {
 	case "tasks":
-		tasks, err := indexService.ListTasks(ctx)
+		var tasks []index.Task
+		var err error
+		if page, ok := commonEqualityValue(groups, "page"); ok {
+			tasks, err = indexService.ListTasksForPage(ctx, page)
+		} else {
+			tasks, err = indexService.ListTasks(ctx)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -3447,7 +3483,15 @@ func loadDataset(ctx context.Context, indexService *index.Service, dataset strin
 		}
 		return rows, nil
 	case "links":
-		links, err := indexService.ListLinks(ctx)
+		var links []index.Link
+		var err error
+		if sourcePage, ok := commonEqualityValue(groups, "sourcePage"); ok {
+			links, err = indexService.ListLinksForSourcePage(ctx, sourcePage)
+		} else if targetPage, ok := commonEqualityValue(groups, "targetPage"); ok {
+			links, err = indexService.ListLinksForTargetPage(ctx, targetPage)
+		} else {
+			links, err = indexService.ListLinks(ctx)
+		}
 		if err != nil {
 			return nil, err
 		}

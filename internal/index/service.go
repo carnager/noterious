@@ -134,6 +134,46 @@ func (s *Service) GetBacklinks(ctx context.Context, pagePath string) ([]Backlink
 	return store.GetBacklinks(ctx, pagePath)
 }
 
+// ListTasksForPage returns the vault-scoped tasks of a single page without
+// loading every task in the vault.
+func (s *Service) ListTasksForPage(ctx context.Context, page string) ([]Task, error) {
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tasks, err := store.ListTasksForPage(ctx, page)
+	if err != nil {
+		return nil, err
+	}
+	return filterTasksByScopePrefix(tasks, vault.ScopePrefixFromContext(ctx)), nil
+}
+
+// ListLinksForSourcePage returns the vault-scoped outgoing links of one page.
+func (s *Service) ListLinksForSourcePage(ctx context.Context, sourcePage string) ([]Link, error) {
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	links, err := store.ListLinksForSourcePage(ctx, sourcePage)
+	if err != nil {
+		return nil, err
+	}
+	return filterLinksByScopePrefix(links, vault.ScopePrefixFromContext(ctx)), nil
+}
+
+// ListLinksForTargetPage returns the vault-scoped links pointing at one page.
+func (s *Service) ListLinksForTargetPage(ctx context.Context, targetPage string) ([]Link, error) {
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	links, err := store.ListLinksForTargetPage(ctx, targetPage)
+	if err != nil {
+		return nil, err
+	}
+	return filterLinksByScopePrefix(links, vault.ScopePrefixFromContext(ctx)), nil
+}
+
 func (s *Service) ListTasks(ctx context.Context) ([]Task, error) {
 	store, err := s.storeForContext(ctx)
 	if err != nil {

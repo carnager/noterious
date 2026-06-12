@@ -623,6 +623,21 @@ func (s *SQLiteStore) ListTasks(ctx context.Context) ([]Task, error) {
 	return tasks, nil
 }
 
+// ListTasksForPage returns only the tasks of one page, so page-pinned
+// queries avoid materializing every task in the vault.
+func (s *SQLiteStore) ListTasksForPage(ctx context.Context, page string) ([]Task, error) {
+	tasks, err := s.loadTasks(ctx, `
+		SELECT ref, page, line, text, state, done, due, remind, click, who
+		FROM tasks
+		WHERE page = ?
+		ORDER BY done, CASE WHEN due IS NULL OR due = '' THEN 1 ELSE 0 END, due, page, line, id;
+	`, page)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks for page %q: %w", page, err)
+	}
+	return tasks, nil
+}
+
 func (s *SQLiteStore) GetTask(ctx context.Context, ref string) (Task, error) {
 	tasks, err := s.loadTasks(ctx, `
 		SELECT ref, page, line, text, state, done, due, remind, click, who
@@ -789,6 +804,47 @@ func (s *SQLiteStore) ListLinks(ctx context.Context) ([]Link, error) {
 		FROM links
 		ORDER BY source_page, line, id;
 	`)
+	if err != nil {
+		return nil, fmt.Errorf("list links: %w", err)
+	}
+	defer rows.Close()
+
+	links := make([]Link, 0)
+	for rows.Next() {
+		var link Link
+		if err := rows.Scan(&link.SourcePage, &link.TargetPage, &link.LinkText, &link.Kind, &link.Line); err != nil {
+			return nil, fmt.Errorf("scan links: %w", err)
+		}
+		links = append(links, link)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate links: %w", err)
+	}
+	return links, nil
+}
+
+// ListLinksForSourcePage returns only the outgoing links of one page.
+func (s *SQLiteStore) ListLinksForSourcePage(ctx context.Context, sourcePage string) ([]Link, error) {
+	return s.loadLinks(ctx, `
+		SELECT source_page, target_page, link_text, kind, line
+		FROM links
+		WHERE source_page = ?
+		ORDER BY source_page, line, id;
+	`, sourcePage)
+}
+
+// ListLinksForTargetPage returns only the links pointing at one page.
+func (s *SQLiteStore) ListLinksForTargetPage(ctx context.Context, targetPage string) ([]Link, error) {
+	return s.loadLinks(ctx, `
+		SELECT source_page, target_page, link_text, kind, line
+		FROM links
+		WHERE target_page = ?
+		ORDER BY source_page, line, id;
+	`, targetPage)
+}
+
+func (s *SQLiteStore) loadLinks(ctx context.Context, query string, args ...any) ([]Link, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list links: %w", err)
 	}
