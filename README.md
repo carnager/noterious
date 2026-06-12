@@ -20,6 +20,7 @@ Noterious is a server-first markdown notebook. Your notes stay as markdown files
 - sends notifications from both task reminders and note frontmatter notification fields
 - supports one account per deployment
 - supports API bearer tokens for automation clients (see [docs/api.md](docs/api.md))
+- sends outbound webhooks for page/task/query changes and fired reminders
 - treats top-level folders under the vault root as switchable scopes in the UI
 - supports built-in and custom UI themes
 - ships Nix packaging plus a multi-instance NixOS module

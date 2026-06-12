@@ -29,6 +29,7 @@ import (
 	"github.com/carnager/noterious/internal/settings"
 	"github.com/carnager/noterious/internal/themes"
 	"github.com/carnager/noterious/internal/vault"
+	"github.com/carnager/noterious/internal/webhooks"
 )
 
 func TestGetPageReturnsIndexedContent(t *testing.T) {
@@ -11351,6 +11352,94 @@ func TestPatchPageFrontmatterAcknowledgesWatcherBeforePublishingEvents(t *testin
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestWebhookEndpointsAndEventDelivery(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "daily"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "daily", "today.md"), []byte("# Today\n\n- [ ] First task\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	deliveries := make(chan string, 8)
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		deliveries <- r.Header.Get("X-Noterious-Event")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer receiver.Close()
+
+	webhookService, err := webhooks.NewService(dataDir)
+	if err != nil {
+		t.Fatalf("webhooks.NewService() error = %v", err)
+	}
+	defer webhookService.Close()
+	broker := NewEventBroker()
+	broker.SetForwarder(func(event Event) {
+		webhookService.Notify(event.Type, event.Data)
+	})
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Events:   broker,
+		Webhooks: webhookService,
+	})
+
+	createBody := `{"label":"sink","url":"` + receiver.URL + `","events":["task.changed"]}`
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/webhooks", strings.NewReader(createBody))
+	createRequest.Header.Set("Content-Type", "application/json")
+	createRecorder := httptest.NewRecorder()
+	router.ServeHTTP(createRecorder, createRequest)
+	if createRecorder.Code != http.StatusOK {
+		t.Fatalf("POST /api/webhooks status = %d body=%s", createRecorder.Code, createRecorder.Body.String())
+	}
+	var created webhooks.Hook
+	if err := json.NewDecoder(createRecorder.Body).Decode(&created); err != nil {
+		t.Fatalf("Decode(create) error = %v", err)
+	}
+
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/webhooks", nil)
+	listRecorder := httptest.NewRecorder()
+	router.ServeHTTP(listRecorder, listRequest)
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("GET /api/webhooks status = %d", listRecorder.Code)
+	}
+	var listed webhooksResponse
+	if err := json.NewDecoder(listRecorder.Body).Decode(&listed); err != nil {
+		t.Fatalf("Decode(list) error = %v", err)
+	}
+	if listed.Count != 1 || listed.Webhooks[0].Label != "sink" {
+		t.Fatalf("listed webhooks = %#v", listed)
+	}
+
+	patchRequest := httptest.NewRequest(http.MethodPatch, "/api/tasks/daily/today:3", strings.NewReader(`{"state":"done"}`))
+	patchRequest.Header.Set("Content-Type", "application/json")
+	patchRecorder := httptest.NewRecorder()
+	router.ServeHTTP(patchRecorder, patchRequest)
+	if patchRecorder.Code != http.StatusOK {
+		t.Fatalf("PATCH task status = %d body=%s", patchRecorder.Code, patchRecorder.Body.String())
+	}
+
+	select {
+	case event := <-deliveries:
+		if event != "task.changed" {
+			t.Fatalf("delivered event = %q, want task.changed", event)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for webhook delivery")
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/webhooks/%d", created.ID), nil)
+	deleteRecorder := httptest.NewRecorder()
+	router.ServeHTTP(deleteRecorder, deleteRequest)
+	if deleteRecorder.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/webhooks status = %d body=%s", deleteRecorder.Code, deleteRecorder.Body.String())
 	}
 }
 

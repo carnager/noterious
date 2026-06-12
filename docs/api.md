@@ -55,6 +55,29 @@ curl -s https://notes.example/api/pages \
   -H "Authorization: Bearer ntr_..."
 ```
 
+## Webhooks
+
+Noterious can POST JSON to external URLs when things change:
+
+- `GET /api/webhooks` lists configured hooks plus in-memory delivery state
+- `POST /api/webhooks` with `{"label": "...", "url": "https://...", "events": ["task.changed"], "secret": "optional"}`
+- `DELETE /api/webhooks/<id>` removes a hook
+
+`events` entries match event types exactly; `"*"` subscribes to everything.
+Useful types: `page.changed`, `task.changed`, `task.deleted`, `derived.changed`,
+`query.changed`, `query-block.changed`, and `reminder.fired` (sent after a
+ntfy reminder is delivered).
+
+Deliveries are `POST` requests with:
+
+- body `{"event": "...", "data": {...}, "firedAt": "..."}`
+- `X-Noterious-Event` and `X-Noterious-Webhook-Id` headers
+- `X-Noterious-Signature: sha256=<hex hmac of the body>` when the hook has a secret
+
+Delivery is best-effort: one async worker, a 10 second timeout, no retries.
+Failures are logged and surfaced via the list endpoint's `delivery` state.
+Hook configuration lives in `<data-dir>/webhooks.json`.
+
 ## Health And Runtime
 
 - `GET /api/healthz`

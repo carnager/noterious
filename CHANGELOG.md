@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Outbound webhooks: configure URLs via `/api/webhooks` to receive JSON POSTs for `page.changed`, `task.changed`, `query.changed`, `reminder.fired`, and other events, with optional HMAC-SHA256 body signatures. Delivery is best-effort (async, 10s timeout, no retries) with per-hook delivery state in the list endpoint.
 - Recurring tasks via `[repeat: weekly]` (also `daily`, `monthly`, `yearly`, or `2d`/`3w`/`6m`/`1y`). Completing a repeating task rolls it forward instead of checking it off: the task stays open and its due/remind dates advance by the interval, with overdue tasks catching up past today. The repeat field is indexed and queryable (`where repeat != ""`).
 - Query datasets now push pinned equality filters into SQL: queries constraining `tasks.page`, `links.sourcePage`, or `links.targetPage` to one value load only those rows instead of the whole dataset.
 - Relative date keywords in query comparisons: `today` and `now`, with offsets like `today + 7d`, `today - 2w`, or `now + 2h`, enabling queries such as "tasks due in the next seven days" without hardcoded dates. Quoted values keep matching the literal text.

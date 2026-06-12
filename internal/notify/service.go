@@ -25,9 +25,31 @@ type Service struct {
 	statePath string
 	client    *http.Client
 	now       func() time.Time
+	onSent    func(SentNotification)
 
 	mu   sync.Mutex
 	sent map[string]string
+}
+
+// SentNotification describes a reminder that was successfully delivered,
+// for downstream consumers such as outbound webhooks.
+type SentNotification struct {
+	Kind    string `json:"kind"`
+	Page    string `json:"page,omitempty"`
+	TaskRef string `json:"taskRef,omitempty"`
+	Field   string `json:"field,omitempty"`
+	Title   string `json:"title"`
+	Body    string `json:"body"`
+	At      string `json:"at"`
+}
+
+// SetOnSent registers a callback invoked after each successful reminder
+// delivery. The callback must not block.
+func (s *Service) SetOnSent(fn func(SentNotification)) {
+	if s == nil {
+		return
+	}
+	s.onSent = fn
 }
 
 func NewService(dataDir string, indexService *index.Service, authService *auth.Service) (*Service, error) {
@@ -422,6 +444,17 @@ func (s *Service) send(ctx context.Context, target auth.NotificationTarget, cand
 		"kind", candidate.Kind,
 		"at", candidate.At.Format(time.RFC3339),
 	)
+	if s.onSent != nil {
+		s.onSent(SentNotification{
+			Kind:    candidate.Kind,
+			Page:    candidate.Page,
+			TaskRef: candidate.TaskRef,
+			Field:   candidate.FieldKey,
+			Title:   candidate.Title,
+			Body:    candidate.Body,
+			At:      candidate.At.Format(time.RFC3339),
+		})
+	}
 	return nil
 }
 

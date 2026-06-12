@@ -59,6 +59,7 @@ type EventBroker struct {
 	subscribers map[*eventSubscriber]struct{}
 	closed      bool
 	dropped     uint64
+	forward     func(Event)
 }
 
 func NewEventBroker() *EventBroker {
@@ -67,12 +68,22 @@ func NewEventBroker() *EventBroker {
 	}
 }
 
+// SetForwarder registers a callback invoked for every published event, used
+// to fan events out beyond SSE subscribers (e.g. outbound webhooks). The
+// callback must not block.
+func (b *EventBroker) SetForwarder(fn func(Event)) {
+	b.mu.Lock()
+	b.forward = fn
+	b.mu.Unlock()
+}
+
 func (b *EventBroker) Publish(event Event) {
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
 		return
 	}
+	forward := b.forward
 
 	dropped := 0
 	for subscriber := range b.subscribers {
@@ -92,9 +103,15 @@ func (b *EventBroker) Publish(event Event) {
 		if totalDropped == uint64(dropped) || totalDropped%100 == 0 {
 			slog.Warn("event broker dropped events", "event_type", event.Type, "dropped_now", dropped, "dropped_total", totalDropped)
 		}
+		if forward != nil {
+			forward(event)
+		}
 		return
 	}
 	b.mu.Unlock()
+	if forward != nil {
+		forward(event)
+	}
 }
 
 func (b *EventBroker) Subscribe() (<-chan Event, func()) {

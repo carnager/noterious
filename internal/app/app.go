@@ -19,6 +19,7 @@ import (
 	"github.com/carnager/noterious/internal/settings"
 	"github.com/carnager/noterious/internal/themes"
 	"github.com/carnager/noterious/internal/vault"
+	"github.com/carnager/noterious/internal/webhooks"
 )
 
 type App struct {
@@ -33,6 +34,7 @@ type App struct {
 	server                 *http.Server
 	configuredVaultWatcher *VaultWatcher
 	notifier               *notify.Service
+	webhooks               *webhooks.Service
 }
 
 type cleanupStack struct {
@@ -116,10 +118,20 @@ func New(cfg config.Config) (*App, error) {
 	}
 	historyService.SetRetention(cfg.HistoryMaxRevisions, cfg.HistoryMaxAge)
 	eventBroker := httpapi.NewEventBroker()
+	webhookService, err := webhooks.NewService(cfg.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("init webhooks: %w", err)
+	}
+	eventBroker.SetForwarder(func(event httpapi.Event) {
+		webhookService.Notify(event.Type, event.Data)
+	})
 	notifier, err := notify.NewService(cfg.DataDir, indexService, authService)
 	if err != nil {
 		return nil, fmt.Errorf("init notifier: %w", err)
 	}
+	notifier.SetOnSent(func(sent notify.SentNotification) {
+		webhookService.Notify("reminder.fired", sent)
+	})
 
 	if err := indexService.Open(context.Background()); err != nil {
 		return nil, fmt.Errorf("open index: %w", err)
@@ -141,6 +153,7 @@ func New(cfg config.Config) (*App, error) {
 		AI:            aiService,
 		Events:        eventBroker,
 		Auth:          authService,
+		Webhooks:      webhookService,
 		WatcherState:  configuredVaultWatcher.Snapshot,
 		OnPageChanged: configuredVaultWatcher.Acknowledge,
 	})
@@ -163,6 +176,7 @@ func New(cfg config.Config) (*App, error) {
 		events:                 eventBroker,
 		configuredVaultWatcher: configuredVaultWatcher,
 		notifier:               notifier,
+		webhooks:               webhookService,
 		server: &http.Server{
 			Addr:              cfg.ListenAddr,
 			Handler:           router,
@@ -219,6 +233,9 @@ func (a *App) Run(ctx context.Context) error {
 		slog.Info("shutting down noterious server")
 		if a.events != nil {
 			a.events.Close()
+		}
+		if a.webhooks != nil {
+			a.webhooks.Close()
 		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
