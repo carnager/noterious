@@ -23,6 +23,7 @@ export interface TaskSavePayload {
   state: string;
   due: string;
   remind: string;
+  repeat?: string;
   who: string[];
 }
 

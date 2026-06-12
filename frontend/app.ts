@@ -981,7 +981,7 @@ interface ActionDialogSession {
     setTaskDateApplySuppressedUI(state.markdownEditorApi, active);
   }
 
-  async function saveTaskDateField(task: TaskRecord, field: "due" | "remind", value: string): Promise<void> {
+  async function saveTaskDateField(task: TaskRecord, field: "due" | "remind" | "repeat", value: string): Promise<void> {
     setTaskDateApplySuppressed(true);
     const selectedPagePath = state.selectedPage;
     const viewport = captureCurrentEditorViewport();
@@ -991,6 +991,7 @@ interface ActionDialogSession {
       state: task.done ? "done" : "todo",
       due: field === "due" ? value : (task.due || ""),
       remind: field === "remind" ? value : (task.remind || ""),
+      repeat: field === "repeat" ? value : (task.repeat || ""),
       who: Array.isArray(task.who) ? task.who.slice() : [],
     });
     closeTaskPickers();

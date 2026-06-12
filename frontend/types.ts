@@ -44,6 +44,7 @@ export interface TaskRecord {
   due?: string;
   remind?: string;
   click?: string;
+  repeat?: string;
   who?: string[];
 }
 

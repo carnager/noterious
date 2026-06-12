@@ -21559,6 +21559,13 @@
     }
     restoreInlineTableEditorFocus(appState, els);
   }
+  function isValidTaskRepeatValue(value) {
+    const trimmed = String(value || "").trim().toLowerCase();
+    if (!trimmed) {
+      return false;
+    }
+    return taskRepeatPresets.includes(trimmed) || taskRepeatCustomPattern.test(trimmed);
+  }
   function renderTaskPicker(taskPickerState, els, callbacks) {
     if (taskPickerState.mode !== "due" && taskPickerState.mode !== "remind") {
       closeTaskPickers(taskPickerState, els);
@@ -21704,6 +21711,88 @@
         grid.appendChild(dayButton);
       }
       target.appendChild(grid);
+      const currentRepeat = task && task.repeat ? String(task.repeat).trim() : "";
+      const repeatIsPreset = !currentRepeat || taskRepeatPresets.includes(currentRepeat.toLowerCase());
+      const applyRepeat = function(value) {
+        const currentTask = callbacks.currentPickerTask();
+        if (!currentTask) {
+          callbacks.closeTaskPickers();
+          return;
+        }
+        callbacks.saveTaskDateField(currentTask, "repeat", value).catch(function(error) {
+          callbacks.setNoteStatus("Repeat update failed: " + callbacks.errorMessage(error));
+        });
+      };
+      const repeatRow = document.createElement("div");
+      repeatRow.className = "task-picker-repeat";
+      const repeatLabel = document.createElement("span");
+      repeatLabel.className = "task-picker-repeat-label";
+      repeatLabel.textContent = "Repeat";
+      repeatRow.appendChild(repeatLabel);
+      const repeatSelect = document.createElement("select");
+      repeatSelect.className = "task-picker-repeat-select";
+      repeatSelect.setAttribute("aria-label", "Repeat interval");
+      [
+        ["", "No repeat"],
+        ["daily", "Daily"],
+        ["weekly", "Weekly"],
+        ["monthly", "Monthly"],
+        ["yearly", "Yearly"],
+        ["custom", "Custom\u2026"]
+      ].forEach(function([value, label]) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        repeatSelect.appendChild(option);
+      });
+      repeatSelect.value = repeatIsPreset ? currentRepeat.toLowerCase() : "custom";
+      repeatRow.appendChild(repeatSelect);
+      const repeatCustom = document.createElement("input");
+      repeatCustom.type = "text";
+      repeatCustom.className = "task-picker-repeat-custom" + (repeatIsPreset ? " hidden" : "");
+      repeatCustom.placeholder = "2w";
+      repeatCustom.value = repeatIsPreset ? "" : currentRepeat;
+      repeatCustom.autocomplete = "off";
+      repeatCustom.spellcheck = false;
+      repeatCustom.setAttribute("aria-label", "Custom repeat interval");
+      repeatRow.appendChild(repeatCustom);
+      const repeatApply = document.createElement("button");
+      repeatApply.type = "button";
+      repeatApply.className = "task-picker-repeat-apply" + (repeatIsPreset ? " hidden" : "");
+      repeatApply.textContent = "Set";
+      repeatRow.appendChild(repeatApply);
+      const commitCustomRepeat = function() {
+        const value = repeatCustom.value.trim();
+        if (!isValidTaskRepeatValue(value)) {
+          callbacks.setNoteStatus("Repeat must be daily, weekly, monthly, yearly, or an interval like 2w.");
+          return;
+        }
+        applyRepeat(value.toLowerCase().replace(/\s+/g, ""));
+      };
+      repeatSelect.addEventListener("change", function() {
+        const isCustom = repeatSelect.value === "custom";
+        repeatCustom.classList.toggle("hidden", !isCustom);
+        repeatApply.classList.toggle("hidden", !isCustom);
+        if (isCustom) {
+          repeatCustom.focus();
+          return;
+        }
+        applyRepeat(repeatSelect.value);
+      });
+      repeatApply.addEventListener("click", commitCustomRepeat);
+      repeatCustom.addEventListener("keydown", function(event) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commitCustomRepeat();
+        }
+      });
+      target.appendChild(repeatRow);
+      if (currentRepeat) {
+        const repeatNote = document.createElement("div");
+        repeatNote.className = "task-picker-note";
+        repeatNote.textContent = "Completing this task rolls its dates forward instead of checking it off.";
+        target.appendChild(repeatNote);
+      }
     }
     const footer = document.createElement("div");
     footer.className = "task-picker-footer";
@@ -21771,6 +21860,7 @@
     taskPickerState.minute = parts.minute - parts.minute % 5;
     options.renderTaskPicker();
   }
+  var taskRepeatPresets, taskRepeatCustomPattern;
   var init_inlineEditors = __esm({
     "frontend/inlineEditors.ts"() {
       "use strict";
@@ -21778,6 +21868,8 @@
       init_dom();
       init_editorState();
       init_markdown();
+      taskRepeatPresets = ["daily", "weekly", "monthly", "yearly"];
+      taskRepeatCustomPattern = /^\d+\s*[dwmy]$/i;
     }
   });
 
@@ -29459,6 +29551,7 @@
             state: task.done ? "done" : "todo",
             due: field === "due" ? value : task.due || "",
             remind: field === "remind" ? value : task.remind || "",
+            repeat: field === "repeat" ? value : task.repeat || "",
             who: Array.isArray(task.who) ? task.who.slice() : []
           });
           closeTaskPickers2();

@@ -780,9 +780,20 @@ export function openInlineTableEditor(appState: InlineEditorAppState, els: Inlin
   restoreInlineTableEditorFocus(appState, els);
 }
 
+const taskRepeatPresets = ["daily", "weekly", "monthly", "yearly"];
+const taskRepeatCustomPattern = /^\d+\s*[dwmy]$/i;
+
+export function isValidTaskRepeatValue(value: string): boolean {
+  const trimmed = String(value || "").trim().toLowerCase();
+  if (!trimmed) {
+    return false;
+  }
+  return taskRepeatPresets.includes(trimmed) || taskRepeatCustomPattern.test(trimmed);
+}
+
 export function renderTaskPicker(taskPickerState: TaskPickerState, els: InlineEditorElements, callbacks: {
   currentPickerTask: () => TaskRecord | null;
-  saveTaskDateField: (task: TaskRecord, field: "due" | "remind", value: string) => Promise<void>;
+  saveTaskDateField: (task: TaskRecord, field: "due" | "remind" | "repeat", value: string) => Promise<void>;
   closeTaskPickers: () => void;
   setNoteStatus: (message: string) => void;
   errorMessage: (error: unknown) => string;
@@ -952,6 +963,99 @@ export function renderTaskPicker(taskPickerState: TaskPickerState, els: InlineEd
       grid.appendChild(dayButton);
     }
     target.appendChild(grid);
+
+    const currentRepeat = task && task.repeat ? String(task.repeat).trim() : "";
+    const repeatIsPreset = !currentRepeat || taskRepeatPresets.includes(currentRepeat.toLowerCase());
+
+    const applyRepeat = function (value: string): void {
+      const currentTask = callbacks.currentPickerTask();
+      if (!currentTask) {
+        callbacks.closeTaskPickers();
+        return;
+      }
+      callbacks.saveTaskDateField(currentTask, "repeat", value).catch(function (error) {
+        callbacks.setNoteStatus("Repeat update failed: " + callbacks.errorMessage(error));
+      });
+    };
+
+    const repeatRow = document.createElement("div");
+    repeatRow.className = "task-picker-repeat";
+
+    const repeatLabel = document.createElement("span");
+    repeatLabel.className = "task-picker-repeat-label";
+    repeatLabel.textContent = "Repeat";
+    repeatRow.appendChild(repeatLabel);
+
+    const repeatSelect = document.createElement("select");
+    repeatSelect.className = "task-picker-repeat-select";
+    repeatSelect.setAttribute("aria-label", "Repeat interval");
+    [
+      ["", "No repeat"],
+      ["daily", "Daily"],
+      ["weekly", "Weekly"],
+      ["monthly", "Monthly"],
+      ["yearly", "Yearly"],
+      ["custom", "Custom…"],
+    ].forEach(function ([value, label]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      repeatSelect.appendChild(option);
+    });
+    repeatSelect.value = repeatIsPreset ? currentRepeat.toLowerCase() : "custom";
+    repeatRow.appendChild(repeatSelect);
+
+    const repeatCustom = document.createElement("input");
+    repeatCustom.type = "text";
+    repeatCustom.className = "task-picker-repeat-custom" + (repeatIsPreset ? " hidden" : "");
+    repeatCustom.placeholder = "2w";
+    repeatCustom.value = repeatIsPreset ? "" : currentRepeat;
+    repeatCustom.autocomplete = "off";
+    repeatCustom.spellcheck = false;
+    repeatCustom.setAttribute("aria-label", "Custom repeat interval");
+    repeatRow.appendChild(repeatCustom);
+
+    const repeatApply = document.createElement("button");
+    repeatApply.type = "button";
+    repeatApply.className = "task-picker-repeat-apply" + (repeatIsPreset ? " hidden" : "");
+    repeatApply.textContent = "Set";
+    repeatRow.appendChild(repeatApply);
+
+    const commitCustomRepeat = function (): void {
+      const value = repeatCustom.value.trim();
+      if (!isValidTaskRepeatValue(value)) {
+        callbacks.setNoteStatus("Repeat must be daily, weekly, monthly, yearly, or an interval like 2w.");
+        return;
+      }
+      applyRepeat(value.toLowerCase().replace(/\s+/g, ""));
+    };
+
+    repeatSelect.addEventListener("change", function () {
+      const isCustom = repeatSelect.value === "custom";
+      repeatCustom.classList.toggle("hidden", !isCustom);
+      repeatApply.classList.toggle("hidden", !isCustom);
+      if (isCustom) {
+        repeatCustom.focus();
+        return;
+      }
+      applyRepeat(repeatSelect.value);
+    });
+    repeatApply.addEventListener("click", commitCustomRepeat);
+    repeatCustom.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commitCustomRepeat();
+      }
+    });
+
+    target.appendChild(repeatRow);
+
+    if (currentRepeat) {
+      const repeatNote = document.createElement("div");
+      repeatNote.className = "task-picker-note";
+      repeatNote.textContent = "Completing this task rolls its dates forward instead of checking it off.";
+      target.appendChild(repeatNote);
+    }
   }
 
   const footer = document.createElement("div");
