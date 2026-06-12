@@ -1575,4 +1575,44 @@ describe("mounted editor UI", function () {
     }
   });
 
+  it("rebuilds only the affected blocks when typing or moving the cursor in a large note", function () {
+    const markdownLines: string[] = [];
+    for (let index = 0; index < 1000; index += 1) {
+      markdownLines.push("Paragraph line " + String(index) + " with some **bold** text");
+    }
+    const editor = mountEditor(markdownLines.join("\n"));
+
+    function blockBuilds(): number {
+      return window.NoteriousCodeEditor ? window.NoteriousCodeEditor.debugRenderedBlockBuilds() : 0;
+    }
+
+    try {
+      editor.api.setRenderMode(true);
+      setCursor(editor.view, 500, 4);
+
+      // Moving the cursor re-renders at most the block that lost it and the
+      // block that gained it.
+      let before = blockBuilds();
+      setCursor(editor.view, 501, 4);
+      const movedBuilds = blockBuilds() - before;
+      expect(movedBuilds).toBeGreaterThan(0);
+      expect(movedBuilds).toBeLessThanOrEqual(2);
+
+      // Typing re-renders the edited block plus at most its neighbors, whose
+      // rendering can depend on the adjacent line text.
+      before = blockBuilds();
+      const line = editor.view.state.doc.line(501);
+      editor.view.dispatch({
+        changes: {from: line.from + 4, insert: "x"},
+        selection: {anchor: line.from + 5},
+        userEvent: "input.type",
+      });
+      const typedBuilds = blockBuilds() - before;
+      expect(typedBuilds).toBeGreaterThan(0);
+      expect(typedBuilds).toBeLessThanOrEqual(3);
+    } finally {
+      editor.destroy();
+    }
+  });
+
 });

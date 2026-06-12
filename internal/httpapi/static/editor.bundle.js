@@ -42513,7 +42513,9 @@
         }
         return specs;
       }
+      var renderedBlockBuildCount = 0;
       function buildRenderedBlockSpecs(block, context) {
+        renderedBlockBuildCount += 1;
         switch (block.kind) {
           case "frontmatter":
             return buildFrontmatterBlockSpecs(context);
@@ -42531,12 +42533,81 @@
             return buildLineBlockSpecs(block, context);
         }
       }
-      function buildRenderedDecorations(state) {
-        if (!state.field(renderModeField, false)) {
+      function renderedBlockCacheKey(block, context) {
+        const lines = context.lines;
+        const content2 = lines.slice(block.startLineIndex, block.endLineIndex + 1).join("\n");
+        switch (block.kind) {
+          case "frontmatter":
+            return "f" + content2;
+          case "reference": {
+            const lastLine = block.endLineIndex + 1 >= context.state.doc.lines ? "1" : "0";
+            return "r" + lastLine + "" + content2;
+          }
+          case "table":
+          case "query":
+          case "code": {
+            const editing = renderedBlockEditingState(block, context) ? "1" : "0";
+            return block.kind.charAt(0) + "" + String(block.startLineIndex) + "" + editing + "" + content2;
+          }
+          case "math": {
+            const editing = renderedBlockEditingState(block, context) ? "1" : "0";
+            return "m" + editing + "" + content2;
+          }
+          case "line": {
+            const lineNumber = block.startLineIndex + 1;
+            const line = context.state.doc.line(lineNumber);
+            const selection = context.selection;
+            const editingLine = selection.from <= line.to && selection.to >= line.from;
+            const selectionKey = editingLine ? String(selection.from - line.from) + ":" + String(selection.to - line.from) + ":" + String(selection.head - line.from) : "";
+            const previousLineText = block.startLineIndex > 0 ? String(lines[block.startLineIndex - 1] || "") : "";
+            const nextLineText = block.startLineIndex + 1 < lines.length ? String(lines[block.startLineIndex + 1] || "") : "";
+            const task = context.tasks.get(lineNumber);
+            const taskKey = task ? [task.ref, task.text, String(task.done), task.due, task.remind, task.who.join(",")].join("") : "";
+            return "l" + selectionKey + "" + taskKey + "" + previousLineText + "" + nextLineText + "" + content2;
+          }
+        }
+      }
+      function renderedGlobalCacheKey(context, editingReferenceDefinitions) {
+        const parts = [
+          context.viewOnly ? "1" : "0",
+          context.codeBlocksAlwaysExpanded ? "1" : "0",
+          editingReferenceDefinitions ? "1" : "0",
+          String(context.frontmatterLength),
+          context.currentPagePath
+        ];
+        context.referenceDefinitions.forEach(function(definition) {
+          parts.push(definition.label, definition.target, definition.title, String(definition.from), String(definition.to));
+        });
+        context.abbreviationDefinitions.forEach(function(definition) {
+          parts.push(definition.label, definition.title);
+        });
+        return parts.join("");
+      }
+      function shiftRenderedRangeSpecs(specs, delta) {
+        if (!delta) {
+          return specs;
+        }
+        return specs.map(function(spec) {
           return {
-            decorations: Decoration.none,
-            atomicRanges: Decoration.none
+            from: spec.from + delta,
+            to: spec.to + delta,
+            deco: spec.deco,
+            atomic: spec.atomic
           };
+        });
+      }
+      var emptyRenderedDecorations = {
+        decorations: Decoration.none,
+        atomicRanges: Decoration.none,
+        blockCache: null,
+        blockCacheGlobalKey: "",
+        blockCacheQueryBlocks: null,
+        blockCacheTasks: null,
+        blockCacheExpandedCodeBlocks: null
+      };
+      function buildRenderedDecorations(state, previous) {
+        if (!state.field(renderModeField, false)) {
+          return emptyRenderedDecorations;
         }
         const viewOnly = Boolean(state.field(viewOnlyField, false));
         const selection = viewOnly ? {
@@ -42579,10 +42650,31 @@
           frontmatterLineCount: frontmatter ? frontmatter.split("\n").length - 1 : 0,
           referenceDefinitionStarts: editingReferenceDefinitions ? null : referenceDefinitionStarts
         });
+        const globalKey = renderedGlobalCacheKey(context, editingReferenceDefinitions);
+        const reusable = previous && previous.blockCache && previous.blockCacheGlobalKey === globalKey && previous.blockCacheQueryBlocks === context.queryBlocks && previous.blockCacheTasks === context.tasks && previous.blockCacheExpandedCodeBlocks === context.expandedCodeBlocks ? previous.blockCache : null;
+        const reusableByKey = /* @__PURE__ */ new Map();
+        if (reusable) {
+          for (let entryIndex = 0; entryIndex < reusable.length; entryIndex += 1) {
+            const entry = reusable[entryIndex];
+            const pool = reusableByKey.get(entry.key);
+            if (pool) {
+              pool.push(entry);
+            } else {
+              reusableByKey.set(entry.key, [entry]);
+            }
+          }
+        }
         const builder = new RangeSetBuilder();
         const atomicBuilder = new RangeSetBuilder();
+        const blockCache = [];
         for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
-          const specs = buildRenderedBlockSpecs(blocks[blockIndex], context);
+          const block = blocks[blockIndex];
+          const key = renderedBlockCacheKey(block, context);
+          const blockFrom = state.doc.line(block.startLineIndex + 1).from;
+          const pool = reusableByKey.get(key);
+          const cached = pool && pool.length ? pool.pop() : null;
+          const specs = cached ? shiftRenderedRangeSpecs(cached.specs, blockFrom - cached.blockFrom) : buildRenderedBlockSpecs(block, context);
+          blockCache.push({ key, blockFrom, specs });
           for (let specIndex = 0; specIndex < specs.length; specIndex += 1) {
             const spec = specs[specIndex];
             if (spec.deco) {
@@ -42606,7 +42698,12 @@
         }
         return {
           decorations: builder.finish(),
-          atomicRanges: atomicBuilder.finish()
+          atomicRanges: atomicBuilder.finish(),
+          blockCache,
+          blockCacheGlobalKey: globalKey,
+          blockCacheQueryBlocks: context.queryBlocks,
+          blockCacheTasks: context.tasks,
+          blockCacheExpandedCodeBlocks: context.expandedCodeBlocks
         };
       }
       var renderModeField = StateField.define({
@@ -42650,7 +42747,7 @@
       });
       var renderedDecorationsField = StateField.define({
         create(state) {
-          return buildRenderedDecorations(state);
+          return buildRenderedDecorations(state, null);
         },
         update(value, transaction) {
           const modeChanged = transaction.effects.some((effect) => effect.is(setRenderModeEffect));
@@ -42661,7 +42758,7 @@
           if (!modeChanged && !viewOnlyChanged && !tasksChanged && !codeBlockPreferenceChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
             return value;
           }
-          return buildRenderedDecorations(transaction.state);
+          return buildRenderedDecorations(transaction.state, value);
         },
         provide: (field) => [
           EditorView.decorations.from(field, function(value) {
@@ -42706,6 +42803,9 @@
         return transaction;
       });
       window.NoteriousCodeEditor = {
+        debugRenderedBlockBuilds() {
+          return renderedBlockBuildCount;
+        },
         create(textarea) {
           if (!textarea || textarea.__noteriousEditor) {
             return textarea && textarea.__noteriousEditor ? textarea.__noteriousEditor : null;

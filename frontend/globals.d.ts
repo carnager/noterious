@@ -8,6 +8,7 @@ declare global {
   interface Window {
     NoteriousCodeEditor?: {
       create(textarea: HTMLTextAreaElement): NoteriousEditorApi | null;
+      debugRenderedBlockBuilds(): number;
     };
   }
 }

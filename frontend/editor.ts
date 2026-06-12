@@ -2566,7 +2566,12 @@ function buildLineBlockSpecs(block: RenderedBlockRange, context: RenderedBlockBu
   return specs;
 }
 
+// Counts block-builder invocations so tests can assert that typing or moving
+// the cursor rebuilds only the affected blocks instead of the whole document.
+let renderedBlockBuildCount = 0;
+
 function buildRenderedBlockSpecs(block: RenderedBlockRange, context: RenderedBlockBuildContext): RenderedRangeSpec[] {
+  renderedBlockBuildCount += 1;
   switch (block.kind) {
     case "frontmatter":
       return buildFrontmatterBlockSpecs(context);
@@ -2585,12 +2590,114 @@ function buildRenderedBlockSpecs(block: RenderedBlockRange, context: RenderedBlo
   }
 }
 
-function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
-  if (!state.field(renderModeField, false)) {
+// Everything a single block's specs may depend on beyond its own raw lines
+// and the document-wide inputs covered by the global cache key. Two blocks
+// with equal cache keys (under an equal global key and identical
+// queryBlocks/tasks/expandedCodeBlocks references) produce identical specs up
+// to a uniform offset shift.
+function renderedBlockCacheKey(block: RenderedBlockRange, context: RenderedBlockBuildContext): string {
+  const lines = context.lines;
+  const content = lines.slice(block.startLineIndex, block.endLineIndex + 1).join("\n");
+  switch (block.kind) {
+    case "frontmatter":
+      return "f\u0001" + content;
+    case "reference": {
+      const lastLine = block.endLineIndex + 1 >= context.state.doc.lines ? "1" : "0";
+      return "r\u0001" + lastLine + "\u0001" + content;
+    }
+    case "table":
+    case "query":
+    case "code": {
+      // Tables, query blocks, and code fences bake their 1-based start line
+      // into rendered HTML or widget state keys.
+      const editing = renderedBlockEditingState(block, context) ? "1" : "0";
+      return block.kind.charAt(0) + "\u0001" + String(block.startLineIndex) + "\u0001" + editing + "\u0001" + content;
+    }
+    case "math": {
+      const editing = renderedBlockEditingState(block, context) ? "1" : "0";
+      return "m\u0001" + editing + "\u0001" + content;
+    }
+    case "line": {
+      const lineNumber = block.startLineIndex + 1;
+      const line = context.state.doc.line(lineNumber);
+      const selection = context.selection;
+      const editingLine = selection.from <= line.to && selection.to >= line.from;
+      const selectionKey = editingLine
+        ? String(selection.from - line.from) + ":" + String(selection.to - line.from) + ":" + String(selection.head - line.from)
+        : "";
+      const previousLineText = block.startLineIndex > 0 ? String(lines[block.startLineIndex - 1] || "") : "";
+      const nextLineText = block.startLineIndex + 1 < lines.length ? String(lines[block.startLineIndex + 1] || "") : "";
+      const task = context.tasks.get(lineNumber);
+      const taskKey = task
+        ? [task.ref, task.text, String(task.done), task.due, task.remind, task.who.join(",")].join("\u0002")
+        : "";
+      return "l\u0001" + selectionKey + "\u0001" + taskKey + "\u0001" + previousLineText + "\u0001" + nextLineText + "\u0001" + content;
+    }
+  }
+}
+
+// Document-wide inputs every block build reads. A change here invalidates the
+// whole block cache. Reference definition offsets are included deliberately:
+// inline link decorations bake jump offsets, so shifting a definition must
+// rebuild the blocks that reference it.
+function renderedGlobalCacheKey(context: RenderedBlockBuildContext, editingReferenceDefinitions: boolean): string {
+  const parts: string[] = [
+    context.viewOnly ? "1" : "0",
+    context.codeBlocksAlwaysExpanded ? "1" : "0",
+    editingReferenceDefinitions ? "1" : "0",
+    String(context.frontmatterLength),
+    context.currentPagePath,
+  ];
+  context.referenceDefinitions.forEach(function (definition) {
+    parts.push(definition.label, definition.target, definition.title, String(definition.from), String(definition.to));
+  });
+  context.abbreviationDefinitions.forEach(function (definition) {
+    parts.push(definition.label, definition.title);
+  });
+  return parts.join("\u0001");
+}
+
+interface RenderedBlockCacheEntry {
+  key: string;
+  blockFrom: number;
+  specs: RenderedRangeSpec[];
+}
+
+interface RenderedDecorationsFieldValue extends RenderedDecorationSets {
+  blockCache: RenderedBlockCacheEntry[] | null;
+  blockCacheGlobalKey: string;
+  blockCacheQueryBlocks: Map<string, string> | null;
+  blockCacheTasks: Map<number, EditorTaskState> | null;
+  blockCacheExpandedCodeBlocks: Record<string, boolean> | null;
+}
+
+function shiftRenderedRangeSpecs(specs: RenderedRangeSpec[], delta: number): RenderedRangeSpec[] {
+  if (!delta) {
+    return specs;
+  }
+  return specs.map(function (spec) {
     return {
-      decorations: Decoration.none,
-      atomicRanges: Decoration.none,
+      from: spec.from + delta,
+      to: spec.to + delta,
+      deco: spec.deco,
+      atomic: spec.atomic,
     };
+  });
+}
+
+const emptyRenderedDecorations: RenderedDecorationsFieldValue = {
+  decorations: Decoration.none,
+  atomicRanges: Decoration.none,
+  blockCache: null,
+  blockCacheGlobalKey: "",
+  blockCacheQueryBlocks: null,
+  blockCacheTasks: null,
+  blockCacheExpandedCodeBlocks: null,
+};
+
+function buildRenderedDecorations(state: EditorState, previous: RenderedDecorationsFieldValue | null): RenderedDecorationsFieldValue {
+  if (!state.field(renderModeField, false)) {
+    return emptyRenderedDecorations;
   }
 
   const viewOnly = Boolean(state.field(viewOnlyField, false));
@@ -2639,10 +2746,41 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
     referenceDefinitionStarts: editingReferenceDefinitions ? null : referenceDefinitionStarts,
   });
 
+  const globalKey = renderedGlobalCacheKey(context, editingReferenceDefinitions);
+  const reusable = previous
+    && previous.blockCache
+    && previous.blockCacheGlobalKey === globalKey
+    && previous.blockCacheQueryBlocks === context.queryBlocks
+    && previous.blockCacheTasks === context.tasks
+    && previous.blockCacheExpandedCodeBlocks === context.expandedCodeBlocks
+    ? previous.blockCache
+    : null;
+  const reusableByKey = new Map<string, RenderedBlockCacheEntry[]>();
+  if (reusable) {
+    for (let entryIndex = 0; entryIndex < reusable.length; entryIndex += 1) {
+      const entry = reusable[entryIndex];
+      const pool = reusableByKey.get(entry.key);
+      if (pool) {
+        pool.push(entry);
+      } else {
+        reusableByKey.set(entry.key, [entry]);
+      }
+    }
+  }
+
   const builder = new RangeSetBuilder<Decoration>();
   const atomicBuilder = new RangeSetBuilder<Decoration>();
+  const blockCache: RenderedBlockCacheEntry[] = [];
   for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
-    const specs = buildRenderedBlockSpecs(blocks[blockIndex], context);
+    const block = blocks[blockIndex];
+    const key = renderedBlockCacheKey(block, context);
+    const blockFrom = state.doc.line(block.startLineIndex + 1).from;
+    const pool = reusableByKey.get(key);
+    const cached = pool && pool.length ? pool.pop() : null;
+    const specs = cached
+      ? shiftRenderedRangeSpecs(cached.specs, blockFrom - cached.blockFrom)
+      : buildRenderedBlockSpecs(block, context);
+    blockCache.push({key, blockFrom, specs});
     for (let specIndex = 0; specIndex < specs.length; specIndex += 1) {
       const spec = specs[specIndex];
       if (spec.deco) {
@@ -2669,6 +2807,11 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
   return {
     decorations: builder.finish(),
     atomicRanges: atomicBuilder.finish(),
+    blockCache,
+    blockCacheGlobalKey: globalKey,
+    blockCacheQueryBlocks: context.queryBlocks,
+    blockCacheTasks: context.tasks,
+    blockCacheExpandedCodeBlocks: context.expandedCodeBlocks,
   };
 }
 
@@ -2714,9 +2857,9 @@ const pagePathField = StateField.define<string>({
   },
 });
 
-const renderedDecorationsField = StateField.define<RenderedDecorationSets>({
+const renderedDecorationsField = StateField.define<RenderedDecorationsFieldValue>({
   create(state) {
-    return buildRenderedDecorations(state);
+    return buildRenderedDecorations(state, null);
   },
   update(value, transaction) {
     const modeChanged = transaction.effects.some((effect) => effect.is(setRenderModeEffect));
@@ -2727,7 +2870,7 @@ const renderedDecorationsField = StateField.define<RenderedDecorationSets>({
     if (!modeChanged && !viewOnlyChanged && !tasksChanged && !codeBlockPreferenceChanged && !codeBlocksChanged && !transaction.docChanged && !transaction.selection) {
       return value;
     }
-    return buildRenderedDecorations(transaction.state);
+    return buildRenderedDecorations(transaction.state, value);
   },
   provide: (field) => [
     EditorView.decorations.from(field, function (value) {
@@ -2785,6 +2928,9 @@ const renderedFrontmatterBoundaryFilter = EditorState.transactionFilter.of((tran
 });
 
 window.NoteriousCodeEditor = {
+  debugRenderedBlockBuilds(): number {
+    return renderedBlockBuildCount;
+  },
   create(textarea: HTMLTextAreaElement): NoteriousEditorApi | null {
     if (!textarea || textarea.__noteriousEditor) {
       return textarea && textarea.__noteriousEditor ? textarea.__noteriousEditor : null;
