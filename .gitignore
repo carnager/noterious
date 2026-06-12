@@ -16,3 +16,4 @@ data/
 /noterious
 *.log
 update_remote.sh
+/noterious_foo

@@ -1214,6 +1214,47 @@ func TestAuthLoginMeLogoutFlow(t *testing.T) {
 	}
 }
 
+func TestAuthLoginRateLimitsFailedAttempts(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	authService := buildTestAuthService(t, dataDir, "admin", "secret-pass")
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Auth: authService,
+	})
+
+	attemptLogin := func(password string, forwardedFor string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"username":"admin","password":"`+password+`"}`))
+		request.Header.Set("Content-Type", "application/json")
+		if forwardedFor != "" {
+			request.Header.Set("X-Forwarded-For", forwardedFor)
+		}
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		return response
+	}
+
+	for attempt := 0; attempt < loginAttemptLimit; attempt++ {
+		response := attemptLogin("wrong-pass", "203.0.113.7")
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d status = %d, want 401", attempt, response.Code)
+		}
+	}
+
+	blocked := attemptLogin("secret-pass", "203.0.113.7")
+	if blocked.Code != http.StatusTooManyRequests {
+		t.Fatalf("blocked login status = %d, want 429", blocked.Code)
+	}
+
+	otherClient := attemptLogin("secret-pass", "203.0.113.8")
+	if otherClient.Code != http.StatusOK {
+		t.Fatalf("other client login status = %d, want 200; body=%s", otherClient.Code, otherClient.Body.String())
+	}
+}
+
 func TestAuthVaultSelectionListsSwitchesAndScopesRequests(t *testing.T) {
 	t.Parallel()
 
@@ -2478,6 +2519,113 @@ func TestProtectedAPIsRequireAuthWhenEnabled(t *testing.T) {
 	router.ServeHTTP(publicResponse, publicRequest)
 	if publicResponse.Code != http.StatusOK {
 		t.Fatalf("/api/healthz status = %d want %d", publicResponse.Code, http.StatusOK)
+	}
+}
+
+func TestAPITokenLifecycle(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	authService := buildTestAuthService(t, dataDir, "admin", "secret-pass")
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{
+		Auth: authService,
+	})
+
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"username":"admin","password":"secret-pass"}`))
+	loginRequest.Header.Set("Content-Type", "application/json")
+	loginResponse := httptest.NewRecorder()
+	router.ServeHTTP(loginResponse, loginRequest)
+	if loginResponse.Code != http.StatusOK {
+		t.Fatalf("login status = %d body=%s", loginResponse.Code, loginResponse.Body.String())
+	}
+	sessionCookie := loginResponse.Result().Cookies()[0]
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/auth/tokens", strings.NewReader(`{"label":"automation"}`))
+	createRequest.Header.Set("Content-Type", "application/json")
+	createRequest.AddCookie(sessionCookie)
+	createResponse := httptest.NewRecorder()
+	router.ServeHTTP(createResponse, createRequest)
+	if createResponse.Code != http.StatusOK {
+		t.Fatalf("create token status = %d body=%s", createResponse.Code, createResponse.Body.String())
+	}
+	var created struct {
+		Token    string `json:"token"`
+		APIToken struct {
+			ID    int64  `json:"id"`
+			Label string `json:"label"`
+		} `json:"apiToken"`
+	}
+	if err := json.NewDecoder(createResponse.Body).Decode(&created); err != nil {
+		t.Fatalf("Decode(create) error = %v", err)
+	}
+	if created.Token == "" || !strings.HasPrefix(created.Token, "ntr_") {
+		t.Fatalf("created token = %q, want ntr_ prefix", created.Token)
+	}
+	if created.APIToken.Label != "automation" {
+		t.Fatalf("created label = %q", created.APIToken.Label)
+	}
+
+	bearerGet := func(path string, token string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Header.Set("Authorization", "Bearer "+token)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		return response
+	}
+
+	pagesResponse := bearerGet("/api/pages", created.Token)
+	if pagesResponse.Code != http.StatusOK {
+		t.Fatalf("bearer GET /api/pages status = %d body=%s", pagesResponse.Code, pagesResponse.Body.String())
+	}
+
+	badBearerResponse := bearerGet("/api/pages", "ntr_not-a-real-token")
+	if badBearerResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid bearer status = %d, want 401", badBearerResponse.Code)
+	}
+
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/auth/tokens", nil)
+	listRequest.AddCookie(sessionCookie)
+	listResponse := httptest.NewRecorder()
+	router.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list tokens status = %d body=%s", listResponse.Code, listResponse.Body.String())
+	}
+	var listed struct {
+		Tokens []struct {
+			ID    int64  `json:"id"`
+			Label string `json:"label"`
+		} `json:"tokens"`
+	}
+	if err := json.NewDecoder(listResponse.Body).Decode(&listed); err != nil {
+		t.Fatalf("Decode(list) error = %v", err)
+	}
+	if len(listed.Tokens) != 1 || listed.Tokens[0].Label != "automation" {
+		t.Fatalf("listed tokens = %#v", listed.Tokens)
+	}
+
+	mintRequest := httptest.NewRequest(http.MethodPost, "/api/auth/tokens", strings.NewReader(`{"label":"escalation"}`))
+	mintRequest.Header.Set("Content-Type", "application/json")
+	mintRequest.Header.Set("Authorization", "Bearer "+created.Token)
+	mintResponse := httptest.NewRecorder()
+	router.ServeHTTP(mintResponse, mintRequest)
+	if mintResponse.Code != http.StatusForbidden {
+		t.Fatalf("bearer token mint status = %d, want 403", mintResponse.Code)
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/auth/tokens/%d", created.APIToken.ID), nil)
+	deleteRequest.AddCookie(sessionCookie)
+	deleteResponse := httptest.NewRecorder()
+	router.ServeHTTP(deleteResponse, deleteRequest)
+	if deleteResponse.Code != http.StatusOK {
+		t.Fatalf("delete token status = %d body=%s", deleteResponse.Code, deleteResponse.Body.String())
+	}
+
+	revokedResponse := bearerGet("/api/pages", created.Token)
+	if revokedResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked bearer status = %d, want 401", revokedResponse.Code)
 	}
 }
 

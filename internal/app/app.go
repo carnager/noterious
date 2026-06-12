@@ -114,6 +114,7 @@ func New(cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init history store: %w", err)
 	}
+	historyService.SetRetention(cfg.HistoryMaxRevisions, cfg.HistoryMaxAge)
 	eventBroker := httpapi.NewEventBroker()
 	notifier, err := notify.NewService(cfg.DataDir, indexService, authService)
 	if err != nil {

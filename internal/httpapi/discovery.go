@@ -345,22 +345,45 @@ func performGlobalSearch(ctx context.Context, indexService *index.Service, query
 		limit = 12
 	}
 
-	pageSummaries, err := indexService.ListPages(ctx)
-	if err != nil {
-		return searchResponse{}, err
-	}
 	pageResults := make([]pageSearchResultResponse, 0, limit)
-	for _, summary := range pageSummaries {
-		if len(pageResults) >= limit {
-			break
+	matchedPaths, ftsErr := indexService.SearchPagePaths(ctx, queryText, limit)
+	if ftsErr == nil {
+		for _, matchedPath := range matchedPaths {
+			if len(pageResults) >= limit {
+				break
+			}
+			record, err := indexService.GetPage(ctx, matchedPath)
+			if err != nil {
+				continue
+			}
+			result := searchPageRecord(record, needle)
+			if result == nil {
+				result = ftsOnlyPageResult(record, queryText)
+			}
+			if result != nil {
+				pageResults = append(pageResults, *result)
+			}
 		}
-		record, err := indexService.GetPage(ctx, summary.Path)
+	}
+	if len(pageResults) == 0 {
+		// Token-prefix FTS cannot match fragments inside words; fall back to
+		// the substring scan so e.g. "terious" still finds "noterious".
+		pageSummaries, err := indexService.ListPages(ctx)
 		if err != nil {
-			continue
+			return searchResponse{}, err
 		}
-		result := searchPageRecord(record, needle)
-		if result != nil {
-			pageResults = append(pageResults, *result)
+		for _, summary := range pageSummaries {
+			if len(pageResults) >= limit {
+				break
+			}
+			record, err := indexService.GetPage(ctx, summary.Path)
+			if err != nil {
+				continue
+			}
+			result := searchPageRecord(record, needle)
+			if result != nil {
+				pageResults = append(pageResults, *result)
+			}
 		}
 	}
 
@@ -404,6 +427,22 @@ func performGlobalSearch(ctx context.Context, indexService *index.Service, query
 			Total:   len(pageResults) + len(taskResults) + len(queryResults),
 		},
 	}, nil
+}
+
+// ftsOnlyPageResult covers pages the full-text index matched but the
+// substring heuristics could not place, e.g. multi-word queries whose terms
+// sit on different lines.
+func ftsOnlyPageResult(page index.PageRecord, queryText string) *pageSearchResultResponse {
+	for _, term := range strings.Fields(strings.ToLower(queryText)) {
+		if snippet := extractSearchSnippet(page.RawMarkdown, term, 96); snippet != "" {
+			line := findFirstMatchingLine(page.RawMarkdown, term)
+			if line <= 0 {
+				line = 1
+			}
+			return &pageSearchResultResponse{Path: page.Path, Title: page.Title, Match: "content", Line: line, Snippet: snippet}
+		}
+	}
+	return &pageSearchResultResponse{Path: page.Path, Title: page.Title, Match: "content", Line: 1, Snippet: clipSnippet(page.Title, 96)}
 }
 
 func searchPageRecord(page index.PageRecord, needle string) *pageSearchResultResponse {

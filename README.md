@@ -19,6 +19,7 @@ Noterious is a server-first markdown notebook. Your notes stay as markdown files
 - automatically merges non-overlapping concurrent page edits from multiple clients and falls back to explicit conflicts for overlapping changes
 - sends notifications from both task reminders and note frontmatter notification fields
 - supports one account per deployment
+- supports API bearer tokens for automation clients (see [docs/api.md](docs/api.md))
 - treats top-level folders under the vault root as switchable scopes in the UI
 - supports built-in and custom UI themes
 - ships Nix packaging plus a multi-instance NixOS module
@@ -138,7 +139,7 @@ tags:
 ## Notizen
 ```
 
-For the full flow, including quick-switcher creation, placeholders, guided fill, and a complete contact example, see [docs/templates.md](/home/carnager/Code/noterious/docs/templates.md:1).
+For the full flow, including quick-switcher creation, placeholders, guided fill, and a complete contact example, see [docs/templates.md](docs/templates.md).
 
 ## Notifications
 
@@ -188,7 +189,7 @@ Theme selection is browser-local.
 - uploaded theme files are stored on the server under `<data-dir>/themes`
 - deleting a custom theme removes it from the shared server theme library
 
-To create your own themes, see [docs/themes.md](/home/carnager/Code/noterious/docs/themes.md:1).
+To create your own themes, see [docs/themes.md](docs/themes.md).
 
 ## Configuration
 
@@ -204,6 +205,11 @@ Useful environment variables:
 - `NOTERIOUS_AUTH_BOOTSTRAP_USERNAME`
 - `NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD`
 - `NOTERIOUS_AUTH_BOOTSTRAP_PASSWORD_FILE`
+- `NOTERIOUS_HISTORY_MAX_REVISIONS` (per page; `0` or unset keeps every revision)
+- `NOTERIOUS_HISTORY_MAX_AGE` (e.g. `2160h` for 90 days; `0` or unset keeps every revision)
+
+History retention is unlimited by default. When either limit is set, older
+revisions are pruned on save; the newest revision of a page is always kept.
 
 CLI flags currently support:
 
@@ -233,9 +239,9 @@ The settings modal also shows the resolved runtime backup paths and can:
 - validate a backup manifest against the current deployment paths before
   restoring
 
-See [docs/backups.md](/home/carnager/Code/noterious/docs/backups.md:1) for the
+See [docs/backups.md](docs/backups.md) for the
 full backup and restore guidance, and
-[docs/operations.md](/home/carnager/Code/noterious/docs/operations.md:1) for
+[docs/operations.md](docs/operations.md) for
 upgrade/restart/recovery guidance.
 
 ## Development
@@ -256,18 +262,18 @@ The UI is served through Go `embed`, so after rebuilding the frontend you must r
 
 ## Docs
 
-- [docs/api.md](/home/carnager/Code/noterious/docs/api.md:1) for HTTP endpoints
-- [docs/query-language.md](/home/carnager/Code/noterious/docs/query-language.md:1) for embedded query syntax
-- [docs/architecture.md](/home/carnager/Code/noterious/docs/architecture.md:1) for runtime/storage structure
-- [docs/backups.md](/home/carnager/Code/noterious/docs/backups.md:1) for deployment backup/restore guidance
-- [docs/operations.md](/home/carnager/Code/noterious/docs/operations.md:1) for upgrade/restart/recovery guidance
-- [docs/release-checklist.md](/home/carnager/Code/noterious/docs/release-checklist.md:1) for maintainer release steps
-- [docs/templates.md](/home/carnager/Code/noterious/docs/templates.md:1) for vault-native note templates
-- [docs/themes.md](/home/carnager/Code/noterious/docs/themes.md:1) for custom theme authoring
+- [docs/api.md](docs/api.md) for HTTP endpoints
+- [docs/query-language.md](docs/query-language.md) for embedded query syntax
+- [docs/architecture.md](docs/architecture.md) for runtime/storage structure
+- [docs/backups.md](docs/backups.md) for deployment backup/restore guidance
+- [docs/operations.md](docs/operations.md) for upgrade/restart/recovery guidance
+- [docs/release-checklist.md](docs/release-checklist.md) for maintainer release steps
+- [docs/templates.md](docs/templates.md) for vault-native note templates
+- [docs/themes.md](docs/themes.md) for custom theme authoring
 
 ## Service Setup
 
-The repository includes a user-level systemd unit at [contrib/systemd/noterious.service](/home/carnager/Code/noterious/contrib/systemd/noterious.service:1).
+The repository includes a user-level systemd unit at [contrib/systemd/noterious.service](contrib/systemd/noterious.service).
 
 For packaged installs, enable it directly:
 
@@ -288,8 +294,8 @@ systemctl --user enable --now noterious
 The repository now includes:
 
 - a `flake.nix`
-- a build package at [nix/package.nix](/home/carnager/Code/noterious/nix/package.nix:1)
-- a NixOS module at [nix/module.nix](/home/carnager/Code/noterious/nix/module.nix:1)
+- a build package at [nix/package.nix](nix/package.nix)
+- a NixOS module at [nix/module.nix](nix/module.nix)
 
 When consuming Noterious as a flake input, the intended moving-release flow is the `latest` tag:
 
@@ -341,7 +347,7 @@ Bootstrap secrets can be provided through `services.noterious.instances.<name>.b
 
 ## Arch Linux
 
-A release-oriented [PKGBUILD](/home/carnager/Code/noterious/PKGBUILD:1) is included at the repository root.
+A release-oriented [PKGBUILD](PKGBUILD) is included at the repository root.
 
 - it builds the embedded-server binary with Go
 - it installs the user unit to `/usr/lib/systemd/user/noterious.service`

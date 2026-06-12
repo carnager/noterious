@@ -3,15 +3,86 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/carnager/noterious/internal/auth"
 	"github.com/carnager/noterious/internal/config"
 	"github.com/carnager/noterious/internal/settings"
 	"github.com/carnager/noterious/internal/vault"
 )
+
+const (
+	loginAttemptLimit  = 10
+	loginAttemptWindow = 15 * time.Minute
+)
+
+// loginLimiter tracks failed login attempts per client address in a fixed
+// window so the single account cannot be brute-forced unthrottled.
+type loginLimiter struct {
+	mu       sync.Mutex
+	failures map[string]loginFailureWindow
+}
+
+type loginFailureWindow struct {
+	count      int
+	windowFrom time.Time
+}
+
+func newLoginLimiter() *loginLimiter {
+	return &loginLimiter{failures: make(map[string]loginFailureWindow)}
+}
+
+func (l *loginLimiter) blocked(key string) bool {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	window, ok := l.failures[key]
+	if !ok || now.Sub(window.windowFrom) > loginAttemptWindow {
+		return false
+	}
+	return window.count >= loginAttemptLimit
+}
+
+func (l *loginLimiter) recordFailure(key string) {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for existingKey, window := range l.failures {
+		if now.Sub(window.windowFrom) > loginAttemptWindow {
+			delete(l.failures, existingKey)
+		}
+	}
+	window, ok := l.failures[key]
+	if !ok || now.Sub(window.windowFrom) > loginAttemptWindow {
+		l.failures[key] = loginFailureWindow{count: 1, windowFrom: now}
+		return
+	}
+	window.count++
+	l.failures[key] = window
+}
+
+func (l *loginLimiter) recordSuccess(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.failures, key)
+}
+
+func clientAddress(r *http.Request) string {
+	forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0])
+	if forwarded != "" {
+		return forwarded
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
 
 type authSessionResponse struct {
 	Authenticated bool         `json:"authenticated"`
@@ -29,10 +100,26 @@ type vaultsResponse struct {
 	Count  int           `json:"count"`
 }
 
+type apiTokensResponse struct {
+	Tokens []auth.APIToken `json:"tokens"`
+}
+
+type apiTokenCreatedResponse struct {
+	Token    string        `json:"token"`
+	APIToken auth.APIToken `json:"apiToken"`
+}
+
 func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, settingsStore *settings.Store, cfg config.Config) {
+	limiter := newLoginLimiter()
 	mux.HandleFunc("POST /api/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		if authService == nil {
 			http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		limiterKey := clientAddress(r)
+		if limiter.blocked(limiterKey) {
+			http.Error(w, "too many failed login attempts, try again later", http.StatusTooManyRequests)
 			return
 		}
 
@@ -48,12 +135,14 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, settingsS
 		session, err := authService.Login(r.Context(), request.Username, request.Password)
 		if err != nil {
 			if errors.Is(err, auth.ErrInvalidCredentials) {
+				limiter.recordFailure(limiterKey)
 				http.Error(w, err.Error(), http.StatusUnauthorized)
 				return
 			}
 			http.Error(w, "login failed", http.StatusInternalServerError)
 			return
 		}
+		limiter.recordSuccess(limiterKey)
 
 		currentVault := configuredVault(settingsStore, cfg)
 
@@ -315,6 +404,65 @@ func mountAuthEndpoints(mux *http.ServeMux, authService *auth.Service, settingsS
 			return
 		}
 		writeJSON(w, http.StatusOK, updatedVault)
+	})
+
+	sessionUser := func(w http.ResponseWriter, r *http.Request) (auth.User, bool) {
+		user, _, err := authService.SessionUserFromRequest(r)
+		if err != nil {
+			http.Error(w, "api token management requires a browser session", http.StatusForbidden)
+			return auth.User{}, false
+		}
+		return user, true
+	}
+
+	mux.HandleFunc("GET /api/auth/tokens", func(w http.ResponseWriter, r *http.Request) {
+		user, ok := sessionUser(w, r)
+		if !ok {
+			return
+		}
+		tokens, err := authService.ListAPITokens(r.Context(), user.ID)
+		if err != nil {
+			http.Error(w, "failed to list api tokens", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, apiTokensResponse{Tokens: tokens})
+	})
+
+	mux.HandleFunc("POST /api/auth/tokens", func(w http.ResponseWriter, r *http.Request) {
+		user, ok := sessionUser(w, r)
+		if !ok {
+			return
+		}
+		var request struct {
+			Label string `json:"label"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		created, token, err := authService.CreateAPIToken(r.Context(), user.ID, request.Label)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusOK, apiTokenCreatedResponse{Token: token, APIToken: created})
+	})
+
+	mux.HandleFunc("DELETE /api/auth/tokens/{id}", func(w http.ResponseWriter, r *http.Request) {
+		user, ok := sessionUser(w, r)
+		if !ok {
+			return
+		}
+		tokenID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil {
+			http.Error(w, "invalid token id", http.StatusBadRequest)
+			return
+		}
+		if err := authService.DeleteAPIToken(r.Context(), user.ID, tokenID); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, okStatusResponse{OK: true})
 	})
 
 	mux.HandleFunc("GET /api/auth/me", func(w http.ResponseWriter, r *http.Request) {

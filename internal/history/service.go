@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,6 +17,9 @@ type Service struct {
 	historyRoot   string
 	revisionsRoot string
 	trashRoot     string
+
+	maxRevisionsPerPage int
+	maxRevisionAge      time.Duration
 }
 
 const revisionCoalesceWindow = time.Minute
@@ -47,6 +51,13 @@ func NewService(dataDir string) (*Service, error) {
 		return nil, fmt.Errorf("create trash dir: %w", err)
 	}
 	return service, nil
+}
+
+// SetRetention bounds stored revisions per page. Zero values mean unlimited;
+// the newest revision is always kept.
+func (s *Service) SetRetention(maxRevisionsPerPage int, maxRevisionAge time.Duration) {
+	s.maxRevisionsPerPage = maxRevisionsPerPage
+	s.maxRevisionAge = maxRevisionAge
 }
 
 func (s *Service) SaveRevision(pagePath string, rawMarkdown []byte) (bool, error) {
@@ -87,7 +98,52 @@ func (s *Service) SaveRevision(pagePath string, rawMarkdown []byte) (bool, error
 	if err := writeJSONFile(filepath.Join(revisionDir, revision.ID+".json"), revision); err != nil {
 		return false, fmt.Errorf("write revision for %q: %w", normalized, err)
 	}
+	if err := s.pruneRevisions(revisionDir, savedAt); err != nil {
+		return true, fmt.Errorf("prune revisions for %q: %w", normalized, err)
+	}
 	return true, nil
+}
+
+// pruneRevisions enforces the retention bounds using the revision filenames
+// (nanosecond timestamps), so it never has to read revision contents.
+func (s *Service) pruneRevisions(revisionDir string, now time.Time) error {
+	if s.maxRevisionsPerPage <= 0 && s.maxRevisionAge <= 0 {
+		return nil
+	}
+	entries, err := os.ReadDir(revisionDir)
+	if err != nil {
+		return err
+	}
+	ids := make([]int64, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		id, err := strconv.ParseInt(strings.TrimSuffix(entry.Name(), ".json"), 10, 64)
+		if err != nil {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i int, j int) bool {
+		return ids[i] > ids[j]
+	})
+	for position, id := range ids {
+		if position == 0 {
+			continue
+		}
+		drop := s.maxRevisionsPerPage > 0 && position >= s.maxRevisionsPerPage
+		if !drop && s.maxRevisionAge > 0 {
+			drop = now.Sub(time.Unix(0, id)) > s.maxRevisionAge
+		}
+		if !drop {
+			continue
+		}
+		if err := os.Remove(filepath.Join(revisionDir, fmt.Sprintf("%d.json", id))); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) ListRevisions(pagePath string) ([]Revision, error) {
@@ -462,7 +518,29 @@ func writeJSONFile(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(payload, '\n'), 0o644)
+	tempFile, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tempPath := tempFile.Name()
+	if _, err := tempFile.Write(append(payload, '\n')); err != nil {
+		_ = tempFile.Close()
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := os.Chmod(tempPath, 0o644); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	return nil
 }
 
 func readJSONFile(path string, value any) error {

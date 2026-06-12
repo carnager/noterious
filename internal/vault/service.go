@@ -199,8 +199,41 @@ func (s *Service) WritePage(pagePath string, content []byte) error {
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 		return fmt.Errorf("create page dir for %q: %w", normalized, err)
 	}
-	if err := os.WriteFile(fullPath, content, 0o644); err != nil {
+	if err := writeFileAtomic(fullPath, content, 0o644); err != nil {
 		return fmt.Errorf("write page %q: %w", normalized, err)
+	}
+	return nil
+}
+
+// writeFileAtomic writes via a temp file plus rename so a crash mid-write
+// never leaves a torn note behind; notes are the source of truth.
+func writeFileAtomic(fullPath string, content []byte, mode os.FileMode) error {
+	tempFile, err := os.CreateTemp(filepath.Dir(fullPath), "."+filepath.Base(fullPath)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tempPath := tempFile.Name()
+	if _, err := tempFile.Write(content); err != nil {
+		_ = tempFile.Close()
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := tempFile.Sync(); err != nil {
+		_ = tempFile.Close()
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := os.Chmod(tempPath, mode); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := os.Rename(tempPath, fullPath); err != nil {
+		_ = os.Remove(tempPath)
+		return err
 	}
 	return nil
 }

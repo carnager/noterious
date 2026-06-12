@@ -27,7 +27,9 @@ func OpenSQLite(ctx context.Context, dataDir string) (*SQLiteStore, error) {
 }
 
 func OpenSQLitePath(ctx context.Context, dbPath string) (*SQLiteStore, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	// busy_timeout must be set per connection via the DSN; a PRAGMA statement
+	// would only apply to whichever pooled connection happened to run it.
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
@@ -67,6 +69,28 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 			created_at TEXT,
 			updated_at TEXT
 		);`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
+			path,
+			title,
+			raw_markdown,
+			content='pages',
+			content_rowid='id',
+			tokenize='unicode61'
+		);`,
+		`CREATE TRIGGER IF NOT EXISTS pages_fts_after_insert AFTER INSERT ON pages BEGIN
+			INSERT INTO pages_fts(rowid, path, title, raw_markdown)
+			VALUES (new.id, new.path, new.title, new.raw_markdown);
+		END;`,
+		`CREATE TRIGGER IF NOT EXISTS pages_fts_after_delete AFTER DELETE ON pages BEGIN
+			INSERT INTO pages_fts(pages_fts, rowid, path, title, raw_markdown)
+			VALUES ('delete', old.id, old.path, old.title, old.raw_markdown);
+		END;`,
+		`CREATE TRIGGER IF NOT EXISTS pages_fts_after_update AFTER UPDATE ON pages BEGIN
+			INSERT INTO pages_fts(pages_fts, rowid, path, title, raw_markdown)
+			VALUES ('delete', old.id, old.path, old.title, old.raw_markdown);
+			INSERT INTO pages_fts(rowid, path, title, raw_markdown)
+			VALUES (new.id, new.path, new.title, new.raw_markdown);
+		END;`,
 		`CREATE TABLE IF NOT EXISTS links (
 			id INTEGER PRIMARY KEY,
 			source_page TEXT NOT NULL,
@@ -159,7 +183,36 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	if err := s.ensureTaskColumns(ctx); err != nil {
 		return err
 	}
+	if err := s.ensureSearchIndexBackfill(ctx); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+// ensureSearchIndexBackfill rebuilds the FTS index once for databases that
+// predate it: existing page rows never fired the sync triggers.
+func (s *SQLiteStore) ensureSearchIndexBackfill(ctx context.Context) error {
+	var pageCount int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM pages;`).Scan(&pageCount); err != nil {
+		return fmt.Errorf("count pages for fts backfill: %w", err)
+	}
+	if pageCount == 0 {
+		return nil
+	}
+	// count(*) on an external-content FTS table reads through to the content
+	// table, so probe the docsize shadow table (one row per indexed document)
+	// to learn whether the index itself is empty.
+	var ftsCount int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM pages_fts_docsize;`).Scan(&ftsCount); err != nil {
+		return fmt.Errorf("count fts rows for backfill: %w", err)
+	}
+	if ftsCount > 0 {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO pages_fts(pages_fts) VALUES('rebuild');`); err != nil {
+		return fmt.Errorf("rebuild fts index: %w", err)
+	}
 	return nil
 }
 
@@ -584,6 +637,57 @@ func (s *SQLiteStore) GetTask(ctx context.Context, ref string) (Task, error) {
 		return Task{}, ErrTaskNotFound
 	}
 	return tasks[0], nil
+}
+
+// SearchPagePaths runs a ranked full-text search over page paths, titles, and
+// content. Results are ordered by bm25 relevance with path and title matches
+// weighted above body matches.
+func (s *SQLiteStore) SearchPagePaths(ctx context.Context, queryText string, scopePrefix string, limit int) ([]string, error) {
+	match := buildFTSMatchQuery(queryText)
+	if match == "" || limit <= 0 {
+		return []string{}, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT path
+		FROM pages_fts
+		WHERE pages_fts MATCH ?
+		AND (? = '' OR path = ? OR path LIKE ? || '/%')
+		ORDER BY bm25(pages_fts, 10.0, 5.0, 1.0)
+		LIMIT ?;
+	`, match, scopePrefix, scopePrefix, scopePrefix, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search pages: %w", err)
+	}
+	defer rows.Close()
+
+	paths := make([]string, 0, limit)
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, fmt.Errorf("scan search result: %w", err)
+		}
+		paths = append(paths, path)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate search results: %w", err)
+	}
+	return paths, nil
+}
+
+// buildFTSMatchQuery turns free-form user input into a safe FTS5 query:
+// every whitespace-separated term becomes a quoted prefix token, combined
+// with implicit AND. Returns "" when no usable terms remain.
+func buildFTSMatchQuery(queryText string) string {
+	terms := strings.Fields(queryText)
+	parts := make([]string, 0, len(terms))
+	for _, term := range terms {
+		cleaned := strings.ReplaceAll(term, `"`, `""`)
+		if strings.TrimSpace(cleaned) == "" {
+			continue
+		}
+		parts = append(parts, `"`+cleaned+`"*`)
+	}
+	return strings.Join(parts, " ")
 }
 
 func (s *SQLiteStore) ListPages(ctx context.Context) ([]PageSummary, error) {

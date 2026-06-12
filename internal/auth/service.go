@@ -68,6 +68,13 @@ type User struct {
 	MustChangePassword bool       `json:"mustChangePassword"`
 }
 
+type APIToken struct {
+	ID         int64      `json:"id"`
+	Label      string     `json:"label"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+}
+
 type Session struct {
 	Token     string
 	User      User
@@ -87,7 +94,9 @@ func NewService(ctx context.Context, dataDir string, cookieName string, sessionT
 		return nil, fmt.Errorf("create auth data dir: %w", err)
 	}
 	dbPath := filepath.Join(dataDir, "noterious.db")
-	db, err := sql.Open("sqlite", dbPath)
+	// busy_timeout must be set per connection via the DSN; the index service
+	// holds a second pool on this same database file.
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("open auth sqlite: %w", err)
 	}
@@ -356,6 +365,141 @@ func (s *Service) CurrentUserByToken(ctx context.Context, token string) (User, e
 	return user, nil
 }
 
+// CreateAPIToken mints a long-lived bearer token for automation clients. The
+// plaintext token is returned exactly once; only its hash is stored.
+func (s *Service) CreateAPIToken(ctx context.Context, userID int64, label string) (APIToken, string, error) {
+	if s == nil {
+		return APIToken{}, "", ErrAuthenticationRequired
+	}
+	trimmedLabel := strings.TrimSpace(label)
+	if trimmedLabel == "" {
+		return APIToken{}, "", fmt.Errorf("token label must not be empty")
+	}
+
+	random, err := randomToken(32)
+	if err != nil {
+		return APIToken{}, "", err
+	}
+	token := "ntr_" + random
+	now := time.Now().UTC()
+
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO api_tokens(token_hash, user_id, label, created_at)
+		VALUES(?, ?, ?, ?);
+	`, hashToken(token), userID, trimmedLabel, now.UnixMilli())
+	if err != nil {
+		return APIToken{}, "", fmt.Errorf("create api token: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return APIToken{}, "", fmt.Errorf("create api token id: %w", err)
+	}
+	return APIToken{ID: id, Label: trimmedLabel, CreatedAt: now}, token, nil
+}
+
+func (s *Service) ListAPITokens(ctx context.Context, userID int64) ([]APIToken, error) {
+	if s == nil {
+		return nil, ErrAuthenticationRequired
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, label, created_at, last_used_at
+		FROM api_tokens
+		WHERE user_id = ?
+		ORDER BY created_at DESC, id DESC;
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list api tokens: %w", err)
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	tokens := make([]APIToken, 0)
+	for rows.Next() {
+		var token APIToken
+		var createdAtMillis int64
+		var lastUsedMillis sql.NullInt64
+		if err := rows.Scan(&token.ID, &token.Label, &createdAtMillis, &lastUsedMillis); err != nil {
+			return nil, fmt.Errorf("scan api token: %w", err)
+		}
+		token.CreatedAt = time.UnixMilli(createdAtMillis).UTC()
+		if lastUsedMillis.Valid {
+			lastUsed := time.UnixMilli(lastUsedMillis.Int64).UTC()
+			token.LastUsedAt = &lastUsed
+		}
+		tokens = append(tokens, token)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate api tokens: %w", err)
+	}
+	return tokens, nil
+}
+
+func (s *Service) DeleteAPIToken(ctx context.Context, userID int64, tokenID int64) error {
+	if s == nil {
+		return ErrAuthenticationRequired
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM api_tokens WHERE id = ? AND user_id = ?;`, tokenID, userID)
+	if err != nil {
+		return fmt.Errorf("delete api token: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete api token result: %w", err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("api token not found")
+	}
+	return nil
+}
+
+func (s *Service) UserByAPIToken(ctx context.Context, token string) (User, error) {
+	if s == nil {
+		return User{}, ErrAuthenticationRequired
+	}
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		return User{}, ErrAuthenticationRequired
+	}
+
+	row := s.db.QueryRowContext(ctx, `
+		SELECT u.id, u.username, u.created_at, u.last_login_at, u.must_change_password, t.last_used_at
+		FROM api_tokens t
+		JOIN users u ON u.id = t.user_id
+		WHERE t.token_hash = ?;
+	`, hashToken(trimmed))
+
+	var user User
+	var createdAtMillis int64
+	var lastLoginMillis sql.NullInt64
+	var mustChangePassword bool
+	var lastUsedMillis sql.NullInt64
+	if err := row.Scan(&user.ID, &user.Username, &createdAtMillis, &lastLoginMillis, &mustChangePassword, &lastUsedMillis); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return User{}, ErrAuthenticationRequired
+		}
+		return User{}, fmt.Errorf("load api token user: %w", err)
+	}
+
+	user.CreatedAt = time.UnixMilli(createdAtMillis).UTC()
+	user.MustChangePassword = mustChangePassword
+	if lastLoginMillis.Valid {
+		lastLogin := time.UnixMilli(lastLoginMillis.Int64).UTC()
+		user.LastLoginAt = &lastLogin
+	}
+
+	now := time.Now().UTC()
+	if !lastUsedMillis.Valid || now.Sub(time.UnixMilli(lastUsedMillis.Int64).UTC()) >= sessionHeartbeatInterval {
+		_, _ = s.db.ExecContext(ctx, `
+			UPDATE api_tokens
+			SET last_used_at = ?
+			WHERE token_hash = ?;
+		`, now.UnixMilli(), hashToken(trimmed))
+	}
+
+	return user, nil
+}
+
 func (s *Service) ChangePassword(ctx context.Context, userID int64, currentPassword string, newPassword string) (User, error) {
 	if s == nil {
 		return User{}, fmt.Errorf("auth service unavailable")
@@ -519,6 +663,24 @@ func (s *Service) AuthenticateRequest(r *http.Request) (User, string, error) {
 	if s == nil {
 		return User{}, "", ErrAuthenticationRequired
 	}
+	if bearer := bearerToken(r); bearer != "" {
+		// The empty second return keeps the middleware from clearing the
+		// session cookie on a bad bearer token.
+		user, err := s.UserByAPIToken(r.Context(), bearer)
+		if err != nil {
+			return User{}, "", err
+		}
+		return user, "", nil
+	}
+	return s.SessionUserFromRequest(r)
+}
+
+// SessionUserFromRequest authenticates via the session cookie only. Token
+// management endpoints use it so a leaked API token cannot mint new tokens.
+func (s *Service) SessionUserFromRequest(r *http.Request) (User, string, error) {
+	if s == nil {
+		return User{}, "", ErrAuthenticationRequired
+	}
 	cookie, err := r.Cookie(s.cookieName)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {
@@ -531,6 +693,18 @@ func (s *Service) AuthenticateRequest(r *http.Request) (User, string, error) {
 		return User{}, cookie.Value, err
 	}
 	return user, cookie.Value, nil
+}
+
+func bearerToken(r *http.Request) string {
+	header := strings.TrimSpace(r.Header.Get("Authorization"))
+	if header == "" {
+		return ""
+	}
+	scheme, token, found := strings.Cut(header, " ")
+	if !found || !strings.EqualFold(scheme, "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(token)
 }
 
 func (s *Service) SetSessionCookie(w http.ResponseWriter, r *http.Request, session Session) {
@@ -634,6 +808,16 @@ func (s *Service) migrate(ctx context.Context) error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);`,
+		`CREATE TABLE IF NOT EXISTS api_tokens (
+			id INTEGER PRIMARY KEY,
+			token_hash TEXT NOT NULL UNIQUE,
+			user_id INTEGER NOT NULL,
+			label TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			last_used_at INTEGER,
+			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);`,
 	}
 	for _, statement := range statements {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {

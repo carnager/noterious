@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,6 +18,8 @@ type Config struct {
 	AuthSessionTTL        time.Duration
 	AuthBootstrapUsername string
 	AuthBootstrapPassword string
+	HistoryMaxRevisions   int
+	HistoryMaxAge         time.Duration
 }
 
 func LoadFromEnv() (Config, error) {
@@ -36,6 +39,14 @@ func LoadFromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	historyMaxRevisions, err := parseIntEnv("NOTERIOUS_HISTORY_MAX_REVISIONS", 0)
+	if err != nil {
+		return Config{}, err
+	}
+	historyMaxAge, err := parseDurationEnv("NOTERIOUS_HISTORY_MAX_AGE", "0s")
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		ListenAddr:            envOrDefault("NOTERIOUS_LISTEN_ADDR", ":3000"),
@@ -47,6 +58,8 @@ func LoadFromEnv() (Config, error) {
 		AuthSessionTTL:        authSessionTTL,
 		AuthBootstrapUsername: envOrDefault("NOTERIOUS_AUTH_BOOTSTRAP_USERNAME", ""),
 		AuthBootstrapPassword: bootstrapPassword,
+		HistoryMaxRevisions:   historyMaxRevisions,
+		HistoryMaxAge:         historyMaxAge,
 	}
 
 	if cfg.VaultPath == "" {
@@ -101,6 +114,18 @@ func envOrFile(name, fileName, fallback string) (string, error) {
 		return "", fmt.Errorf("read %s: %w", fileName, err)
 	}
 	return strings.TrimSpace(string(content)), nil
+}
+
+func parseIntEnv(name string, fallback int) (int, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf("invalid value for %s: %q", name, value)
+	}
+	return parsed, nil
 }
 
 func parseDurationEnv(name, fallback string) (time.Duration, error) {

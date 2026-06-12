@@ -24,7 +24,36 @@ When auth is enabled, every API endpoint except:
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
 
-requires a valid session cookie and otherwise returns `401`.
+requires a valid session cookie or API token and otherwise returns `401`.
+
+### API Tokens
+
+For automation clients (scripts, webhooks, companion apps), long-lived API
+tokens can be used instead of the session cookie:
+
+```
+Authorization: Bearer ntr_<token>
+```
+
+Token management always requires a browser session cookie, so a leaked token
+cannot be used to mint new tokens:
+
+- `GET /api/auth/tokens` lists token metadata (`id`, `label`, `createdAt`, `lastUsedAt`)
+- `POST /api/auth/tokens` with `{"label": "..."}` creates a token; the
+  plaintext `token` value is returned exactly once and only its hash is stored
+- `DELETE /api/auth/tokens/<id>` revokes a token immediately
+
+Example:
+
+```bash
+curl -s -X POST https://notes.example/api/auth/tokens \
+  -H "Cookie: noterious_session=<session>" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "backup-script"}'
+
+curl -s https://notes.example/api/pages \
+  -H "Authorization: Bearer ntr_..."
+```
 
 ## Health And Runtime
 

@@ -166,6 +166,16 @@ func (s *Service) ListPages(ctx context.Context) ([]PageSummary, error) {
 	return filterPagesByScopePrefix(pages, vault.ScopePrefixFromContext(ctx)), nil
 }
 
+// SearchPagePaths returns vault-scoped page paths ranked by full-text
+// relevance for the given free-form query.
+func (s *Service) SearchPagePaths(ctx context.Context, queryText string, limit int) ([]string, error) {
+	store, err := s.storeForContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return store.SearchPagePaths(ctx, queryText, vault.ScopePrefixFromContext(ctx), limit)
+}
+
 func (s *Service) ListLinks(ctx context.Context) ([]Link, error) {
 	store, err := s.storeForContext(ctx)
 	if err != nil {
