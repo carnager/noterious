@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/carnager/noterious/internal/index"
 	"github.com/carnager/noterious/internal/markdown"
@@ -125,6 +126,7 @@ func handleTaskRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 			Due    *string  `json:"due"`
 			Remind *string  `json:"remind"`
 			Click  *string  `json:"click"`
+			Repeat *string  `json:"repeat"`
 			Who    []string `json:"who"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -138,14 +140,33 @@ func handleTaskRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 			who = &copied
 		}
 
-		updatedMarkdown, _, err = markdown.ApplyTaskPatch(string(rawMarkdown), task.Line, markdown.TaskPatch{
+		patch := markdown.TaskPatch{
 			Text:   request.Text,
 			State:  request.State,
 			Due:    request.Due,
 			Remind: request.Remind,
 			Click:  request.Click,
+			Repeat: request.Repeat,
 			Who:    who,
-		})
+		}
+
+		// Completing a repeating task rolls it forward instead: the task
+		// stays open and its dates advance by the repeat interval.
+		togglingDone := request.State != nil && strings.EqualFold(strings.TrimSpace(*request.State), "done") && !task.Done
+		if togglingDone {
+			if nextDue, nextRemind, ok := nextRecurrence(task, time.Now().In(time.Local)); ok {
+				todo := "todo"
+				patch.State = &todo
+				if nextDue != nil {
+					patch.Due = nextDue
+				}
+				if nextRemind != nil {
+					patch.Remind = nextRemind
+				}
+			}
+		}
+
+		updatedMarkdown, _, err = markdown.ApplyTaskPatch(string(rawMarkdown), task.Line, patch)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

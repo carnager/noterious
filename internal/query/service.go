@@ -1287,6 +1287,7 @@ func taskChangedFields(before, after *index.Task, relevant map[string]struct{}) 
 	add("due", derefString(before.Due) != derefString(after.Due))
 	add("remind", derefString(before.Remind) != derefString(after.Remind))
 	add("click", derefString(before.Click) != derefString(after.Click))
+	add("repeat", derefString(before.Repeat) != derefString(after.Repeat))
 	add("who", !stringSliceEqual(before.Who, after.Who))
 	sort.Strings(changed)
 	return changed
@@ -1349,6 +1350,7 @@ func taskRow(task *index.Task) map[string]any {
 		"due":    derefString(task.Due),
 		"remind": derefString(task.Remind),
 		"click":  derefString(task.Click),
+		"repeat": derefString(task.Repeat),
 		"who":    append([]string(nil), task.Who...),
 	}
 }
@@ -2752,7 +2754,7 @@ func validDynamicPageField(field string) bool {
 func datasetFields(dataset string) (map[string]struct{}, bool) {
 	switch dataset {
 	case "tasks":
-		return set(defaultColumns("tasks")...), true
+		return set(append(defaultColumns("tasks"), "click", "repeat")...), true
 	case "pages":
 		return set(defaultColumns("pages")...), true
 	case "links":
@@ -3467,6 +3469,7 @@ func loadDataset(ctx context.Context, indexService *index.Service, dataset strin
 				"due":    derefString(task.Due),
 				"remind": derefString(task.Remind),
 				"click":  derefString(task.Click),
+				"repeat": derefString(task.Repeat),
 				"who":    append([]string(nil), task.Who...),
 			})
 		}

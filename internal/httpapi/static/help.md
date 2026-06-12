@@ -39,9 +39,12 @@ Noterious writes normal markdown files.
 - [ ] Follow up [due: 2026-05-10]
 - [ ] Leave now [remind: 2026-05-10 08:45]
 - [ ] Open shopping [click: noteriousshopping://shopping]
+- [ ] Water plants [due: 2026-05-10] [repeat: weekly]
 ```
 
 `[due: ...]` adds a due date, `[remind: ...]` adds a reminder, and `[click: ...]` can attach a notification tap target.
+
+`[repeat: ...]` makes a task recurring: completing it rolls it forward instead of checking it off — the task stays open and its due/remind dates advance by the interval (overdue tasks catch up past today). Intervals: `daily`, `weekly`, `monthly`, `yearly`, or `2d`, `3w`, `6m`, `1y`.
 
 ### Tables
 

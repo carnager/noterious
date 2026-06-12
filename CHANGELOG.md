@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Recurring tasks via `[repeat: weekly]` (also `daily`, `monthly`, `yearly`, or `2d`/`3w`/`6m`/`1y`). Completing a repeating task rolls it forward instead of checking it off: the task stays open and its due/remind dates advance by the interval, with overdue tasks catching up past today. The repeat field is indexed and queryable (`where repeat != ""`).
+- Query datasets now push pinned equality filters into SQL: queries constraining `tasks.page`, `links.sourcePage`, or `links.targetPage` to one value load only those rows instead of the whole dataset.
 - Relative date keywords in query comparisons: `today` and `now`, with offsets like `today + 7d`, `today - 2w`, or `now + 2h`, enabling queries such as "tasks due in the next seven days" without hardcoded dates. Quoted values keep matching the literal text.
 - API bearer tokens for automation clients: `GET/POST /api/auth/tokens` and `DELETE /api/auth/tokens/<id>`, with `Authorization: Bearer ntr_...` accepted on all authenticated endpoints. Token management requires a browser session; only token hashes are stored.
 - Full-text search index (SQLite FTS5) behind `/api/search` page results, with bm25 relevance ranking that weights path and title matches above body matches. Existing databases are backfilled automatically on first start; mid-word fragment queries still fall back to the previous substring scan.

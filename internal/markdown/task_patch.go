@@ -8,8 +8,8 @@ import (
 )
 
 var taskLinePattern = regexp.MustCompile(`^(\s*[-*]\s+\[)([ xX])(\]\s+)(.*)$`)
-var inlineFieldPattern = regexp.MustCompile(`\b(due|remind|who|click)::`)
-var bracketFieldPattern = regexp.MustCompile(`\[(due|remind|who|click|completed):\s*([^\]]*?)\]`)
+var inlineFieldPattern = regexp.MustCompile(`\b(due|remind|who|click|repeat)::`)
+var bracketFieldPattern = regexp.MustCompile(`\[(due|remind|who|click|repeat|completed):\s*([^\]]*?)\]`)
 var remindTagPattern = regexp.MustCompile(`(^|\s)#remind\b`)
 
 type TaskPatch struct {
@@ -18,6 +18,7 @@ type TaskPatch struct {
 	Due    *string
 	Remind *string
 	Click  *string
+	Repeat *string
 	Who    *[]string
 }
 
@@ -105,6 +106,13 @@ func patchTaskLine(line string, patch TaskPatch) (string, string, bool, error) {
 			fields["click"] = *patch.Click
 		}
 	}
+	if patch.Repeat != nil {
+		if *patch.Repeat == "" {
+			delete(fields, "repeat")
+		} else {
+			fields["repeat"] = *patch.Repeat
+		}
+	}
 	if patch.Who != nil {
 		if len(*patch.Who) == 0 {
 			delete(fields, "who")
@@ -128,12 +136,12 @@ func patchTaskLine(line string, patch TaskPatch) (string, string, bool, error) {
 	}
 
 	rewrittenBody := strings.TrimSpace(baseText)
-	for _, key := range []string{"due", "remind", "click", "who"} {
+	for _, key := range []string{"due", "remind", "click", "repeat", "who"} {
 		if value, ok := fields[key]; ok && strings.TrimSpace(value) != "" {
 			if rewrittenBody != "" {
 				rewrittenBody += " "
 			}
-			if key == "due" || key == "remind" || key == "click" {
+			if key == "due" || key == "remind" || key == "click" || key == "repeat" {
 				rewrittenBody += "[" + key + ": " + value + "]"
 				continue
 			}

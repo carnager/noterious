@@ -165,6 +165,8 @@ Task example:
 - [ ] Buy groceries [remind: 2026-05-01 17:30] [click: noteriousshopping://shopping]
 ```
 
+Tasks can also repeat: `[repeat: weekly]` (or `daily`, `monthly`, `yearly`, `2d`, `3w`, `6m`, `1y`). Completing a repeating task keeps it open and advances its due/remind dates by the interval.
+
 ## AI Query Copilot
 
 The Queries screen includes an optional AI copilot for drafting Noterious

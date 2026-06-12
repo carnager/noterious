@@ -11354,6 +11354,76 @@ func TestPatchPageFrontmatterAcknowledgesWatcherBeforePublishingEvents(t *testin
 	}
 }
 
+func TestPatchTaskRollsForwardRepeatingTask(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	vaultDir := filepath.Join(rootDir, "vault")
+	dataDir := filepath.Join(rootDir, "data")
+
+	if err := os.MkdirAll(filepath.Join(vaultDir, "daily"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	oldDue := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	expectedDue := time.Now().AddDate(0, 0, 8).Format("2006-01-02")
+	markdownBody := "# Today\n\n- [ ] Water plants [due: " + oldDue + "] [repeat: weekly]\n"
+	if err := os.WriteFile(filepath.Join(vaultDir, "daily", "today.md"), []byte(markdownBody), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(vaultDir, "daily", "plain.md"), []byte("# Plain\n\n- [ ] One-off\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(plain) error = %v", err)
+	}
+
+	router := buildTestRouterWithDeps(t, vaultDir, dataDir, Dependencies{})
+
+	request := httptest.NewRequest(http.MethodPatch, "/api/tasks/daily/today:3", strings.NewReader(`{"state":"done"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("PATCH status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var updated index.Task
+	if err := json.NewDecoder(recorder.Body).Decode(&updated); err != nil {
+		t.Fatalf("Decode(task) error = %v", err)
+	}
+	if updated.Done {
+		t.Fatalf("repeating task was marked done: %#v", updated)
+	}
+	if updated.Due == nil || *updated.Due != expectedDue {
+		t.Fatalf("task due = %v, want %q", updated.Due, expectedDue)
+	}
+	if updated.Repeat == nil || *updated.Repeat != "weekly" {
+		t.Fatalf("task repeat = %v, want weekly", updated.Repeat)
+	}
+
+	rewritten, err := os.ReadFile(filepath.Join(vaultDir, "daily", "today.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	content := string(rewritten)
+	if !strings.Contains(content, "- [ ] Water plants [due: "+expectedDue+"] [repeat: weekly]") {
+		t.Fatalf("rewritten markdown = %q", content)
+	}
+
+	// A non-repeating task still completes normally.
+	plainRequest := httptest.NewRequest(http.MethodPatch, "/api/tasks/daily/plain:3", strings.NewReader(`{"state":"done"}`))
+	plainRequest.Header.Set("Content-Type", "application/json")
+	plainRecorder := httptest.NewRecorder()
+	router.ServeHTTP(plainRecorder, plainRequest)
+	if plainRecorder.Code != http.StatusOK {
+		t.Fatalf("PATCH plain status = %d body=%s", plainRecorder.Code, plainRecorder.Body.String())
+	}
+	var plainUpdated index.Task
+	if err := json.NewDecoder(plainRecorder.Body).Decode(&plainUpdated); err != nil {
+		t.Fatalf("Decode(plain task) error = %v", err)
+	}
+	if !plainUpdated.Done {
+		t.Fatalf("plain task not marked done: %#v", plainUpdated)
+	}
+}
+
 func TestPatchTaskAcknowledgesWatcherBeforePublishingEvents(t *testing.T) {
 	t.Parallel()
 
