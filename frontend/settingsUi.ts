@@ -251,6 +251,18 @@ function templateDefaultPlaceholder(kind: FrontmatterKind): string {
   if (kind === "notification") {
     return "2026-04-27 09:00";
   }
+  if (kind === "email") {
+    return "name@example.com";
+  }
+  if (kind === "phone") {
+    return "+49 170 1234567";
+  }
+  if (kind === "url") {
+    return "https://example.com";
+  }
+  if (kind === "number") {
+    return "42";
+  }
   return "{{title}}";
 }
 
@@ -421,6 +433,10 @@ function renderTemplateDrafts(state: SettingsUiState, els: SettingsUiElements): 
         kindSelect.setAttribute("data-template-field-input", "kind");
         [
           ["text", "Text"],
+          ["number", "Number"],
+          ["email", "Email"],
+          ["phone", "Phone"],
+          ["url", "URL"],
           ["tags", "Tags"],
           ["list", "List"],
           ["bool", "Checkbox"],

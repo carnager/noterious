@@ -19,6 +19,10 @@ export const templateBoolKey = "_template_bool";
 export const templateDateKey = "_template_date";
 export const templateDateTimeKey = "_template_datetime";
 export const templateNotificationKey = "_template_notification";
+export const templateNumberKey = "_template_number";
+export const templateUrlKey = "_template_url";
+export const templateEmailKey = "_template_email";
+export const templatePhoneKey = "_template_phone";
 
 const propertyListKey = "_type_list";
 const propertyTagsKey = "_type_tags";
@@ -26,6 +30,10 @@ const propertyBoolKey = "_type_bool";
 const propertyDateKey = "_type_date";
 const propertyDateTimeKey = "_type_datetime";
 const propertyNotificationKey = "_type_notification";
+const propertyNumberKey = "_type_number";
+const propertyUrlKey = "_type_url";
+const propertyEmailKey = "_type_email";
+const propertyPhoneKey = "_type_phone";
 
 const kindMetadataDescriptors: Array<{ key: string; kind: FrontmatterKind; aliases: string[] }> = [
   { key: propertyTagsKey, kind: "tags", aliases: [propertyTagsKey, templateTagsKey] },
@@ -34,6 +42,10 @@ const kindMetadataDescriptors: Array<{ key: string; kind: FrontmatterKind; alias
   { key: propertyDateKey, kind: "date", aliases: [propertyDateKey, templateDateKey] },
   { key: propertyDateTimeKey, kind: "datetime", aliases: [propertyDateTimeKey, templateDateTimeKey] },
   { key: propertyNotificationKey, kind: "notification", aliases: [propertyNotificationKey, templateNotificationKey] },
+  { key: propertyNumberKey, kind: "number", aliases: [propertyNumberKey, templateNumberKey] },
+  { key: propertyUrlKey, kind: "url", aliases: [propertyUrlKey, templateUrlKey] },
+  { key: propertyEmailKey, kind: "email", aliases: [propertyEmailKey, templateEmailKey] },
+  { key: propertyPhoneKey, kind: "phone", aliases: [propertyPhoneKey, templatePhoneKey] },
 ];
 
 const internalMetadataKeys = new Set<string>([
@@ -118,6 +130,21 @@ function isNotificationTemplateFieldKey(key: string | null | undefined): boolean
     /(^|[_-])(notify|notification|remind|reminder)([_-]|$)/i.test(normalized);
 }
 
+function isEmailFieldKey(key: string | null | undefined): boolean {
+  const normalized = String(key || "").trim().toLowerCase();
+  return /(^|[_-])e?mail([_-]|$)/.test(normalized);
+}
+
+function isUrlFieldKey(key: string | null | undefined): boolean {
+  const normalized = String(key || "").trim().toLowerCase();
+  return /(^|[_-])(url|uri|website|webseite|homepage|link|web|site)([_-]|$)/.test(normalized);
+}
+
+function isPhoneFieldKey(key: string | null | undefined): boolean {
+  const normalized = String(key || "").trim().toLowerCase();
+  return /(^|[_-])(phone|telefon|tel|mobile|mobil|handy|fax|cell)([_-]|$)/.test(normalized);
+}
+
 function templateSlug(value: string): string {
   return String(value || "")
     .trim()
@@ -186,6 +213,10 @@ function normalizeTemplateFieldKind(value: unknown): FrontmatterKind {
     case "date":
     case "datetime":
     case "notification":
+    case "number":
+    case "url":
+    case "email":
+    case "phone":
       return String(value || "").trim() as FrontmatterKind;
     default:
       return "text";
@@ -288,9 +319,14 @@ export function createBlankNoteTemplate(seed?: string): NoteTemplate {
 
 function replaceTemplatePlaceholders(value: string, pagePath: string): string {
   const title = pageTitleFromPath(pagePath);
+  const nameParts = title.trim().split(/\s+/).filter(Boolean);
+  const firstName = nameParts.length ? nameParts[0] : "";
+  const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
   return String(value || "")
     .replace(/\{\{\s*title\s*\}\}/gi, title)
-    .replace(/\{\{\s*path\s*\}\}/gi, pagePath);
+    .replace(/\{\{\s*path\s*\}\}/gi, pagePath)
+    .replace(/\{\{\s*(?:vorname|firstname|first_name)\s*\}\}/gi, firstName)
+    .replace(/\{\{\s*(?:nachname|lastname|last_name)\s*\}\}/gi, lastName);
 }
 
 function templatePathInfo(pagePath: string): { scopePrefix: string; relativePath: string } | null {
@@ -394,6 +430,15 @@ function inferTemplateFieldKind(
   if (String(key || "").trim().toLowerCase() === "tags") {
     return "tags";
   }
+  if (isEmailFieldKey(key)) {
+    return "email";
+  }
+  if (isUrlFieldKey(key)) {
+    return "url";
+  }
+  if (isPhoneFieldKey(key)) {
+    return "phone";
+  }
   return "text";
 }
 
@@ -473,7 +518,8 @@ function frontmatterValueHasContent(kind: FrontmatterKind, value: FrontmatterVal
 
 function templateFieldShouldGuideInput(field: NoteTemplateField): boolean {
   const kind = field.kind;
-  if (kind === "date" || kind === "datetime" || kind === "notification") {
+  if (kind === "date" || kind === "datetime" || kind === "notification" ||
+    kind === "email" || kind === "phone" || kind === "url" || kind === "number") {
     return true;
   }
 
@@ -486,7 +532,7 @@ function templateFieldShouldGuideInput(field: NoteTemplateField): boolean {
     return true;
   }
 
-  return /(^|[_-])(phone|telefon|tel|mobile|mobil|handy)([_-]|$)/.test(key);
+  return isPhoneFieldKey(key) || isEmailFieldKey(key) || isUrlFieldKey(key);
 }
 
 export function templateFieldNeedsGuidedInput(field: NoteTemplateField, pagePath: string): boolean {

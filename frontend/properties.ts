@@ -226,6 +226,50 @@ export function notificationTapTargetHint(key: string | null | undefined): strin
   return "Optional tap target: add " + notificationTapTargetFieldName(key) + " with a URL or app URI.";
 }
 
+function isEmailPropertyKey(key: string | null | undefined): boolean {
+  return /(^|[_-])e?mail([_-]|$)/.test(String(key || "").trim().toLowerCase());
+}
+
+function isUrlPropertyKey(key: string | null | undefined): boolean {
+  return /(^|[_-])(url|uri|website|webseite|homepage|link|web|site)([_-]|$)/.test(String(key || "").trim().toLowerCase());
+}
+
+function isPhonePropertyKey(key: string | null | undefined): boolean {
+  return /(^|[_-])(phone|telefon|tel|mobile|mobil|handy|fax|cell)([_-]|$)/.test(String(key || "").trim().toLowerCase());
+}
+
+export function looksLikeEmail(value: string | null | undefined): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+export function looksLikeUrl(value: string | null | undefined): boolean {
+  return /^(https?:\/\/|www\.)\S+$/i.test(String(value || "").trim());
+}
+
+export function propertyLinkHref(kind: FrontmatterKind, value: FrontmatterValue | null | undefined): string | null {
+  const text = String(value === null || typeof value === "undefined" ? "" : value).trim();
+  if (!text) {
+    return null;
+  }
+  if (kind === "email") {
+    return looksLikeEmail(text) ? "mailto:" + text : null;
+  }
+  if (kind === "phone") {
+    const digits = text.replace(/[^\d+]/g, "");
+    return digits.replace(/\D/g, "").length >= 3 ? "tel:" + digits : null;
+  }
+  if (kind === "url") {
+    if (/^https?:\/\//i.test(text)) {
+      return text;
+    }
+    if (/\s/.test(text) || text.indexOf(".") < 0) {
+      return null;
+    }
+    return "https://" + text.replace(/^\/+/, "");
+  }
+  return null;
+}
+
 export function inferFrontmatterKind(
   value: FrontmatterValue,
   key?: string,
@@ -243,6 +287,9 @@ export function inferFrontmatterKind(
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(value)) {
     return hintedKind === "notification" || isNotificationPropertyKey(key) ? "notification" : "datetime";
   }
+  if (hintedKind === "email" || hintedKind === "url" || hintedKind === "phone" || hintedKind === "number") {
+    return hintedKind;
+  }
   if ((value === null || typeof value === "undefined" || String(value).trim() === "") && hintedKind) {
     return hintedKind;
   }
@@ -251,6 +298,16 @@ export function inferFrontmatterKind(
   }
   if (isTagPropertyKey(key) && (value === null || typeof value === "undefined" || String(value).trim() === "")) {
     return "tags";
+  }
+  const stringValue = typeof value === "string" ? value : "";
+  if (isEmailPropertyKey(key) || looksLikeEmail(stringValue)) {
+    return "email";
+  }
+  if (isUrlPropertyKey(key) || looksLikeUrl(stringValue)) {
+    return "url";
+  }
+  if (isPhonePropertyKey(key)) {
+    return "phone";
   }
   return "text";
 }
@@ -412,6 +469,18 @@ function propertyTypeIcon(kind: FrontmatterKind): string {
   if (kind === "date" || kind === "datetime") {
     return "◫";
   }
+  if (kind === "email") {
+    return "@";
+  }
+  if (kind === "phone") {
+    return "☎";
+  }
+  if (kind === "url") {
+    return "↗";
+  }
+  if (kind === "number") {
+    return "№";
+  }
   return "≡";
 }
 
@@ -433,6 +502,18 @@ function propertyKindLabel(kind: FrontmatterKind): string {
   }
   if (kind === "notification") {
     return "Notify";
+  }
+  if (kind === "email") {
+    return "Email";
+  }
+  if (kind === "phone") {
+    return "Phone";
+  }
+  if (kind === "url") {
+    return "URL";
+  }
+  if (kind === "number") {
+    return "Number";
   }
   return "Text";
 }
@@ -479,6 +560,133 @@ function renderEmptyPropertyValueNode(): HTMLElement {
   empty.className = "property-empty-value";
   empty.textContent = "Empty";
   return empty;
+}
+
+function appendPropertyOpenLink(container: HTMLElement, kind: FrontmatterKind, value: FrontmatterValue): void {
+  const href = propertyLinkHref(kind, value);
+  if (!href) {
+    return;
+  }
+  const action = kind === "email" ? "Send email" : (kind === "phone" ? "Call" : "Open link");
+  const link = document.createElement("a");
+  link.className = "property-open-link";
+  link.href = href;
+
+  const icon = document.createElement("span");
+  icon.className = "property-open-link-icon";
+  icon.textContent = propertyTypeIcon(kind);
+  link.appendChild(icon);
+
+  const label = document.createElement("span");
+  label.textContent = action;
+  link.appendChild(label);
+
+  link.setAttribute("aria-label", action);
+  link.title = href;
+  if (kind === "url") {
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+  }
+  // Don't let a click bubble into the row's edit handlers.
+  link.addEventListener("mousedown", function (event) {
+    event.stopPropagation();
+  });
+  container.appendChild(link);
+}
+
+function notificationParentKey(key: string | null | undefined): string {
+  return String(key || "").trim().replace(/[_-]click$/i, "");
+}
+
+function appendNotificationTapTarget(
+  container: HTMLElement,
+  row: PropertyRow,
+  options: RenderPagePropertiesOptions,
+): void {
+  const clickKey = notificationTapTargetFieldName(row.key);
+  const existing = options.pageFrontmatter ? options.pageFrontmatter[clickKey] : "";
+  const currentValue = existing === null || typeof existing === "undefined" ? "" : String(existing);
+
+  const field = document.createElement("div");
+  field.className = "property-subfield";
+
+  const label = document.createElement("label");
+  label.className = "property-subfield-label";
+  label.textContent = "Opens on tap";
+  field.appendChild(label);
+
+  const control = document.createElement("div");
+  control.className = "property-subfield-control";
+
+  const input = document.createElement("input");
+  input.type = "url";
+  input.className = "property-inline-input property-subfield-input";
+  input.placeholder = "https://… or app URI (optional)";
+  input.value = currentValue;
+
+  const commit = function () {
+    const next = input.value.trim();
+    if (next === currentValue) {
+      return;
+    }
+    if (!next) {
+      if (currentValue) {
+        options.onRemoveProperty(clickKey);
+      }
+      return;
+    }
+    options.onSaveExistingProperty(clickKey, next).catch(function (error: Error) {
+      options.onSetNoteStatus("Property save failed: " + error.message);
+    });
+  };
+  input.addEventListener("blur", commit);
+  input.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      input.blur();
+    }
+  });
+
+  control.appendChild(input);
+  appendPropertyOpenLink(control, "url", currentValue);
+  field.appendChild(control);
+  container.appendChild(field);
+}
+
+export function annualReminderCompanionKey(dateKey: string): string {
+  return String(dateKey || "").trim() + "_remind";
+}
+
+function appendAnnualReminderToggle(
+  container: HTMLElement,
+  row: PropertyRow,
+  options: RenderPagePropertiesOptions,
+): void {
+  const remindKey = annualReminderCompanionKey(row.key);
+  const raw = options.pageFrontmatter ? options.pageFrontmatter[remindKey] : undefined;
+  const enabled = raw === true || String(raw === null || typeof raw === "undefined" ? "" : raw).trim().toLowerCase() === "true";
+
+  const toggle = document.createElement("label");
+  toggle.className = "property-reminder-toggle";
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = enabled;
+  checkbox.addEventListener("change", function () {
+    const action = checkbox.checked
+      ? options.onSaveExistingProperty(remindKey, true)
+      : (enabled ? Promise.resolve(options.onRemoveProperty(remindKey)) : Promise.resolve());
+    Promise.resolve(action).catch(function (error: Error) {
+      options.onSetNoteStatus("Property save failed: " + error.message);
+    });
+  });
+
+  const text = document.createElement("span");
+  text.textContent = "Remind me every year";
+
+  toggle.appendChild(checkbox);
+  toggle.appendChild(text);
+  container.appendChild(toggle);
 }
 
 function appendPropertyChip(
@@ -555,6 +763,10 @@ function renderPropertyTypeMenu(shell: HTMLElement, row: PropertyRow | null, opt
 
   const typeOptions: Array<[FrontmatterKind, string]> = [
     ["text", "Text"],
+    ["number", "Number"],
+    ["email", "Email"],
+    ["phone", "Phone"],
+    ["url", "URL"],
     ["tags", "Tags"],
     ["list", "List"],
     ["bool", "Checkbox"],
@@ -662,6 +874,18 @@ export function propertyScalarInputType(kind: FrontmatterKind): string {
   }
   if (kind === "datetime" || kind === "notification") {
     return "datetime-local";
+  }
+  if (kind === "email") {
+    return "email";
+  }
+  if (kind === "url") {
+    return "url";
+  }
+  if (kind === "phone") {
+    return "tel";
+  }
+  if (kind === "number") {
+    return "number";
   }
   return "text";
 }
@@ -821,6 +1045,7 @@ function renderExistingPropertyValueEditor(row: PropertyRow, options: RenderPage
   });
 
   value.appendChild(input);
+  appendPropertyOpenLink(value, kind, row.rawValue);
   bindPropertyAutocomplete(input, value, suggestions, {
     onAccept: function (suggestion) {
       input.value = suggestion;
@@ -829,10 +1054,10 @@ function renderExistingPropertyValueEditor(row: PropertyRow, options: RenderPage
     },
   });
   if (kind === "notification") {
-    const hint = document.createElement("div");
-    hint.className = "property-inline-hint";
-    hint.textContent = notificationTapTargetHint(row.key);
-    value.appendChild(hint);
+    appendNotificationTapTarget(value, row, options);
+  }
+  if (kind === "date") {
+    appendAnnualReminderToggle(value, row, options);
   }
   return value;
 }
@@ -1016,7 +1241,7 @@ function renderPropertyEditorRow(container: HTMLDivElement, row: PropertyRow | n
     if (draft.kind === "notification") {
       const hint = document.createElement("div");
       hint.className = "property-inline-hint";
-      hint.textContent = notificationTapTargetHint(draft.key);
+      hint.textContent = "Fires a reminder. Set a tap target once the property is saved.";
       value.appendChild(hint);
     }
   }
@@ -1118,12 +1343,32 @@ export function renderPageProperties(options: RenderPagePropertiesOptions): void
   }
 
   const pageFrontmatter = options.pageFrontmatter;
+  const managedByNotificationParent = function (key: string): boolean {
+    if (!isNotificationClickKey(key) || options.editingPropertyKey === key) {
+      return false;
+    }
+    const parentKey = notificationParentKey(key);
+    if (!parentKey || parentKey === key || typeof pageFrontmatter[parentKey] === "undefined") {
+      return false;
+    }
+    return inferFrontmatterKind(pageFrontmatter[parentKey], parentKey, options.propertyKindHints[parentKey]) === "notification";
+  };
+  const managedReminderToggle = function (key: string): boolean {
+    if (options.editingPropertyKey === key) {
+      return false;
+    }
+    const match = /^(.*)_remind$/.exec(key);
+    if (!match || !match[1] || typeof pageFrontmatter[match[1]] === "undefined") {
+      return false;
+    }
+    return inferFrontmatterKind(pageFrontmatter[match[1]], match[1], options.propertyKindHints[match[1]]) === "date";
+  };
   const rows: PropertyRow[] = [];
   Object.keys(pageFrontmatter)
     .sort()
     .forEach(function (key) {
       const value = pageFrontmatter[key];
-      if (typeof value === "undefined" || isTemplateMetadataKey(key)) {
+      if (typeof value === "undefined" || isTemplateMetadataKey(key) || managedByNotificationParent(key) || managedReminderToggle(key)) {
         return;
       }
       rows.push({

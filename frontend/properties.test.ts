@@ -8,6 +8,7 @@ import {
   makePropertyDraft,
   notificationTapTargetHint,
   propertyDraftValue,
+  propertyLinkHref,
   propertyScalarInputType,
   propertyScalarInputValue,
 } from "./properties";
@@ -16,6 +17,36 @@ describe("property helpers", function () {
   it("infers tag properties from list-shaped tags frontmatter", function () {
     expect(inferFrontmatterKind(["work", "ops"], "tags")).toBe("tags");
     expect(inferFrontmatterKind("work", "tags")).toBe("text");
+  });
+
+  it("infers contact kinds from key names and value shapes", function () {
+    expect(inferFrontmatterKind("", "email")).toBe("email");
+    expect(inferFrontmatterKind("", "telefon_privat")).toBe("phone");
+    expect(inferFrontmatterKind("", "website")).toBe("url");
+    expect(inferFrontmatterKind("hi@there.io", "kontakt")).toBe("email");
+    expect(inferFrontmatterKind("https://example.com", "ref")).toBe("url");
+    expect(inferFrontmatterKind("just text", "note")).toBe("text");
+  });
+
+  it("honors explicit non-text kind hints over key-based guesses", function () {
+    expect(inferFrontmatterKind("a@b.com", "email", "url")).toBe("url");
+    expect(inferFrontmatterKind("42", "count", "number")).toBe("number");
+  });
+
+  it("maps contact kinds to HTML input types", function () {
+    expect(propertyScalarInputType("email")).toBe("email");
+    expect(propertyScalarInputType("url")).toBe("url");
+    expect(propertyScalarInputType("phone")).toBe("tel");
+    expect(propertyScalarInputType("number")).toBe("number");
+  });
+
+  it("builds openable links for contact values", function () {
+    expect(propertyLinkHref("email", "a@b.com")).toBe("mailto:a@b.com");
+    expect(propertyLinkHref("phone", "+49 170 1234567")).toBe("tel:+491701234567");
+    expect(propertyLinkHref("url", "example.com")).toBe("https://example.com");
+    expect(propertyLinkHref("url", "https://x.io/p")).toBe("https://x.io/p");
+    expect(propertyLinkHref("email", "not-an-email")).toBeNull();
+    expect(propertyLinkHref("text", "a@b.com")).toBeNull();
   });
 
   it("keeps hinted kinds for empty templated values", function () {

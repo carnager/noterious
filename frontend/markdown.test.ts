@@ -92,13 +92,13 @@ describe("markdown helpers", function () {
 
   it("renders bare URLs as anchors", function () {
     expect(renderInline("Visit https://example.com/docs for details.")).toBe(
-      'Visit <a href="https://example.com/docs" target="_blank" rel="noopener">https://example.com/docs</a> for details.'
+      'Visit <a class="markdown-external-link" href="https://example.com/docs" target="_blank" rel="noopener noreferrer">https://example.com/docs</a> for details.'
     );
   });
 
   it("renders nested markdown inside standard link labels", function () {
     expect(renderInline("[**Bold** and _italic_](https://example.com)")).toBe(
-      '<a href="https://example.com" target="_blank" rel="noopener"><strong>Bold</strong> and <em>italic</em></a>'
+      '<a class="markdown-external-link" href="https://example.com" target="_blank" rel="noopener noreferrer"><strong>Bold</strong> and <em>italic</em></a>'
     );
   });
 
@@ -110,7 +110,7 @@ describe("markdown helpers", function () {
 
   it("renders autolinks and escaped markdown markers", function () {
     expect(renderInline("<https://example.com> and escaped \\*stars\\*")).toBe(
-      '<a href="https://example.com" target="_blank" rel="noopener">https://example.com</a> and escaped *stars*'
+      '<a class="markdown-external-link" href="https://example.com" target="_blank" rel="noopener noreferrer">https://example.com</a> and escaped *stars*'
     );
   });
 
@@ -127,7 +127,7 @@ describe("markdown helpers", function () {
     ].join("\n"));
 
     expect(renderInline("Use [this one][ref-link] or [this][1].", {referenceDefinitions})).toBe(
-      'Use <a href="https://example.com/reference" target="_blank" rel="noopener">this one</a> or <a href="https://example.com/numbered" target="_blank" rel="noopener">this</a>.'
+      'Use <a class="markdown-external-link" href="https://example.com/reference" target="_blank" rel="noopener noreferrer">this one</a> or <a class="markdown-external-link" href="https://example.com/numbered" target="_blank" rel="noopener noreferrer">this</a>.'
     );
   });
 

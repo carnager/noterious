@@ -537,3 +537,79 @@ func TestPollSkipsWhenIndexDatabaseDoesNotExist(t *testing.T) {
 		t.Fatalf("default index db exists after Poll(): %v", err)
 	}
 }
+
+func TestAnnualReminderCandidatesFireOnNextOccurrence(t *testing.T) {
+	loc := time.FixedZone("CEST", 2*60*60)
+	page := index.PageSummary{
+		Path:  "Kontakte/Alina",
+		Title: "Alina Steinke",
+		Frontmatter: map[string]any{
+			"geburtstag":        "1979-09-17",
+			"geburtstag_remind": true,
+		},
+	}
+
+	// Birthday still ahead this year -> fires this year at 09:00.
+	now := time.Date(2026, 6, 14, 12, 0, 0, 0, loc)
+	candidates := annualReminderCandidates(page, now)
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate, got %d", len(candidates))
+	}
+	got := candidates[0]
+	want := time.Date(2026, 9, 17, 9, 0, 0, 0, loc)
+	if !got.At.Equal(want) {
+		t.Fatalf("At = %v, want %v", got.At, want)
+	}
+	if got.Title != "Birthday" {
+		t.Fatalf("Title = %q, want Birthday", got.Title)
+	}
+
+	// Birthday already passed this year -> rolls to next year.
+	nowAfter := time.Date(2026, 11, 1, 8, 0, 0, 0, loc)
+	rolled := annualReminderCandidates(page, nowAfter)
+	if len(rolled) != 1 {
+		t.Fatalf("expected 1 candidate after birthday, got %d", len(rolled))
+	}
+	if wantNext := time.Date(2027, 9, 17, 9, 0, 0, 0, loc); !rolled[0].At.Equal(wantNext) {
+		t.Fatalf("rolled At = %v, want %v", rolled[0].At, wantNext)
+	}
+	if rolled[0].Key == got.Key {
+		t.Fatal("expected distinct dedup keys across years")
+	}
+
+	// Same day after 09:00 still fires today (At <= now).
+	nowOnDay := time.Date(2026, 9, 17, 14, 0, 0, 0, loc)
+	onDay := annualReminderCandidates(page, nowOnDay)
+	if len(onDay) != 1 || onDay[0].At.After(nowOnDay) {
+		t.Fatalf("on-day candidate At = %v should be due by %v", onDay[0].At, nowOnDay)
+	}
+}
+
+func TestAnnualReminderCandidatesIgnoreDisabledOrNonDateToggles(t *testing.T) {
+	loc := time.UTC
+	now := time.Date(2026, 6, 14, 12, 0, 0, 0, loc)
+
+	disabled := annualReminderCandidates(index.PageSummary{
+		Path: "p", Frontmatter: map[string]any{"geburtstag": "1979-09-17", "geburtstag_remind": false},
+	}, now)
+	if len(disabled) != 0 {
+		t.Fatalf("disabled toggle produced %d candidates", len(disabled))
+	}
+
+	noDate := annualReminderCandidates(index.PageSummary{
+		Path: "p", Frontmatter: map[string]any{"done_remind": true},
+	}, now)
+	if len(noDate) != 0 {
+		t.Fatalf("reminder without sibling date produced %d candidates", len(noDate))
+	}
+
+	stringTrue := annualReminderCandidates(index.PageSummary{
+		Path: "p", Frontmatter: map[string]any{"anniversary": "2010-02-14", "anniversary_remind": "true"},
+	}, now)
+	if len(stringTrue) != 1 {
+		t.Fatalf("string-true toggle produced %d candidates, want 1", len(stringTrue))
+	}
+	if stringTrue[0].Title != "Reminder" {
+		t.Fatalf("non-birthday Title = %q, want Reminder", stringTrue[0].Title)
+	}
+}

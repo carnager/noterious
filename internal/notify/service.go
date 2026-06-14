@@ -141,6 +141,13 @@ func (s *Service) Poll(ctx context.Context) error {
 			}
 			updated = updated || delivered
 		}
+		for _, candidate := range annualReminderCandidates(page, now) {
+			delivered, err := s.deliverCandidate(ctx, candidate, recipients, now, activeKeys)
+			if err != nil {
+				return err
+			}
+			updated = updated || delivered
+		}
 	}
 
 	if s.prune(activeKeys) {
@@ -569,6 +576,162 @@ func isGenericNotificationField(key string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// reminderSuffixes are the companion-key endings that mark a boolean
+// "remind me about this date" toggle attached to a sibling date field.
+var reminderSuffixes = []string{
+	"_notification", "-notification",
+	"_reminder", "-reminder",
+	"_erinnerung", "-erinnerung",
+	"_remind", "-remind",
+	"_notify", "-notify",
+}
+
+// reminderBaseKey returns the date field a boolean reminder toggle belongs to.
+// For "geburtstag_remind" it returns "geburtstag".
+func reminderBaseKey(key string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	for _, suffix := range reminderSuffixes {
+		if strings.HasSuffix(normalized, suffix) {
+			base := strings.TrimSpace(key[:len(key)-len(suffix)])
+			if base != "" {
+				return base, true
+			}
+		}
+	}
+	return "", false
+}
+
+func frontmatterBoolValue(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	default:
+		return false
+	}
+}
+
+// reminderMonthDay extracts the recurring month/day from a date value such as
+// "1979-09-17" (the year is ignored — birthdays recur every year).
+func reminderMonthDay(raw string) (time.Month, int, bool) {
+	text := strings.TrimSpace(raw)
+	if len(text) >= 10 {
+		if parsed, err := time.Parse("2006-01-02", text[:10]); err == nil {
+			return parsed.Month(), parsed.Day(), true
+		}
+	}
+	if parsed, err := time.Parse("01-02", text); err == nil {
+		return parsed.Month(), parsed.Day(), true
+	}
+	return 0, 0, false
+}
+
+// nextAnnualReminderTime returns the upcoming occurrence of month/day at the
+// given hour: this year if it is today or still ahead, otherwise next year.
+func nextAnnualReminderTime(now time.Time, month time.Month, day int, hour int, loc *time.Location) time.Time {
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	occurrenceDate := time.Date(now.Year(), month, day, 0, 0, 0, 0, loc)
+	year := now.Year()
+	if occurrenceDate.Before(today) {
+		year++
+	}
+	return time.Date(year, month, day, hour, 0, 0, 0, loc)
+}
+
+func isBirthdayField(key string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	return strings.Contains(normalized, "geburtstag") ||
+		strings.Contains(normalized, "geburts") ||
+		strings.Contains(normalized, "birthday") ||
+		strings.Contains(normalized, "bday")
+}
+
+// annualReminderCandidates turns boolean reminder toggles on date fields into
+// recurring yearly notifications fired on the morning of the date.
+func annualReminderCandidates(page index.PageSummary, now time.Time) []candidateNotification {
+	frontmatter := page.Frontmatter
+	if len(frontmatter) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(frontmatter))
+	for key := range frontmatter {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	loc := now.Location()
+	candidates := make([]candidateNotification, 0)
+	for _, key := range keys {
+		if !frontmatterBoolValue(frontmatter[key]) {
+			continue
+		}
+		baseKey, ok := reminderBaseKey(key)
+		if !ok {
+			continue
+		}
+		dateRaw, ok := frontmatterStringValue(frontmatter[baseKey])
+		if !ok {
+			continue
+		}
+		month, day, ok := reminderMonthDay(dateRaw)
+		if !ok {
+			continue
+		}
+		at := nextAnnualReminderTime(now, month, day, 9, loc)
+		candidates = append(candidates, buildAnnualReminderCandidate(page, baseKey, key, dateRaw, at, notificationClickTarget(frontmatter, key)))
+	}
+	return candidates
+}
+
+func buildAnnualReminderCandidate(page index.PageSummary, baseKey string, fieldKey string, raw string, at time.Time, click string) candidateNotification {
+	titleText := strings.TrimSpace(page.Title)
+	if titleText == "" {
+		titleText = strings.TrimSpace(page.Path)
+	}
+
+	title := "Reminder"
+	tags := "calendar"
+	birthday := isBirthdayField(baseKey)
+	if birthday {
+		title = "Birthday"
+		tags = "birthday"
+	}
+
+	parts := make([]string, 0, 3)
+	if titleText != "" {
+		parts = append(parts, titleText)
+	}
+	if birthday {
+		if strings.TrimSpace(raw) != "" {
+			parts = append(parts, "🎂 Birthday — born "+strings.TrimSpace(raw))
+		} else {
+			parts = append(parts, "🎂 Birthday today")
+		}
+	} else {
+		label := strings.TrimSpace(baseKey)
+		if label == "" {
+			label = "reminder"
+		}
+		parts = append(parts, label+": "+strings.TrimSpace(raw))
+	}
+
+	return candidateNotification{
+		Key:      fmt.Sprintf("page:%s|annual:%s|%s", page.Path, fieldKey, at.UTC().Format(time.RFC3339)),
+		Kind:     "notification",
+		At:       at,
+		Raw:      raw,
+		Click:    click,
+		Title:    title,
+		Body:     strings.Join(parts, "\n"),
+		Tags:     tags,
+		Priority: "high",
+		Page:     page.Path,
+		FieldKey: fieldKey,
 	}
 }
 
