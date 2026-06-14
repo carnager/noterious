@@ -1521,16 +1521,23 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 .property-list {
   display: flex;
   flex-direction: column;
-  gap: 0.04rem;
-  margin-bottom: 0.28rem;
+  gap: 0.05rem;
+  margin-bottom: 0.4rem;
 }
 
 .property-row {
   display: grid;
   grid-template-columns: var(--property-key-width, 132px) minmax(0, 1fr);
-  gap: 0.12rem 0.8rem;
+  gap: 0.12rem 0.7rem;
   align-items: start;
-  padding: 0.02rem 0;
+  padding: 0.22rem 0.45rem;
+  margin: 0 -0.45rem;
+  border-radius: 9px;
+  transition: background 120ms ease;
+}
+
+.property-row:not(.editing):hover {
+  background: color-mix(in srgb, var(--surface-soft) 55%, transparent);
 }
 
 .property-key {
@@ -1597,10 +1604,21 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 
 .property-key-icon {
   flex: 0 0 auto;
-  width: 1rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  font-size: 0.7rem;
   color: var(--muted);
-  text-align: center;
-  opacity: 0.85;
+  background: color-mix(in srgb, var(--surface-soft) 60%, transparent);
+}
+
+.property-row:hover .property-key-icon,
+.property-row.editing .property-key-icon {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
 }
 
 .property-key-label {
@@ -1609,6 +1627,18 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   font-size: 0.74rem;
   line-height: 1.4;
   font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+.property-name-button {
+  padding: 0.16rem 0.4rem;
+  margin: 0 -0.4rem;
+  border-radius: 7px;
+  transition: background 110ms ease;
+}
+
+.property-name-button:hover {
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
 }
 
 .property-row-actions {
@@ -1684,12 +1714,121 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 .property-kind-button {
   width: 100%;
   border: 0;
-  border-radius: 8px;
-  padding: 0.14rem 0;
+  border-radius: 7px;
+  padding: 0.16rem 0.4rem;
+  margin: 0 -0.4rem;
   background: transparent;
   color: var(--ink);
   box-shadow: none;
   font-size: 0.74rem;
+  transition: background 110ms ease, box-shadow 110ms ease;
+}
+
+.property-inline-input:hover {
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+
+/* Native date / number controls size to content so the picker icon sits
+   next to the value instead of stranding at the far right edge. */
+.property-inline-input[type="date"],
+.property-inline-input[type="datetime-local"],
+.property-inline-input[type="number"] {
+  width: auto;
+  max-width: min(100%, 15rem);
+  background: color-mix(in srgb, var(--surface-soft) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 80%, transparent);
+}
+
+.property-inline-input[type="number"] {
+  max-width: 8rem;
+}
+
+.property-open-link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  margin-top: 0.14rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
+  color: var(--accent);
+  font-size: 0.64rem;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 110ms ease, border-color 110ms ease;
+}
+
+.property-open-link:hover {
+  background: color-mix(in srgb, var(--accent-soft) 95%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+}
+
+.property-open-link-icon {
+  font-size: 0.72rem;
+  opacity: 0.9;
+}
+
+.property-subfield {
+  display: flex;
+  flex-direction: column;
+  gap: 0.16rem;
+  margin-top: 0.4rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.property-subfield-label {
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+
+.property-subfield-control {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.property-subfield-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0.16rem 0.4rem;
+  background: color-mix(in srgb, var(--surface-soft) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 80%, transparent);
+}
+
+.property-subfield .property-open-link {
+  margin-top: 0;
+  flex: 0 0 auto;
+}
+
+.property-reminder-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  align-self: flex-start;
+  margin-top: 0.36rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.property-reminder-toggle:hover {
+  color: var(--ink);
+}
+
+.property-reminder-toggle input[type="checkbox"] {
+  margin: 0;
+  width: auto;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
 }
 
 .property-inline-key {
@@ -1853,8 +1992,8 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 .property-inline-input:focus,
 .property-kind-button:focus {
   outline: none;
-  background: color-mix(in srgb, var(--accent-soft) 72%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+  background: color-mix(in srgb, var(--accent-soft) 80%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 .property-composer-shell .property-inline-input:focus,
@@ -1866,8 +2005,10 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 
 .property-inline-hint {
   color: var(--muted);
-  font-size: 0.63rem;
+  font-size: 0.62rem;
   line-height: 1.35;
+  opacity: 0.72;
+  margin-top: 0.06rem;
 }
 
 .property-inline-editor {
@@ -1942,7 +2083,77 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 
 .property-empty-value {
   color: var(--muted);
+  opacity: 0.55;
+  font-style: normal;
+}
+
+.property-inline-input::placeholder {
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+/* ---------- Floating selection formatting toolbar ---------- */
+
+.format-toolbar {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.2rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 70%, transparent);
+  background: color-mix(in srgb, var(--overlay) 92%, var(--surface));
+  box-shadow: var(--shadow);
+  animation: format-toolbar-in 90ms ease-out;
+}
+
+.format-toolbar.hidden {
+  display: none;
+}
+
+@keyframes format-toolbar-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.format-toolbar-button {
+  min-width: 1.85rem;
+  height: 1.85rem;
+  padding: 0 0.4rem;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 0.82rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.format-toolbar-button:hover {
+  background: color-mix(in srgb, var(--accent-soft) 75%, transparent);
+  color: var(--accent);
+}
+
+.format-toolbar-button:active {
+  background: color-mix(in srgb, var(--accent-soft) 95%, var(--surface));
+}
+
+.format-toolbar-bold {
+  font-weight: 700;
+}
+
+.format-toolbar-italic {
   font-style: italic;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.format-toolbar-strike {
+  text-decoration: line-through;
 }
 
 .note-surface {
@@ -2094,6 +2305,7 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 }
 
 .markdown-document-link,
+.markdown-external-link,
 .wiki-link {
   color: color-mix(in srgb, var(--accent) 90%, white 10%);
   text-decoration: underline;
@@ -2103,6 +2315,8 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 }
 
 .markdown-document-link:hover,
+.markdown-external-link:hover,
+.markdown-external-link:focus-visible,
 .markdown-document-link:focus-visible,
 .wiki-link:hover,
 .wiki-link:focus-visible {
@@ -2762,6 +2976,82 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   text-transform: uppercase;
 }
 
+.markdown-editor-host.render-mode .cm-md-reference-definitions {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.3rem 0 0;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definitions-details {
+  border: 1px solid color-mix(in srgb, var(--line-strong) 82%, var(--accent-soft));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-soft) 76%, transparent);
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definitions-summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.62rem 0.78rem;
+  color: color-mix(in srgb, var(--ink) 88%, var(--muted));
+  font-weight: 600;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definitions-summary::-webkit-details-marker {
+  display: none;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definitions-summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 0.46rem;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definitions-details[open] .cm-md-reference-definitions-summary::before {
+  transform: rotate(90deg);
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definitions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.34rem;
+  padding: 0 0.78rem 0.74rem;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definition-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.46rem;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definition-jump {
+  border: 1px solid color-mix(in srgb, var(--line-strong) 82%, var(--accent-soft));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--editor-overlay) 92%, var(--surface));
+  color: color-mix(in srgb, var(--accent) 78%, var(--ink));
+  padding: 0.08rem 0.52rem;
+  font: inherit;
+  font-size: 0.82em;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definition-jump:hover,
+.markdown-editor-host.render-mode .cm-md-reference-definition-jump:focus-visible {
+  border-color: var(--line-strong);
+  background: var(--accent-soft);
+  color: var(--accent);
+  outline: none;
+}
+
+.markdown-editor-host.render-mode .cm-md-reference-definition-title {
+  color: color-mix(in srgb, var(--ink) 82%, var(--muted));
+  font-style: italic;
+}
+
 .markdown-editor-host.render-mode .cm-md-definition-term {
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 90%, white 10%);
@@ -3095,6 +3385,42 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 .markdown-editor-host.render-mode .cm-md-task-inline-date:focus-visible {
   color: inherit;
   text-decoration-color: currentColor;
+}
+
+.markdown-editor-host.render-mode .cm-md-task-due-chip,
+.markdown-editor-host.render-mode .cm-md-task-remind-chip,
+.markdown-editor-host.render-mode .cm-md-task-remind-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(122, 162, 247, 0.08);
+  font-size: 0.72rem;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.markdown-editor-host.render-mode .cm-md-task-due-chip {
+  color: var(--ink);
+}
+
+.markdown-editor-host.render-mode .cm-md-task-remind-add {
+  border-style: dashed;
+  background: transparent;
+}
+
+.markdown-editor-host.render-mode .cm-md-task-due-chip:hover,
+.markdown-editor-host.render-mode .cm-md-task-due-chip:focus-visible,
+.markdown-editor-host.render-mode .cm-md-task-remind-chip:hover,
+.markdown-editor-host.render-mode .cm-md-task-remind-chip:focus-visible,
+.markdown-editor-host.render-mode .cm-md-task-remind-add:hover,
+.markdown-editor-host.render-mode .cm-md-task-remind-add:focus-visible {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+  background: rgba(122, 162, 247, 0.16);
 }
 
 .markdown-editor-host.render-mode .cm-md-task-done {
@@ -5066,6 +5392,152 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   color: var(--muted);
   font-size: 0.72rem;
   line-height: 1.45;
+}
+
+.task-picker-schedule-head {
+  margin-bottom: 0.5rem;
+}
+
+.task-picker-schedule-head strong {
+  font-size: 0.92rem;
+}
+
+.task-picker-due-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.task-picker-due-status {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.task-picker-due-clear {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 0.4rem;
+}
+
+.task-picker-due-clear:hover,
+.task-picker-due-clear:focus-visible {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+}
+
+.task-picker-remind-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.5rem 0;
+}
+
+.task-picker-remind-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.28rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line);
+  background: rgba(122, 162, 247, 0.06);
+}
+
+.task-picker-remind-label {
+  font-size: 0.78rem;
+  color: var(--ink);
+}
+
+.task-picker-remind-remove {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.1rem 0.25rem;
+  border-radius: 0.35rem;
+}
+
+.task-picker-remind-remove:hover,
+.task-picker-remind-remove:focus-visible {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+.task-picker-remind-divider {
+  height: 1px;
+  margin: 0.5rem 0;
+  background: var(--line);
+}
+
+.task-picker-remind-composer-label {
+  margin-bottom: 0.35rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.task-picker-remind-offset {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0.4rem;
+}
+
+.task-picker-remind-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.45rem;
+}
+
+.task-picker-remind-controls select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.task-picker-remind-at,
+.task-picker-remind-colon {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.task-picker-remind-add-btn {
+  width: 100%;
+  padding: 0.34rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--line));
+  background: rgba(122, 162, 247, 0.12);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.task-picker-remind-add-btn:hover:not(:disabled),
+.task-picker-remind-add-btn:focus-visible:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(122, 162, 247, 0.2);
+}
+
+.task-picker-remind-add-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.task-picker-remind-hint {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.4;
 }
 
 .modal-card .search span {

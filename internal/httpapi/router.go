@@ -72,33 +72,33 @@ type okStatusResponse struct {
 }
 
 type metaResponse struct {
-	Name                  string         `json:"name"`
-	ListenAddr            string         `json:"listenAddr"`
-	RuntimeVault          settings.Vault `json:"runtimeVault"`
-	CurrentVault          *vault.Vault   `json:"currentVault,omitempty"`
-	VaultHealth           any            `json:"vaultHealth"`
-	DataDir               string         `json:"dataDir"`
-	Database              string         `json:"database"`
-	IndexStatus           indexStatus    `json:"indexStatus"`
-	ServerTime            string         `json:"serverTime"`
-	ServerFirst           bool           `json:"serverFirst"`
-	WatchInterval         string         `json:"watchInterval"`
-	WatcherEnabled        bool           `json:"watcherEnabled"`
-	WatcherState          *WatcherRuntimeState `json:"watcherState,omitempty"`
-	NotificationInterval  string         `json:"notificationInterval"`
-	NotificationEnabled   bool           `json:"notificationEnabled"`
-	RestartRequired       bool           `json:"restartRequired"`
-	RestartRequiredReasons []string      `json:"restartRequiredReasons,omitempty"`
+	Name                   string               `json:"name"`
+	ListenAddr             string               `json:"listenAddr"`
+	RuntimeVault           settings.Vault       `json:"runtimeVault"`
+	CurrentVault           *vault.Vault         `json:"currentVault,omitempty"`
+	VaultHealth            any                  `json:"vaultHealth"`
+	DataDir                string               `json:"dataDir"`
+	Database               string               `json:"database"`
+	IndexStatus            indexStatus          `json:"indexStatus"`
+	ServerTime             string               `json:"serverTime"`
+	ServerFirst            bool                 `json:"serverFirst"`
+	WatchInterval          string               `json:"watchInterval"`
+	WatcherEnabled         bool                 `json:"watcherEnabled"`
+	WatcherState           *WatcherRuntimeState `json:"watcherState,omitempty"`
+	NotificationInterval   string               `json:"notificationInterval"`
+	NotificationEnabled    bool                 `json:"notificationEnabled"`
+	RestartRequired        bool                 `json:"restartRequired"`
+	RestartRequiredReasons []string             `json:"restartRequiredReasons,omitempty"`
 }
 
 type indexStatus struct {
-	DBPresent         bool   `json:"dbPresent"`
-	IndexedPageCount  int    `json:"indexedPageCount"`
-	IndexedTaskCount  int    `json:"indexedTaskCount"`
-	LatestIndexedAt   string `json:"latestIndexedAt,omitempty"`
-	LatestVaultModAt  string `json:"latestVaultModAt,omitempty"`
-	Fresh             bool   `json:"fresh"`
-	Summary           string `json:"summary"`
+	DBPresent        bool   `json:"dbPresent"`
+	IndexedPageCount int    `json:"indexedPageCount"`
+	IndexedTaskCount int    `json:"indexedTaskCount"`
+	LatestIndexedAt  string `json:"latestIndexedAt,omitempty"`
+	LatestVaultModAt string `json:"latestVaultModAt,omitempty"`
+	Fresh            bool   `json:"fresh"`
+	Summary          string `json:"summary"`
 }
 
 func buildIndexStatus(ctx context.Context, deps Dependencies) indexStatus {
@@ -264,22 +264,22 @@ func NewRouter(deps Dependencies) http.Handler {
 			watcherState = &state
 		}
 		writeJSON(w, http.StatusOK, metaResponse{
-			Name:                  "noterious",
-			ListenAddr:            deps.Config.ListenAddr,
-			RuntimeVault:          runtimeVault,
-			CurrentVault:          currentVaultPayload,
-			VaultHealth:           vaultHealth,
-			DataDir:               deps.Config.DataDir,
-			Database:              deps.Index.DatabasePath(),
-			IndexStatus:           indexStatus,
-			ServerTime:            time.Now().UTC().Format(time.RFC3339),
-			ServerFirst:           true,
-			WatchInterval:         deps.Config.WatchInterval.String(),
-			WatcherEnabled:        deps.Config.WatchInterval > 0,
-			WatcherState:          watcherState,
-			NotificationInterval:  deps.Config.NtfyInterval.String(),
-			NotificationEnabled:   deps.Config.NtfyInterval > 0 && deps.Index != nil && deps.Auth != nil,
-			RestartRequired:       restartRequired,
+			Name:                   "noterious",
+			ListenAddr:             deps.Config.ListenAddr,
+			RuntimeVault:           runtimeVault,
+			CurrentVault:           currentVaultPayload,
+			VaultHealth:            vaultHealth,
+			DataDir:                deps.Config.DataDir,
+			Database:               deps.Index.DatabasePath(),
+			IndexStatus:            indexStatus,
+			ServerTime:             time.Now().UTC().Format(time.RFC3339),
+			ServerFirst:            true,
+			WatchInterval:          deps.Config.WatchInterval.String(),
+			WatcherEnabled:         deps.Config.WatchInterval > 0,
+			WatcherState:           watcherState,
+			NotificationInterval:   deps.Config.NtfyInterval.String(),
+			NotificationEnabled:    deps.Config.NtfyInterval > 0 && deps.Index != nil && deps.Auth != nil,
+			RestartRequired:        restartRequired,
 			RestartRequiredReasons: restartRequiredReasons,
 		})
 	})

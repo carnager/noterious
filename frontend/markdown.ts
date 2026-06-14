@@ -539,11 +539,11 @@ function findInlineMathSpans(source: string): InlineMathSpan[] {
 }
 
 function renderDocumentAnchor(href: string, labelHTML: string): string {
-  return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
+  return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener noreferrer">' + labelHTML + "</a>";
 }
 
 function renderImageAnchor(href: string, src: string, alt: string): string {
-  return '<a class="markdown-inline-image-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' +
+  return '<a class="markdown-inline-image-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener noreferrer">' +
     '<img class="markdown-inline-image" src="' + escapeHTML(src) + '" alt="' + escapeHTML(alt) + '">' +
     "</a>";
 }
@@ -569,7 +569,7 @@ function shouldRenderMarkdownLinkAsImage(label: string, target: string): boolean
 }
 
 function renderExternalAnchor(href: string, labelHTML: string): string {
-  return '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
+  return '<a class="markdown-external-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener noreferrer">' + labelHTML + "</a>";
 }
 
 function renderWikiButton(target: string, labelHTML: string): string {

@@ -1,6 +1,6 @@
 import {
   formatEditableDateValue,
-  formatEditableTimeValue,
+  formatReminderLabel,
   parseEditableDateValue,
   parseEditableDateTimeValue,
   parseEditableTimeValue,
@@ -21,7 +21,7 @@ import {
 import type { FocusRestoreSpec, NoteriousEditorApi, TaskRecord } from "./types";
 
 export interface TaskPickerState {
-  mode: "" | "due" | "remind";
+  mode: "" | "due" | "remind" | "schedule";
   ref: string;
   left: number;
   top: number;
@@ -780,221 +780,326 @@ export function openInlineTableEditor(appState: InlineEditorAppState, els: Inlin
   restoreInlineTableEditorFocus(appState, els);
 }
 
-export function renderTaskPicker(taskPickerState: TaskPickerState, els: InlineEditorElements, callbacks: {
+export interface TaskPickerCallbacks {
   currentPickerTask: () => TaskRecord | null;
   saveTaskDateField: (task: TaskRecord, field: "due" | "remind", value: string) => Promise<void>;
+  saveTaskReminders: (task: TaskRecord, reminders: string[]) => Promise<void>;
   closeTaskPickers: () => void;
   setNoteStatus: (message: string) => void;
   errorMessage: (error: unknown) => string;
-}): void {
-  if (taskPickerState.mode !== "due" && taskPickerState.mode !== "remind") {
+}
+
+interface ReminderOffsetOption {
+  label: string;
+  value: string;
+}
+
+function reminderOffsetOptions(): ReminderOffsetOption[] {
+  return [
+    { label: "On due date", value: "" },
+    { label: "1 day before", value: "-1d" },
+    { label: "2 days before", value: "-2d" },
+    { label: "3 days before", value: "-3d" },
+    { label: "1 week before", value: "-1w" },
+    { label: "2 weeks before", value: "-2w" },
+  ];
+}
+
+function renderScheduleDueSection(taskPickerState: TaskPickerState, target: HTMLElement, task: TaskRecord | null, callbacks: TaskPickerCallbacks, rerender: () => void): void {
+  const dueValue = task && task.due ? String(task.due).slice(0, 10) : "";
+  let selYear = 0;
+  let selMonth = 0;
+  let selDay = 0;
+  if (dueValue) {
+    const parts = dueValue.split("-").map(Number);
+    selYear = parts[0] || 0;
+    selMonth = parts[1] || 0;
+    selDay = parts[2] || 0;
+  }
+
+  const saveDue = function (value: string): void {
+    const currentTask = callbacks.currentPickerTask();
+    if (!currentTask) {
+      callbacks.closeTaskPickers();
+      return;
+    }
+    callbacks.saveTaskDateField(currentTask, "due", value).catch(function (error) {
+      callbacks.setNoteStatus("Due date update failed: " + callbacks.errorMessage(error));
+    });
+  };
+
+  const head = document.createElement("div");
+  head.className = "task-picker-head";
+  const title = document.createElement("strong");
+  const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
+  title.textContent = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(monthStart);
+  head.appendChild(title);
+
+  const nav = document.createElement("div");
+  nav.className = "task-picker-nav";
+  const prev = document.createElement("button");
+  prev.type = "button";
+  prev.textContent = "<";
+  prev.addEventListener("click", function () {
+    taskPickerState.month -= 1;
+    if (taskPickerState.month < 1) {
+      taskPickerState.month = 12;
+      taskPickerState.year -= 1;
+    }
+    rerender();
+  });
+  nav.appendChild(prev);
+  const next = document.createElement("button");
+  next.type = "button";
+  next.textContent = ">";
+  next.addEventListener("click", function () {
+    taskPickerState.month += 1;
+    if (taskPickerState.month > 12) {
+      taskPickerState.month = 1;
+      taskPickerState.year += 1;
+    }
+    rerender();
+  });
+  nav.appendChild(next);
+  head.appendChild(nav);
+  target.appendChild(head);
+
+  const firstWeekday = (monthStart.getDay() + 6) % 7;
+  const gridStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1 - firstWeekday);
+  const weekdays = document.createElement("div");
+  weekdays.className = "task-picker-weekdays";
+  ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].forEach(function (label) {
+    const cell = document.createElement("span");
+    cell.textContent = label;
+    weekdays.appendChild(cell);
+  });
+  target.appendChild(weekdays);
+
+  const grid = document.createElement("div");
+  grid.className = "task-picker-grid";
+  for (let index = 0; index < 42; index += 1) {
+    const current = new Date(gridStart);
+    current.setDate(gridStart.getDate() + index);
+    const dayButton = document.createElement("button");
+    dayButton.type = "button";
+    dayButton.className = "task-picker-day";
+    if (current.getMonth() !== taskPickerState.month - 1) {
+      dayButton.classList.add("is-faded");
+    }
+    if (selYear && current.getFullYear() === selYear && current.getMonth() === selMonth - 1 && current.getDate() === selDay) {
+      dayButton.classList.add("is-selected");
+    }
+    dayButton.textContent = String(current.getDate());
+    dayButton.addEventListener("click", function () {
+      taskPickerState.year = current.getFullYear();
+      taskPickerState.month = current.getMonth() + 1;
+      taskPickerState.day = current.getDate();
+      saveDue(canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day));
+    });
+    grid.appendChild(dayButton);
+  }
+  target.appendChild(grid);
+
+  const dueRow = document.createElement("div");
+  dueRow.className = "task-picker-due-row";
+  const status = document.createElement("span");
+  status.className = "task-picker-due-status";
+  status.textContent = dueValue ? "Due " + formatEditableDateValue(dueValue) : "No due date yet — pick a day";
+  dueRow.appendChild(status);
+  if (dueValue) {
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "task-picker-due-clear";
+    clear.textContent = "Clear";
+    clear.addEventListener("click", function () {
+      saveDue("");
+    });
+    dueRow.appendChild(clear);
+  }
+  target.appendChild(dueRow);
+}
+
+function renderScheduleReminderSection(taskPickerState: TaskPickerState, target: HTMLElement, task: TaskRecord | null, callbacks: TaskPickerCallbacks): void {
+  const dueValue = task && task.due ? String(task.due) : "";
+  const reminders = task && Array.isArray(task.remind) ? task.remind.slice() : [];
+
+  const persist = function (next: string[]): void {
+    const currentTask = callbacks.currentPickerTask();
+    if (!currentTask) {
+      callbacks.closeTaskPickers();
+      return;
+    }
+    callbacks.saveTaskReminders(currentTask, next).catch(function (error) {
+      callbacks.setNoteStatus("Reminder update failed: " + callbacks.errorMessage(error));
+    });
+  };
+
+  const addReminder = function (value: string): void {
+    const trimmed = String(value || "").trim();
+    if (!trimmed || reminders.indexOf(trimmed) !== -1) {
+      return;
+    }
+    persist(reminders.concat(trimmed));
+  };
+
+  const heading = document.createElement("div");
+  heading.className = "task-picker-remind-composer-label";
+  heading.textContent = "Reminders";
+  target.appendChild(heading);
+
+  if (!dueValue) {
+    const note = document.createElement("div");
+    note.className = "task-picker-note";
+    note.textContent = "Pick a due date above to add reminders.";
+    target.appendChild(note);
+  }
+
+  if (reminders.length) {
+    const list = document.createElement("div");
+    list.className = "task-picker-remind-list";
+    reminders.forEach(function (remind) {
+      const row = document.createElement("div");
+      row.className = "task-picker-remind-row";
+      const label = document.createElement("span");
+      label.className = "task-picker-remind-label";
+      label.textContent = formatReminderLabel(remind);
+      row.appendChild(label);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "task-picker-remind-remove";
+      remove.setAttribute("aria-label", "Remove reminder");
+      remove.textContent = "✕";
+      remove.addEventListener("click", function () {
+        persist(reminders.filter(function (item) { return item !== remind; }));
+      });
+      row.appendChild(remove);
+      list.appendChild(row);
+    });
+    target.appendChild(list);
+  }
+
+  const composer = document.createElement("div");
+  composer.className = "task-picker-remind-composer";
+
+  const composerLabel = document.createElement("div");
+  composerLabel.className = "task-picker-remind-composer-label";
+  composerLabel.textContent = "Add a reminder";
+  composer.appendChild(composerLabel);
+
+  const offsetSelect = document.createElement("select");
+  offsetSelect.className = "task-picker-remind-offset";
+  reminderOffsetOptions().forEach(function (option, index) {
+    const node = document.createElement("option");
+    node.value = option.value;
+    node.textContent = option.label;
+    node.selected = index === 1; // default to "1 day before"
+    offsetSelect.appendChild(node);
+  });
+  offsetSelect.disabled = !dueValue;
+  composer.appendChild(offsetSelect);
+
+  const controls = document.createElement("div");
+  controls.className = "task-picker-remind-controls";
+
+  const atLabel = document.createElement("span");
+  atLabel.className = "task-picker-remind-at";
+  atLabel.textContent = "at";
+  controls.appendChild(atLabel);
+
+  const hourSelect = document.createElement("select");
+  for (let hour = 0; hour < 24; hour += 1) {
+    const option = document.createElement("option");
+    option.value = String(hour);
+    option.textContent = String(hour).padStart(2, "0");
+    option.selected = hour === taskPickerState.hour;
+    hourSelect.appendChild(option);
+  }
+  hourSelect.disabled = !dueValue;
+  hourSelect.addEventListener("change", function () {
+    taskPickerState.hour = Number(hourSelect.value) || 0;
+  });
+  controls.appendChild(hourSelect);
+
+  const colon = document.createElement("span");
+  colon.className = "task-picker-remind-colon";
+  colon.textContent = ":";
+  controls.appendChild(colon);
+
+  const minuteSelect = document.createElement("select");
+  for (let minute = 0; minute < 60; minute += 5) {
+    const option = document.createElement("option");
+    option.value = String(minute);
+    option.textContent = String(minute).padStart(2, "0");
+    option.selected = minute === taskPickerState.minute;
+    minuteSelect.appendChild(option);
+  }
+  minuteSelect.disabled = !dueValue;
+  minuteSelect.addEventListener("change", function () {
+    taskPickerState.minute = Number(minuteSelect.value) || 0;
+  });
+  controls.appendChild(minuteSelect);
+
+  composer.appendChild(controls);
+
+  const addButton = document.createElement("button");
+  addButton.type = "button";
+  addButton.className = "task-picker-remind-add-btn";
+  addButton.textContent = "Add reminder";
+  addButton.disabled = !dueValue;
+  addButton.addEventListener("click", function () {
+    const time = canonicalTime(taskPickerState.hour, taskPickerState.minute);
+    const offset = offsetSelect.value;
+    // No offset means "on the due date" — a bare clock time; otherwise combine
+    // the relative offset with the chosen time, e.g. "-1d@08:30".
+    addReminder(offset ? offset + "@" + time : time);
+  });
+  composer.appendChild(addButton);
+
+  target.appendChild(composer);
+}
+
+export function renderTaskPicker(taskPickerState: TaskPickerState, els: InlineEditorElements, callbacks: TaskPickerCallbacks): void {
+  if (taskPickerState.mode === "") {
     closeTaskPickers(taskPickerState, els);
     return;
   }
 
-  const mode = taskPickerState.mode;
   const target = els.inlineTaskPicker;
   const task = callbacks.currentPickerTask();
   clearNode(target);
 
+  const rerender = function () {
+    renderTaskPicker(taskPickerState, els, callbacks);
+  };
+
   const head = document.createElement("div");
-  head.className = "task-picker-head";
-
-  const title = document.createElement("strong");
-  if (mode === "due") {
-    const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
-    title.textContent = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(monthStart);
-  } else {
-    title.textContent = "Reminder time";
-  }
-  head.appendChild(title);
-
-  if (mode === "due") {
-    const nav = document.createElement("div");
-    nav.className = "task-picker-nav";
-
-    const prev = document.createElement("button");
-    prev.type = "button";
-    prev.textContent = "<";
-    prev.addEventListener("click", function () {
-      taskPickerState.month -= 1;
-      if (taskPickerState.month < 1) {
-        taskPickerState.month = 12;
-        taskPickerState.year -= 1;
-      }
-      renderTaskPicker(taskPickerState, els, callbacks);
-    });
-    nav.appendChild(prev);
-
-    const next = document.createElement("button");
-    next.type = "button";
-    next.textContent = ">";
-    next.addEventListener("click", function () {
-      taskPickerState.month += 1;
-      if (taskPickerState.month > 12) {
-        taskPickerState.month = 1;
-        taskPickerState.year += 1;
-      }
-      renderTaskPicker(taskPickerState, els, callbacks);
-    });
-    nav.appendChild(next);
-
-    head.appendChild(nav);
-  } else {
-    const summary = document.createElement("span");
-    summary.className = "task-picker-summary";
-    summary.textContent = task && task.due
-      ? "Applies on " + formatEditableDateValue(task.due)
-      : "Applies when a due date is set";
-    head.appendChild(summary);
-  }
+  head.className = "task-picker-schedule-head";
+  const heading = document.createElement("strong");
+  heading.textContent = "Schedule";
+  head.appendChild(heading);
   target.appendChild(head);
 
-  if (mode === "remind") {
-    const timeRow = document.createElement("div");
-    timeRow.className = "task-picker-time";
+  renderScheduleDueSection(taskPickerState, target, task, callbacks, rerender);
 
-    const hourSelect = document.createElement("select");
-    for (let hour = 0; hour < 24; hour += 1) {
-      const option = document.createElement("option");
-      option.value = String(hour);
-      option.textContent = String(hour).padStart(2, "0");
-      option.selected = hour === taskPickerState.hour;
-      hourSelect.appendChild(option);
-    }
-    hourSelect.addEventListener("change", function () {
-      taskPickerState.hour = Number(hourSelect.value) || 0;
-    });
-    timeRow.appendChild(hourSelect);
+  const divider = document.createElement("div");
+  divider.className = "task-picker-remind-divider";
+  target.appendChild(divider);
 
-    const minuteSelect = document.createElement("select");
-    for (let minute = 0; minute < 60; minute += 5) {
-      const option = document.createElement("option");
-      option.value = String(minute);
-      option.textContent = String(minute).padStart(2, "0");
-      option.selected = minute === taskPickerState.minute;
-      minuteSelect.appendChild(option);
-    }
-    minuteSelect.addEventListener("change", function () {
-      taskPickerState.minute = Number(minuteSelect.value) || 0;
-    });
-    timeRow.appendChild(minuteSelect);
-
-    const apply = document.createElement("button");
-    apply.type = "button";
-    apply.className = "task-picker-apply";
-    apply.textContent = "Apply";
-    apply.addEventListener("click", function () {
-      const currentTask = callbacks.currentPickerTask();
-      if (!currentTask) {
-        callbacks.closeTaskPickers();
-        return;
-      }
-      callbacks.saveTaskDateField(
-        currentTask,
-        "remind",
-        canonicalTime(taskPickerState.hour, taskPickerState.minute)
-      ).catch(function (error) {
-        callbacks.setNoteStatus("Reminder update failed: " + callbacks.errorMessage(error));
-      });
-    });
-    timeRow.appendChild(apply);
-
-    target.appendChild(timeRow);
-  }
-
-  if (mode === "due") {
-    const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
-    const firstWeekday = (monthStart.getDay() + 6) % 7;
-    const gridStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1 - firstWeekday);
-    const weekdays = document.createElement("div");
-    weekdays.className = "task-picker-weekdays";
-    ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].forEach(function (label) {
-      const cell = document.createElement("span");
-      cell.textContent = label;
-      weekdays.appendChild(cell);
-    });
-    target.appendChild(weekdays);
-
-    const grid = document.createElement("div");
-    grid.className = "task-picker-grid";
-    for (let index = 0; index < 42; index += 1) {
-      const current = new Date(gridStart);
-      current.setDate(gridStart.getDate() + index);
-
-      const dayButton = document.createElement("button");
-      dayButton.type = "button";
-      dayButton.className = "task-picker-day";
-      if (current.getMonth() !== taskPickerState.month - 1) {
-        dayButton.classList.add("is-faded");
-      }
-      if (
-        current.getFullYear() === taskPickerState.year &&
-        current.getMonth() === taskPickerState.month - 1 &&
-        current.getDate() === taskPickerState.day
-      ) {
-        dayButton.classList.add("is-selected");
-      }
-      dayButton.textContent = String(current.getDate());
-      dayButton.addEventListener("click", function () {
-        taskPickerState.year = current.getFullYear();
-        taskPickerState.month = current.getMonth() + 1;
-        taskPickerState.day = current.getDate();
-        const currentTask = callbacks.currentPickerTask();
-        if (!currentTask) {
-          callbacks.closeTaskPickers();
-          return;
-        }
-        callbacks.saveTaskDateField(currentTask, "due", canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day)).catch(function (error) {
-          callbacks.setNoteStatus("Due date update failed: " + callbacks.errorMessage(error));
-        });
-      });
-      grid.appendChild(dayButton);
-    }
-    target.appendChild(grid);
-  }
+  renderScheduleReminderSection(taskPickerState, target, task, callbacks);
 
   const footer = document.createElement("div");
   footer.className = "task-picker-footer";
-
-  const status = document.createElement("span");
-  status.textContent = mode === "due"
-    ? formatEditableDateValue(canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day))
-    : formatEditableTimeValue(canonicalTime(taskPickerState.hour, taskPickerState.minute));
-  footer.appendChild(status);
-
-  const actions = document.createElement("div");
-  actions.className = "task-picker-footer-actions";
-
-  const clear = document.createElement("button");
-  clear.type = "button";
-  clear.textContent = "Clear";
-  clear.addEventListener("click", function () {
-    const task = callbacks.currentPickerTask();
-    if (!task) {
-      callbacks.closeTaskPickers();
-      return;
-    }
-    callbacks.saveTaskDateField(task, mode, "").catch(function (error) {
-      callbacks.setNoteStatus("Date update failed: " + callbacks.errorMessage(error));
-    });
-  });
-  actions.appendChild(clear);
-
+  const hint = document.createElement("span");
+  hint.className = "task-picker-remind-hint";
+  hint.textContent = "Reminders before the due date shift with it.";
+  footer.appendChild(hint);
   const close = document.createElement("button");
   close.type = "button";
-  close.textContent = "Close";
+  close.textContent = "Done";
   close.addEventListener("click", callbacks.closeTaskPickers);
-  actions.appendChild(close);
-
-  footer.appendChild(actions);
+  footer.appendChild(close);
   target.appendChild(footer);
-  if (mode === "remind") {
-    const hint = document.createElement("div");
-    hint.className = "task-picker-note";
-    hint.textContent = "Optional tap target: add [click: myapp://open] on the task line.";
-    target.appendChild(hint);
-  }
+
   els.inlineTaskPicker.classList.remove("hidden");
   window.requestAnimationFrame(function () {
     positionInlineTaskPicker(taskPickerState, els);
@@ -1003,7 +1108,7 @@ export function renderTaskPicker(taskPickerState: TaskPickerState, els: InlineEd
 
 export function openInlineTaskPicker(taskPickerState: TaskPickerState, options: {
   ref: string;
-  mode: "due" | "remind";
+  mode: "due" | "remind" | "schedule";
   left: number;
   top: number;
   anchorTop?: number;
@@ -1013,7 +1118,8 @@ export function openInlineTaskPicker(taskPickerState: TaskPickerState, options: 
   closeTaskPickers: () => void;
   renderTaskPicker: () => void;
 }): void {
-  if (taskPickerState.mode === options.mode && taskPickerState.ref === options.ref) {
+  // Every entry point now opens the same combined schedule dialog.
+  if (taskPickerState.mode === "schedule" && taskPickerState.ref === options.ref) {
     options.closeTaskPickers();
     return;
   }
@@ -1021,12 +1127,13 @@ export function openInlineTaskPicker(taskPickerState: TaskPickerState, options: 
     return;
   }
   options.rememberNoteFocus();
-  const parts = taskPickerPartsFromValue(
-    options.mode,
-    options.mode === "due" ? (options.task.due || "") : (options.task.remind || ""),
-    options.task.due || ""
-  );
-  taskPickerState.mode = options.mode;
+  const reminderSeed = Array.isArray(options.task.remind)
+    ? (options.task.remind.find(function (item) { return /^\d{1,2}:\d{2}$/.test(String(item || "").trim()); }) || "")
+    : "";
+  const dateParts = taskPickerPartsFromValue("due", options.task.due || "", options.task.due || "");
+  const timeParts = taskPickerPartsFromValue("remind", reminderSeed, options.task.due || "");
+  const parts = { year: dateParts.year, month: dateParts.month, day: dateParts.day, hour: timeParts.hour, minute: timeParts.minute };
+  taskPickerState.mode = "schedule";
   taskPickerState.ref = options.ref;
   taskPickerState.left = options.left;
   taskPickerState.top = options.top;

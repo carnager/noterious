@@ -181,6 +181,14 @@ describe("note templates", function () {
         "_template_datetime",
         "_type_notification",
         "_template_notification",
+        "_type_number",
+        "_template_number",
+        "_type_url",
+        "_template_url",
+        "_type_email",
+        "_template_email",
+        "_type_phone",
+        "_template_phone",
       ],
     });
   });
@@ -225,12 +233,13 @@ describe("note templates", function () {
   it("tracks only essential unresolved guided template fields", function () {
     const guidedFields = templateFieldsNeedingInput(template(), "contacts/Alina");
 
-    expect(guidedFields.map(function (field) { return field.key; })).toEqual(["nachname", "geburtstag", "birthday_notification", "phone_private"]);
+    expect(guidedFields.map(function (field) { return field.key; })).toEqual(["nachname", "geburtstag", "birthday_notification", "phone_private", "email"]);
     expect(templateFieldKindHints(guidedFields)).toEqual({
       nachname: "text",
       geburtstag: "date",
       birthday_notification: "notification",
       phone_private: "text",
+      email: "text",
     });
     expect(remainingTemplateFields(guidedFields, {
       vorname: "Alina",
@@ -246,8 +255,55 @@ describe("note templates", function () {
       geburtstag: "1979-09-17",
       birthday_notification: "1979-09-17 09:00",
       phone_private: "+49 123",
-      email: "",
+      email: "alina@example.com",
     })).toEqual([]);
+  });
+
+  it("splits the title into vorname and nachname placeholders", function () {
+    const markdown = buildMarkdownFromTemplate(
+      "contacts/Alina Steinke",
+      template({
+        fields: [
+          { key: "vorname", kind: "text", defaultValue: "{{vorname}}" },
+          { key: "nachname", kind: "text", defaultValue: "{{nachname}}" },
+        ],
+      }),
+    );
+
+    expect(parseFrontmatter(markdown)).toEqual({
+      vorname: "Alina",
+      nachname: "Steinke",
+    });
+  });
+
+  it("treats remaining name words as the nachname and leaves it empty for single-word titles", function () {
+    const multiWord = buildMarkdownFromTemplate(
+      "contacts/Anna Maria von Trapp",
+      template({
+        fields: [
+          { key: "vorname", kind: "text", defaultValue: "{{firstname}}" },
+          { key: "nachname", kind: "text", defaultValue: "{{lastname}}" },
+        ],
+      }),
+    );
+    expect(parseFrontmatter(multiWord)).toEqual({
+      vorname: "Anna",
+      nachname: "Maria von Trapp",
+    });
+
+    const singleWord = buildMarkdownFromTemplate(
+      "contacts/Alina",
+      template({
+        fields: [
+          { key: "vorname", kind: "text", defaultValue: "{{vorname}}" },
+          { key: "nachname", kind: "text", defaultValue: "{{nachname}}" },
+        ],
+      }),
+    );
+    expect(parseFrontmatter(singleWord)).toEqual({
+      vorname: "Alina",
+      nachname: "",
+    });
   });
 
   it("creates blank templates with stable unique ids", function () {

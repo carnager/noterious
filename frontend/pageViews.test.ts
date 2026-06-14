@@ -34,7 +34,7 @@ describe("task panel filters", function () {
   const tasks: TaskRecord[] = [
     { ref: "1", page: "work/alpha", line: 1, text: "Open plain", state: "todo", done: false },
     { ref: "2", page: "work/alpha", line: 2, text: "Open due", state: "todo", done: false, due: "2026-05-01" },
-    { ref: "3", page: "work/beta", line: 3, text: "Done reminder", state: "done", done: true, remind: "2026-05-01 09:00" },
+    { ref: "3", page: "work/beta", line: 3, text: "Done reminder", state: "done", done: true, remind: ["2026-05-01 09:00"] },
   ];
 
   it("returns all tasks when no filter is active", function () {

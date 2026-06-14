@@ -12,7 +12,7 @@ import {go} from "@codemirror/lang-go";
 import {yaml} from "@codemirror/lang-yaml";
 import {sql} from "@codemirror/lang-sql";
 import {tags} from "@lezer/highlight";
-import { formatDateTimeValue, formatDateValue, normalizeDateTimeDisplayFormat, setDateTimeDisplayFormat } from "./datetime";
+import { formatDateTimeValue, formatDateValue, formatReminderLabel, normalizeDateTimeDisplayFormat, setDateTimeDisplayFormat } from "./datetime";
 import { pageTitleFromPath } from "./commands";
 import { documentDownloadURL, documentPathLeaf, inlineDocumentURL, isImagePath, resolveDocumentPath } from "./documents";
 import { escapeHTML, markdownCodeFenceBlockAt, markdownTableBlockAt, renderInline, renderedBodyBoundaryStart, splitFrontmatter } from "./markdown";
@@ -31,6 +31,7 @@ import {
   findMarkdownInlineSpecialSpans,
   markdownReferenceDefinitions,
   markdownResolvedLinkInfo,
+  normalizeMarkdownLinkLabel,
   parseInlineMarkdownTree,
   visibleTextFromChildren,
   type MarkdownInlineNode,
@@ -44,7 +45,7 @@ interface EditorTaskState {
   text: string;
   done: boolean;
   due: string;
-  remind: string;
+  remind: string[];
   who: string[];
 }
 
@@ -301,7 +302,7 @@ class MarkdownImageWidget extends WidgetType {
     link.className = "cm-md-image-link";
     link.href = this.href;
     link.target = "_blank";
-    link.rel = "noopener";
+    link.rel = "noopener noreferrer";
 
     const image = document.createElement("img");
     image.className = "cm-md-image";
@@ -337,7 +338,7 @@ class ExternalLinkWidget extends WidgetType {
     link.className = "cm-md-link";
     link.href = this.href;
     link.target = "_blank";
-    link.rel = "noopener";
+    link.rel = "noopener noreferrer";
     link.textContent = this.label;
     return link;
   }
@@ -475,19 +476,59 @@ class TaskCheckboxWidget extends WidgetType {
 
 class TaskMetaWidget extends WidgetType {
   task: EditorTaskState;
+  editing: boolean;
 
-  constructor(task: EditorTaskState) {
+  constructor(task: EditorTaskState, editing: boolean) {
     super();
     this.task = task;
+    this.editing = editing;
   }
 
   eq(other: TaskMetaWidget): boolean {
-    return JSON.stringify(other.task) === JSON.stringify(this.task);
+    return other.editing === this.editing && JSON.stringify(other.task) === JSON.stringify(this.task);
   }
 
   toDOM(): HTMLSpanElement {
     const meta = document.createElement("span");
     meta.className = "cm-md-task-meta";
+    const ref = this.task.ref || "";
+    const due = this.task.due ? String(this.task.due) : "";
+    const reminders = Array.isArray(this.task.remind) ? this.task.remind : [];
+
+    const makeScheduleEl = (className: string, label: string, title: string): HTMLSpanElement => {
+      const el = document.createElement("span");
+      el.className = className;
+      el.setAttribute("data-task-date-edit", "schedule");
+      el.setAttribute("data-task-ref", ref);
+      el.setAttribute("role", "button");
+      el.title = title;
+      el.textContent = label;
+      return el;
+    };
+
+    if (this.editing) {
+      // The raw "[due: …]"/"[remind: …]" source is shown while editing; only
+      // offer the schedule entry when there is nothing to click yet.
+      if (!due) {
+        meta.appendChild(makeScheduleEl("cm-md-task-remind-add", "\u{1F4C5} Schedule", "Set due date & reminders"));
+      }
+    } else {
+      meta.appendChild(makeScheduleEl(
+        "token cm-md-task-due-chip",
+        due ? "\u{1F4C5} " + formatDateValue(due) : "\u{1F4C5} Schedule",
+        due ? "Edit schedule" : "Set due date & reminders",
+      ));
+      reminders.forEach((remind) => {
+        const text = String(remind || "").trim();
+        if (!text) {
+          return;
+        }
+        meta.appendChild(makeScheduleEl("token cm-md-task-remind-chip", "\u{1F514} " + formatReminderLabel(text), "Edit reminders"));
+      });
+      if (due) {
+        meta.appendChild(makeScheduleEl("cm-md-task-remind-add", "\u{1F514}+", reminders.length ? "Add another reminder" : "Add reminder"));
+      }
+    }
 
     if (this.task.who && this.task.who.length) {
       const pill = document.createElement("span");
@@ -718,6 +759,75 @@ class MarkdownTableWidget extends WidgetType {
 
   ignoreEvent() {
     return true;
+  }
+}
+
+class ReferenceDefinitionsWidget extends WidgetType {
+  definitions: MarkdownReferenceDefinition[];
+
+  constructor(definitions: MarkdownReferenceDefinition[]) {
+    super();
+    this.definitions = definitions.slice();
+  }
+
+  eq(other: ReferenceDefinitionsWidget): boolean {
+    return JSON.stringify(other.definitions) === JSON.stringify(this.definitions);
+  }
+
+  toDOM(): HTMLDivElement {
+    const wrapper = document.createElement("div");
+    wrapper.className = "cm-md-reference-definitions";
+
+    const details = document.createElement("details");
+    details.className = "cm-md-reference-definitions-details";
+
+    const summary = document.createElement("summary");
+    summary.className = "cm-md-reference-definitions-summary";
+    summary.textContent = "References (" + String(this.definitions.length) + ")";
+    details.appendChild(summary);
+
+    const list = document.createElement("div");
+    list.className = "cm-md-reference-definitions-list";
+
+    this.definitions.forEach(function (definition) {
+      const item = document.createElement("div");
+      item.className = "cm-md-reference-definition-item";
+
+      const jump = document.createElement("button");
+      jump.type = "button";
+      jump.className = "cm-md-reference-definition-jump";
+      jump.setAttribute("data-reference-jump", String(definition.from));
+      jump.setAttribute("title", "Jump to reference definition");
+      jump.textContent = "[" + String(definition.label || "") + "]";
+      item.appendChild(jump);
+
+      if (definition.target) {
+        const target = document.createElement("a");
+        target.className = "cm-md-reference-definition-target markdown-external-link";
+        target.href = definition.target;
+        target.target = "_blank";
+        target.rel = "noopener noreferrer";
+        target.textContent = definition.target;
+        item.appendChild(target);
+      }
+
+      if (definition.title) {
+        const title = document.createElement("span");
+        title.className = "cm-md-reference-definition-title";
+        title.textContent = '"' + definition.title + '"';
+        item.appendChild(title);
+      }
+
+      list.appendChild(item);
+    });
+
+    details.appendChild(list);
+    wrapper.appendChild(details);
+    return wrapper;
+  }
+
+  ignoreEvent() {
+    return false;
   }
 }
 
@@ -1542,7 +1652,8 @@ function addInlineDocumentLinkDecoration(
   labelFrom: number,
   labelTo: number,
   linkTo: number,
-  href: string
+  href: string,
+  extraAttributes?: Record<string, string>
 ): boolean {
   return addInlineLinkLabelDecoration(
     decos,
@@ -1553,6 +1664,30 @@ function addInlineDocumentLinkDecoration(
     "cm-md-link",
     {
       "data-document-download": href,
+      ...(extraAttributes || {}),
+    }
+  );
+}
+
+function addInlineExternalLinkDecoration(
+  decos: InlineDeco[],
+  linkFrom: number,
+  labelFrom: number,
+  labelTo: number,
+  linkTo: number,
+  href: string,
+  extraAttributes?: Record<string, string>
+): boolean {
+  return addInlineLinkLabelDecoration(
+    decos,
+    linkFrom,
+    labelFrom,
+    labelTo,
+    linkTo,
+    "cm-md-link",
+    {
+      "data-external-link": href,
+      ...(extraAttributes || {}),
     }
   );
 }
@@ -1563,7 +1698,8 @@ function addInlinePageLinkDecoration(
   labelFrom: number,
   labelTo: number,
   linkTo: number,
-  target: string
+  target: string,
+  extraAttributes?: Record<string, string>
 ): boolean {
   return addInlineLinkLabelDecoration(
     decos,
@@ -1574,8 +1710,25 @@ function addInlinePageLinkDecoration(
     "cm-md-link",
     {
       "data-page-link": target,
+      ...(extraAttributes || {}),
     }
   );
+}
+
+function referenceDefinitionDecorationAttributes(
+  referenceDefinitions: Map<string, MarkdownReferenceDefinition> | null,
+  referenceLabel?: string
+): Record<string, string> | undefined {
+  if (!referenceDefinitions || !referenceLabel) {
+    return undefined;
+  }
+  const definition = referenceDefinitions.get(normalizeMarkdownLinkLabel(referenceLabel));
+  if (!definition || definition.from < 0) {
+    return undefined;
+  }
+  return {
+    "data-reference-definition-offset": String(definition.from),
+  };
 }
 
 interface SpecialSpanLabelRange {
@@ -1702,12 +1855,23 @@ function addSpecialInlineSpanDecoration(
             atomic: true,
           });
         } else {
-          decos.push({
-            from: spanFrom,
-            to: spanTo,
-            deco: Decoration.replace({widget: new ExternalLinkWidget(target, label || target)}),
-            atomic: true,
-          });
+          if (editing) {
+            decos.push({
+              from: spanFrom,
+              to: spanTo,
+              deco: Decoration.mark({class: "cm-md-link-raw"}),
+            });
+            blockedRanges.push({from: spanFrom, to: spanTo});
+            continue;
+          }
+          if (!labelRange || !addInlineExternalLinkDecoration(decos, spanFrom, labelFrom, labelTo, spanTo, target)) {
+            decos.push({
+              from: spanFrom,
+              to: spanTo,
+              deco: Decoration.replace({widget: new ExternalLinkWidget(target, label || target)}),
+              atomic: true,
+            });
+          }
         }
         blockedRanges.push({from: spanFrom, to: spanTo});
         continue;
@@ -1985,6 +2149,7 @@ function addParsedInlineDecorationNode(
       const label = visibleTextFromChildren(node, body, info.labelFrom, info.labelTo).trim() || pageTitleFromPath(target);
       const labelFrom = bodyFrom + info.labelFrom;
       const labelTo = bodyFrom + info.labelTo;
+      const referenceAttributes = referenceDefinitionDecorationAttributes(referenceDefinitions, info.referenceLabel);
       const editing = selectionEditsInlineLink(selection, nodeFrom, labelFrom, labelTo, nodeTo);
       if (editing) {
         decos.push({
@@ -2005,12 +2170,14 @@ function addParsedInlineDecorationNode(
             atomic: true,
           });
         } else {
-          decos.push({
-            from: nodeFrom,
-            to: nodeTo,
-            deco: Decoration.replace({widget: new ExternalLinkWidget(target, label || target)}),
-            atomic: true,
-          });
+          if (!addInlineExternalLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, target, referenceAttributes)) {
+            decos.push({
+              from: nodeFrom,
+              to: nodeTo,
+              deco: Decoration.replace({widget: new ExternalLinkWidget(target, label || target)}),
+              atomic: true,
+            });
+          }
         }
         blockedRanges.push({from: nodeFrom, to: nodeTo});
         return;
@@ -2026,7 +2193,7 @@ function addParsedInlineDecorationNode(
             deco: Decoration.replace({widget: new MarkdownImageWidget(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image")}),
             atomic: true,
           });
-        } else if (!addInlineDocumentLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, documentDownloadURL(resolvedPath))) {
+        } else if (!addInlineDocumentLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, documentDownloadURL(resolvedPath), referenceAttributes)) {
           decos.push({
             from: nodeFrom,
             to: nodeTo,
@@ -2038,7 +2205,7 @@ function addParsedInlineDecorationNode(
         return;
       }
 
-      if (!addInlinePageLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, target)) {
+      if (!addInlinePageLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, target, referenceAttributes)) {
         decos.push({
           from: nodeFrom,
           to: nodeTo,
@@ -2295,13 +2462,22 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
   const lines = markdown.split("\n");
   const abbreviationDefinitions = markdownAbbreviationDefinitions(markdown);
   const referenceDefinitions = markdownReferenceDefinitions(markdown);
-  const hiddenReferenceDefinitionLines = new Set<number>();
+  const referenceDefinitionStarts = new Map<number, { definition: MarkdownReferenceDefinition; endLineNumber: number }>();
+  const referenceDefinitionEntries: Array<{ definition: MarkdownReferenceDefinition; endLineNumber: number }> = [];
   referenceDefinitions.forEach(function (definition) {
     const fromLine = state.doc.lineAt(definition.from).number;
     const toLine = state.doc.lineAt(Math.max(definition.from, definition.to - 1)).number;
-    for (let lineNumber = fromLine; lineNumber <= toLine; lineNumber += 1) {
-      hiddenReferenceDefinitionLines.add(lineNumber);
-    }
+    const entry = {
+      definition,
+      endLineNumber: toLine,
+    };
+    referenceDefinitionStarts.set(fromLine, entry);
+    referenceDefinitionEntries.push(entry);
+  });
+  const editingReferenceDefinitions = referenceDefinitionEntries.some(function (entry) {
+    const startLine = state.doc.lineAt(entry.definition.from);
+    const endLine = state.doc.line(entry.endLineNumber);
+    return selection.from <= endLine.to && selection.to >= startLine.from;
   });
   let hiddenFrontmatterUntil = 0;
 
@@ -2326,9 +2502,15 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
     const text = line.text;
     const from = line.from;
     const editingLine = selection.from <= line.to && selection.to >= line.from;
-    if (hiddenReferenceDefinitionLines.has(lineNumber) && !editingLine) {
-      builder.add(line.from, line.to, Decoration.replace({}));
-      addAtomicRange(atomicBuilder, line.from, line.to);
+    const referenceDefinitionEntry = referenceDefinitionStarts.get(lineNumber);
+    if (referenceDefinitionEntry && !editingReferenceDefinitions) {
+      const endLine = state.doc.line(referenceDefinitionEntry.endLineNumber);
+      const hiddenTo = referenceDefinitionEntry.endLineNumber < state.doc.lines
+        ? endLine.to + 1
+        : endLine.to;
+      builder.add(line.from, hiddenTo, Decoration.replace({block: true}));
+      addAtomicRange(atomicBuilder, line.from, hiddenTo);
+      lineNumber = referenceDefinitionEntry.endLineNumber;
       continue;
     }
     const tableBlock = markdownTableBlockAt(lines, lineNumber - 1, {
@@ -2536,7 +2718,7 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
         text: text.replace(/^(\s*)-\s+\[[ xX]\]\s+/, ""),
         done: /[xX]/.test(match[2] || ""),
         due: "",
-        remind: "",
+        remind: [],
         who: [],
       };
       const indentLength = String(match[1] || "").length;
@@ -2550,26 +2732,37 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
       if (!viewOnly) {
         let dateMatch: RegExpExecArray | null = null;
         while ((dateMatch = taskInlineDatePattern.exec(bodyText)) !== null) {
-          const field = String(dateMatch[1] || "");
           const start = from + prefixLength + dateMatch.index;
           const end = start + dateMatch[0].length;
-          inlineExtraDecos.push({
-            from: start,
-            to: end,
-            deco: Decoration.mark({
-              class: "cm-md-task-inline-date",
-              attributes: {
-                "data-task-date-edit": field,
-                "data-task-ref": task.ref || "",
-              },
-            }),
-          });
+          if (!editingLine) {
+            // Due dates and reminders are surfaced as chips in the meta widget
+            // below, so hide the raw "[due: …]" / "[remind: …]" fields in render
+            // mode to avoid showing each value twice.
+            inlineExtraDecos.push({ from: start, to: end, deco: Decoration.replace({}) });
+            addAtomicRange(atomicBuilder, start, end);
+          } else {
+            // While editing the line the raw source is shown; clicking it opens
+            // the unified schedule dialog.
+            inlineExtraDecos.push({
+              from: start,
+              to: end,
+              deco: Decoration.mark({
+                class: "cm-md-task-inline-date",
+                attributes: {
+                  "data-task-date-edit": "schedule",
+                  "data-task-ref": task.ref || "",
+                },
+              }),
+            });
+          }
         }
       }
       taskInlineDatePattern.lastIndex = 0;
 
-      if (task.text && bodyText.startsWith(task.text) && task.who && task.who.length) {
-        taskMetaWidget = new TaskMetaWidget(task);
+      // Always attach the meta widget so the schedule affordance is available
+      // on every task, even one with no due date or reminders yet.
+      if (bodyText.startsWith(task.text)) {
+        taskMetaWidget = new TaskMetaWidget(task, editingLine);
       }
     }
 
@@ -2687,6 +2880,20 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
     if (taskMetaWidget) {
       builder.add(line.to, line.to, Decoration.widget({widget: taskMetaWidget, side: 1}));
     }
+  }
+
+  if (referenceDefinitionEntries.length && !editingReferenceDefinitions) {
+    builder.add(
+      state.doc.length,
+      state.doc.length,
+      Decoration.widget({
+        block: true,
+        side: 1,
+        widget: new ReferenceDefinitionsWidget(referenceDefinitionEntries.map(function (entry) {
+          return entry.definition;
+        })),
+      })
+    );
   }
 
   return {
@@ -2847,8 +3054,30 @@ window.NoteriousCodeEditor = {
         clearSearchHitHighlight(view);
         const viewOnly = view.state.field(viewOnlyField, false);
         const target = event.target instanceof Element ? event.target : null;
+        const referenceJump = target ? target.closest("[data-reference-jump]") : null;
+        if (referenceJump) {
+          if (event.button !== 0) {
+            return false;
+          }
+          event.preventDefault();
+          const offset = Number(referenceJump.getAttribute("data-reference-jump") || "-1");
+          if (offset >= 0 && offset <= view.state.doc.length) {
+            focusEditorView(view, host, {preventScroll: true});
+            view.dispatch({
+              selection: {
+                anchor: offset,
+              },
+              scrollIntoView: true,
+            });
+          }
+          return true;
+        }
+
         const pageLink = target ? target.closest("[data-page-link]") : null;
         if (pageLink) {
+          if (event.button !== 0) {
+            return false;
+          }
           event.preventDefault();
           host.dispatchEvent(new CustomEvent("noterious:page-link", {
             detail: {
@@ -2863,6 +3092,9 @@ window.NoteriousCodeEditor = {
 
         const documentLink = target ? target.closest("[data-document-download]") : null;
         if (documentLink) {
+          if (event.button !== 0) {
+            return false;
+          }
           event.preventDefault();
           host.dispatchEvent(new CustomEvent("noterious:document-download", {
             detail: {
@@ -2871,6 +3103,33 @@ window.NoteriousCodeEditor = {
             bubbles: true,
           }));
           return true;
+        }
+
+        const externalLink = target
+          ? target.closest("[data-external-link], a[href]")
+          : null;
+        if (
+          externalLink &&
+          !externalLink.closest("[data-page-link]") &&
+          !externalLink.closest("[data-document-download]")
+        ) {
+          const href = externalLink.getAttribute("data-external-link")
+            || externalLink.getAttribute("href")
+            || "";
+          if (externalLink.hasAttribute("data-external-link") || /^https?:\/\//i.test(href)) {
+            if (event.button !== 0) {
+              return false;
+            }
+            event.preventDefault();
+            if (href) {
+              try {
+                window.open(href, "_blank", "noopener,noreferrer");
+              } catch (_error) {
+                // Ignore blocked popup environments.
+              }
+            }
+            return true;
+          }
         }
 
         const queryEdit = target ? target.closest("[data-query-edit]") : null;
@@ -2978,6 +3237,28 @@ window.NoteriousCodeEditor = {
         }
 
         return false;
+      },
+      contextmenu(event) {
+        const target = event.target instanceof Element ? event.target : null;
+        const referenceLink = target
+          ? target.closest("[data-reference-definition-offset][data-page-link], [data-reference-definition-offset][data-document-download], [data-reference-definition-offset][data-external-link]")
+          : null;
+        if (!referenceLink) {
+          return false;
+        }
+        event.preventDefault();
+        host.dispatchEvent(new CustomEvent("noterious:reference-link-contextmenu", {
+          detail: {
+            page: referenceLink.getAttribute("data-page-link") || "",
+            documentHref: referenceLink.getAttribute("data-document-download") || "",
+            externalHref: referenceLink.getAttribute("data-external-link") || "",
+            definitionOffset: referenceLink.getAttribute("data-reference-definition-offset") || "",
+            left: event.clientX,
+            top: event.clientY,
+          },
+          bubbles: true,
+        }));
+        return true;
       },
       keydown(event, view) {
         const viewOnly = view.state.field(viewOnlyField, false);
@@ -3264,6 +3545,18 @@ window.NoteriousCodeEditor = {
           scrollIntoView: Boolean(reveal),
         });
       },
+      jumpToOffset(offset) {
+        const max = view.state.doc.length;
+        const protectedUntil = renderedBodyStartOffset(view.state);
+        const nextOffset = Math.max(protectedUntil, Math.min(Number(offset) || 0, max));
+        let clampedSelection = clampSelectionToOffset(EditorSelection.single(nextOffset), protectedUntil);
+        clampedSelection = clampSelectionToRenderedVisibleOffsets(view.state, clampedSelection);
+        focusEditorView(view, host, {preventScroll: true});
+        view.dispatch({
+          selection: clampedSelection,
+          scrollIntoView: true,
+        });
+      },
       getScrollTop() {
         return view.scrollDOM.scrollTop;
       },
@@ -3378,7 +3671,7 @@ window.NoteriousCodeEditor = {
               text: String(task.text || ""),
               done: Boolean(task.done),
               due: String(task.due || ""),
-              remind: String(task.remind || ""),
+              remind: Array.isArray(task.remind) ? task.remind.map(String) : [],
               who: Array.isArray(task.who) ? task.who.slice() : [],
             });
           }

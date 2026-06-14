@@ -7,7 +7,7 @@ func TestApplyTaskPatchUpdatesKnownFields(t *testing.T) {
 
 	state := "done"
 	due := "2026-05-02"
-	remind := ""
+	remind := []string{}
 	who := []string{"Ralf", "Mina"}
 
 	raw := "# Title\n\n- [ ] Follow up due:: 2026-05-01 remind:: 2026-04-30 who:: [\"Old\"] click:: myapp://follow-up\n"
@@ -28,6 +28,23 @@ func TestApplyTaskPatchUpdatesKnownFields(t *testing.T) {
 	}
 	if !task.Done || task.Text != "Follow up [due: 2026-05-02] [click: myapp://follow-up] who:: [\"Ralf\", \"Mina\"]" {
 		t.Fatalf("updated task = %#v", task)
+	}
+}
+
+func TestApplyTaskPatchWritesMultipleReminders(t *testing.T) {
+	t.Parallel()
+
+	reminders := []string{"-1w", "-1d@08:30", "09:00"}
+	raw := "# Title\n\n- [ ] Ship release due:: 2026-07-01\n"
+
+	updated, _, err := ApplyTaskPatch(raw, 3, TaskPatch{Remind: &reminders})
+	if err != nil {
+		t.Fatalf("ApplyTaskPatch() error = %v", err)
+	}
+
+	expected := "# Title\n\n- [ ] Ship release [due: 2026-07-01] [remind: -1w, -1d@08:30, 09:00]\n"
+	if updated != expected {
+		t.Fatalf("updated markdown = %q, want %q", updated, expected)
 	}
 }
 
@@ -68,7 +85,7 @@ func TestApplyTaskPatchNormalizesLegacyBracketFields(t *testing.T) {
 
 	state := "todo"
 	due := ""
-	remind := ""
+	remind := []string{}
 	who := []string{}
 
 	raw := "# Title\n\n- [x] Legacy task [remind: \"2026-04-19 12:10\"] #remind [completed: \"2026-04-19T12:19:47\"]\n"

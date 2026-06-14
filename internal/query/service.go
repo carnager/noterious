@@ -1278,7 +1278,7 @@ func taskChangedFields(before, after *index.Task, relevant map[string]struct{}) 
 	add("state", before.State != after.State)
 	add("done", before.Done != after.Done)
 	add("due", derefString(before.Due) != derefString(after.Due))
-	add("remind", derefString(before.Remind) != derefString(after.Remind))
+	add("remind", !stringSliceEqual(before.Remind, after.Remind))
 	add("click", derefString(before.Click) != derefString(after.Click))
 	add("who", !stringSliceEqual(before.Who, after.Who))
 	sort.Strings(changed)
@@ -1340,7 +1340,7 @@ func taskRow(task *index.Task) map[string]any {
 		"state":  task.State,
 		"done":   task.Done,
 		"due":    derefString(task.Due),
-		"remind": derefString(task.Remind),
+		"remind": remindString(task.Remind),
 		"click":  derefString(task.Click),
 		"who":    append([]string(nil), task.Who...),
 	}
@@ -1412,7 +1412,7 @@ func taskEqual(left, right index.Task) bool {
 		left.State == right.State &&
 		left.Done == right.Done &&
 		derefString(left.Due) == derefString(right.Due) &&
-		derefString(left.Remind) == derefString(right.Remind) &&
+		stringSliceEqual(left.Remind, right.Remind) &&
 		derefString(left.Click) == derefString(right.Click) &&
 		stringSliceEqual(left.Who, right.Who)
 }
@@ -3364,7 +3364,7 @@ func loadDataset(ctx context.Context, indexService *index.Service, dataset strin
 				"state":  task.State,
 				"done":   task.Done,
 				"due":    derefString(task.Due),
-				"remind": derefString(task.Remind),
+				"remind": remindString(task.Remind),
 				"click":  derefString(task.Click),
 				"who":    append([]string(nil), task.Who...),
 			})
@@ -3407,6 +3407,16 @@ func derefString(value *string) any {
 		return nil
 	}
 	return *value
+}
+
+// remindString exposes a task's reminders as a single scalar for the query
+// language (joined with ", "), returning nil when there are none so queries
+// like `where remind != ""` keep working as before multiple reminders existed.
+func remindString(reminders []string) any {
+	if len(reminders) == 0 {
+		return nil
+	}
+	return strings.Join(reminders, ", ")
 }
 
 func matchesAll(row map[string]any, filters []Filter) bool {

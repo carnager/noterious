@@ -16,7 +16,7 @@ type TaskPatch struct {
 	Text   *string
 	State  *string
 	Due    *string
-	Remind *string
+	Remind *[]string
 	Click  *string
 	Who    *[]string
 }
@@ -92,10 +92,10 @@ func patchTaskLine(line string, patch TaskPatch) (string, string, bool, error) {
 		}
 	}
 	if patch.Remind != nil {
-		if *patch.Remind == "" {
+		if formatted := formatRemind(*patch.Remind); formatted == "" {
 			delete(fields, "remind")
 		} else {
-			fields["remind"] = *patch.Remind
+			fields["remind"] = formatted
 		}
 	}
 	if patch.Click != nil {
@@ -201,6 +201,19 @@ func splitWho(value string) []string {
 		}
 	}
 	return result
+}
+
+// formatRemind serializes a list of reminders into the comma-separated value
+// stored inside a "[remind: ...]" field (e.g. "-1w, -1d@08:30, 09:30").
+func formatRemind(reminders []string) string {
+	values := make([]string, 0, len(reminders))
+	for _, item := range reminders {
+		trimmed := strings.TrimSpace(item)
+		if trimmed != "" {
+			values = append(values, trimmed)
+		}
+	}
+	return strings.Join(values, ", ")
 }
 
 func formatWho(who []string) string {

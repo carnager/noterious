@@ -2,7 +2,7 @@ export type FrontmatterScalar = string | boolean;
 export type FrontmatterValue = FrontmatterScalar | FrontmatterScalar[];
 export type FrontmatterMap = Record<string, FrontmatterValue>;
 export type QueryRow = Record<string, unknown>;
-export type FrontmatterKind = "text" | "list" | "tags" | "bool" | "date" | "datetime" | "notification";
+export type FrontmatterKind = "text" | "list" | "tags" | "bool" | "date" | "datetime" | "notification" | "number" | "url" | "email" | "phone";
 export type AppScreen = "notes" | "help";
 
 export interface PageIdentity {
@@ -22,7 +22,7 @@ export interface TaskRender {
   text: string;
   done: boolean;
   due: string;
-  remind: string;
+  remind: string[];
   who: string[];
 }
 
@@ -42,7 +42,7 @@ export interface TaskRecord {
   state: string;
   done: boolean;
   due?: string;
-  remind?: string;
+  remind?: string[];
   click?: string;
   who?: string[];
 }
@@ -597,6 +597,7 @@ export interface NoteriousEditorApi {
   getSelectionStart(): number;
   getSelectionEnd(): number;
   setSelectionRange(anchor: number, head?: number, reveal?: boolean): void;
+  jumpToOffset(offset: number): void;
   getScrollTop(): number;
   setScrollTop(value: number): void;
   getCaretRect(): DOMRect | null;

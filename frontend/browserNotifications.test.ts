@@ -58,7 +58,7 @@ describe("browserNotifications", function () {
         state: "todo",
         done: false,
         due: "2026-05-05",
-        remind: "09:30",
+        remind: ["09:30"],
       },
     ];
     const pages: PageSummary[] = [
@@ -89,6 +89,46 @@ describe("browserNotifications", function () {
       "Note reminder",
     ]);
     expect(candidates[1].click).toBe("noteriousshopping://shopping?contact=ralf");
+  });
+
+  it("resolves relative reminder offsets against the due date", function () {
+    const tasks: TaskRecord[] = [
+      {
+        ref: "task-rel",
+        page: "work/alpha",
+        line: 2,
+        text: "Ship release",
+        state: "todo",
+        done: false,
+        due: "2026-05-06",
+        remind: ["-1d@08:30"],
+      },
+    ];
+
+    // Fires on 2026-05-05 08:30 (one day before the due date).
+    const now = new Date(2026, 4, 5, 8, 35, 0, 0).getTime();
+    const candidates = collectDueBrowserNotifications(tasks, [], now, 20 * 60 * 1000);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].title).toBe("Task reminder");
+    expect(candidates[0].raw).toBe("-1d@08:30");
+  });
+
+  it("ignores relative reminders without a due date", function () {
+    const tasks: TaskRecord[] = [
+      {
+        ref: "task-no-due",
+        page: "work/alpha",
+        line: 2,
+        text: "Floating",
+        state: "todo",
+        done: false,
+        remind: ["-1d"],
+      },
+    ];
+
+    const now = new Date(2026, 4, 5, 9, 0, 0, 0).getTime();
+    expect(collectDueBrowserNotifications(tasks, [], now, 20 * 60 * 1000)).toHaveLength(0);
   });
 
   it("tracks delivered notification keys in memory", function () {

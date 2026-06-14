@@ -295,6 +295,61 @@ export function formatTimeValue(value: string | Date): string {
   return formatStructuredTime(structured);
 }
 
+// Matches relative reminder offsets like "-1d", "-1w@08:30", or "-2h".
+const reminderOffsetPattern = /^([+-])(\d+)([mhdw])(?:@(\d{1,2}):(\d{2}))?$/;
+const reminderUnitNames: Record<string, string> = { m: "minute", h: "hour", d: "day", w: "week" };
+
+export interface ReminderOffset {
+  sign: "+" | "-";
+  count: number;
+  unit: "m" | "h" | "d" | "w";
+  hour: number | null;
+  minute: number | null;
+}
+
+export function parseReminderOffset(value: string): ReminderOffset | null {
+  const match = reminderOffsetPattern.exec(String(value || "").trim());
+  if (!match) {
+    return null;
+  }
+  const hasTime = match[4] !== undefined;
+  return {
+    sign: match[1] === "+" ? "+" : "-",
+    count: Number(match[2]),
+    unit: match[3] as "m" | "h" | "d" | "w",
+    hour: hasTime ? Number(match[4]) : null,
+    minute: hasTime ? Number(match[5]) : null,
+  };
+}
+
+// formatReminderLabel renders a reminder for display: relative offsets become
+// "1 week before", clock times and datetimes are formatted via the usual helpers.
+export function formatReminderLabel(value: string): string {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  const offset = parseReminderOffset(text);
+  if (offset) {
+    const unit = reminderUnitNames[offset.unit] || offset.unit;
+    const noun = offset.count === 1 ? unit : unit + "s";
+    const direction = offset.sign === "+" ? "after" : "before";
+    let label = offset.count + " " + noun + " " + direction;
+    if (offset.hour !== null && offset.minute !== null) {
+      label += " · " + pad(offset.hour) + ":" + pad(offset.minute);
+    } else if (offset.unit === "d" || offset.unit === "w") {
+      // Day/week offsets without an explicit time fire at the 09:00 default.
+      label += " · 09:00";
+    }
+    return label;
+  }
+  if (/^\d{2}:\d{2}(?::\d{2})?$/.test(text)) {
+    // A bare clock time fires on the due date at that time.
+    return "on due date · " + formatTimeValue(text);
+  }
+  return formatDateTimeValue(text);
+}
+
 export function parseEditableDateValue(value: string): string {
   const text = String(value || "").trim();
   if (!text) {

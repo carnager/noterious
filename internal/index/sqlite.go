@@ -1215,7 +1215,11 @@ func insertDocument(ctx context.Context, pageStmt, linkStmt, taskStmt, frontmatt
 		if marshalErr != nil {
 			return fmt.Errorf("encode task who for %q: %w", task.Ref, marshalErr)
 		}
-		if _, err := taskStmt.ExecContext(ctx, task.Ref, task.Page, task.Line, task.Text, task.State, boolToInt(task.Done), task.Due, task.Remind, task.Click, string(whoJSON)); err != nil {
+		remindJSON, marshalErr := json.Marshal(task.Remind)
+		if marshalErr != nil {
+			return fmt.Errorf("encode task remind for %q: %w", task.Ref, marshalErr)
+		}
+		if _, err := taskStmt.ExecContext(ctx, task.Ref, task.Page, task.Line, task.Text, task.State, boolToInt(task.Done), task.Due, string(remindJSON), task.Click, string(whoJSON)); err != nil {
 			return fmt.Errorf("insert task %q: %w", task.Ref, err)
 		}
 	}
@@ -1258,19 +1262,39 @@ func (s *SQLiteStore) loadTasks(ctx context.Context, query string, args ...any) 
 		var task Task
 		var done int
 		var whoJSON string
-		if err := taskRows.Scan(&task.Ref, &task.Page, &task.Line, &task.Text, &task.State, &done, &task.Due, &task.Remind, &task.Click, &whoJSON); err != nil {
+		var remindJSON sql.NullString
+		if err := taskRows.Scan(&task.Ref, &task.Page, &task.Line, &task.Text, &task.State, &done, &task.Due, &remindJSON, &task.Click, &whoJSON); err != nil {
 			return nil, err
 		}
 		task.Done = done != 0
 		if err := json.Unmarshal([]byte(whoJSON), &task.Who); err != nil {
 			task.Who = nil
 		}
+		task.Remind = decodeRemindColumn(remindJSON)
 		tasks = append(tasks, task)
 	}
 	if err := taskRows.Err(); err != nil {
 		return nil, err
 	}
 	return tasks, nil
+}
+
+// decodeRemindColumn reads the tasks.remind column, which stores a JSON array
+// of reminders. Legacy rows hold a bare string (e.g. "09:30") that is not valid
+// JSON; those are treated as a single reminder for backward compatibility.
+func decodeRemindColumn(value sql.NullString) []string {
+	if !value.Valid {
+		return nil
+	}
+	raw := strings.TrimSpace(value.String)
+	if raw == "" {
+		return nil
+	}
+	var reminders []string
+	if err := json.Unmarshal([]byte(raw), &reminders); err == nil {
+		return reminders
+	}
+	return []string{raw}
 }
 
 func boolToInt(value bool) int {

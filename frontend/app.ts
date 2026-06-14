@@ -82,6 +82,7 @@ import {
   setMarkdownEditorSelection,
   setMarkdownEditorValue,
 } from "./editorState";
+import { setupFormatToolbar } from "./formatToolbar";
 import { currentClientInstanceId, fetchJSON, fetchJSONUnscoped, HTTPError, requireOK, scopedEventSourceURL, scopedRequestInit, setActiveScopePrefix } from "./http";
 import {
   applyInlineTableEditor as applyInlineTableEditorUI,
@@ -353,6 +354,15 @@ interface DocumentDownloadDetail {
 
 interface CodeCopyDetail {
   code?: string;
+}
+
+interface ReferenceLinkContextMenuDetail {
+  page?: string;
+  documentHref?: string;
+  externalHref?: string;
+  definitionOffset?: number | string;
+  left?: number | string;
+  top?: number | string;
 }
 
 interface AppState {
@@ -947,7 +957,7 @@ interface ActionDialogSession {
     setTaskDateApplySuppressedUI(state.markdownEditorApi, active);
   }
 
-  async function saveTaskDateField(task: TaskRecord, field: "due" | "remind", value: string): Promise<void> {
+  async function applyTaskSave(task: TaskRecord, fields: { due?: string; remind?: string[] }): Promise<void> {
     setTaskDateApplySuppressed(true);
     const selectedPagePath = state.selectedPage;
     const viewport = captureCurrentEditorViewport();
@@ -955,16 +965,38 @@ interface ActionDialogSession {
     await saveTask(task.ref, {
       text: task.text || "",
       state: task.done ? "done" : "todo",
-      due: field === "due" ? value : (task.due || ""),
-      remind: field === "remind" ? value : (task.remind || ""),
+      due: fields.due !== undefined ? fields.due : (task.due || ""),
+      remind: fields.remind !== undefined ? fields.remind : (Array.isArray(task.remind) ? task.remind.slice() : []),
       who: Array.isArray(task.who) ? task.who.slice() : [],
     });
-    closeTaskPickers();
+    // The schedule popover edits due + reminders together, so keep it open and
+    // refresh it with the saved task instead of closing after each change.
+    const keepPickerOpen = taskPickerState.mode !== "";
+    if (!keepPickerOpen) {
+      closeTaskPickers();
+    }
     await reloadTasksAndRestoreCurrentEditorViewport(selectedPagePath, viewport);
+    if (keepPickerOpen && taskPickerState.mode !== "") {
+      renderTaskPicker();
+    }
     window.requestAnimationFrame(function () {
       window.requestAnimationFrame(function () {
         setTaskDateApplySuppressed(false);
       });
+    });
+  }
+
+  async function saveTaskDateField(task: TaskRecord, field: "due" | "remind", value: string): Promise<void> {
+    if (field === "remind") {
+      await applyTaskSave(task, { remind: value.trim() ? [value.trim()] : [] });
+      return;
+    }
+    await applyTaskSave(task, { due: value });
+  }
+
+  async function saveTaskReminders(task: TaskRecord, reminders: string[]): Promise<void> {
+    await applyTaskSave(task, {
+      remind: reminders.map(function (item) { return String(item || "").trim(); }).filter(Boolean),
     });
   }
 
@@ -1042,13 +1074,14 @@ interface ActionDialogSession {
     renderTaskPickerUI(taskPickerState, els, {
       currentPickerTask: currentPickerTask,
       saveTaskDateField: saveTaskDateField,
+      saveTaskReminders: saveTaskReminders,
       closeTaskPickers: closeTaskPickers,
       setNoteStatus: setNoteStatus,
       errorMessage: errorMessage,
     });
   }
 
-  function openInlineTaskPicker(ref: string, mode: "due" | "remind", left: number, top: number, anchorTop?: number, anchorBottom?: number): void {
+  function openInlineTaskPicker(ref: string, mode: "due" | "remind" | "schedule", left: number, top: number, anchorTop?: number, anchorBottom?: number): void {
     openInlineTaskPickerUI(taskPickerState, {
       ref: ref,
       mode: mode,
@@ -4105,6 +4138,112 @@ interface ActionDialogSession {
     closeTreeContextMenuUI(els.treeContextMenu);
   }
 
+  function positionFloatingContextMenu(left: number, top: number): void {
+    const width = els.treeContextMenu.offsetWidth || 220;
+    const height = els.treeContextMenu.offsetHeight || 200;
+    const maxLeft = Math.max(12, window.innerWidth - width - 12);
+    const maxTop = Math.max(12, window.innerHeight - height - 12);
+    els.treeContextMenu.style.left = Math.max(12, Math.min(left, maxLeft)) + "px";
+    els.treeContextMenu.style.top = Math.max(12, Math.min(top, maxTop)) + "px";
+  }
+
+  function appendFloatingContextMenuItem(
+    label: string,
+    iconPath: string,
+    onSelect: () => void,
+  ): void {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "tree-context-menu-item";
+    button.setAttribute("role", "menuitem");
+
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("viewBox", "0 0 16 16");
+    icon.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", iconPath);
+    path.setAttribute("fill", "currentColor");
+    icon.appendChild(path);
+    button.appendChild(icon);
+
+    const text = document.createElement("span");
+    text.textContent = label;
+    button.appendChild(text);
+
+    button.addEventListener("click", function () {
+      closeTreeContextMenu();
+      onSelect();
+    });
+
+    els.treeContextMenu.appendChild(button);
+  }
+
+  function openReferenceLinkContextMenu(detail: ReferenceLinkContextMenuDetail): void {
+    const page = detail.page ? String(detail.page) : "";
+    const documentHref = detail.documentHref ? String(detail.documentHref) : "";
+    const externalHref = detail.externalHref ? String(detail.externalHref) : "";
+    const definitionOffset = Number(detail.definitionOffset);
+    const left = Number(detail.left) || 0;
+    const top = Number(detail.top) || 0;
+    if (!page && !documentHref && !externalHref) {
+      return;
+    }
+
+    const openIconPath = "M3 2.5h5.7L13 6.8V13a1 1 0 0 1-1 1H3.9a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Zm5 .9v3.2h3.2";
+    const editIconPath = "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z";
+
+    treeContextMenuState.target = null;
+    treeContextMenuState.left = left;
+    treeContextMenuState.top = top;
+    clearNode(els.treeContextMenu);
+
+    appendFloatingContextMenuItem("Open", openIconPath, function () {
+      if (page) {
+        openOrCreatePageLinkTarget(page, false);
+        return;
+      }
+      if (documentHref) {
+        window.location.href = documentHref;
+        return;
+      }
+      if (externalHref) {
+        try {
+          window.open(externalHref, "_blank", "noopener");
+        } catch (_error) {
+          // Ignore blocked popup environments.
+        }
+      }
+    });
+
+    if (Number.isFinite(definitionOffset) && definitionOffset >= 0) {
+      appendFloatingContextMenuItem("Edit link", editIconPath, function () {
+        const jumpToDefinition = function () {
+          if (state.markdownEditorApi && typeof state.markdownEditorApi.jumpToOffset === "function") {
+            state.markdownEditorApi.jumpToOffset(definitionOffset);
+            return;
+          }
+          focusMarkdownEditor(state, els, {preventScroll: true});
+          setMarkdownEditorSelection(state, els, definitionOffset, definitionOffset, true);
+        };
+        if (state.viewOnly) {
+          setViewOnly(false);
+          window.setTimeout(jumpToDefinition, 0);
+          return;
+        }
+        jumpToDefinition();
+      });
+    }
+
+    els.treeContextMenu.classList.remove("hidden");
+    window.requestAnimationFrame(function () {
+      positionFloatingContextMenu(left, top);
+      const firstItem = els.treeContextMenu.querySelector<HTMLButtonElement>(".tree-context-menu-item");
+      if (firstItem) {
+        firstItem.focus({preventScroll: true});
+      }
+    });
+  }
+
   function openPageHistoryFor(pagePath: string): void {
     if (!pagePath) {
       return;
@@ -4180,7 +4319,7 @@ interface ActionDialogSession {
     }) || null;
   }
 
-  function openInsertedTaskPicker(lineNumber: number, mode: "due" | "remind"): void {
+  function openInsertedTaskPicker(lineNumber: number, _mode: "due" | "remind"): void {
     const task = findCurrentTaskByLine(lineNumber);
     if (!task || !task.ref) {
       return;
@@ -4191,7 +4330,7 @@ interface ActionDialogSession {
       const top = caretRect ? (caretRect.bottom + 10) : 0;
       const anchorTop = caretRect ? caretRect.top : 0;
       const anchorBottom = caretRect ? caretRect.bottom : 0;
-      openInlineTaskPicker(task.ref, mode, left, top, anchorTop, anchorBottom);
+      openInlineTaskPicker(task.ref, "schedule", left, top, anchorTop, anchorBottom);
     });
   }
 
@@ -7968,6 +8107,14 @@ interface ActionDialogSession {
       if (!markdownEditorApi) {
         return;
       }
+      setupFormatToolbar(markdownEditorApi, {
+        isActive: function () {
+          return state.appScreen === "notes"
+            && Boolean(state.selectedPage && state.currentPage)
+            && studioPageEditable()
+            && !state.viewOnly;
+        },
+      });
       on(markdownEditorApi.host, "click", function (event) {
         const eventTarget = event.target instanceof Element ? event.target : null;
         if (eventTarget && eventTarget.closest("[data-page-link]")) {
@@ -8006,6 +8153,10 @@ interface ActionDialogSession {
           setNoteStatus("Copy failed: " + errorMessage(error));
         });
       });
+      on(markdownEditorApi.host, "noterious:reference-link-contextmenu", function (event) {
+        const detail = (event as CustomEvent<ReferenceLinkContextMenuDetail>).detail || {};
+        openReferenceLinkContextMenu(detail);
+      });
       on(markdownEditorApi.host, "noterious:task-toggle", function (event) {
         if (!studioPageEditable()) {
           return;
@@ -8026,12 +8177,11 @@ interface ActionDialogSession {
         }
         const detail = (event as CustomEvent<TaskDateEditDetail>).detail || {};
         const ref = detail.ref ? String(detail.ref) : "";
-        const field = detail.field === "remind" ? "remind" : "due";
         const left = Number(detail.left) || 0;
         const top = Number(detail.top) || 0;
         const anchorTop = Number(detail.anchorTop) || 0;
         const anchorBottom = Number(detail.anchorBottom) || 0;
-        openInlineTaskPicker(ref, field, left, top, anchorTop, anchorBottom);
+        openInlineTaskPicker(ref, "schedule", left, top, anchorTop, anchorBottom);
       });
       on(markdownEditorApi.host, "noterious:task-delete", function (event) {
         if (!studioPageEditable()) {

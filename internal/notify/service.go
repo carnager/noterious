@@ -10,7 +10,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -115,16 +117,18 @@ func (s *Service) Poll(ctx context.Context) error {
 		if task.Done {
 			continue
 		}
-		candidate, ok := taskNotificationCandidate(task, now.Location())
-		if !ok {
+		candidates := taskNotificationCandidates(task, now.Location())
+		if len(candidates) == 0 {
 			continue
 		}
 		recipients := notificationTargetsForTask(task, targetsByUser, soleTarget, hasSoleTarget)
-		delivered, err := s.deliverCandidate(ctx, candidate, recipients, now, activeKeys)
-		if err != nil {
-			return err
+		for _, candidate := range candidates {
+			delivered, err := s.deliverCandidate(ctx, candidate, recipients, now, activeKeys)
+			if err != nil {
+				return err
+			}
+			updated = updated || delivered
 		}
-		updated = updated || delivered
 	}
 	for _, page := range pages {
 		if isTemplatePage(page.Path) {
@@ -135,6 +139,13 @@ func (s *Service) Poll(ctx context.Context) error {
 			continue
 		}
 		for _, candidate := range noteNotificationCandidates(page, now.Location()) {
+			delivered, err := s.deliverCandidate(ctx, candidate, recipients, now, activeKeys)
+			if err != nil {
+				return err
+			}
+			updated = updated || delivered
+		}
+		for _, candidate := range annualReminderCandidates(page, now) {
 			delivered, err := s.deliverCandidate(ctx, candidate, recipients, now, activeKeys)
 			if err != nil {
 				return err
@@ -185,15 +196,23 @@ type candidateNotification struct {
 	FieldKey string
 }
 
-func taskNotificationCandidate(task index.Task, loc *time.Location) (candidateNotification, bool) {
-	if task.Remind == nil || strings.TrimSpace(*task.Remind) == "" {
-		return candidateNotification{}, false
+func taskNotificationCandidates(task index.Task, loc *time.Location) []candidateNotification {
+	if len(task.Remind) == 0 {
+		return nil
 	}
-	at, raw, ok := parseReminderNotificationTime(*task.Remind, derefTaskValue(task.Due), loc)
-	if !ok {
-		return candidateNotification{}, false
+	click := strings.TrimSpace(derefTaskValue(task.Click))
+	candidates := make([]candidateNotification, 0, len(task.Remind))
+	for _, remind := range task.Remind {
+		if strings.TrimSpace(remind) == "" {
+			continue
+		}
+		at, raw, ok := parseReminderNotificationTime(remind, derefTaskValue(task.Due), loc)
+		if !ok {
+			continue
+		}
+		candidates = append(candidates, buildTaskCandidate(task, "remind", raw, at, click))
 	}
-	return buildTaskCandidate(task, "remind", raw, at, strings.TrimSpace(derefTaskValue(task.Click))), true
+	return candidates
 }
 
 func noteNotificationCandidates(page index.PageSummary, loc *time.Location) []candidateNotification {
@@ -326,6 +345,11 @@ func parseReminderNotificationTime(remindRaw string, dueRaw string, loc *time.Lo
 	if remindText == "" {
 		return time.Time{}, "", false
 	}
+	if at, ok := parseRelativeReminder(remindText, dueRaw, loc); ok {
+		// Keep the raw offset (e.g. "-1d") as the label so it stays in sync
+		// with the due date instead of freezing to a resolved timestamp.
+		return at, remindText, true
+	}
 	if hour, minute, ok := parseClockTime(remindText); ok {
 		dueDate, ok := parseNotificationDate(dueRaw, loc)
 		if !ok {
@@ -339,6 +363,66 @@ func parseReminderNotificationTime(remindRaw string, dueRaw string, loc *time.Lo
 		return time.Time{}, "", false
 	}
 	return at, remindText, true
+}
+
+// relativeReminderPattern matches offsets relative to a due date, such as
+// "-1d", "-1w@08:30", or "-2h". A leading sign is required; "@HH:MM" sets the
+// time of day and is only valid for day/week offsets.
+var relativeReminderPattern = regexp.MustCompile(`^([+-])(\d+)([mhdw])(?:@(\d{1,2}):(\d{2}))?$`)
+
+// parseRelativeReminder resolves a relative reminder against the task's due
+// date. Day/week offsets land on (due ± N days) at the supplied "@HH:MM" time
+// or 09:00 by default. Hour/minute offsets are applied to the due instant
+// (midnight when the due value is date-only) and do not accept a "@HH:MM" part.
+func parseRelativeReminder(remindRaw string, dueRaw string, loc *time.Location) (time.Time, bool) {
+	match := relativeReminderPattern.FindStringSubmatch(strings.TrimSpace(remindRaw))
+	if match == nil {
+		return time.Time{}, false
+	}
+	sign := 1
+	if match[1] == "-" {
+		sign = -1
+	}
+	count, err := strconv.Atoi(match[2])
+	if err != nil {
+		return time.Time{}, false
+	}
+	switch match[3] {
+	case "d", "w":
+		dueDate, ok := parseNotificationDate(dueRaw, loc)
+		if !ok {
+			return time.Time{}, false
+		}
+		days := count
+		if match[3] == "w" {
+			days = count * 7
+		}
+		at := dueDate.AddDate(0, 0, sign*days)
+		hour, minute := 9, 0
+		if match[4] != "" {
+			h, _ := strconv.Atoi(match[4])
+			m, _ := strconv.Atoi(match[5])
+			if h < 0 || h > 23 || m < 0 || m > 59 {
+				return time.Time{}, false
+			}
+			hour, minute = h, m
+		}
+		return time.Date(at.Year(), at.Month(), at.Day(), hour, minute, 0, 0, loc), true
+	case "h", "m":
+		if match[4] != "" {
+			return time.Time{}, false
+		}
+		dueInstant, ok := parseNotificationTime(dueRaw, 0, loc)
+		if !ok {
+			return time.Time{}, false
+		}
+		unit := time.Hour
+		if match[3] == "m" {
+			unit = time.Minute
+		}
+		return dueInstant.Add(time.Duration(sign) * time.Duration(count) * unit), true
+	}
+	return time.Time{}, false
 }
 
 func parseClockTime(raw string) (int, int, bool) {
@@ -569,6 +653,162 @@ func isGenericNotificationField(key string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// reminderSuffixes are the companion-key endings that mark a boolean
+// "remind me about this date" toggle attached to a sibling date field.
+var reminderSuffixes = []string{
+	"_notification", "-notification",
+	"_reminder", "-reminder",
+	"_erinnerung", "-erinnerung",
+	"_remind", "-remind",
+	"_notify", "-notify",
+}
+
+// reminderBaseKey returns the date field a boolean reminder toggle belongs to.
+// For "geburtstag_remind" it returns "geburtstag".
+func reminderBaseKey(key string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	for _, suffix := range reminderSuffixes {
+		if strings.HasSuffix(normalized, suffix) {
+			base := strings.TrimSpace(key[:len(key)-len(suffix)])
+			if base != "" {
+				return base, true
+			}
+		}
+	}
+	return "", false
+}
+
+func frontmatterBoolValue(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	default:
+		return false
+	}
+}
+
+// reminderMonthDay extracts the recurring month/day from a date value such as
+// "1979-09-17" (the year is ignored — birthdays recur every year).
+func reminderMonthDay(raw string) (time.Month, int, bool) {
+	text := strings.TrimSpace(raw)
+	if len(text) >= 10 {
+		if parsed, err := time.Parse("2006-01-02", text[:10]); err == nil {
+			return parsed.Month(), parsed.Day(), true
+		}
+	}
+	if parsed, err := time.Parse("01-02", text); err == nil {
+		return parsed.Month(), parsed.Day(), true
+	}
+	return 0, 0, false
+}
+
+// nextAnnualReminderTime returns the upcoming occurrence of month/day at the
+// given hour: this year if it is today or still ahead, otherwise next year.
+func nextAnnualReminderTime(now time.Time, month time.Month, day int, hour int, loc *time.Location) time.Time {
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	occurrenceDate := time.Date(now.Year(), month, day, 0, 0, 0, 0, loc)
+	year := now.Year()
+	if occurrenceDate.Before(today) {
+		year++
+	}
+	return time.Date(year, month, day, hour, 0, 0, 0, loc)
+}
+
+func isBirthdayField(key string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	return strings.Contains(normalized, "geburtstag") ||
+		strings.Contains(normalized, "geburts") ||
+		strings.Contains(normalized, "birthday") ||
+		strings.Contains(normalized, "bday")
+}
+
+// annualReminderCandidates turns boolean reminder toggles on date fields into
+// recurring yearly notifications fired on the morning of the date.
+func annualReminderCandidates(page index.PageSummary, now time.Time) []candidateNotification {
+	frontmatter := page.Frontmatter
+	if len(frontmatter) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(frontmatter))
+	for key := range frontmatter {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	loc := now.Location()
+	candidates := make([]candidateNotification, 0)
+	for _, key := range keys {
+		if !frontmatterBoolValue(frontmatter[key]) {
+			continue
+		}
+		baseKey, ok := reminderBaseKey(key)
+		if !ok {
+			continue
+		}
+		dateRaw, ok := frontmatterStringValue(frontmatter[baseKey])
+		if !ok {
+			continue
+		}
+		month, day, ok := reminderMonthDay(dateRaw)
+		if !ok {
+			continue
+		}
+		at := nextAnnualReminderTime(now, month, day, 9, loc)
+		candidates = append(candidates, buildAnnualReminderCandidate(page, baseKey, key, dateRaw, at, notificationClickTarget(frontmatter, key)))
+	}
+	return candidates
+}
+
+func buildAnnualReminderCandidate(page index.PageSummary, baseKey string, fieldKey string, raw string, at time.Time, click string) candidateNotification {
+	titleText := strings.TrimSpace(page.Title)
+	if titleText == "" {
+		titleText = strings.TrimSpace(page.Path)
+	}
+
+	title := "Reminder"
+	tags := "calendar"
+	birthday := isBirthdayField(baseKey)
+	if birthday {
+		title = "Birthday"
+		tags = "birthday"
+	}
+
+	parts := make([]string, 0, 3)
+	if titleText != "" {
+		parts = append(parts, titleText)
+	}
+	if birthday {
+		if strings.TrimSpace(raw) != "" {
+			parts = append(parts, "🎂 Birthday — born "+strings.TrimSpace(raw))
+		} else {
+			parts = append(parts, "🎂 Birthday today")
+		}
+	} else {
+		label := strings.TrimSpace(baseKey)
+		if label == "" {
+			label = "reminder"
+		}
+		parts = append(parts, label+": "+strings.TrimSpace(raw))
+	}
+
+	return candidateNotification{
+		Key:      fmt.Sprintf("page:%s|annual:%s|%s", page.Path, fieldKey, at.UTC().Format(time.RFC3339)),
+		Kind:     "notification",
+		At:       at,
+		Raw:      raw,
+		Click:    click,
+		Title:    title,
+		Body:     strings.Join(parts, "\n"),
+		Tags:     tags,
+		Priority: "high",
+		Page:     page.Path,
+		FieldKey: fieldKey,
 	}
 }
 
