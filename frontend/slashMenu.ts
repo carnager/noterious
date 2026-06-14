@@ -148,6 +148,9 @@ function commandSupportsSlashArgs(command: SlashCommand, args: string): boolean 
   if (command.id === "query") {
     return Boolean(String(args || "").trim());
   }
+  if (command.id === "document") {
+    return true;
+  }
   return false;
 }
 
@@ -266,6 +269,19 @@ function slashCommandCatalog(): SlashCommand[] {
       hint: "/query <intent>",
       apply: function (lineText: string) {
         return replaceSlashToken(lineText, "query", "").replace(/\s+$/, "");
+      },
+      caret: function (updatedLine: string) {
+        return updatedLine.length;
+      },
+    },
+    {
+      id: "document",
+      title: "Insert document link",
+      description: "Search existing documents and insert a markdown link.",
+      keywords: "doc docs document documents attach attachment asset media file existing",
+      hint: "/doc",
+      apply: function (lineText: string) {
+        return replaceSlashToken(lineText, "document", "/doc ");
       },
       caret: function (updatedLine: string) {
         return updatedLine.length;

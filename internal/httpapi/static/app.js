@@ -17374,10 +17374,10 @@
     return spans;
   }
   function renderDocumentAnchor(href, labelHTML) {
-    return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
+    return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener noreferrer">' + labelHTML + "</a>";
   }
   function renderImageAnchor(href, src, alt) {
-    return '<a class="markdown-inline-image-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener"><img class="markdown-inline-image" src="' + escapeHTML(src) + '" alt="' + escapeHTML(alt) + '"></a>';
+    return '<a class="markdown-inline-image-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener noreferrer"><img class="markdown-inline-image" src="' + escapeHTML(src) + '" alt="' + escapeHTML(alt) + '"></a>';
   }
   function embeddedWikiLabel(target, label) {
     const explicit = String(label || "").trim();
@@ -17398,7 +17398,7 @@
     return trimmedLabel === documentPathLeaf(target);
   }
   function renderExternalAnchor(href, labelHTML) {
-    return '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
+    return '<a class="markdown-external-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener noreferrer">' + labelHTML + "</a>";
   }
   function renderWikiButton(target, labelHTML) {
     return '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + labelHTML + "</button>";
@@ -17811,6 +17811,18 @@
     }
     return normalized === "notification" || normalized === "notify" || normalized === "remind" || normalized === "reminder" || /(^|[_-])(notify|notification|remind|reminder)([_-]|$)/i.test(normalized);
   }
+  function isEmailFieldKey(key) {
+    const normalized = String(key || "").trim().toLowerCase();
+    return /(^|[_-])e?mail([_-]|$)/.test(normalized);
+  }
+  function isUrlFieldKey(key) {
+    const normalized = String(key || "").trim().toLowerCase();
+    return /(^|[_-])(url|uri|website|webseite|homepage|link|web|site)([_-]|$)/.test(normalized);
+  }
+  function isPhoneFieldKey(key) {
+    const normalized = String(key || "").trim().toLowerCase();
+    return /(^|[_-])(phone|telefon|tel|mobile|mobil|handy|fax|cell)([_-]|$)/.test(normalized);
+  }
   function templateSlug(value) {
     return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   }
@@ -17860,6 +17872,10 @@
       case "date":
       case "datetime":
       case "notification":
+      case "number":
+      case "url":
+      case "email":
+      case "phone":
         return String(value || "").trim();
       default:
         return "text";
@@ -17946,7 +17962,10 @@
   }
   function replaceTemplatePlaceholders(value, pagePath) {
     const title = pageTitleFromPath(pagePath);
-    return String(value || "").replace(/\{\{\s*title\s*\}\}/gi, title).replace(/\{\{\s*path\s*\}\}/gi, pagePath);
+    const nameParts = title.trim().split(/\s+/).filter(Boolean);
+    const firstName = nameParts.length ? nameParts[0] : "";
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
+    return String(value || "").replace(/\{\{\s*title\s*\}\}/gi, title).replace(/\{\{\s*path\s*\}\}/gi, pagePath).replace(/\{\{\s*(?:vorname|firstname|first_name)\s*\}\}/gi, firstName).replace(/\{\{\s*(?:nachname|lastname|last_name)\s*\}\}/gi, lastName);
   }
   function templatePathInfo(pagePath) {
     const normalizedPath = normalizePageDraftPath(pagePath);
@@ -18032,6 +18051,15 @@
     if (String(key || "").trim().toLowerCase() === "tags") {
       return "tags";
     }
+    if (isEmailFieldKey(key)) {
+      return "email";
+    }
+    if (isUrlFieldKey(key)) {
+      return "url";
+    }
+    if (isPhoneFieldKey(key)) {
+      return "phone";
+    }
     return "text";
   }
   function templateFieldsFromFrontmatter(frontmatter) {
@@ -18095,7 +18123,7 @@
   }
   function templateFieldShouldGuideInput(field) {
     const kind = field.kind;
-    if (kind === "date" || kind === "datetime" || kind === "notification") {
+    if (kind === "date" || kind === "datetime" || kind === "notification" || kind === "email" || kind === "phone" || kind === "url" || kind === "number") {
       return true;
     }
     const key = String(field.key || "").trim().toLowerCase();
@@ -18105,7 +18133,7 @@
     if (key === "vorname" || key === "nachname" || key === "firstname" || key === "lastname" || key === "first_name" || key === "last_name") {
       return true;
     }
-    return /(^|[_-])(phone|telefon|tel|mobile|mobil|handy)([_-]|$)/.test(key);
+    return isPhoneFieldKey(key) || isEmailFieldKey(key) || isUrlFieldKey(key);
   }
   function templateFieldNeedsGuidedInput(field, pagePath) {
     const key = String(field.key || "").trim();
@@ -18251,7 +18279,7 @@
     }
     return keys.slice(0, maxItems).join(" \xB7 ") + " +" + String(keys.length - maxItems);
   }
-  var templateFolderName, templateMarkerKey, templateLabelKey, templateFolderKey, templateListKey, templateTagsKey, templateBoolKey, templateDateKey, templateDateTimeKey, templateNotificationKey, propertyListKey, propertyTagsKey, propertyBoolKey, propertyDateKey, propertyDateTimeKey, propertyNotificationKey, kindMetadataDescriptors, internalMetadataKeys, templateMetadataKeys;
+  var templateFolderName, templateMarkerKey, templateLabelKey, templateFolderKey, templateListKey, templateTagsKey, templateBoolKey, templateDateKey, templateDateTimeKey, templateNotificationKey, templateNumberKey, templateUrlKey, templateEmailKey, templatePhoneKey, propertyListKey, propertyTagsKey, propertyBoolKey, propertyDateKey, propertyDateTimeKey, propertyNotificationKey, propertyNumberKey, propertyUrlKey, propertyEmailKey, propertyPhoneKey, kindMetadataDescriptors, internalMetadataKeys, templateMetadataKeys;
   var init_noteTemplates = __esm({
     "frontend/noteTemplates.ts"() {
       "use strict";
@@ -18267,19 +18295,31 @@
       templateDateKey = "_template_date";
       templateDateTimeKey = "_template_datetime";
       templateNotificationKey = "_template_notification";
+      templateNumberKey = "_template_number";
+      templateUrlKey = "_template_url";
+      templateEmailKey = "_template_email";
+      templatePhoneKey = "_template_phone";
       propertyListKey = "_type_list";
       propertyTagsKey = "_type_tags";
       propertyBoolKey = "_type_bool";
       propertyDateKey = "_type_date";
       propertyDateTimeKey = "_type_datetime";
       propertyNotificationKey = "_type_notification";
+      propertyNumberKey = "_type_number";
+      propertyUrlKey = "_type_url";
+      propertyEmailKey = "_type_email";
+      propertyPhoneKey = "_type_phone";
       kindMetadataDescriptors = [
         { key: propertyTagsKey, kind: "tags", aliases: [propertyTagsKey, templateTagsKey] },
         { key: propertyListKey, kind: "list", aliases: [propertyListKey, templateListKey] },
         { key: propertyBoolKey, kind: "bool", aliases: [propertyBoolKey, templateBoolKey] },
         { key: propertyDateKey, kind: "date", aliases: [propertyDateKey, templateDateKey] },
         { key: propertyDateTimeKey, kind: "datetime", aliases: [propertyDateTimeKey, templateDateTimeKey] },
-        { key: propertyNotificationKey, kind: "notification", aliases: [propertyNotificationKey, templateNotificationKey] }
+        { key: propertyNotificationKey, kind: "notification", aliases: [propertyNotificationKey, templateNotificationKey] },
+        { key: propertyNumberKey, kind: "number", aliases: [propertyNumberKey, templateNumberKey] },
+        { key: propertyUrlKey, kind: "url", aliases: [propertyUrlKey, templateUrlKey] },
+        { key: propertyEmailKey, kind: "email", aliases: [propertyEmailKey, templateEmailKey] },
+        { key: propertyPhoneKey, kind: "phone", aliases: [propertyPhoneKey, templatePhoneKey] }
       ];
       internalMetadataKeys = new Set([
         templateMarkerKey,
@@ -24358,8 +24398,43 @@
     }
     return normalized + "_click";
   }
-  function notificationTapTargetHint(key) {
-    return "Optional tap target: add " + notificationTapTargetFieldName(key) + " with a URL or app URI.";
+  function isEmailPropertyKey(key) {
+    return /(^|[_-])e?mail([_-]|$)/.test(String(key || "").trim().toLowerCase());
+  }
+  function isUrlPropertyKey(key) {
+    return /(^|[_-])(url|uri|website|webseite|homepage|link|web|site)([_-]|$)/.test(String(key || "").trim().toLowerCase());
+  }
+  function isPhonePropertyKey(key) {
+    return /(^|[_-])(phone|telefon|tel|mobile|mobil|handy|fax|cell)([_-]|$)/.test(String(key || "").trim().toLowerCase());
+  }
+  function looksLikeEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+  }
+  function looksLikeUrl(value) {
+    return /^(https?:\/\/|www\.)\S+$/i.test(String(value || "").trim());
+  }
+  function propertyLinkHref(kind, value) {
+    const text = String(value === null || typeof value === "undefined" ? "" : value).trim();
+    if (!text) {
+      return null;
+    }
+    if (kind === "email") {
+      return looksLikeEmail(text) ? "mailto:" + text : null;
+    }
+    if (kind === "phone") {
+      const digits = text.replace(/[^\d+]/g, "");
+      return digits.replace(/\D/g, "").length >= 3 ? "tel:" + digits : null;
+    }
+    if (kind === "url") {
+      if (/^https?:\/\//i.test(text)) {
+        return text;
+      }
+      if (/\s/.test(text) || text.indexOf(".") < 0) {
+        return null;
+      }
+      return "https://" + text.replace(/^\/+/, "");
+    }
+    return null;
   }
   function inferFrontmatterKind(value, key, hintedKind) {
     if (Array.isArray(value)) {
@@ -24374,6 +24449,9 @@
     if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(value)) {
       return hintedKind === "notification" || isNotificationPropertyKey(key) ? "notification" : "datetime";
     }
+    if (hintedKind === "email" || hintedKind === "url" || hintedKind === "phone" || hintedKind === "number") {
+      return hintedKind;
+    }
     if ((value === null || typeof value === "undefined" || String(value).trim() === "") && hintedKind) {
       return hintedKind;
     }
@@ -24382,6 +24460,16 @@
     }
     if (isTagPropertyKey(key) && (value === null || typeof value === "undefined" || String(value).trim() === "")) {
       return "tags";
+    }
+    const stringValue = typeof value === "string" ? value : "";
+    if (isEmailPropertyKey(key) || looksLikeEmail(stringValue)) {
+      return "email";
+    }
+    if (isUrlPropertyKey(key) || looksLikeUrl(stringValue)) {
+      return "url";
+    }
+    if (isPhonePropertyKey(key)) {
+      return "phone";
     }
     return "text";
   }
@@ -24512,6 +24600,18 @@
     if (kind === "date" || kind === "datetime") {
       return "\u25EB";
     }
+    if (kind === "email") {
+      return "@";
+    }
+    if (kind === "phone") {
+      return "\u260E";
+    }
+    if (kind === "url") {
+      return "\u2197";
+    }
+    if (kind === "number") {
+      return "\u2116";
+    }
     return "\u2261";
   }
   function propertyKindLabel(kind) {
@@ -24532,6 +24632,18 @@
     }
     if (kind === "notification") {
       return "Notify";
+    }
+    if (kind === "email") {
+      return "Email";
+    }
+    if (kind === "phone") {
+      return "Phone";
+    }
+    if (kind === "url") {
+      return "URL";
+    }
+    if (kind === "number") {
+      return "Number";
     }
     return "Text";
   }
@@ -24568,6 +24680,104 @@
     label.textContent = keyText;
     target.appendChild(label);
   }
+  function appendPropertyOpenLink(container, kind, value) {
+    const href = propertyLinkHref(kind, value);
+    if (!href) {
+      return;
+    }
+    const action = kind === "email" ? "Send email" : kind === "phone" ? "Call" : "Open link";
+    const link = document.createElement("a");
+    link.className = "property-open-link";
+    link.href = href;
+    const icon = document.createElement("span");
+    icon.className = "property-open-link-icon";
+    icon.textContent = propertyTypeIcon(kind);
+    link.appendChild(icon);
+    const label = document.createElement("span");
+    label.textContent = action;
+    link.appendChild(label);
+    link.setAttribute("aria-label", action);
+    link.title = href;
+    if (kind === "url") {
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    }
+    link.addEventListener("mousedown", function(event) {
+      event.stopPropagation();
+    });
+    container.appendChild(link);
+  }
+  function notificationParentKey(key) {
+    return String(key || "").trim().replace(/[_-]click$/i, "");
+  }
+  function appendNotificationTapTarget(container, row, options) {
+    const clickKey = notificationTapTargetFieldName(row.key);
+    const existing = options.pageFrontmatter ? options.pageFrontmatter[clickKey] : "";
+    const currentValue = existing === null || typeof existing === "undefined" ? "" : String(existing);
+    const field = document.createElement("div");
+    field.className = "property-subfield";
+    const label = document.createElement("label");
+    label.className = "property-subfield-label";
+    label.textContent = "Opens on tap";
+    field.appendChild(label);
+    const control = document.createElement("div");
+    control.className = "property-subfield-control";
+    const input = document.createElement("input");
+    input.type = "url";
+    input.className = "property-inline-input property-subfield-input";
+    input.placeholder = "https://\u2026 or app URI (optional)";
+    input.value = currentValue;
+    const commit = function() {
+      const next = input.value.trim();
+      if (next === currentValue) {
+        return;
+      }
+      if (!next) {
+        if (currentValue) {
+          options.onRemoveProperty(clickKey);
+        }
+        return;
+      }
+      options.onSaveExistingProperty(clickKey, next).catch(function(error) {
+        options.onSetNoteStatus("Property save failed: " + error.message);
+      });
+    };
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", function(event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        input.blur();
+      }
+    });
+    control.appendChild(input);
+    appendPropertyOpenLink(control, "url", currentValue);
+    field.appendChild(control);
+    container.appendChild(field);
+  }
+  function annualReminderCompanionKey(dateKey) {
+    return String(dateKey || "").trim() + "_remind";
+  }
+  function appendAnnualReminderToggle(container, row, options) {
+    const remindKey = annualReminderCompanionKey(row.key);
+    const raw = options.pageFrontmatter ? options.pageFrontmatter[remindKey] : void 0;
+    const enabled = raw === true || String(raw === null || typeof raw === "undefined" ? "" : raw).trim().toLowerCase() === "true";
+    const toggle = document.createElement("label");
+    toggle.className = "property-reminder-toggle";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = enabled;
+    checkbox.addEventListener("change", function() {
+      const action = checkbox.checked ? options.onSaveExistingProperty(remindKey, true) : enabled ? Promise.resolve(options.onRemoveProperty(remindKey)) : Promise.resolve();
+      Promise.resolve(action).catch(function(error) {
+        options.onSetNoteStatus("Property save failed: " + error.message);
+      });
+    });
+    const text = document.createElement("span");
+    text.textContent = "Remind me every year";
+    toggle.appendChild(checkbox);
+    toggle.appendChild(text);
+    container.appendChild(toggle);
+  }
   function appendPropertyChip(container, entry, kind, onRemove) {
     const chip = document.createElement("span");
     chip.className = "property-chip";
@@ -24593,6 +24803,10 @@
     const activeKind = row ? inferFrontmatterKind(row.rawValue, row.key, row.kindHint) : options.propertyDraft ? options.propertyDraft.kind : "text";
     const typeOptions = [
       ["text", "Text"],
+      ["number", "Number"],
+      ["email", "Email"],
+      ["phone", "Phone"],
+      ["url", "URL"],
       ["tags", "Tags"],
       ["list", "List"],
       ["bool", "Checkbox"],
@@ -24688,6 +24902,18 @@
     }
     if (kind === "datetime" || kind === "notification") {
       return "datetime-local";
+    }
+    if (kind === "email") {
+      return "email";
+    }
+    if (kind === "url") {
+      return "url";
+    }
+    if (kind === "phone") {
+      return "tel";
+    }
+    if (kind === "number") {
+      return "number";
     }
     return "text";
   }
@@ -24826,6 +25052,7 @@
       }
     });
     value.appendChild(input);
+    appendPropertyOpenLink(value, kind, row.rawValue);
     bindPropertyAutocomplete(input, value, suggestions, {
       onAccept: function(suggestion) {
         input.value = suggestion;
@@ -24834,10 +25061,10 @@
       }
     });
     if (kind === "notification") {
-      const hint = document.createElement("div");
-      hint.className = "property-inline-hint";
-      hint.textContent = notificationTapTargetHint(row.key);
-      value.appendChild(hint);
+      appendNotificationTapTarget(value, row, options);
+    }
+    if (kind === "date") {
+      appendAnnualReminderToggle(value, row, options);
     }
     return value;
   }
@@ -25009,7 +25236,7 @@
       if (draft.kind === "notification") {
         const hint = document.createElement("div");
         hint.className = "property-inline-hint";
-        hint.textContent = notificationTapTargetHint(draft.key);
+        hint.textContent = "Fires a reminder. Set a tap target once the property is saved.";
         value.appendChild(hint);
       }
     }
@@ -25099,10 +25326,30 @@
       return;
     }
     const pageFrontmatter = options.pageFrontmatter;
+    const managedByNotificationParent = function(key) {
+      if (!isNotificationClickKey4(key) || options.editingPropertyKey === key) {
+        return false;
+      }
+      const parentKey = notificationParentKey(key);
+      if (!parentKey || parentKey === key || typeof pageFrontmatter[parentKey] === "undefined") {
+        return false;
+      }
+      return inferFrontmatterKind(pageFrontmatter[parentKey], parentKey, options.propertyKindHints[parentKey]) === "notification";
+    };
+    const managedReminderToggle = function(key) {
+      if (options.editingPropertyKey === key) {
+        return false;
+      }
+      const match = /^(.*)_remind$/.exec(key);
+      if (!match || !match[1] || typeof pageFrontmatter[match[1]] === "undefined") {
+        return false;
+      }
+      return inferFrontmatterKind(pageFrontmatter[match[1]], match[1], options.propertyKindHints[match[1]]) === "date";
+    };
     const rows = [];
     Object.keys(pageFrontmatter).sort().forEach(function(key) {
       const value = pageFrontmatter[key];
-      if (typeof value === "undefined" || isTemplateMetadataKey(key)) {
+      if (typeof value === "undefined" || isTemplateMetadataKey(key) || managedByNotificationParent(key) || managedReminderToggle(key)) {
         return;
       }
       rows.push({
@@ -25516,6 +25763,18 @@
     if (kind === "notification") {
       return "2026-04-27 09:00";
     }
+    if (kind === "email") {
+      return "name@example.com";
+    }
+    if (kind === "phone") {
+      return "+49 170 1234567";
+    }
+    if (kind === "url") {
+      return "https://example.com";
+    }
+    if (kind === "number") {
+      return "42";
+    }
     return "{{title}}";
   }
   function renderTemplateDefaultInput(field, templateID, fieldIndex) {
@@ -25662,6 +25921,10 @@
           kindSelect.setAttribute("data-template-field-input", "kind");
           [
             ["text", "Text"],
+            ["number", "Number"],
+            ["email", "Email"],
+            ["phone", "Phone"],
+            ["url", "URL"],
             ["tags", "Tags"],
             ["list", "List"],
             ["bool", "Checkbox"],
@@ -26067,6 +26330,9 @@
     if (command.id === "query") {
       return Boolean(String(args || "").trim());
     }
+    if (command.id === "document") {
+      return true;
+    }
     return false;
   }
   function slashCommandCatalog() {
@@ -26184,6 +26450,19 @@
         hint: "/query <intent>",
         apply: function(lineText) {
           return replaceSlashToken(lineText, "query", "").replace(/\s+$/, "");
+        },
+        caret: function(updatedLine) {
+          return updatedLine.length;
+        }
+      },
+      {
+        id: "document",
+        title: "Insert document link",
+        description: "Search existing documents and insert a markdown link.",
+        keywords: "doc docs document documents attach attachment asset media file existing",
+        hint: "/doc",
+        apply: function(lineText) {
+          return replaceSlashToken(lineText, "document", "/doc ");
         },
         caret: function(updatedLine) {
           return updatedLine.length;
@@ -32067,6 +32346,95 @@
           treeContextMenuState.target = null;
           closeTreeContextMenu(els.treeContextMenu);
         }
+        function positionFloatingContextMenu(left, top) {
+          const width = els.treeContextMenu.offsetWidth || 220;
+          const height = els.treeContextMenu.offsetHeight || 200;
+          const maxLeft = Math.max(12, window.innerWidth - width - 12);
+          const maxTop = Math.max(12, window.innerHeight - height - 12);
+          els.treeContextMenu.style.left = Math.max(12, Math.min(left, maxLeft)) + "px";
+          els.treeContextMenu.style.top = Math.max(12, Math.min(top, maxTop)) + "px";
+        }
+        function appendFloatingContextMenuItem(label, iconPath, onSelect) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "tree-context-menu-item";
+          button.setAttribute("role", "menuitem");
+          const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          icon.setAttribute("viewBox", "0 0 16 16");
+          icon.setAttribute("aria-hidden", "true");
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", iconPath);
+          path.setAttribute("fill", "currentColor");
+          icon.appendChild(path);
+          button.appendChild(icon);
+          const text = document.createElement("span");
+          text.textContent = label;
+          button.appendChild(text);
+          button.addEventListener("click", function() {
+            closeTreeContextMenu2();
+            onSelect();
+          });
+          els.treeContextMenu.appendChild(button);
+        }
+        function openReferenceLinkContextMenu(detail) {
+          const page = detail.page ? String(detail.page) : "";
+          const documentHref = detail.documentHref ? String(detail.documentHref) : "";
+          const externalHref = detail.externalHref ? String(detail.externalHref) : "";
+          const definitionOffset = Number(detail.definitionOffset);
+          const left = Number(detail.left) || 0;
+          const top = Number(detail.top) || 0;
+          if (!page && !documentHref && !externalHref) {
+            return;
+          }
+          const openIconPath = "M3 2.5h5.7L13 6.8V13a1 1 0 0 1-1 1H3.9a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Zm5 .9v3.2h3.2";
+          const editIconPath = "M11.72 1.72a1.5 1.5 0 0 1 2.12 2.12l-7.3 7.3-3.13.75.75-3.13 7.56-7.04zm-6.42 7.54-.38 1.56 1.56-.38 6.3-6.3-.9-.9-6.58 6.02z";
+          treeContextMenuState.target = null;
+          treeContextMenuState.left = left;
+          treeContextMenuState.top = top;
+          clearNode(els.treeContextMenu);
+          appendFloatingContextMenuItem("Open", openIconPath, function() {
+            if (page) {
+              openOrCreatePageLinkTarget(page, false);
+              return;
+            }
+            if (documentHref) {
+              window.location.href = documentHref;
+              return;
+            }
+            if (externalHref) {
+              try {
+                window.open(externalHref, "_blank", "noopener");
+              } catch (_error) {
+              }
+            }
+          });
+          if (Number.isFinite(definitionOffset) && definitionOffset >= 0) {
+            appendFloatingContextMenuItem("Edit link", editIconPath, function() {
+              const jumpToDefinition = function() {
+                if (state.markdownEditorApi && typeof state.markdownEditorApi.jumpToOffset === "function") {
+                  state.markdownEditorApi.jumpToOffset(definitionOffset);
+                  return;
+                }
+                focusMarkdownEditor(state, els, { preventScroll: true });
+                setMarkdownEditorSelection(state, els, definitionOffset, definitionOffset, true);
+              };
+              if (state.viewOnly) {
+                setViewOnly(false);
+                window.setTimeout(jumpToDefinition, 0);
+                return;
+              }
+              jumpToDefinition();
+            });
+          }
+          els.treeContextMenu.classList.remove("hidden");
+          window.requestAnimationFrame(function() {
+            positionFloatingContextMenu(left, top);
+            const firstItem = els.treeContextMenu.querySelector(".tree-context-menu-item");
+            if (firstItem) {
+              firstItem.focus({ preventScroll: true });
+            }
+          });
+        }
         function openPageHistoryFor(pagePath) {
           if (!pagePath) {
             return;
@@ -35704,6 +36072,10 @@
               copyCodeBlock(detail.code ? String(detail.code) : "").catch(function(error) {
                 setNoteStatus("Copy failed: " + errorMessage(error));
               });
+            });
+            on(markdownEditorApi.host, "noterious:reference-link-contextmenu", function(event) {
+              const detail = event.detail || {};
+              openReferenceLinkContextMenu(detail);
             });
             on(markdownEditorApi.host, "noterious:task-toggle", function(event) {
               if (!studioPageEditable()) {

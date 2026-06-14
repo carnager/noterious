@@ -39753,10 +39753,10 @@
     return spans;
   }
   function renderDocumentAnchor(href, labelHTML) {
-    return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
+    return '<a class="markdown-document-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener noreferrer">' + labelHTML + "</a>";
   }
   function renderImageAnchor(href, src, alt) {
-    return '<a class="markdown-inline-image-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener"><img class="markdown-inline-image" src="' + escapeHTML(src) + '" alt="' + escapeHTML(alt) + '"></a>';
+    return '<a class="markdown-inline-image-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener noreferrer"><img class="markdown-inline-image" src="' + escapeHTML(src) + '" alt="' + escapeHTML(alt) + '"></a>';
   }
   function embeddedWikiLabel(target, label) {
     const explicit = String(label || "").trim();
@@ -39777,7 +39777,7 @@
     return trimmedLabel === documentPathLeaf(target);
   }
   function renderExternalAnchor(href, labelHTML) {
-    return '<a href="' + escapeHTML(href) + '" target="_blank" rel="noopener">' + labelHTML + "</a>";
+    return '<a class="markdown-external-link" href="' + escapeHTML(href) + '" target="_blank" rel="noopener noreferrer">' + labelHTML + "</a>";
   }
   function renderWikiButton(target, labelHTML) {
     return '<button type="button" class="wiki-link" data-page-link="' + escapeHTML(target) + '">' + labelHTML + "</button>";
@@ -40387,7 +40387,7 @@
           link.className = "cm-md-image-link";
           link.href = this.href;
           link.target = "_blank";
-          link.rel = "noopener";
+          link.rel = "noopener noreferrer";
           const image = document.createElement("img");
           image.className = "cm-md-image";
           image.src = this.src;
@@ -40414,7 +40414,7 @@
           link.className = "cm-md-link";
           link.href = this.href;
           link.target = "_blank";
-          link.rel = "noopener";
+          link.rel = "noopener noreferrer";
           link.textContent = this.label;
           return link;
         }
@@ -40695,6 +40695,60 @@
         }
         ignoreEvent() {
           return true;
+        }
+      };
+      var ReferenceDefinitionsWidget = class extends WidgetType {
+        constructor(definitions) {
+          super();
+          this.definitions = definitions.slice();
+        }
+        eq(other) {
+          return JSON.stringify(other.definitions) === JSON.stringify(this.definitions);
+        }
+        toDOM() {
+          const wrapper = document.createElement("div");
+          wrapper.className = "cm-md-reference-definitions";
+          const details = document.createElement("details");
+          details.className = "cm-md-reference-definitions-details";
+          const summary = document.createElement("summary");
+          summary.className = "cm-md-reference-definitions-summary";
+          summary.textContent = "References (" + String(this.definitions.length) + ")";
+          details.appendChild(summary);
+          const list = document.createElement("div");
+          list.className = "cm-md-reference-definitions-list";
+          this.definitions.forEach(function(definition) {
+            const item = document.createElement("div");
+            item.className = "cm-md-reference-definition-item";
+            const jump = document.createElement("button");
+            jump.type = "button";
+            jump.className = "cm-md-reference-definition-jump";
+            jump.setAttribute("data-reference-jump", String(definition.from));
+            jump.setAttribute("title", "Jump to reference definition");
+            jump.textContent = "[" + String(definition.label || "") + "]";
+            item.appendChild(jump);
+            if (definition.target) {
+              const target = document.createElement("a");
+              target.className = "cm-md-reference-definition-target markdown-external-link";
+              target.href = definition.target;
+              target.target = "_blank";
+              target.rel = "noopener noreferrer";
+              target.textContent = definition.target;
+              item.appendChild(target);
+            }
+            if (definition.title) {
+              const title = document.createElement("span");
+              title.className = "cm-md-reference-definition-title";
+              title.textContent = '"' + definition.title + '"';
+              item.appendChild(title);
+            }
+            list.appendChild(item);
+          });
+          details.appendChild(list);
+          wrapper.appendChild(details);
+          return wrapper;
+        }
+        ignoreEvent() {
+          return false;
         }
       };
       var queryBlocksField = StateField.define({
@@ -41336,7 +41390,7 @@
         addInlineDecoration(decos, labelFrom, labelTo, className, attributes);
         return true;
       }
-      function addInlineDocumentLinkDecoration(decos, linkFrom, labelFrom, labelTo, linkTo, href) {
+      function addInlineDocumentLinkDecoration(decos, linkFrom, labelFrom, labelTo, linkTo, href, extraAttributes) {
         return addInlineLinkLabelDecoration(
           decos,
           linkFrom,
@@ -41345,11 +41399,12 @@
           linkTo,
           "cm-md-link",
           {
-            "data-document-download": href
+            "data-document-download": href,
+            ...extraAttributes || {}
           }
         );
       }
-      function addInlinePageLinkDecoration(decos, linkFrom, labelFrom, labelTo, linkTo, target) {
+      function addInlineExternalLinkDecoration(decos, linkFrom, labelFrom, labelTo, linkTo, href, extraAttributes) {
         return addInlineLinkLabelDecoration(
           decos,
           linkFrom,
@@ -41358,9 +41413,36 @@
           linkTo,
           "cm-md-link",
           {
-            "data-page-link": target
+            "data-external-link": href,
+            ...extraAttributes || {}
           }
         );
+      }
+      function addInlinePageLinkDecoration(decos, linkFrom, labelFrom, labelTo, linkTo, target, extraAttributes) {
+        return addInlineLinkLabelDecoration(
+          decos,
+          linkFrom,
+          labelFrom,
+          labelTo,
+          linkTo,
+          "cm-md-link",
+          {
+            "data-page-link": target,
+            ...extraAttributes || {}
+          }
+        );
+      }
+      function referenceDefinitionDecorationAttributes(referenceDefinitions, referenceLabel) {
+        if (!referenceDefinitions || !referenceLabel) {
+          return void 0;
+        }
+        const definition = referenceDefinitions.get(normalizeMarkdownLinkLabel(referenceLabel));
+        if (!definition || definition.from < 0) {
+          return void 0;
+        }
+        return {
+          "data-reference-definition-offset": String(definition.from)
+        };
       }
       function specialSpanLabelRange(span) {
         if (span.kind === "wiki_link" || span.kind === "wiki_image") {
@@ -41448,12 +41530,23 @@
                   atomic: true
                 });
               } else {
-                decos.push({
-                  from: spanFrom,
-                  to: spanTo,
-                  deco: Decoration.replace({ widget: new ExternalLinkWidget(target, label || target) }),
-                  atomic: true
-                });
+                if (editing) {
+                  decos.push({
+                    from: spanFrom,
+                    to: spanTo,
+                    deco: Decoration.mark({ class: "cm-md-link-raw" })
+                  });
+                  blockedRanges.push({ from: spanFrom, to: spanTo });
+                  continue;
+                }
+                if (!labelRange || !addInlineExternalLinkDecoration(decos, spanFrom, labelFrom, labelTo, spanTo, target)) {
+                  decos.push({
+                    from: spanFrom,
+                    to: spanTo,
+                    deco: Decoration.replace({ widget: new ExternalLinkWidget(target, label || target) }),
+                    atomic: true
+                  });
+                }
               }
               blockedRanges.push({ from: spanFrom, to: spanTo });
               continue;
@@ -41681,6 +41774,7 @@
             const label = visibleTextFromChildren(node, body, info.labelFrom, info.labelTo).trim() || pageTitleFromPath(target);
             const labelFrom = bodyFrom + info.labelFrom;
             const labelTo = bodyFrom + info.labelTo;
+            const referenceAttributes = referenceDefinitionDecorationAttributes(referenceDefinitions, info.referenceLabel);
             const editing = selectionEditsInlineLink(selection, nodeFrom, labelFrom, labelTo, nodeTo);
             if (editing) {
               decos.push({
@@ -41700,12 +41794,14 @@
                   atomic: true
                 });
               } else {
-                decos.push({
-                  from: nodeFrom,
-                  to: nodeTo,
-                  deco: Decoration.replace({ widget: new ExternalLinkWidget(target, label || target) }),
-                  atomic: true
-                });
+                if (!addInlineExternalLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, target, referenceAttributes)) {
+                  decos.push({
+                    from: nodeFrom,
+                    to: nodeTo,
+                    deco: Decoration.replace({ widget: new ExternalLinkWidget(target, label || target) }),
+                    atomic: true
+                  });
+                }
               }
               blockedRanges.push({ from: nodeFrom, to: nodeTo });
               return;
@@ -41720,7 +41816,7 @@
                   deco: Decoration.replace({ widget: new MarkdownImageWidget(imageHref, imageHref, label || documentPathLeaf(resolvedPath) || "image") }),
                   atomic: true
                 });
-              } else if (!addInlineDocumentLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, documentDownloadURL(resolvedPath))) {
+              } else if (!addInlineDocumentLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, documentDownloadURL(resolvedPath), referenceAttributes)) {
                 decos.push({
                   from: nodeFrom,
                   to: nodeTo,
@@ -41731,7 +41827,7 @@
               blockedRanges.push({ from: nodeFrom, to: nodeTo });
               return;
             }
-            if (!addInlinePageLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, target)) {
+            if (!addInlinePageLinkDecoration(decos, nodeFrom, labelFrom, labelTo, nodeTo, target, referenceAttributes)) {
               decos.push({
                 from: nodeFrom,
                 to: nodeTo,
@@ -41958,13 +42054,22 @@
         const lines = markdown2.split("\n");
         const abbreviationDefinitions = markdownAbbreviationDefinitions(markdown2);
         const referenceDefinitions = markdownReferenceDefinitions(markdown2);
-        const hiddenReferenceDefinitionLines = /* @__PURE__ */ new Set();
+        const referenceDefinitionStarts = /* @__PURE__ */ new Map();
+        const referenceDefinitionEntries = [];
         referenceDefinitions.forEach(function(definition) {
           const fromLine = state.doc.lineAt(definition.from).number;
           const toLine = state.doc.lineAt(Math.max(definition.from, definition.to - 1)).number;
-          for (let lineNumber = fromLine; lineNumber <= toLine; lineNumber += 1) {
-            hiddenReferenceDefinitionLines.add(lineNumber);
-          }
+          const entry = {
+            definition,
+            endLineNumber: toLine
+          };
+          referenceDefinitionStarts.set(fromLine, entry);
+          referenceDefinitionEntries.push(entry);
+        });
+        const editingReferenceDefinitions = referenceDefinitionEntries.some(function(entry) {
+          const startLine = state.doc.lineAt(entry.definition.from);
+          const endLine = state.doc.line(entry.endLineNumber);
+          return selection.from <= endLine.to && selection.to >= startLine.from;
         });
         let hiddenFrontmatterUntil = 0;
         const frontmatter = splitFrontmatter(markdown2).frontmatter;
@@ -41987,9 +42092,13 @@
           const text = line.text;
           const from = line.from;
           const editingLine = selection.from <= line.to && selection.to >= line.from;
-          if (hiddenReferenceDefinitionLines.has(lineNumber) && !editingLine) {
-            builder.add(line.from, line.to, Decoration.replace({}));
-            addAtomicRange(atomicBuilder, line.from, line.to);
+          const referenceDefinitionEntry = referenceDefinitionStarts.get(lineNumber);
+          if (referenceDefinitionEntry && !editingReferenceDefinitions) {
+            const endLine = state.doc.line(referenceDefinitionEntry.endLineNumber);
+            const hiddenTo = referenceDefinitionEntry.endLineNumber < state.doc.lines ? endLine.to + 1 : endLine.to;
+            builder.add(line.from, hiddenTo, Decoration.replace({ block: true }));
+            addAtomicRange(atomicBuilder, line.from, hiddenTo);
+            lineNumber = referenceDefinitionEntry.endLineNumber;
             continue;
           }
           const tableBlock = markdownTableBlockAt(lines, lineNumber - 1, {
@@ -42326,6 +42435,19 @@
             builder.add(line.to, line.to, Decoration.widget({ widget: taskMetaWidget, side: 1 }));
           }
         }
+        if (referenceDefinitionEntries.length && !editingReferenceDefinitions) {
+          builder.add(
+            state.doc.length,
+            state.doc.length,
+            Decoration.widget({
+              block: true,
+              side: 1,
+              widget: new ReferenceDefinitionsWidget(referenceDefinitionEntries.map(function(entry) {
+                return entry.definition;
+              }))
+            })
+          );
+        }
         return {
           decorations: builder.finish(),
           atomicRanges: atomicBuilder.finish()
@@ -42464,8 +42586,29 @@
               clearSearchHitHighlight(view2);
               const viewOnly = view2.state.field(viewOnlyField, false);
               const target = event.target instanceof Element ? event.target : null;
+              const referenceJump = target ? target.closest("[data-reference-jump]") : null;
+              if (referenceJump) {
+                if (event.button !== 0) {
+                  return false;
+                }
+                event.preventDefault();
+                const offset = Number(referenceJump.getAttribute("data-reference-jump") || "-1");
+                if (offset >= 0 && offset <= view2.state.doc.length) {
+                  focusEditorView(view2, host, { preventScroll: true });
+                  view2.dispatch({
+                    selection: {
+                      anchor: offset
+                    },
+                    scrollIntoView: true
+                  });
+                }
+                return true;
+              }
               const pageLink = target ? target.closest("[data-page-link]") : null;
               if (pageLink) {
+                if (event.button !== 0) {
+                  return false;
+                }
                 event.preventDefault();
                 host.dispatchEvent(new CustomEvent("noterious:page-link", {
                   detail: {
@@ -42479,6 +42622,9 @@
               }
               const documentLink = target ? target.closest("[data-document-download]") : null;
               if (documentLink) {
+                if (event.button !== 0) {
+                  return false;
+                }
                 event.preventDefault();
                 host.dispatchEvent(new CustomEvent("noterious:document-download", {
                   detail: {
@@ -42487,6 +42633,23 @@
                   bubbles: true
                 }));
                 return true;
+              }
+              const externalLink = target ? target.closest("[data-external-link], a[href]") : null;
+              if (externalLink && !externalLink.closest("[data-page-link]") && !externalLink.closest("[data-document-download]")) {
+                const href = externalLink.getAttribute("data-external-link") || externalLink.getAttribute("href") || "";
+                if (externalLink.hasAttribute("data-external-link") || /^https?:\/\//i.test(href)) {
+                  if (event.button !== 0) {
+                    return false;
+                  }
+                  event.preventDefault();
+                  if (href) {
+                    try {
+                      window.open(href, "_blank", "noopener,noreferrer");
+                    } catch (_error) {
+                    }
+                  }
+                  return true;
+                }
               }
               const queryEdit = target ? target.closest("[data-query-edit]") : null;
               if (queryEdit) {
@@ -42587,6 +42750,26 @@
                 return true;
               }
               return false;
+            },
+            contextmenu(event) {
+              const target = event.target instanceof Element ? event.target : null;
+              const referenceLink = target ? target.closest("[data-reference-definition-offset][data-page-link], [data-reference-definition-offset][data-document-download], [data-reference-definition-offset][data-external-link]") : null;
+              if (!referenceLink) {
+                return false;
+              }
+              event.preventDefault();
+              host.dispatchEvent(new CustomEvent("noterious:reference-link-contextmenu", {
+                detail: {
+                  page: referenceLink.getAttribute("data-page-link") || "",
+                  documentHref: referenceLink.getAttribute("data-document-download") || "",
+                  externalHref: referenceLink.getAttribute("data-external-link") || "",
+                  definitionOffset: referenceLink.getAttribute("data-reference-definition-offset") || "",
+                  left: event.clientX,
+                  top: event.clientY
+                },
+                bubbles: true
+              }));
+              return true;
             },
             keydown(event, view2) {
               const viewOnly = view2.state.field(viewOnlyField, false);
@@ -42865,6 +43048,18 @@
               view.dispatch({
                 selection: clampedSelection,
                 scrollIntoView: Boolean(reveal)
+              });
+            },
+            jumpToOffset(offset) {
+              const max = view.state.doc.length;
+              const protectedUntil = renderedBodyStartOffset(view.state);
+              const nextOffset = Math.max(protectedUntil, Math.min(Number(offset) || 0, max));
+              let clampedSelection = clampSelectionToOffset(EditorSelection.single(nextOffset), protectedUntil);
+              clampedSelection = clampSelectionToRenderedVisibleOffsets(view.state, clampedSelection);
+              focusEditorView(view, host, { preventScroll: true });
+              view.dispatch({
+                selection: clampedSelection,
+                scrollIntoView: true
               });
             },
             getScrollTop() {

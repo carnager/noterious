@@ -60,6 +60,7 @@ Slash command shortcuts:
 ### Files and images
 
 - Drag and drop files onto a note to upload them.
+- Use `/doc` to search existing documents and insert a link.
 - Use `/file` to open the native file picker.
 - Images are embedded automatically; other files are inserted as links.
 
@@ -97,6 +98,7 @@ Available built-ins include:
 
 - `/table`
 - `/table 3 4`
+- `/doc meeting-notes`
 - `/file`
 - `/due`
 - `/remind`

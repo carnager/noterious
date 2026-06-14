@@ -726,12 +726,138 @@ describe("mounted editor UI", function () {
       setCursor(editor.view, 4, 0);
 
       const firstLine = renderedLineElement(editor.view, 1);
-      expect(firstLine?.querySelector("a.cm-md-link")?.getAttribute("href")).toBe("https://example.com/reference");
+      const referenceSection = editor.view.contentDOM.querySelector(".cm-md-reference-definitions-details") as HTMLDetailsElement | null;
+      const referenceJump = editor.view.contentDOM.querySelector("[data-reference-jump]") as HTMLElement | null;
+      const visibleLines = Array.from(editor.view.contentDOM.querySelectorAll(".cm-line")).map(function (line) {
+        return line.textContent || "";
+      });
+      expect(firstLine?.querySelector("[data-external-link]")?.getAttribute("data-external-link")).toBe("https://example.com/reference");
       expect(firstLine?.innerHTML || "").toContain("cm-md-html-sub");
       expect(firstLine?.innerHTML || "").toContain("cm-md-html-kbd");
       expect(firstLine?.innerHTML || "").toContain("cm-md-math-inline");
       expect(firstLine?.textContent || "").not.toContain("<sub>");
-      expect(renderedLineElement(editor.view, 3)?.textContent || "").toBe("");
+      expect(visibleLines.some(function (text) {
+        return text.indexOf("[ref-link]: https://example.com/reference") >= 0;
+      })).toBe(false);
+      expect(referenceSection).toBeTruthy();
+      expect(referenceSection?.open).toBe(false);
+      expect(referenceSection?.textContent || "").toContain("[ref-link]");
+      expect(referenceJump).toBeTruthy();
+
+      referenceJump?.dispatchEvent(new window.MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+      }));
+
+      expect(lineColumn(editor.view)).toEqual({
+        lineNumber: 3,
+        column: 0,
+      });
+      expect(renderedLineElement(editor.view, 3)?.textContent || "").toContain("[ref-link]: https://example.com/reference");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("reveals raw reference-style links as soon as the cursor enters them", function () {
+    const markdown = "Use [this one][ref-link] today\n\n[ref-link]: https://example.com/reference";
+    const editor = mountEditor(markdown);
+
+    try {
+      editor.api.setRenderMode(true);
+
+      const line = editor.view.state.doc.line(1);
+      const linkStart = line.text.indexOf("[");
+      const linkEnd = line.text.indexOf("]") + "[ref-link]".length + 1;
+      const labelEnd = line.text.indexOf("]");
+
+      expect(renderedLineElement(editor.view, 1)?.querySelector("[data-external-link]")).toBeTruthy();
+
+      setCursor(editor.view, 1, linkStart);
+      expect(pressKey(editor.view, "ArrowRight")).toBe(true);
+      expect(lineColumn(editor.view)).toEqual({
+        lineNumber: 1,
+        column: linkStart + 1,
+      });
+      expect(renderedLineElement(editor.view, 1)?.textContent || "").toContain("[this one][ref-link]");
+      expect(renderedLineElement(editor.view, 1)?.querySelector("[data-external-link]")).toBeNull();
+
+      editor.api.setRenderMode(true);
+      setCursor(editor.view, 1, linkEnd);
+      expect(pressKey(editor.view, "ArrowLeft")).toBe(true);
+      expect(lineColumn(editor.view)).toEqual({
+        lineNumber: 1,
+        column: labelEnd,
+      });
+      expect(renderedLineElement(editor.view, 1)?.textContent || "").toContain("[this one][ref-link]");
+      expect(renderedLineElement(editor.view, 1)?.querySelector("[data-external-link]")).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("dispatches a context menu event for rendered reference-style links", function () {
+    const markdown = "Use [this one][ref-link] today\n\n[ref-link]: https://example.com/reference";
+    const editor = mountEditor(markdown);
+    const openSpy = vi.spyOn(window, "open").mockImplementation(function () {
+      return null as Window | null;
+    });
+
+    try {
+      editor.api.setRenderMode(true);
+
+      let detail: Record<string, unknown> | null = null;
+      editor.api.host.addEventListener("noterious:reference-link-contextmenu", function (event) {
+        detail = {...((event as CustomEvent<Record<string, unknown>>).detail || {})};
+      });
+
+      const link = renderedLineElement(editor.view, 1)?.querySelector("[data-external-link][data-reference-definition-offset]") as HTMLElement | null;
+      expect(link).toBeTruthy();
+
+      link?.dispatchEvent(new window.MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+      }));
+      expect(openSpy).not.toHaveBeenCalled();
+
+      link?.dispatchEvent(new window.MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+        clientX: 84,
+        clientY: 112,
+      }));
+
+      expect(detail).toEqual({
+        page: "",
+        documentHref: "",
+        externalHref: "https://example.com/reference",
+        definitionOffset: String(markdown.indexOf("[ref-link]:")),
+        left: 84,
+        top: 112,
+      });
+    } finally {
+      openSpy.mockRestore();
+      editor.destroy();
+    }
+  });
+
+  it("jumps to reference definitions through the editor API", function () {
+    const markdown = "Use [this one][ref-link] today\n\n[ref-link]: https://example.com/reference";
+    const editor = mountEditor(markdown);
+
+    try {
+      editor.api.setRenderMode(true);
+      setCursor(editor.view, 1, 0);
+
+      editor.api.jumpToOffset(markdown.indexOf("[ref-link]:"));
+
+      expect(lineColumn(editor.view)).toEqual({
+        lineNumber: 3,
+        column: 0,
+      });
+      expect(renderedLineElement(editor.view, 3)?.textContent || "").toContain("[ref-link]: https://example.com/reference");
     } finally {
       editor.destroy();
     }
