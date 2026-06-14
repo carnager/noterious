@@ -22,7 +22,7 @@ export interface TaskSavePayload {
   text: string;
   state: string;
   due: string;
-  remind: string;
+  remind: string[];
   who: string[];
 }
 
@@ -33,7 +33,7 @@ export async function toggleTaskDone(task: TaskRecord): Promise<void> {
     body: JSON.stringify({
       state: task.done ? "todo" : "done",
       due: task.due || "",
-      remind: task.remind || "",
+      remind: Array.isArray(task.remind) ? task.remind.slice() : [],
       who: task.who || [],
     }),
   });
@@ -126,7 +126,12 @@ export function buildTaskSavePayload(
     text: taskText.trim(),
     state: taskState,
     due: parseDateValue(taskDue),
-    remind: parseTimeValue(taskRemind),
+    remind: taskRemind
+      .split(",")
+      .map(function (part) {
+        return parseTimeValue(part.trim());
+      })
+      .filter(Boolean),
     who: taskWho
       .split(",")
       .map(function (part) {

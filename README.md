@@ -144,8 +144,21 @@ For the full flow, including quick-switcher creation, placeholders, guided fill,
 
 Noterious supports reminders in two places:
 
-- task reminders via `[remind: YYYY-MM-DD HH:MM]`
+- task reminders via `[remind: YYYY-MM-DD HH:MM]`, a bare `[remind: HH:MM]` (anchored to the task's `due` date), or a relative offset (see below)
 - note frontmatter fields such as `notification`, `notify`, `remind`, `reminder`, or `*_notification`
+
+A task `remind` value may also be written as an offset relative to the `due` date, so the reminder moves automatically when the due date changes:
+
+- `-1d` — one day before the due date, at 09:00
+- `-1d@08:30` — one day before, at 08:30
+- `-1w` — one week before, at 09:00
+- `-2h` — two hours before the due instant (date-only due dates count from midnight, so this fires at 22:00 the previous day)
+
+Units are `m`, `h`, `d`, `w`. The optional `@HH:MM` time-of-day applies to day/week offsets only. Relative reminders require a `due` date; without one they are ignored.
+
+A task can carry **multiple reminders** — write them as a comma-separated list, e.g. `[remind: -1w, -1d@08:30, 09:00]`. Each one fires independently.
+
+In the rendered editor every task shows a 📅 schedule chip (the due date, or "Schedule" if unset) and a 🔔 chip per reminder. Clicking any of them opens a single **Schedule** dialog where you set the due date on a calendar and add/remove reminders together — each reminder is composed from an offset (on due date / N days before / 1–2 weeks before) and a time, so "1 day before at 08:30" becomes `-1d@08:30`. The dialog stays open while you make changes and closes with **Done**.
 
 For note frontmatter, `notification` is the dedicated datetime-like field kind in the UI. Optional sibling `*_click` fields are forwarded to ntfy as tap targets, so a notification can open a URL or app-specific URI when clicked. Task reminders can also carry an optional `[click: ...]` target. When no explicit click target is set, ntfy reminders default to `noterious://open?page=...`, which opens the matching page in the Noterious Android app.
 

@@ -12,7 +12,7 @@ import {go} from "@codemirror/lang-go";
 import {yaml} from "@codemirror/lang-yaml";
 import {sql} from "@codemirror/lang-sql";
 import {tags} from "@lezer/highlight";
-import { formatDateTimeValue, formatDateValue, normalizeDateTimeDisplayFormat, setDateTimeDisplayFormat } from "./datetime";
+import { formatDateTimeValue, formatDateValue, formatReminderLabel, normalizeDateTimeDisplayFormat, setDateTimeDisplayFormat } from "./datetime";
 import { pageTitleFromPath } from "./commands";
 import { documentDownloadURL, documentPathLeaf, inlineDocumentURL, isImagePath, resolveDocumentPath } from "./documents";
 import { escapeHTML, markdownCodeFenceBlockAt, markdownTableBlockAt, renderInline, renderedBodyBoundaryStart, splitFrontmatter } from "./markdown";
@@ -45,7 +45,7 @@ interface EditorTaskState {
   text: string;
   done: boolean;
   due: string;
-  remind: string;
+  remind: string[];
   who: string[];
 }
 
@@ -476,19 +476,59 @@ class TaskCheckboxWidget extends WidgetType {
 
 class TaskMetaWidget extends WidgetType {
   task: EditorTaskState;
+  editing: boolean;
 
-  constructor(task: EditorTaskState) {
+  constructor(task: EditorTaskState, editing: boolean) {
     super();
     this.task = task;
+    this.editing = editing;
   }
 
   eq(other: TaskMetaWidget): boolean {
-    return JSON.stringify(other.task) === JSON.stringify(this.task);
+    return other.editing === this.editing && JSON.stringify(other.task) === JSON.stringify(this.task);
   }
 
   toDOM(): HTMLSpanElement {
     const meta = document.createElement("span");
     meta.className = "cm-md-task-meta";
+    const ref = this.task.ref || "";
+    const due = this.task.due ? String(this.task.due) : "";
+    const reminders = Array.isArray(this.task.remind) ? this.task.remind : [];
+
+    const makeScheduleEl = (className: string, label: string, title: string): HTMLSpanElement => {
+      const el = document.createElement("span");
+      el.className = className;
+      el.setAttribute("data-task-date-edit", "schedule");
+      el.setAttribute("data-task-ref", ref);
+      el.setAttribute("role", "button");
+      el.title = title;
+      el.textContent = label;
+      return el;
+    };
+
+    if (this.editing) {
+      // The raw "[due: …]"/"[remind: …]" source is shown while editing; only
+      // offer the schedule entry when there is nothing to click yet.
+      if (!due) {
+        meta.appendChild(makeScheduleEl("cm-md-task-remind-add", "\u{1F4C5} Schedule", "Set due date & reminders"));
+      }
+    } else {
+      meta.appendChild(makeScheduleEl(
+        "token cm-md-task-due-chip",
+        due ? "\u{1F4C5} " + formatDateValue(due) : "\u{1F4C5} Schedule",
+        due ? "Edit schedule" : "Set due date & reminders",
+      ));
+      reminders.forEach((remind) => {
+        const text = String(remind || "").trim();
+        if (!text) {
+          return;
+        }
+        meta.appendChild(makeScheduleEl("token cm-md-task-remind-chip", "\u{1F514} " + formatReminderLabel(text), "Edit reminders"));
+      });
+      if (due) {
+        meta.appendChild(makeScheduleEl("cm-md-task-remind-add", "\u{1F514}+", reminders.length ? "Add another reminder" : "Add reminder"));
+      }
+    }
 
     if (this.task.who && this.task.who.length) {
       const pill = document.createElement("span");
@@ -2678,7 +2718,7 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
         text: text.replace(/^(\s*)-\s+\[[ xX]\]\s+/, ""),
         done: /[xX]/.test(match[2] || ""),
         due: "",
-        remind: "",
+        remind: [],
         who: [],
       };
       const indentLength = String(match[1] || "").length;
@@ -2692,26 +2732,37 @@ function buildRenderedDecorations(state: EditorState): RenderedDecorationSets {
       if (!viewOnly) {
         let dateMatch: RegExpExecArray | null = null;
         while ((dateMatch = taskInlineDatePattern.exec(bodyText)) !== null) {
-          const field = String(dateMatch[1] || "");
           const start = from + prefixLength + dateMatch.index;
           const end = start + dateMatch[0].length;
-          inlineExtraDecos.push({
-            from: start,
-            to: end,
-            deco: Decoration.mark({
-              class: "cm-md-task-inline-date",
-              attributes: {
-                "data-task-date-edit": field,
-                "data-task-ref": task.ref || "",
-              },
-            }),
-          });
+          if (!editingLine) {
+            // Due dates and reminders are surfaced as chips in the meta widget
+            // below, so hide the raw "[due: …]" / "[remind: …]" fields in render
+            // mode to avoid showing each value twice.
+            inlineExtraDecos.push({ from: start, to: end, deco: Decoration.replace({}) });
+            addAtomicRange(atomicBuilder, start, end);
+          } else {
+            // While editing the line the raw source is shown; clicking it opens
+            // the unified schedule dialog.
+            inlineExtraDecos.push({
+              from: start,
+              to: end,
+              deco: Decoration.mark({
+                class: "cm-md-task-inline-date",
+                attributes: {
+                  "data-task-date-edit": "schedule",
+                  "data-task-ref": task.ref || "",
+                },
+              }),
+            });
+          }
         }
       }
       taskInlineDatePattern.lastIndex = 0;
 
-      if (task.text && bodyText.startsWith(task.text) && task.who && task.who.length) {
-        taskMetaWidget = new TaskMetaWidget(task);
+      // Always attach the meta widget so the schedule affordance is available
+      // on every task, even one with no due date or reminders yet.
+      if (bodyText.startsWith(task.text)) {
+        taskMetaWidget = new TaskMetaWidget(task, editingLine);
       }
     }
 
@@ -3620,7 +3671,7 @@ window.NoteriousCodeEditor = {
               text: String(task.text || ""),
               done: Boolean(task.done),
               due: String(task.due || ""),
-              remind: String(task.remind || ""),
+              remind: Array.isArray(task.remind) ? task.remind.map(String) : [],
               who: Array.isArray(task.who) ? task.who.slice() : [],
             });
           }

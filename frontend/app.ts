@@ -82,6 +82,7 @@ import {
   setMarkdownEditorSelection,
   setMarkdownEditorValue,
 } from "./editorState";
+import { setupFormatToolbar } from "./formatToolbar";
 import { currentClientInstanceId, fetchJSON, fetchJSONUnscoped, HTTPError, requireOK, scopedEventSourceURL, scopedRequestInit, setActiveScopePrefix } from "./http";
 import {
   applyInlineTableEditor as applyInlineTableEditorUI,
@@ -956,7 +957,7 @@ interface ActionDialogSession {
     setTaskDateApplySuppressedUI(state.markdownEditorApi, active);
   }
 
-  async function saveTaskDateField(task: TaskRecord, field: "due" | "remind", value: string): Promise<void> {
+  async function applyTaskSave(task: TaskRecord, fields: { due?: string; remind?: string[] }): Promise<void> {
     setTaskDateApplySuppressed(true);
     const selectedPagePath = state.selectedPage;
     const viewport = captureCurrentEditorViewport();
@@ -964,16 +965,38 @@ interface ActionDialogSession {
     await saveTask(task.ref, {
       text: task.text || "",
       state: task.done ? "done" : "todo",
-      due: field === "due" ? value : (task.due || ""),
-      remind: field === "remind" ? value : (task.remind || ""),
+      due: fields.due !== undefined ? fields.due : (task.due || ""),
+      remind: fields.remind !== undefined ? fields.remind : (Array.isArray(task.remind) ? task.remind.slice() : []),
       who: Array.isArray(task.who) ? task.who.slice() : [],
     });
-    closeTaskPickers();
+    // The schedule popover edits due + reminders together, so keep it open and
+    // refresh it with the saved task instead of closing after each change.
+    const keepPickerOpen = taskPickerState.mode !== "";
+    if (!keepPickerOpen) {
+      closeTaskPickers();
+    }
     await reloadTasksAndRestoreCurrentEditorViewport(selectedPagePath, viewport);
+    if (keepPickerOpen && taskPickerState.mode !== "") {
+      renderTaskPicker();
+    }
     window.requestAnimationFrame(function () {
       window.requestAnimationFrame(function () {
         setTaskDateApplySuppressed(false);
       });
+    });
+  }
+
+  async function saveTaskDateField(task: TaskRecord, field: "due" | "remind", value: string): Promise<void> {
+    if (field === "remind") {
+      await applyTaskSave(task, { remind: value.trim() ? [value.trim()] : [] });
+      return;
+    }
+    await applyTaskSave(task, { due: value });
+  }
+
+  async function saveTaskReminders(task: TaskRecord, reminders: string[]): Promise<void> {
+    await applyTaskSave(task, {
+      remind: reminders.map(function (item) { return String(item || "").trim(); }).filter(Boolean),
     });
   }
 
@@ -1051,13 +1074,14 @@ interface ActionDialogSession {
     renderTaskPickerUI(taskPickerState, els, {
       currentPickerTask: currentPickerTask,
       saveTaskDateField: saveTaskDateField,
+      saveTaskReminders: saveTaskReminders,
       closeTaskPickers: closeTaskPickers,
       setNoteStatus: setNoteStatus,
       errorMessage: errorMessage,
     });
   }
 
-  function openInlineTaskPicker(ref: string, mode: "due" | "remind", left: number, top: number, anchorTop?: number, anchorBottom?: number): void {
+  function openInlineTaskPicker(ref: string, mode: "due" | "remind" | "schedule", left: number, top: number, anchorTop?: number, anchorBottom?: number): void {
     openInlineTaskPickerUI(taskPickerState, {
       ref: ref,
       mode: mode,
@@ -4295,7 +4319,7 @@ interface ActionDialogSession {
     }) || null;
   }
 
-  function openInsertedTaskPicker(lineNumber: number, mode: "due" | "remind"): void {
+  function openInsertedTaskPicker(lineNumber: number, _mode: "due" | "remind"): void {
     const task = findCurrentTaskByLine(lineNumber);
     if (!task || !task.ref) {
       return;
@@ -4306,7 +4330,7 @@ interface ActionDialogSession {
       const top = caretRect ? (caretRect.bottom + 10) : 0;
       const anchorTop = caretRect ? caretRect.top : 0;
       const anchorBottom = caretRect ? caretRect.bottom : 0;
-      openInlineTaskPicker(task.ref, mode, left, top, anchorTop, anchorBottom);
+      openInlineTaskPicker(task.ref, "schedule", left, top, anchorTop, anchorBottom);
     });
   }
 
@@ -8083,6 +8107,14 @@ interface ActionDialogSession {
       if (!markdownEditorApi) {
         return;
       }
+      setupFormatToolbar(markdownEditorApi, {
+        isActive: function () {
+          return state.appScreen === "notes"
+            && Boolean(state.selectedPage && state.currentPage)
+            && studioPageEditable()
+            && !state.viewOnly;
+        },
+      });
       on(markdownEditorApi.host, "click", function (event) {
         const eventTarget = event.target instanceof Element ? event.target : null;
         if (eventTarget && eventTarget.closest("[data-page-link]")) {
@@ -8145,12 +8177,11 @@ interface ActionDialogSession {
         }
         const detail = (event as CustomEvent<TaskDateEditDetail>).detail || {};
         const ref = detail.ref ? String(detail.ref) : "";
-        const field = detail.field === "remind" ? "remind" : "due";
         const left = Number(detail.left) || 0;
         const top = Number(detail.top) || 0;
         const anchorTop = Number(detail.anchorTop) || 0;
         const anchorBottom = Number(detail.anchorBottom) || 0;
-        openInlineTaskPicker(ref, field, left, top, anchorTop, anchorBottom);
+        openInlineTaskPicker(ref, "schedule", left, top, anchorTop, anchorBottom);
       });
       on(markdownEditorApi.host, "noterious:task-delete", function (event) {
         if (!studioPageEditable()) {

@@ -103,7 +103,7 @@ func TestSQLiteStorePersistsTaskClick(t *testing.T) {
 			Text:   "Follow up",
 			State:  "todo",
 			Done:   false,
-			Remind: &remind,
+			Remind: []string{remind},
 			Click:  &click,
 			Who:    []string{"Ralf"},
 		}},
@@ -122,5 +122,8 @@ func TestSQLiteStorePersistsTaskClick(t *testing.T) {
 	}
 	if tasks[0].Click == nil || *tasks[0].Click != click {
 		t.Fatalf("task click = %#v", tasks[0].Click)
+	}
+	if len(tasks[0].Remind) != 1 || tasks[0].Remind[0] != remind {
+		t.Fatalf("task remind = %#v", tasks[0].Remind)
 	}
 }

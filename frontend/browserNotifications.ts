@@ -197,10 +197,56 @@ function parseNotificationTime(raw: string, dateOnlyHour: number): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+// Matches relative reminder offsets like "-1d", "-1w@08:30", or "-2h".
+const relativeReminderPattern = /^([+-])(\d+)([mhdw])(?:@(\d{1,2}):(\d{2}))?$/;
+
+// Mirrors the backend parseRelativeReminder: day/week offsets land on
+// (due ± N days) at "@HH:MM" or 09:00; hour/minute offsets are applied to the
+// due instant (midnight for date-only) and reject a "@HH:MM" part.
+function parseRelativeReminder(remindRaw: string, dueRaw?: string): Date | null {
+  const match = relativeReminderPattern.exec(String(remindRaw || "").trim());
+  if (!match) {
+    return null;
+  }
+  const sign = match[1] === "-" ? -1 : 1;
+  const count = Number(match[2]);
+  const unit = match[3];
+  if (unit === "d" || unit === "w") {
+    const dueDate = parseDateOnly(String(dueRaw || "").trim());
+    if (!dueDate) {
+      return null;
+    }
+    const days = sign * (unit === "w" ? count * 7 : count);
+    let hour = 9;
+    let minute = 0;
+    if (match[4] !== undefined) {
+      hour = Number(match[4]);
+      minute = Number(match[5]);
+      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return null;
+      }
+    }
+    return new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate() + days, hour, minute, 0, 0);
+  }
+  if (match[4] !== undefined) {
+    return null;
+  }
+  const dueInstant = parseNotificationTime(String(dueRaw || "").trim(), 0);
+  if (!dueInstant) {
+    return null;
+  }
+  const ms = unit === "h" ? count * 3600000 : count * 60000;
+  return new Date(dueInstant.getTime() + sign * ms);
+}
+
 function parseReminderNotificationTime(remindRaw: string, dueRaw?: string): { at: Date; raw: string } | null {
   const remindText = String(remindRaw || "").trim();
   if (!remindText) {
     return null;
+  }
+  const relative = parseRelativeReminder(remindText, dueRaw);
+  if (relative) {
+    return { at: relative, raw: remindText };
   }
   const clock = parseClockTime(remindText);
   if (clock) {
@@ -230,31 +276,40 @@ function parseReminderNotificationTime(remindRaw: string, dueRaw?: string): { at
   return at ? { at, raw: remindText } : null;
 }
 
-function taskNotificationCandidate(task: TaskRecord): BrowserNotificationCandidate | null {
-  const parsed = parseReminderNotificationTime(String(task.remind || "").trim(), String(task.due || "").trim());
-  if (!parsed) {
-    return null;
+function taskNotificationCandidates(task: TaskRecord): BrowserNotificationCandidate[] {
+  const reminders = Array.isArray(task.remind) ? task.remind : [];
+  if (!reminders.length) {
+    return [];
   }
-  const parts = [String(task.text || "").trim()].filter(Boolean);
-  if (task.page) {
-    parts.push("Page: " + task.page);
-  }
-  parts.push("Reminder: " + parsed.raw);
-  if (Array.isArray(task.who) && task.who.length) {
-    parts.push("Who: " + task.who.join(", "));
-  }
-  return {
-    key: task.ref + "|remind|" + parsed.at.toISOString(),
-    kind: "remind",
-    at: parsed.at.getTime(),
-    raw: parsed.raw,
-    click: String(task.click || "").trim(),
-    title: "Task reminder",
-    body: parts.join("\n"),
-    page: task.page,
-    taskRef: task.ref,
-    fieldKey: "remind",
-  };
+  const due = String(task.due || "").trim();
+  const candidates: BrowserNotificationCandidate[] = [];
+  reminders.forEach(function (remind) {
+    const parsed = parseReminderNotificationTime(String(remind || "").trim(), due);
+    if (!parsed) {
+      return;
+    }
+    const parts = [String(task.text || "").trim()].filter(Boolean);
+    if (task.page) {
+      parts.push("Page: " + task.page);
+    }
+    parts.push("Reminder: " + parsed.raw);
+    if (Array.isArray(task.who) && task.who.length) {
+      parts.push("Who: " + task.who.join(", "));
+    }
+    candidates.push({
+      key: task.ref + "|remind|" + parsed.at.toISOString(),
+      kind: "remind",
+      at: parsed.at.getTime(),
+      raw: parsed.raw,
+      click: String(task.click || "").trim(),
+      title: "Task reminder",
+      body: parts.join("\n"),
+      page: task.page,
+      taskRef: task.ref,
+      fieldKey: "remind",
+    });
+  });
+  return candidates;
 }
 
 function noteNotificationCandidates(page: PageSummary): BrowserNotificationCandidate[] {
@@ -294,7 +349,7 @@ function noteNotificationCandidates(page: PageSummary): BrowserNotificationCandi
 }
 
 export function collectBrowserNotificationCandidates(tasks: TaskRecord[], pages: PageSummary[]): BrowserNotificationCandidate[] {
-  const taskCandidates = tasks.map(taskNotificationCandidate).filter(Boolean) as BrowserNotificationCandidate[];
+  const taskCandidates = tasks.flatMap(taskNotificationCandidates);
   const pageCandidates = pages.flatMap(noteNotificationCandidates);
   return taskCandidates.concat(pageCandidates).sort(function (left, right) {
     if (left.at !== right.at) {

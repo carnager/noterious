@@ -27364,11 +27364,198 @@
   function setDateTimeDisplayFormat(value) {
     currentDisplayFormat = normalizeDateTimeDisplayFormat(value);
   }
-  var currentDisplayFormat;
+  function pad(value) {
+    return String(value).padStart(2, "0");
+  }
+  function parseStructuredDateValue(raw) {
+    const text = String(raw || "").trim();
+    const dateOnlyMatch = text.match(dateOnlyPattern);
+    if (dateOnlyMatch) {
+      return {
+        year: Number(dateOnlyMatch[1]),
+        month: Number(dateOnlyMatch[2]),
+        day: Number(dateOnlyMatch[3]),
+        hour: 0,
+        minute: 0,
+        second: 0,
+        hasTime: false
+      };
+    }
+    const dateTimeMatch = text.match(dateTimePattern);
+    if (!dateTimeMatch) {
+      return null;
+    }
+    return {
+      year: Number(dateTimeMatch[1]),
+      month: Number(dateTimeMatch[2]),
+      day: Number(dateTimeMatch[3]),
+      hour: Number(dateTimeMatch[4]),
+      minute: Number(dateTimeMatch[5]),
+      second: Number(dateTimeMatch[6] || "0"),
+      hasTime: true
+    };
+  }
+  function structuredDateFromDate(value) {
+    return {
+      year: value.getFullYear(),
+      month: value.getMonth() + 1,
+      day: value.getDate(),
+      hour: value.getHours(),
+      minute: value.getMinutes(),
+      second: value.getSeconds(),
+      hasTime: true
+    };
+  }
+  function toLocalDate(structured) {
+    return new Date(
+      structured.year,
+      structured.month - 1,
+      structured.day,
+      structured.hour,
+      structured.minute,
+      structured.second,
+      0
+    );
+  }
+  function formatStructuredDate(structured) {
+    if (currentDisplayFormat === "iso") {
+      return [structured.year, pad(structured.month), pad(structured.day)].join("-");
+    }
+    const locale = currentDisplayFormat === "de" ? "de-DE" : void 0;
+    return new Intl.DateTimeFormat(locale, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(toLocalDate(structured));
+  }
+  function formatStructuredTime(structured) {
+    if (currentDisplayFormat === "iso") {
+      return [pad(structured.hour), pad(structured.minute), pad(structured.second)].join(":");
+    }
+    const locale = currentDisplayFormat === "de" ? "de-DE" : void 0;
+    return new Intl.DateTimeFormat(locale, {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    }).format(toLocalDate(structured));
+  }
+  function formatStructuredDateTime(structured) {
+    if (!structured.hasTime) {
+      return formatStructuredDate(structured);
+    }
+    if (currentDisplayFormat === "iso") {
+      return formatStructuredDate(structured) + " " + [pad(structured.hour), pad(structured.minute)].join(":");
+    }
+    const locale = currentDisplayFormat === "de" ? "de-DE" : void 0;
+    return new Intl.DateTimeFormat(locale, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(toLocalDate(structured));
+  }
+  function parseStructuredEditableTimeValue(raw) {
+    const text = String(raw || "").trim();
+    if (!text) {
+      return null;
+    }
+    const match = text.match(timeOnlyPattern);
+    if (!match) {
+      return null;
+    }
+    return {
+      hour: Number(match[1]),
+      minute: Number(match[2]),
+      second: Number(match[3] || "0")
+    };
+  }
+  function formatDateValue(value) {
+    if (value instanceof Date) {
+      return formatStructuredDate(structuredDateFromDate(value));
+    }
+    const structured = parseStructuredDateValue(value);
+    if (!structured) {
+      const parsed = new Date(String(value || ""));
+      return Number.isNaN(parsed.getTime()) ? String(value || "") : formatStructuredDate(structuredDateFromDate(parsed));
+    }
+    return formatStructuredDate(structured);
+  }
+  function formatDateTimeValue(value) {
+    if (value instanceof Date) {
+      return formatStructuredDateTime(structuredDateFromDate(value));
+    }
+    const structured = parseStructuredDateValue(value);
+    if (!structured) {
+      const parsed = new Date(String(value || ""));
+      return Number.isNaN(parsed.getTime()) ? String(value || "") : formatStructuredDateTime(structuredDateFromDate(parsed));
+    }
+    return formatStructuredDateTime(structured);
+  }
+  function formatTimeValue(value) {
+    if (value instanceof Date) {
+      return formatStructuredTime(structuredDateFromDate(value));
+    }
+    const parsedTime = parseStructuredEditableTimeValue(String(value || ""));
+    if (parsedTime) {
+      return [pad(parsedTime.hour), pad(parsedTime.minute)].join(":");
+    }
+    const structured = parseStructuredDateValue(value);
+    if (!structured) {
+      const parsed = new Date(String(value || ""));
+      return Number.isNaN(parsed.getTime()) ? String(value || "") : formatStructuredTime(structuredDateFromDate(parsed));
+    }
+    return formatStructuredTime(structured);
+  }
+  function parseReminderOffset(value) {
+    const match = reminderOffsetPattern.exec(String(value || "").trim());
+    if (!match) {
+      return null;
+    }
+    const hasTime = match[4] !== void 0;
+    return {
+      sign: match[1] === "+" ? "+" : "-",
+      count: Number(match[2]),
+      unit: match[3],
+      hour: hasTime ? Number(match[4]) : null,
+      minute: hasTime ? Number(match[5]) : null
+    };
+  }
+  function formatReminderLabel(value) {
+    const text = String(value || "").trim();
+    if (!text) {
+      return "";
+    }
+    const offset = parseReminderOffset(text);
+    if (offset) {
+      const unit = reminderUnitNames[offset.unit] || offset.unit;
+      const noun = offset.count === 1 ? unit : unit + "s";
+      const direction = offset.sign === "+" ? "after" : "before";
+      let label = offset.count + " " + noun + " " + direction;
+      if (offset.hour !== null && offset.minute !== null) {
+        label += " \xB7 " + pad(offset.hour) + ":" + pad(offset.minute);
+      } else if (offset.unit === "d" || offset.unit === "w") {
+        label += " \xB7 09:00";
+      }
+      return label;
+    }
+    if (/^\d{2}:\d{2}(?::\d{2})?$/.test(text)) {
+      return "on due date \xB7 " + formatTimeValue(text);
+    }
+    return formatDateTimeValue(text);
+  }
+  var currentDisplayFormat, dateOnlyPattern, dateTimePattern, timeOnlyPattern, reminderOffsetPattern, reminderUnitNames;
   var init_datetime = __esm({
     "frontend/datetime.ts"() {
       "use strict";
       currentDisplayFormat = "browser";
+      dateOnlyPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
+      dateTimePattern = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/;
+      timeOnlyPattern = /^(\d{2}):(\d{2})(?::(\d{2}))?$/;
+      reminderOffsetPattern = /^([+-])(\d+)([mhdw])(?:@(\d{1,2}):(\d{2}))?$/;
+      reminderUnitNames = { m: "minute", h: "hour", d: "day", w: "week" };
     }
   });
 
@@ -40511,16 +40698,51 @@
         }
       };
       var TaskMetaWidget = class extends WidgetType {
-        constructor(task) {
+        constructor(task, editing) {
           super();
           this.task = task;
+          this.editing = editing;
         }
         eq(other) {
-          return JSON.stringify(other.task) === JSON.stringify(this.task);
+          return other.editing === this.editing && JSON.stringify(other.task) === JSON.stringify(this.task);
         }
         toDOM() {
           const meta2 = document.createElement("span");
           meta2.className = "cm-md-task-meta";
+          const ref = this.task.ref || "";
+          const due = this.task.due ? String(this.task.due) : "";
+          const reminders = Array.isArray(this.task.remind) ? this.task.remind : [];
+          const makeScheduleEl = (className, label, title) => {
+            const el = document.createElement("span");
+            el.className = className;
+            el.setAttribute("data-task-date-edit", "schedule");
+            el.setAttribute("data-task-ref", ref);
+            el.setAttribute("role", "button");
+            el.title = title;
+            el.textContent = label;
+            return el;
+          };
+          if (this.editing) {
+            if (!due) {
+              meta2.appendChild(makeScheduleEl("cm-md-task-remind-add", "\u{1F4C5} Schedule", "Set due date & reminders"));
+            }
+          } else {
+            meta2.appendChild(makeScheduleEl(
+              "token cm-md-task-due-chip",
+              due ? "\u{1F4C5} " + formatDateValue(due) : "\u{1F4C5} Schedule",
+              due ? "Edit schedule" : "Set due date & reminders"
+            ));
+            reminders.forEach((remind) => {
+              const text = String(remind || "").trim();
+              if (!text) {
+                return;
+              }
+              meta2.appendChild(makeScheduleEl("token cm-md-task-remind-chip", "\u{1F514} " + formatReminderLabel(text), "Edit reminders"));
+            });
+            if (due) {
+              meta2.appendChild(makeScheduleEl("cm-md-task-remind-add", "\u{1F514}+", reminders.length ? "Add another reminder" : "Add reminder"));
+            }
+          }
           if (this.task.who && this.task.who.length) {
             const pill = document.createElement("span");
             pill.className = "token";
@@ -42290,7 +42512,7 @@
               text: text.replace(/^(\s*)-\s+\[[ xX]\]\s+/, ""),
               done: /[xX]/.test(match[2] || ""),
               due: "",
-              remind: "",
+              remind: [],
               who: []
             };
             const indentLength = String(match[1] || "").length;
@@ -42303,25 +42525,29 @@
             if (!viewOnly) {
               let dateMatch = null;
               while ((dateMatch = taskInlineDatePattern2.exec(bodyText)) !== null) {
-                const field = String(dateMatch[1] || "");
                 const start = from + prefixLength + dateMatch.index;
                 const end = start + dateMatch[0].length;
-                inlineExtraDecos.push({
-                  from: start,
-                  to: end,
-                  deco: Decoration.mark({
-                    class: "cm-md-task-inline-date",
-                    attributes: {
-                      "data-task-date-edit": field,
-                      "data-task-ref": task.ref || ""
-                    }
-                  })
-                });
+                if (!editingLine) {
+                  inlineExtraDecos.push({ from: start, to: end, deco: Decoration.replace({}) });
+                  addAtomicRange(atomicBuilder, start, end);
+                } else {
+                  inlineExtraDecos.push({
+                    from: start,
+                    to: end,
+                    deco: Decoration.mark({
+                      class: "cm-md-task-inline-date",
+                      attributes: {
+                        "data-task-date-edit": "schedule",
+                        "data-task-ref": task.ref || ""
+                      }
+                    })
+                  });
+                }
               }
             }
             taskInlineDatePattern2.lastIndex = 0;
-            if (task.text && bodyText.startsWith(task.text) && task.who && task.who.length) {
-              taskMetaWidget = new TaskMetaWidget(task);
+            if (bodyText.startsWith(task.text)) {
+              taskMetaWidget = new TaskMetaWidget(task, editingLine);
             }
           }
           const listPrefix = markdownListPrefixMatch(text, inlineStart);
@@ -43175,7 +43401,7 @@
                     text: String(task.text || ""),
                     done: Boolean(task.done),
                     due: String(task.due || ""),
-                    remind: String(task.remind || ""),
+                    remind: Array.isArray(task.remind) ? task.remind.map(String) : [],
                     who: Array.isArray(task.who) ? task.who.slice() : []
                   });
                 }

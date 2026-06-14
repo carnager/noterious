@@ -221,7 +221,7 @@ export function renderedTasksForEditor(page: PageRecord | null): TaskRender[] {
       text: task.text || "",
       done: Boolean(task.done),
       due: task.due || "",
-      remind: task.remind || "",
+      remind: Array.isArray(task.remind) ? task.remind.slice() : [],
       who: Array.isArray(task.who) ? task.who.slice() : [],
     };
   });

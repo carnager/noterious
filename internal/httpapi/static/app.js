@@ -19159,10 +19159,49 @@
     const parsed = new Date(text);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
+  function parseRelativeReminder(remindRaw, dueRaw) {
+    const match = relativeReminderPattern.exec(String(remindRaw || "").trim());
+    if (!match) {
+      return null;
+    }
+    const sign = match[1] === "-" ? -1 : 1;
+    const count2 = Number(match[2]);
+    const unit = match[3];
+    if (unit === "d" || unit === "w") {
+      const dueDate = parseDateOnly(String(dueRaw || "").trim());
+      if (!dueDate) {
+        return null;
+      }
+      const days = sign * (unit === "w" ? count2 * 7 : count2);
+      let hour = 9;
+      let minute = 0;
+      if (match[4] !== void 0) {
+        hour = Number(match[4]);
+        minute = Number(match[5]);
+        if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+          return null;
+        }
+      }
+      return new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate() + days, hour, minute, 0, 0);
+    }
+    if (match[4] !== void 0) {
+      return null;
+    }
+    const dueInstant = parseNotificationTime(String(dueRaw || "").trim(), 0);
+    if (!dueInstant) {
+      return null;
+    }
+    const ms = unit === "h" ? count2 * 36e5 : count2 * 6e4;
+    return new Date(dueInstant.getTime() + sign * ms);
+  }
   function parseReminderNotificationTime(remindRaw, dueRaw) {
     const remindText = String(remindRaw || "").trim();
     if (!remindText) {
       return null;
+    }
+    const relative = parseRelativeReminder(remindText, dueRaw);
+    if (relative) {
+      return { at: relative, raw: remindText };
     }
     const clock = parseClockTime(remindText);
     if (clock) {
@@ -19191,31 +19230,40 @@
     const at = parseNotificationTime(remindText, 9);
     return at ? { at, raw: remindText } : null;
   }
-  function taskNotificationCandidate(task) {
-    const parsed = parseReminderNotificationTime(String(task.remind || "").trim(), String(task.due || "").trim());
-    if (!parsed) {
-      return null;
+  function taskNotificationCandidates(task) {
+    const reminders = Array.isArray(task.remind) ? task.remind : [];
+    if (!reminders.length) {
+      return [];
     }
-    const parts = [String(task.text || "").trim()].filter(Boolean);
-    if (task.page) {
-      parts.push("Page: " + task.page);
-    }
-    parts.push("Reminder: " + parsed.raw);
-    if (Array.isArray(task.who) && task.who.length) {
-      parts.push("Who: " + task.who.join(", "));
-    }
-    return {
-      key: task.ref + "|remind|" + parsed.at.toISOString(),
-      kind: "remind",
-      at: parsed.at.getTime(),
-      raw: parsed.raw,
-      click: String(task.click || "").trim(),
-      title: "Task reminder",
-      body: parts.join("\n"),
-      page: task.page,
-      taskRef: task.ref,
-      fieldKey: "remind"
-    };
+    const due = String(task.due || "").trim();
+    const candidates = [];
+    reminders.forEach(function(remind) {
+      const parsed = parseReminderNotificationTime(String(remind || "").trim(), due);
+      if (!parsed) {
+        return;
+      }
+      const parts = [String(task.text || "").trim()].filter(Boolean);
+      if (task.page) {
+        parts.push("Page: " + task.page);
+      }
+      parts.push("Reminder: " + parsed.raw);
+      if (Array.isArray(task.who) && task.who.length) {
+        parts.push("Who: " + task.who.join(", "));
+      }
+      candidates.push({
+        key: task.ref + "|remind|" + parsed.at.toISOString(),
+        kind: "remind",
+        at: parsed.at.getTime(),
+        raw: parsed.raw,
+        click: String(task.click || "").trim(),
+        title: "Task reminder",
+        body: parts.join("\n"),
+        page: task.page,
+        taskRef: task.ref,
+        fieldKey: "remind"
+      });
+    });
+    return candidates;
   }
   function noteNotificationCandidates(page) {
     const frontmatter = page.frontmatter;
@@ -19253,7 +19301,7 @@
     }).filter(Boolean);
   }
   function collectBrowserNotificationCandidates(tasks, pages) {
-    const taskCandidates = tasks.map(taskNotificationCandidate).filter(Boolean);
+    const taskCandidates = tasks.flatMap(taskNotificationCandidates);
     const pageCandidates = pages.flatMap(noteNotificationCandidates);
     return taskCandidates.concat(pageCandidates).sort(function(left, right) {
       if (left.at !== right.at) {
@@ -19330,12 +19378,13 @@
     url.searchParams.delete("screen");
     return url.toString();
   }
-  var browserNotificationStateStorageKey, browserNotificationRetentionMs;
+  var browserNotificationStateStorageKey, browserNotificationRetentionMs, relativeReminderPattern;
   var init_browserNotifications = __esm({
     "frontend/browserNotifications.ts"() {
       "use strict";
       browserNotificationStateStorageKey = "noterious.browser-notifications.sent";
       browserNotificationRetentionMs = 30 * 24 * 60 * 60 * 1e3;
+      relativeReminderPattern = /^([+-])(\d+)([mhdw])(?:@(\d{1,2}):(\d{2}))?$/;
     }
   });
 
@@ -19615,7 +19664,7 @@
       body: JSON.stringify({
         state: task.done ? "todo" : "done",
         due: task.due || "",
-        remind: task.remind || "",
+        remind: Array.isArray(task.remind) ? task.remind.slice() : [],
         who: task.who || []
       })
     });
@@ -20617,13 +20666,6 @@
     }
     return formatStructuredEditableDateTime(structured);
   }
-  function formatEditableTimeValue(value) {
-    const parsed = parseStructuredEditableTimeValue(value);
-    if (!parsed) {
-      return String(value || "");
-    }
-    return [pad(parsed.hour), pad(parsed.minute)].join(":");
-  }
   function formatTimeValue(value) {
     if (value instanceof Date) {
       return formatStructuredTime(structuredDateFromDate(value));
@@ -20638,6 +20680,43 @@
       return Number.isNaN(parsed.getTime()) ? String(value || "") : formatStructuredTime(structuredDateFromDate(parsed));
     }
     return formatStructuredTime(structured);
+  }
+  function parseReminderOffset(value) {
+    const match = reminderOffsetPattern.exec(String(value || "").trim());
+    if (!match) {
+      return null;
+    }
+    const hasTime = match[4] !== void 0;
+    return {
+      sign: match[1] === "+" ? "+" : "-",
+      count: Number(match[2]),
+      unit: match[3],
+      hour: hasTime ? Number(match[4]) : null,
+      minute: hasTime ? Number(match[5]) : null
+    };
+  }
+  function formatReminderLabel(value) {
+    const text = String(value || "").trim();
+    if (!text) {
+      return "";
+    }
+    const offset = parseReminderOffset(text);
+    if (offset) {
+      const unit = reminderUnitNames[offset.unit] || offset.unit;
+      const noun = offset.count === 1 ? unit : unit + "s";
+      const direction = offset.sign === "+" ? "after" : "before";
+      let label = offset.count + " " + noun + " " + direction;
+      if (offset.hour !== null && offset.minute !== null) {
+        label += " \xB7 " + pad(offset.hour) + ":" + pad(offset.minute);
+      } else if (offset.unit === "d" || offset.unit === "w") {
+        label += " \xB7 09:00";
+      }
+      return label;
+    }
+    if (/^\d{2}:\d{2}(?::\d{2})?$/.test(text)) {
+      return "on due date \xB7 " + formatTimeValue(text);
+    }
+    return formatDateTimeValue(text);
   }
   function parseEditableDateValue(value) {
     const text = String(value || "").trim();
@@ -20713,7 +20792,7 @@
     }
     return formatStructuredDateTime(structuredDateFromDate(parsed));
   }
-  var currentDisplayFormat, dateOnlyPattern, dateTimePattern, timeOnlyPattern;
+  var currentDisplayFormat, dateOnlyPattern, dateTimePattern, timeOnlyPattern, reminderOffsetPattern, reminderUnitNames;
   var init_datetime = __esm({
     "frontend/datetime.ts"() {
       "use strict";
@@ -20721,6 +20800,8 @@
       dateOnlyPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
       dateTimePattern = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/;
       timeOnlyPattern = /^(\d{2}):(\d{2})(?::(\d{2}))?$/;
+      reminderOffsetPattern = /^([+-])(\d+)([mhdw])(?:@(\d{1,2}):(\d{2}))?$/;
+      reminderUnitNames = { m: "minute", h: "hour", d: "day", w: "week" };
     }
   });
 
@@ -20956,6 +21037,211 @@
     "frontend/editorState.ts"() {
       "use strict";
       init_dom();
+    }
+  });
+
+  // frontend/formatToolbar.ts
+  function lineBoundsForSelection(value, from, to) {
+    const start = value.lastIndexOf("\n", from - 1) + 1;
+    const effectiveTo = to > from && value.charAt(to - 1) === "\n" ? to - 1 : to;
+    let end = value.indexOf("\n", effectiveTo);
+    if (end === -1) {
+      end = value.length;
+    }
+    return { start, end };
+  }
+  function setupFormatToolbar(api, options) {
+    const host = api.host;
+    const toolbar = document.createElement("div");
+    toolbar.className = "format-toolbar hidden";
+    toolbar.setAttribute("role", "toolbar");
+    toolbar.setAttribute("aria-label", "Text formatting");
+    function applyInline(marker) {
+      const from = api.getSelectionStart();
+      const to = api.getSelectionEnd();
+      if (from === to) {
+        return;
+      }
+      const value = api.getValue();
+      const selected = value.slice(from, to);
+      const len = marker.length;
+      if (selected.length >= len * 2 && selected.startsWith(marker) && selected.endsWith(marker)) {
+        const inner = selected.slice(len, selected.length - len);
+        api.replaceRange(from, to, inner);
+        api.setSelectionRange(from, from + inner.length, true);
+      } else if (value.slice(Math.max(0, from - len), from) === marker && value.slice(to, to + len) === marker) {
+        api.replaceRange(from - len, to + len, selected);
+        api.setSelectionRange(from - len, from - len + selected.length, true);
+      } else {
+        api.replaceRange(from, to, marker + selected + marker);
+        api.setSelectionRange(from + len, from + len + selected.length, true);
+      }
+      api.focus();
+    }
+    function applyLinePrefix(prefix, strip) {
+      const from = api.getSelectionStart();
+      const to = api.getSelectionEnd();
+      const value = api.getValue();
+      const bounds = lineBoundsForSelection(value, from, to);
+      const block = value.slice(bounds.start, bounds.end);
+      const lines = block.split("\n");
+      const allHavePrefix = lines.every(function(line) {
+        return line.replace(/^\s*/, "").startsWith(prefix.trim() + (prefix.endsWith(" ") ? "" : "")) && strip.test(line);
+      });
+      const newLines = lines.map(function(line) {
+        const indentMatch = /^(\s*)/.exec(line);
+        const indent = indentMatch ? indentMatch[1] : "";
+        const stripped = line.replace(strip, "$1");
+        if (allHavePrefix) {
+          return stripped;
+        }
+        return indent + prefix + stripped.slice(indent.length);
+      });
+      const newBlock = newLines.join("\n");
+      api.replaceRange(bounds.start, bounds.end, newBlock);
+      api.setSelectionRange(bounds.start, bounds.start + newBlock.length, true);
+      api.focus();
+    }
+    function applyLink() {
+      const from = api.getSelectionStart();
+      const to = api.getSelectionEnd();
+      const value = api.getValue();
+      const text = value.slice(from, to) || "link";
+      const inserted = "[" + text + "](url)";
+      api.replaceRange(from, to, inserted);
+      const urlStart = from + text.length + 3;
+      api.setSelectionRange(urlStart, urlStart + 3, true);
+      api.focus();
+    }
+    const buttons = [
+      { label: "B", title: "Bold", className: "format-toolbar-bold", run: function() {
+        applyInline("**");
+      } },
+      { label: "I", title: "Italic", className: "format-toolbar-italic", run: function() {
+        applyInline("_");
+      } },
+      { label: "S", title: "Strikethrough", className: "format-toolbar-strike", run: function() {
+        applyInline("~~");
+      } },
+      { label: "<>", title: "Inline code", run: function() {
+        applyInline("`");
+      } },
+      { label: "H", title: "Heading", run: function() {
+        applyLinePrefix("## ", HEADING_MARKER);
+      } },
+      { label: "\u2022", title: "Bullet list", run: function() {
+        applyLinePrefix("- ", LIST_MARKER);
+      } },
+      { label: "\u2611", title: "Checklist", run: function() {
+        applyLinePrefix("- [ ] ", LIST_MARKER);
+      } },
+      { label: "\u2197", title: "Link", run: applyLink }
+    ];
+    buttons.forEach(function(spec) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "format-toolbar-button" + (spec.className ? " " + spec.className : "");
+      button.textContent = spec.label;
+      button.title = spec.title;
+      button.setAttribute("aria-label", spec.title);
+      button.addEventListener("mousedown", function(event) {
+        event.preventDefault();
+      });
+      button.addEventListener("click", function(event) {
+        event.preventDefault();
+        spec.run();
+      });
+      toolbar.appendChild(button);
+    });
+    document.body.appendChild(toolbar);
+    let visible = false;
+    let frame = 0;
+    function hide() {
+      if (!visible) {
+        return;
+      }
+      visible = false;
+      toolbar.classList.add("hidden");
+    }
+    function position(rect) {
+      toolbar.classList.remove("hidden");
+      const width = toolbar.offsetWidth || 240;
+      const height = toolbar.offsetHeight || 34;
+      const gap = 8;
+      let left = rect.left + rect.width / 2 - width / 2;
+      left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+      let top = rect.top - height - gap;
+      if (top < 8) {
+        top = rect.bottom + gap;
+      }
+      toolbar.style.left = Math.round(left) + "px";
+      toolbar.style.top = Math.round(top) + "px";
+    }
+    function update() {
+      if (!options.isActive()) {
+        hide();
+        return;
+      }
+      const from = api.getSelectionStart();
+      const to = api.getSelectionEnd();
+      if (from === to) {
+        hide();
+        return;
+      }
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) {
+        hide();
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      if (!host.contains(range.commonAncestorContainer)) {
+        hide();
+        return;
+      }
+      const rect = range.getBoundingClientRect();
+      if (!rect || rect.width === 0 && rect.height === 0) {
+        hide();
+        return;
+      }
+      visible = true;
+      position(rect);
+    }
+    function scheduleUpdate() {
+      if (frame) {
+        return;
+      }
+      frame = window.requestAnimationFrame(function() {
+        frame = 0;
+        update();
+      });
+    }
+    function onSelectionChange() {
+      scheduleUpdate();
+    }
+    function onScroll() {
+      if (visible) {
+        hide();
+      }
+    }
+    document.addEventListener("selectionchange", onSelectionChange);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return function cleanup() {
+      document.removeEventListener("selectionchange", onSelectionChange);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
+      toolbar.remove();
+    };
+  }
+  var LIST_MARKER, HEADING_MARKER;
+  var init_formatToolbar = __esm({
+    "frontend/formatToolbar.ts"() {
+      "use strict";
+      LIST_MARKER = /^(\s*)(?:-\s+\[[ xX]\]\s+|[-*+]\s+|\d+\.\s+)/;
+      HEADING_MARKER = /^(\s*)#{1,6}\s+/;
     }
   });
 
@@ -21586,193 +21872,286 @@
     }
     restoreInlineTableEditorFocus(appState, els);
   }
-  function renderTaskPicker(taskPickerState, els, callbacks) {
-    if (taskPickerState.mode !== "due" && taskPickerState.mode !== "remind") {
-      closeTaskPickers(taskPickerState, els);
-      return;
+  function reminderOffsetOptions() {
+    return [
+      { label: "On due date", value: "" },
+      { label: "1 day before", value: "-1d" },
+      { label: "2 days before", value: "-2d" },
+      { label: "3 days before", value: "-3d" },
+      { label: "1 week before", value: "-1w" },
+      { label: "2 weeks before", value: "-2w" }
+    ];
+  }
+  function renderScheduleDueSection(taskPickerState, target, task, callbacks, rerender) {
+    const dueValue = task && task.due ? String(task.due).slice(0, 10) : "";
+    let selYear = 0;
+    let selMonth = 0;
+    let selDay = 0;
+    if (dueValue) {
+      const parts = dueValue.split("-").map(Number);
+      selYear = parts[0] || 0;
+      selMonth = parts[1] || 0;
+      selDay = parts[2] || 0;
     }
-    const mode = taskPickerState.mode;
-    const target = els.inlineTaskPicker;
-    const task = callbacks.currentPickerTask();
-    clearNode(target);
-    const head = document.createElement("div");
-    head.className = "task-picker-head";
-    const title = document.createElement("strong");
-    if (mode === "due") {
-      const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
-      title.textContent = new Intl.DateTimeFormat(void 0, { month: "long", year: "numeric" }).format(monthStart);
-    } else {
-      title.textContent = "Reminder time";
-    }
-    head.appendChild(title);
-    if (mode === "due") {
-      const nav = document.createElement("div");
-      nav.className = "task-picker-nav";
-      const prev = document.createElement("button");
-      prev.type = "button";
-      prev.textContent = "<";
-      prev.addEventListener("click", function() {
-        taskPickerState.month -= 1;
-        if (taskPickerState.month < 1) {
-          taskPickerState.month = 12;
-          taskPickerState.year -= 1;
-        }
-        renderTaskPicker(taskPickerState, els, callbacks);
-      });
-      nav.appendChild(prev);
-      const next = document.createElement("button");
-      next.type = "button";
-      next.textContent = ">";
-      next.addEventListener("click", function() {
-        taskPickerState.month += 1;
-        if (taskPickerState.month > 12) {
-          taskPickerState.month = 1;
-          taskPickerState.year += 1;
-        }
-        renderTaskPicker(taskPickerState, els, callbacks);
-      });
-      nav.appendChild(next);
-      head.appendChild(nav);
-    } else {
-      const summary = document.createElement("span");
-      summary.className = "task-picker-summary";
-      summary.textContent = task && task.due ? "Applies on " + formatEditableDateValue(task.due) : "Applies when a due date is set";
-      head.appendChild(summary);
-    }
-    target.appendChild(head);
-    if (mode === "remind") {
-      const timeRow = document.createElement("div");
-      timeRow.className = "task-picker-time";
-      const hourSelect = document.createElement("select");
-      for (let hour = 0; hour < 24; hour += 1) {
-        const option = document.createElement("option");
-        option.value = String(hour);
-        option.textContent = String(hour).padStart(2, "0");
-        option.selected = hour === taskPickerState.hour;
-        hourSelect.appendChild(option);
-      }
-      hourSelect.addEventListener("change", function() {
-        taskPickerState.hour = Number(hourSelect.value) || 0;
-      });
-      timeRow.appendChild(hourSelect);
-      const minuteSelect = document.createElement("select");
-      for (let minute = 0; minute < 60; minute += 5) {
-        const option = document.createElement("option");
-        option.value = String(minute);
-        option.textContent = String(minute).padStart(2, "0");
-        option.selected = minute === taskPickerState.minute;
-        minuteSelect.appendChild(option);
-      }
-      minuteSelect.addEventListener("change", function() {
-        taskPickerState.minute = Number(minuteSelect.value) || 0;
-      });
-      timeRow.appendChild(minuteSelect);
-      const apply = document.createElement("button");
-      apply.type = "button";
-      apply.className = "task-picker-apply";
-      apply.textContent = "Apply";
-      apply.addEventListener("click", function() {
-        const currentTask = callbacks.currentPickerTask();
-        if (!currentTask) {
-          callbacks.closeTaskPickers();
-          return;
-        }
-        callbacks.saveTaskDateField(
-          currentTask,
-          "remind",
-          canonicalTime(taskPickerState.hour, taskPickerState.minute)
-        ).catch(function(error) {
-          callbacks.setNoteStatus("Reminder update failed: " + callbacks.errorMessage(error));
-        });
-      });
-      timeRow.appendChild(apply);
-      target.appendChild(timeRow);
-    }
-    if (mode === "due") {
-      const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
-      const firstWeekday = (monthStart.getDay() + 6) % 7;
-      const gridStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1 - firstWeekday);
-      const weekdays = document.createElement("div");
-      weekdays.className = "task-picker-weekdays";
-      ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].forEach(function(label) {
-        const cell = document.createElement("span");
-        cell.textContent = label;
-        weekdays.appendChild(cell);
-      });
-      target.appendChild(weekdays);
-      const grid = document.createElement("div");
-      grid.className = "task-picker-grid";
-      for (let index = 0; index < 42; index += 1) {
-        const current = new Date(gridStart);
-        current.setDate(gridStart.getDate() + index);
-        const dayButton = document.createElement("button");
-        dayButton.type = "button";
-        dayButton.className = "task-picker-day";
-        if (current.getMonth() !== taskPickerState.month - 1) {
-          dayButton.classList.add("is-faded");
-        }
-        if (current.getFullYear() === taskPickerState.year && current.getMonth() === taskPickerState.month - 1 && current.getDate() === taskPickerState.day) {
-          dayButton.classList.add("is-selected");
-        }
-        dayButton.textContent = String(current.getDate());
-        dayButton.addEventListener("click", function() {
-          taskPickerState.year = current.getFullYear();
-          taskPickerState.month = current.getMonth() + 1;
-          taskPickerState.day = current.getDate();
-          const currentTask = callbacks.currentPickerTask();
-          if (!currentTask) {
-            callbacks.closeTaskPickers();
-            return;
-          }
-          callbacks.saveTaskDateField(currentTask, "due", canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day)).catch(function(error) {
-            callbacks.setNoteStatus("Due date update failed: " + callbacks.errorMessage(error));
-          });
-        });
-        grid.appendChild(dayButton);
-      }
-      target.appendChild(grid);
-    }
-    const footer = document.createElement("div");
-    footer.className = "task-picker-footer";
-    const status = document.createElement("span");
-    status.textContent = mode === "due" ? formatEditableDateValue(canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day)) : formatEditableTimeValue(canonicalTime(taskPickerState.hour, taskPickerState.minute));
-    footer.appendChild(status);
-    const actions = document.createElement("div");
-    actions.className = "task-picker-footer-actions";
-    const clear = document.createElement("button");
-    clear.type = "button";
-    clear.textContent = "Clear";
-    clear.addEventListener("click", function() {
-      const task2 = callbacks.currentPickerTask();
-      if (!task2) {
+    const saveDue = function(value) {
+      const currentTask = callbacks.currentPickerTask();
+      if (!currentTask) {
         callbacks.closeTaskPickers();
         return;
       }
-      callbacks.saveTaskDateField(task2, mode, "").catch(function(error) {
-        callbacks.setNoteStatus("Date update failed: " + callbacks.errorMessage(error));
+      callbacks.saveTaskDateField(currentTask, "due", value).catch(function(error) {
+        callbacks.setNoteStatus("Due date update failed: " + callbacks.errorMessage(error));
       });
+    };
+    const head = document.createElement("div");
+    head.className = "task-picker-head";
+    const title = document.createElement("strong");
+    const monthStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1);
+    title.textContent = new Intl.DateTimeFormat(void 0, { month: "long", year: "numeric" }).format(monthStart);
+    head.appendChild(title);
+    const nav = document.createElement("div");
+    nav.className = "task-picker-nav";
+    const prev = document.createElement("button");
+    prev.type = "button";
+    prev.textContent = "<";
+    prev.addEventListener("click", function() {
+      taskPickerState.month -= 1;
+      if (taskPickerState.month < 1) {
+        taskPickerState.month = 12;
+        taskPickerState.year -= 1;
+      }
+      rerender();
     });
-    actions.appendChild(clear);
+    nav.appendChild(prev);
+    const next = document.createElement("button");
+    next.type = "button";
+    next.textContent = ">";
+    next.addEventListener("click", function() {
+      taskPickerState.month += 1;
+      if (taskPickerState.month > 12) {
+        taskPickerState.month = 1;
+        taskPickerState.year += 1;
+      }
+      rerender();
+    });
+    nav.appendChild(next);
+    head.appendChild(nav);
+    target.appendChild(head);
+    const firstWeekday = (monthStart.getDay() + 6) % 7;
+    const gridStart = new Date(taskPickerState.year, taskPickerState.month - 1, 1 - firstWeekday);
+    const weekdays = document.createElement("div");
+    weekdays.className = "task-picker-weekdays";
+    ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].forEach(function(label) {
+      const cell = document.createElement("span");
+      cell.textContent = label;
+      weekdays.appendChild(cell);
+    });
+    target.appendChild(weekdays);
+    const grid = document.createElement("div");
+    grid.className = "task-picker-grid";
+    for (let index = 0; index < 42; index += 1) {
+      const current = new Date(gridStart);
+      current.setDate(gridStart.getDate() + index);
+      const dayButton = document.createElement("button");
+      dayButton.type = "button";
+      dayButton.className = "task-picker-day";
+      if (current.getMonth() !== taskPickerState.month - 1) {
+        dayButton.classList.add("is-faded");
+      }
+      if (selYear && current.getFullYear() === selYear && current.getMonth() === selMonth - 1 && current.getDate() === selDay) {
+        dayButton.classList.add("is-selected");
+      }
+      dayButton.textContent = String(current.getDate());
+      dayButton.addEventListener("click", function() {
+        taskPickerState.year = current.getFullYear();
+        taskPickerState.month = current.getMonth() + 1;
+        taskPickerState.day = current.getDate();
+        saveDue(canonicalDate(taskPickerState.year, taskPickerState.month, taskPickerState.day));
+      });
+      grid.appendChild(dayButton);
+    }
+    target.appendChild(grid);
+    const dueRow = document.createElement("div");
+    dueRow.className = "task-picker-due-row";
+    const status = document.createElement("span");
+    status.className = "task-picker-due-status";
+    status.textContent = dueValue ? "Due " + formatEditableDateValue(dueValue) : "No due date yet \u2014 pick a day";
+    dueRow.appendChild(status);
+    if (dueValue) {
+      const clear = document.createElement("button");
+      clear.type = "button";
+      clear.className = "task-picker-due-clear";
+      clear.textContent = "Clear";
+      clear.addEventListener("click", function() {
+        saveDue("");
+      });
+      dueRow.appendChild(clear);
+    }
+    target.appendChild(dueRow);
+  }
+  function renderScheduleReminderSection(taskPickerState, target, task, callbacks) {
+    const dueValue = task && task.due ? String(task.due) : "";
+    const reminders = task && Array.isArray(task.remind) ? task.remind.slice() : [];
+    const persist = function(next) {
+      const currentTask = callbacks.currentPickerTask();
+      if (!currentTask) {
+        callbacks.closeTaskPickers();
+        return;
+      }
+      callbacks.saveTaskReminders(currentTask, next).catch(function(error) {
+        callbacks.setNoteStatus("Reminder update failed: " + callbacks.errorMessage(error));
+      });
+    };
+    const addReminder = function(value) {
+      const trimmed = String(value || "").trim();
+      if (!trimmed || reminders.indexOf(trimmed) !== -1) {
+        return;
+      }
+      persist(reminders.concat(trimmed));
+    };
+    const heading2 = document.createElement("div");
+    heading2.className = "task-picker-remind-composer-label";
+    heading2.textContent = "Reminders";
+    target.appendChild(heading2);
+    if (!dueValue) {
+      const note = document.createElement("div");
+      note.className = "task-picker-note";
+      note.textContent = "Pick a due date above to add reminders.";
+      target.appendChild(note);
+    }
+    if (reminders.length) {
+      const list = document.createElement("div");
+      list.className = "task-picker-remind-list";
+      reminders.forEach(function(remind) {
+        const row = document.createElement("div");
+        row.className = "task-picker-remind-row";
+        const label = document.createElement("span");
+        label.className = "task-picker-remind-label";
+        label.textContent = formatReminderLabel(remind);
+        row.appendChild(label);
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "task-picker-remind-remove";
+        remove.setAttribute("aria-label", "Remove reminder");
+        remove.textContent = "\u2715";
+        remove.addEventListener("click", function() {
+          persist(reminders.filter(function(item) {
+            return item !== remind;
+          }));
+        });
+        row.appendChild(remove);
+        list.appendChild(row);
+      });
+      target.appendChild(list);
+    }
+    const composer = document.createElement("div");
+    composer.className = "task-picker-remind-composer";
+    const composerLabel = document.createElement("div");
+    composerLabel.className = "task-picker-remind-composer-label";
+    composerLabel.textContent = "Add a reminder";
+    composer.appendChild(composerLabel);
+    const offsetSelect = document.createElement("select");
+    offsetSelect.className = "task-picker-remind-offset";
+    reminderOffsetOptions().forEach(function(option, index) {
+      const node = document.createElement("option");
+      node.value = option.value;
+      node.textContent = option.label;
+      node.selected = index === 1;
+      offsetSelect.appendChild(node);
+    });
+    offsetSelect.disabled = !dueValue;
+    composer.appendChild(offsetSelect);
+    const controls = document.createElement("div");
+    controls.className = "task-picker-remind-controls";
+    const atLabel = document.createElement("span");
+    atLabel.className = "task-picker-remind-at";
+    atLabel.textContent = "at";
+    controls.appendChild(atLabel);
+    const hourSelect = document.createElement("select");
+    for (let hour = 0; hour < 24; hour += 1) {
+      const option = document.createElement("option");
+      option.value = String(hour);
+      option.textContent = String(hour).padStart(2, "0");
+      option.selected = hour === taskPickerState.hour;
+      hourSelect.appendChild(option);
+    }
+    hourSelect.disabled = !dueValue;
+    hourSelect.addEventListener("change", function() {
+      taskPickerState.hour = Number(hourSelect.value) || 0;
+    });
+    controls.appendChild(hourSelect);
+    const colon = document.createElement("span");
+    colon.className = "task-picker-remind-colon";
+    colon.textContent = ":";
+    controls.appendChild(colon);
+    const minuteSelect = document.createElement("select");
+    for (let minute = 0; minute < 60; minute += 5) {
+      const option = document.createElement("option");
+      option.value = String(minute);
+      option.textContent = String(minute).padStart(2, "0");
+      option.selected = minute === taskPickerState.minute;
+      minuteSelect.appendChild(option);
+    }
+    minuteSelect.disabled = !dueValue;
+    minuteSelect.addEventListener("change", function() {
+      taskPickerState.minute = Number(minuteSelect.value) || 0;
+    });
+    controls.appendChild(minuteSelect);
+    composer.appendChild(controls);
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "task-picker-remind-add-btn";
+    addButton.textContent = "Add reminder";
+    addButton.disabled = !dueValue;
+    addButton.addEventListener("click", function() {
+      const time = canonicalTime(taskPickerState.hour, taskPickerState.minute);
+      const offset = offsetSelect.value;
+      addReminder(offset ? offset + "@" + time : time);
+    });
+    composer.appendChild(addButton);
+    target.appendChild(composer);
+  }
+  function renderTaskPicker(taskPickerState, els, callbacks) {
+    if (taskPickerState.mode === "") {
+      closeTaskPickers(taskPickerState, els);
+      return;
+    }
+    const target = els.inlineTaskPicker;
+    const task = callbacks.currentPickerTask();
+    clearNode(target);
+    const rerender = function() {
+      renderTaskPicker(taskPickerState, els, callbacks);
+    };
+    const head = document.createElement("div");
+    head.className = "task-picker-schedule-head";
+    const heading2 = document.createElement("strong");
+    heading2.textContent = "Schedule";
+    head.appendChild(heading2);
+    target.appendChild(head);
+    renderScheduleDueSection(taskPickerState, target, task, callbacks, rerender);
+    const divider = document.createElement("div");
+    divider.className = "task-picker-remind-divider";
+    target.appendChild(divider);
+    renderScheduleReminderSection(taskPickerState, target, task, callbacks);
+    const footer = document.createElement("div");
+    footer.className = "task-picker-footer";
+    const hint = document.createElement("span");
+    hint.className = "task-picker-remind-hint";
+    hint.textContent = "Reminders before the due date shift with it.";
+    footer.appendChild(hint);
     const close = document.createElement("button");
     close.type = "button";
-    close.textContent = "Close";
+    close.textContent = "Done";
     close.addEventListener("click", callbacks.closeTaskPickers);
-    actions.appendChild(close);
-    footer.appendChild(actions);
+    footer.appendChild(close);
     target.appendChild(footer);
-    if (mode === "remind") {
-      const hint = document.createElement("div");
-      hint.className = "task-picker-note";
-      hint.textContent = "Optional tap target: add [click: myapp://open] on the task line.";
-      target.appendChild(hint);
-    }
     els.inlineTaskPicker.classList.remove("hidden");
     window.requestAnimationFrame(function() {
       positionInlineTaskPicker(taskPickerState, els);
     });
   }
   function openInlineTaskPicker(taskPickerState, options) {
-    if (taskPickerState.mode === options.mode && taskPickerState.ref === options.ref) {
+    if (taskPickerState.mode === "schedule" && taskPickerState.ref === options.ref) {
       options.closeTaskPickers();
       return;
     }
@@ -21780,12 +22159,13 @@
       return;
     }
     options.rememberNoteFocus();
-    const parts = taskPickerPartsFromValue(
-      options.mode,
-      options.mode === "due" ? options.task.due || "" : options.task.remind || "",
-      options.task.due || ""
-    );
-    taskPickerState.mode = options.mode;
+    const reminderSeed = Array.isArray(options.task.remind) ? options.task.remind.find(function(item) {
+      return /^\d{1,2}:\d{2}$/.test(String(item || "").trim());
+    }) || "" : "";
+    const dateParts = taskPickerPartsFromValue("due", options.task.due || "", options.task.due || "");
+    const timeParts = taskPickerPartsFromValue("remind", reminderSeed, options.task.due || "");
+    const parts = { year: dateParts.year, month: dateParts.month, day: dateParts.day, hour: timeParts.hour, minute: timeParts.minute };
+    taskPickerState.mode = "schedule";
     taskPickerState.ref = options.ref;
     taskPickerState.left = options.left;
     taskPickerState.top = options.top;
@@ -22190,7 +22570,7 @@
         text: task.text || "",
         done: Boolean(task.done),
         due: task.due || "",
-        remind: task.remind || "",
+        remind: Array.isArray(task.remind) ? task.remind.slice() : [],
         who: Array.isArray(task.who) ? task.who.slice() : []
       };
     });
@@ -22934,16 +23314,6 @@
       return pageWithinScope(String(document2.path || ""), scopePrefix);
     });
   }
-  function formatReminderLabel(value) {
-    const text = String(value || "").trim();
-    if (!text) {
-      return "";
-    }
-    if (/^\d{2}:\d{2}(?::\d{2})?$/.test(text)) {
-      return formatTimeValue(text);
-    }
-    return formatDateTimeValue(text);
-  }
   function setDragPayload(event, payload) {
     if (!event.dataTransfer) {
       return;
@@ -23513,7 +23883,7 @@
       if (filters.hasDue && !task.due) {
         return false;
       }
-      if (filters.hasReminder && !task.remind) {
+      if (filters.hasReminder && !(task.remind && task.remind.length)) {
         return false;
       }
       return true;
@@ -23569,7 +23939,7 @@
       meta2.className = "page-task-meta";
       [
         task.due ? "due " + formatDateValue(task.due) : "no due",
-        task.remind ? "remind " + formatReminderLabel(task.remind) : "",
+        task.remind && task.remind.length ? "remind " + task.remind.map(formatReminderLabel).join(", ") : "",
         task.who && task.who.length ? task.who.join(", ") : ""
       ].filter(Boolean).forEach(function(part) {
         const token = document.createElement("span");
@@ -29095,6 +29465,7 @@
       init_datetime();
       init_dom();
       init_editorState();
+      init_formatToolbar();
       init_http();
       init_inlineEditors();
       init_markdown();
@@ -29542,7 +29913,7 @@
         function setTaskDateApplySuppressed2(active) {
           setTaskDateApplySuppressed(state.markdownEditorApi, active);
         }
-        async function saveTaskDateField(task, field, value) {
+        async function applyTaskSave(task, fields) {
           setTaskDateApplySuppressed2(true);
           const selectedPagePath = state.selectedPage;
           const viewport = captureCurrentEditorViewport();
@@ -29550,16 +29921,36 @@
           await saveTask(task.ref, {
             text: task.text || "",
             state: task.done ? "done" : "todo",
-            due: field === "due" ? value : task.due || "",
-            remind: field === "remind" ? value : task.remind || "",
+            due: fields.due !== void 0 ? fields.due : task.due || "",
+            remind: fields.remind !== void 0 ? fields.remind : Array.isArray(task.remind) ? task.remind.slice() : [],
             who: Array.isArray(task.who) ? task.who.slice() : []
           });
-          closeTaskPickers2();
+          const keepPickerOpen = taskPickerState.mode !== "";
+          if (!keepPickerOpen) {
+            closeTaskPickers2();
+          }
           await reloadTasksAndRestoreCurrentEditorViewport(selectedPagePath, viewport);
+          if (keepPickerOpen && taskPickerState.mode !== "") {
+            renderTaskPicker2();
+          }
           window.requestAnimationFrame(function() {
             window.requestAnimationFrame(function() {
               setTaskDateApplySuppressed2(false);
             });
+          });
+        }
+        async function saveTaskDateField(task, field, value) {
+          if (field === "remind") {
+            await applyTaskSave(task, { remind: value.trim() ? [value.trim()] : [] });
+            return;
+          }
+          await applyTaskSave(task, { due: value });
+        }
+        async function saveTaskReminders(task, reminders) {
+          await applyTaskSave(task, {
+            remind: reminders.map(function(item) {
+              return String(item || "").trim();
+            }).filter(Boolean)
           });
         }
         async function deleteTaskInline(ref) {
@@ -29627,6 +30018,7 @@
           renderTaskPicker(taskPickerState, els, {
             currentPickerTask,
             saveTaskDateField,
+            saveTaskReminders,
             closeTaskPickers: closeTaskPickers2,
             setNoteStatus,
             errorMessage
@@ -32506,7 +32898,7 @@
             return Number(task.line) === lineNumber;
           }) || null;
         }
-        function openInsertedTaskPicker(lineNumber, mode) {
+        function openInsertedTaskPicker(lineNumber, _mode) {
           const task = findCurrentTaskByLine(lineNumber);
           if (!task || !task.ref) {
             return;
@@ -32517,7 +32909,7 @@
             const top = caretRect ? caretRect.bottom + 10 : 0;
             const anchorTop = caretRect ? caretRect.top : 0;
             const anchorBottom = caretRect ? caretRect.bottom : 0;
-            openInlineTaskPicker2(task.ref, mode, left, top, anchorTop, anchorBottom);
+            openInlineTaskPicker2(task.ref, "schedule", left, top, anchorTop, anchorBottom);
           });
         }
         async function toggleTaskDone2(task, currentLineNumber) {
@@ -36035,6 +36427,11 @@
             if (!markdownEditorApi) {
               return;
             }
+            setupFormatToolbar(markdownEditorApi, {
+              isActive: function() {
+                return state.appScreen === "notes" && Boolean(state.selectedPage && state.currentPage) && studioPageEditable() && !state.viewOnly;
+              }
+            });
             on(markdownEditorApi.host, "click", function(event) {
               const eventTarget = event.target instanceof Element ? event.target : null;
               if (eventTarget && eventTarget.closest("[data-page-link]")) {
@@ -36097,12 +36494,11 @@
               }
               const detail = event.detail || {};
               const ref = detail.ref ? String(detail.ref) : "";
-              const field = detail.field === "remind" ? "remind" : "due";
               const left = Number(detail.left) || 0;
               const top = Number(detail.top) || 0;
               const anchorTop = Number(detail.anchorTop) || 0;
               const anchorBottom = Number(detail.anchorBottom) || 0;
-              openInlineTaskPicker2(ref, field, left, top, anchorTop, anchorBottom);
+              openInlineTaskPicker2(ref, "schedule", left, top, anchorTop, anchorBottom);
             });
             on(markdownEditorApi.host, "noterious:task-delete", function(event) {
               if (!studioPageEditable()) {

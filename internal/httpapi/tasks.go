@@ -123,7 +123,7 @@ func handleTaskRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 			Text   *string  `json:"text"`
 			State  *string  `json:"state"`
 			Due    *string  `json:"due"`
-			Remind *string  `json:"remind"`
+			Remind []string `json:"remind"`
 			Click  *string  `json:"click"`
 			Who    []string `json:"who"`
 		}
@@ -138,11 +138,17 @@ func handleTaskRequest(w http.ResponseWriter, r *http.Request, deps Dependencies
 			who = &copied
 		}
 
+		var remind *[]string
+		if request.Remind != nil {
+			copied := append([]string(nil), request.Remind...)
+			remind = &copied
+		}
+
 		updatedMarkdown, _, err = markdown.ApplyTaskPatch(string(rawMarkdown), task.Line, markdown.TaskPatch{
 			Text:   request.Text,
 			State:  request.State,
 			Due:    request.Due,
-			Remind: request.Remind,
+			Remind: remind,
 			Click:  request.Click,
 			Who:    who,
 		})

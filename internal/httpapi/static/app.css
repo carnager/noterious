@@ -2092,6 +2092,70 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   opacity: 0.5;
 }
 
+/* ---------- Floating selection formatting toolbar ---------- */
+
+.format-toolbar {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.2rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 70%, transparent);
+  background: color-mix(in srgb, var(--overlay) 92%, var(--surface));
+  box-shadow: var(--shadow);
+  animation: format-toolbar-in 90ms ease-out;
+}
+
+.format-toolbar.hidden {
+  display: none;
+}
+
+@keyframes format-toolbar-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.format-toolbar-button {
+  min-width: 1.85rem;
+  height: 1.85rem;
+  padding: 0 0.4rem;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 0.82rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.format-toolbar-button:hover {
+  background: color-mix(in srgb, var(--accent-soft) 75%, transparent);
+  color: var(--accent);
+}
+
+.format-toolbar-button:active {
+  background: color-mix(in srgb, var(--accent-soft) 95%, var(--surface));
+}
+
+.format-toolbar-bold {
+  font-weight: 700;
+}
+
+.format-toolbar-italic {
+  font-style: italic;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.format-toolbar-strike {
+  text-decoration: line-through;
+}
+
 .note-surface {
   min-height: 240px;
   position: relative;
@@ -3321,6 +3385,42 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
 .markdown-editor-host.render-mode .cm-md-task-inline-date:focus-visible {
   color: inherit;
   text-decoration-color: currentColor;
+}
+
+.markdown-editor-host.render-mode .cm-md-task-due-chip,
+.markdown-editor-host.render-mode .cm-md-task-remind-chip,
+.markdown-editor-host.render-mode .cm-md-task-remind-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(122, 162, 247, 0.08);
+  font-size: 0.72rem;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.markdown-editor-host.render-mode .cm-md-task-due-chip {
+  color: var(--ink);
+}
+
+.markdown-editor-host.render-mode .cm-md-task-remind-add {
+  border-style: dashed;
+  background: transparent;
+}
+
+.markdown-editor-host.render-mode .cm-md-task-due-chip:hover,
+.markdown-editor-host.render-mode .cm-md-task-due-chip:focus-visible,
+.markdown-editor-host.render-mode .cm-md-task-remind-chip:hover,
+.markdown-editor-host.render-mode .cm-md-task-remind-chip:focus-visible,
+.markdown-editor-host.render-mode .cm-md-task-remind-add:hover,
+.markdown-editor-host.render-mode .cm-md-task-remind-add:focus-visible {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+  background: rgba(122, 162, 247, 0.16);
 }
 
 .markdown-editor-host.render-mode .cm-md-task-done {
@@ -5292,6 +5392,152 @@ body.tree-dragging .page-tree-root-drop .page-tree-actions {
   color: var(--muted);
   font-size: 0.72rem;
   line-height: 1.45;
+}
+
+.task-picker-schedule-head {
+  margin-bottom: 0.5rem;
+}
+
+.task-picker-schedule-head strong {
+  font-size: 0.92rem;
+}
+
+.task-picker-due-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.task-picker-due-status {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.task-picker-due-clear {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 0.4rem;
+}
+
+.task-picker-due-clear:hover,
+.task-picker-due-clear:focus-visible {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+}
+
+.task-picker-remind-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.5rem 0;
+}
+
+.task-picker-remind-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.28rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line);
+  background: rgba(122, 162, 247, 0.06);
+}
+
+.task-picker-remind-label {
+  font-size: 0.78rem;
+  color: var(--ink);
+}
+
+.task-picker-remind-remove {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.1rem 0.25rem;
+  border-radius: 0.35rem;
+}
+
+.task-picker-remind-remove:hover,
+.task-picker-remind-remove:focus-visible {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+.task-picker-remind-divider {
+  height: 1px;
+  margin: 0.5rem 0;
+  background: var(--line);
+}
+
+.task-picker-remind-composer-label {
+  margin-bottom: 0.35rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.task-picker-remind-offset {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0.4rem;
+}
+
+.task-picker-remind-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.45rem;
+}
+
+.task-picker-remind-controls select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.task-picker-remind-at,
+.task-picker-remind-colon {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.task-picker-remind-add-btn {
+  width: 100%;
+  padding: 0.34rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--line));
+  background: rgba(122, 162, 247, 0.12);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.task-picker-remind-add-btn:hover:not(:disabled),
+.task-picker-remind-add-btn:focus-visible:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(122, 162, 247, 0.2);
+}
+
+.task-picker-remind-add-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.task-picker-remind-hint {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.4;
 }
 
 .modal-card .search span {

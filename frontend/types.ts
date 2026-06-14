@@ -22,7 +22,7 @@ export interface TaskRender {
   text: string;
   done: boolean;
   due: string;
-  remind: string;
+  remind: string[];
   who: string[];
 }
 
@@ -42,7 +42,7 @@ export interface TaskRecord {
   state: string;
   done: boolean;
   due?: string;
-  remind?: string;
+  remind?: string[];
   click?: string;
   who?: string[];
 }

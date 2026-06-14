@@ -44,7 +44,7 @@ describe("detail helpers", function () {
       text: "Follow up",
       state: "done",
       due: "2026-04-23",
-      remind: "10:30",
+      remind: ["10:30"],
       who: ["alice", "bob"],
     });
   });
@@ -200,7 +200,7 @@ describe("detail helpers", function () {
       text: "Done",
       state: "done",
       due: "",
-      remind: "",
+      remind: [],
       who: [],
     });
     await savePageMarkdown("notes/alpha", "# Alpha", "# Original", function (pagePath: string) {
@@ -214,7 +214,7 @@ describe("detail helpers", function () {
       body: JSON.stringify({
         state: "done",
         due: "",
-        remind: "",
+        remind: [],
         who: ["alice"],
       }),
     });
@@ -225,7 +225,7 @@ describe("detail helpers", function () {
         text: "Done",
         state: "done",
         due: "",
-        remind: "",
+        remind: [],
         who: [],
       }),
     });

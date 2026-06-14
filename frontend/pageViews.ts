@@ -1,5 +1,5 @@
 import { clearNode, renderEmpty } from "./dom";
-import { formatDateTimeValue, formatDateValue, formatTimeValue } from "./datetime";
+import { formatDateTimeValue, formatDateValue, formatReminderLabel, formatTimeValue } from "./datetime";
 import { renderInline } from "./markdown";
 import type { BacklinkRecord, DerivedPage, DocumentRecord, PageRecord, PageSummary, TaskRecord } from "./types";
 
@@ -197,17 +197,6 @@ export function filterDocumentsByScope(documents: DocumentRecord[], scopePrefix:
   return (Array.isArray(documents) ? documents : []).filter(function (document) {
     return pageWithinScope(String(document.path || ""), scopePrefix);
   });
-}
-
-function formatReminderLabel(value: string): string {
-  const text = String(value || "").trim();
-  if (!text) {
-    return "";
-  }
-  if (/^\d{2}:\d{2}(?::\d{2})?$/.test(text)) {
-    return formatTimeValue(text);
-  }
-  return formatDateTimeValue(text);
 }
 
 function setDragPayload(event: DragEvent, payload: TreeDragItem): void {
@@ -917,7 +906,7 @@ export function filterTasks(tasks: TaskRecord[], filters: TaskPanelFilters, curr
     if (filters.hasDue && !task.due) {
       return false;
     }
-    if (filters.hasReminder && !task.remind) {
+    if (filters.hasReminder && !(task.remind && task.remind.length)) {
       return false;
     }
     return true;
@@ -987,7 +976,7 @@ export function renderPageTasks(
     meta.className = "page-task-meta";
     [
       task.due ? "due " + formatDateValue(task.due) : "no due",
-      task.remind ? "remind " + formatReminderLabel(task.remind) : "",
+      task.remind && task.remind.length ? "remind " + task.remind.map(formatReminderLabel).join(", ") : "",
       task.who && task.who.length ? task.who.join(", ") : "",
     ]
       .filter(Boolean)

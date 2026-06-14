@@ -59,6 +59,86 @@ func TestParseReminderNotificationTimeCombinesDueDateAndReminderClock(t *testing
 	}
 }
 
+func TestParseReminderNotificationTimeResolvesRelativeOffsets(t *testing.T) {
+	loc := time.FixedZone("CEST", 2*60*60)
+
+	cases := []struct {
+		name       string
+		remind     string
+		due        string
+		wantYear   int
+		wantMonth  time.Month
+		wantDay    int
+		wantHour   int
+		wantMinute int
+	}{
+		{"days default hour", "-1d", "2026-07-01", 2026, time.June, 30, 9, 0},
+		{"days with time", "-1d@08:30", "2026-07-01", 2026, time.June, 30, 8, 30},
+		{"week", "-1w", "2026-07-15", 2026, time.July, 8, 9, 0},
+		{"hours on date-only due", "-2h", "2026-07-01", 2026, time.June, 30, 22, 0},
+		{"hours on datetime due", "-2h", "2026-07-01 15:00", 2026, time.July, 1, 13, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			at, raw, ok := parseReminderNotificationTime(tc.remind, tc.due, loc)
+			if !ok {
+				t.Fatalf("parseReminderNotificationTime(%q, %q) = false", tc.remind, tc.due)
+			}
+			if raw != tc.remind {
+				t.Fatalf("raw = %q, want %q (offset should stay relative)", raw, tc.remind)
+			}
+			if at.Year() != tc.wantYear || at.Month() != tc.wantMonth || at.Day() != tc.wantDay ||
+				at.Hour() != tc.wantHour || at.Minute() != tc.wantMinute {
+				t.Fatalf("at = %v", at)
+			}
+		})
+	}
+}
+
+func TestParseReminderNotificationTimeRejectsRelativeOffsetWithoutDue(t *testing.T) {
+	loc := time.FixedZone("CEST", 2*60*60)
+
+	if _, _, ok := parseReminderNotificationTime("-1d", "", loc); ok {
+		t.Fatal("relative reminder without a due date should not resolve")
+	}
+	if _, _, ok := parseReminderNotificationTime("-2h@08:00", "2026-07-01", loc); ok {
+		t.Fatal("@HH:MM is not valid for hour offsets")
+	}
+}
+
+func TestTaskNotificationCandidatesEmitsOnePerReminder(t *testing.T) {
+	loc := time.FixedZone("CEST", 2*60*60)
+	due := "2026-07-01"
+	task := index.Task{
+		Ref:    "daily/today:3",
+		Page:   "daily/today",
+		Text:   "Ship release",
+		Due:    &due,
+		Remind: []string{"-1w", "-1d@08:30", "09:00"},
+	}
+
+	candidates := taskNotificationCandidates(task, loc)
+	if len(candidates) != 3 {
+		t.Fatalf("candidates = %d, want 3", len(candidates))
+	}
+
+	wantTimes := map[string]struct{}{
+		"2026-06-24 09:00": {},
+		"2026-06-30 08:30": {},
+		"2026-07-01 09:00": {},
+	}
+	seenKeys := map[string]struct{}{}
+	for _, candidate := range candidates {
+		seenKeys[candidate.Key] = struct{}{}
+		if _, ok := wantTimes[candidate.At.Format("2006-01-02 15:04")]; !ok {
+			t.Fatalf("unexpected candidate time %v", candidate.At)
+		}
+	}
+	if len(seenKeys) != 3 {
+		t.Fatalf("candidate keys not unique: %#v", seenKeys)
+	}
+}
+
 func TestParseReminderNotificationTimeKeepsLegacyDateTimeReminders(t *testing.T) {
 	loc := time.FixedZone("CEST", 2*60*60)
 

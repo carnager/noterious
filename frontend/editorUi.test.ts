@@ -81,7 +81,7 @@ function createTask(line: number, text: string, fields?: Partial<TaskRender>): T
     text,
     done: false,
     due: "",
-    remind: "",
+    remind: [],
     who: [],
     ...fields,
   };
@@ -361,7 +361,7 @@ describe("mounted editor UI", function () {
     ].join("\n");
     const editor = mountEditor(markdown, [
       createTask(1, "Alpha", { due: "2026-05-01" }),
-      createTask(2, "Beta", { remind: "09:00" }),
+      createTask(2, "Beta", { remind: ["09:00"] }),
     ]);
 
     try {
@@ -1252,7 +1252,7 @@ describe("mounted editor UI", function () {
     ].join("\n");
     const editor = mountEditor(markdown, [
       createTask(1, "Alpha", { due: "2026-05-01" }),
-      createTask(2, "Bravo", { remind: "09:00" }),
+      createTask(2, "Bravo", { remind: ["09:00"] }),
     ]);
 
     try {
@@ -1283,7 +1283,7 @@ describe("mounted editor UI", function () {
       "- [ ] Bravo task line stays long enough [remind: 09:00]",
     ].join("\n");
     const editor = mountEditor(markdown, [
-      createTask(2, "Bravo task line stays long enough", { remind: "09:00" }),
+      createTask(2, "Bravo task line stays long enough", { remind: ["09:00"] }),
     ]);
 
     try {

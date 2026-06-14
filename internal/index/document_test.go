@@ -69,7 +69,7 @@ See [[Project Alpha|Alpha]] and [Roadmap](plans/roadmap.md).
 	if firstTask.Due == nil || *firstTask.Due != "2026-05-01" {
 		t.Fatalf("first task due = %v", firstTask.Due)
 	}
-	if firstTask.Remind == nil || *firstTask.Remind != "2026-04-30" {
+	if len(firstTask.Remind) != 1 || firstTask.Remind[0] != "2026-04-30" {
 		t.Fatalf("first task remind = %v", firstTask.Remind)
 	}
 	if firstTask.Click == nil || *firstTask.Click != "noteriousshopping://shopping?list=weekly" {
@@ -107,8 +107,36 @@ func TestParseDocumentStripsLegacyTaskMetadataFromDisplayText(t *testing.T) {
 	if document.Tasks[0].Text != "Legacy task" {
 		t.Fatalf("legacy task text = %q", document.Tasks[0].Text)
 	}
-	if document.Tasks[0].Remind == nil || *document.Tasks[0].Remind != "2026-04-19 12:10" {
+	if len(document.Tasks[0].Remind) != 1 || document.Tasks[0].Remind[0] != "2026-04-19 12:10" {
 		t.Fatalf("legacy task remind = %v", document.Tasks[0].Remind)
+	}
+}
+
+func TestParseDocumentParsesMultipleReminders(t *testing.T) {
+	t.Parallel()
+
+	page := vault.PageFile{
+		Path:    "daily/today",
+		ModTime: time.Date(2026, time.April, 20, 10, 30, 0, 0, time.UTC),
+	}
+	raw := []byte("- [ ] Ship release due:: 2026-07-01 [remind: -1w, -1d@08:30, 09:00]\n")
+
+	document, err := ParseDocument(page, raw)
+	if err != nil {
+		t.Fatalf("ParseDocument() error = %v", err)
+	}
+	if len(document.Tasks) != 1 {
+		t.Fatalf("Tasks = %d, want 1", len(document.Tasks))
+	}
+	got := document.Tasks[0].Remind
+	want := []string{"-1w", "-1d@08:30", "09:00"}
+	if len(got) != len(want) {
+		t.Fatalf("remind = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("remind[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
 

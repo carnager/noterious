@@ -55,7 +55,7 @@ type Task struct {
 	State  string   `json:"state"`
 	Done   bool     `json:"done"`
 	Due    *string  `json:"due,omitempty"`
-	Remind *string  `json:"remind,omitempty"`
+	Remind []string `json:"remind,omitempty"`
 	Click  *string  `json:"click,omitempty"`
 	Who    []string `json:"who,omitempty"`
 }
@@ -430,7 +430,7 @@ func extractTasks(pagePath string, bodyLines []string, bodyStartLine int) []Task
 			task.Due = &due
 		}
 		if remind, ok := fields["remind"]; ok && remind != "" {
-			task.Remind = &remind
+			task.Remind = parseRemindValue(remind)
 		}
 		if click, ok := fields["click"]; ok && click != "" {
 			task.Click = &click
@@ -507,6 +507,31 @@ func splitTaskBody(body string) (string, map[string]string) {
 	baseText = remindTagPattern.ReplaceAllString(baseText, "$1")
 	baseText = strings.Join(strings.Fields(baseText), " ")
 	return strings.TrimSpace(baseText), fields
+}
+
+// parseRemindValue splits a task remind field into individual reminders.
+// Reminders are comma-separated (e.g. "-1w, -1d@08:30, 09:30"); a single
+// legacy value such as "09:30" or "2026-04-30 13:45" yields a one-element list.
+func parseRemindValue(raw string) []string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+		trimmed = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	}
+	parts := strings.Split(trimmed, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.Trim(strings.TrimSpace(part), `"'`)
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	return values
 }
 
 func splitWhoValue(value string) []string {

@@ -10983,7 +10983,7 @@ func TestPatchTaskUpdatesMarkdownAndReindexes(t *testing.T) {
 
 	router := buildTestRouter(t, vaultDir, dataDir)
 
-	body := []byte(`{"text":"First task","state":"done","due":"2026-05-02","remind":"","who":["Mina","Kai"]}`)
+	body := []byte(`{"text":"First task","state":"done","due":"2026-05-02","remind":[],"who":["Mina","Kai"]}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/tasks/daily/today:3", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -10997,7 +10997,7 @@ func TestPatchTaskUpdatesMarkdownAndReindexes(t *testing.T) {
 		Ref    string   `json:"ref"`
 		Page   string   `json:"page"`
 		Due    string   `json:"due"`
-		Remind string   `json:"remind"`
+		Remind []string `json:"remind"`
 		Who    []string `json:"who"`
 		Done   bool     `json:"done"`
 		State  string   `json:"state"`
@@ -11009,7 +11009,7 @@ func TestPatchTaskUpdatesMarkdownAndReindexes(t *testing.T) {
 	if payload.Ref != "daily/today:3" || payload.Page != "daily/today" || !payload.Done || payload.State != "done" {
 		t.Fatalf("payload = %#v", payload)
 	}
-	if payload.Due != "2026-05-02" || payload.Remind != "" {
+	if payload.Due != "2026-05-02" || len(payload.Remind) != 0 {
 		t.Fatalf("due/remind = %#v", payload)
 	}
 	if len(payload.Who) != 2 || payload.Who[0] != "Mina" || payload.Who[1] != "Kai" {
@@ -11037,7 +11037,7 @@ func TestPatchTaskUpdatesMarkdownAndReindexes(t *testing.T) {
 		Tasks []struct {
 			Ref    string   `json:"ref"`
 			Due    string   `json:"due"`
-			Remind string   `json:"remind"`
+			Remind []string `json:"remind"`
 			Who    []string `json:"who"`
 			Done   bool     `json:"done"`
 			State  string   `json:"state"`
@@ -11049,7 +11049,7 @@ func TestPatchTaskUpdatesMarkdownAndReindexes(t *testing.T) {
 	if len(tasksPayload.Tasks) != 1 {
 		t.Fatalf("tasks = %#v", tasksPayload.Tasks)
 	}
-	if tasksPayload.Tasks[0].Ref != "daily/today:3" || tasksPayload.Tasks[0].Due != "2026-05-02" || tasksPayload.Tasks[0].Remind != "" || !tasksPayload.Tasks[0].Done || tasksPayload.Tasks[0].State != "done" {
+	if tasksPayload.Tasks[0].Ref != "daily/today:3" || tasksPayload.Tasks[0].Due != "2026-05-02" || len(tasksPayload.Tasks[0].Remind) != 0 || !tasksPayload.Tasks[0].Done || tasksPayload.Tasks[0].State != "done" {
 		t.Fatalf("reindexed task = %#v", tasksPayload.Tasks[0])
 	}
 }
@@ -11314,7 +11314,7 @@ func TestPatchTaskCanReplaceArbitraryTaskSuffix(t *testing.T) {
 
 	router := buildTestRouter(t, vaultDir, dataDir)
 
-	body := []byte(`{"text":"Legacy task","state":"todo","due":"","remind":"","who":[]}`)
+	body := []byte(`{"text":"Legacy task","state":"todo","due":"","remind":[],"who":[]}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/tasks/daily/today:3", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
